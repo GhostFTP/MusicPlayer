@@ -1,0 +1,64 @@
+import { Router } from 'express';
+import db from '../db/database.js';
+import { authMiddleware } from '../auth/jwt.js';
+
+const router = Router();
+router.use(authMiddleware);
+
+// GET /api/playlists
+router.get('/', (req, res) => {
+  res.json(db.prepare('SELECT * FROM playlists WHERE user_id = ?').all(req.user.id));
+});
+
+// POST /api/playlists
+router.post('/', (req, res) => {
+  const { name } = req.body ?? {};
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const result = db.prepare('INSERT INTO playlists (name, user_id) VALUES (?, ?)').run(name, req.user.id);
+  res.status(201).json({ id: result.lastInsertRowid, name });
+});
+
+// GET /api/playlists/:id/tracks
+router.get('/:id/tracks', (req, res) => {
+  const pl = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!pl) return res.status(404).json({ error: 'Playlist not found' });
+
+  const tracks = db.prepare(`
+    SELECT t.id, t.title, t.artist, t.album, t.duration, t.cover_path, pt.position
+    FROM playlist_tracks pt
+    JOIN tracks t ON t.id = pt.track_id
+    WHERE pt.playlist_id = ?
+    ORDER BY pt.position
+  `).all(req.params.id);
+  res.json(tracks);
+});
+
+// POST /api/playlists/:id/tracks
+router.post('/:id/tracks', (req, res) => {
+  const { track_id } = req.body ?? {};
+  const pl = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!pl) return res.status(404).json({ error: 'Playlist not found' });
+
+  const max = db.prepare('SELECT MAX(position) AS m FROM playlist_tracks WHERE playlist_id = ?').get(req.params.id);
+  const position = (max?.m ?? 0) + 1;
+
+  db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)').run(req.params.id, track_id, position);
+  res.status(201).json({ position });
+});
+
+// DELETE /api/playlists/:id/tracks/:trackId
+router.delete('/:id/tracks/:trackId', (req, res) => {
+  const pl = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!pl) return res.status(404).json({ error: 'Playlist not found' });
+
+  db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?').run(req.params.id, req.params.trackId);
+  res.status(204).send();
+});
+
+// DELETE /api/playlists/:id
+router.delete('/:id', (req, res) => {
+  db.prepare('DELETE FROM playlists WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.status(204).send();
+});
+
+export default router;

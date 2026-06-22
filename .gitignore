@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+music-client/dist/
+music-server/public/
+
+# Database & user data
+music-server/data/
+
+# Audio files (tu biblioteca personal, no va al repo)
+music-server/music/
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node *)",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"ghost\",\"password\":\"secret123\"}')",
+      "Bash(xxd)",
+      "Bash(npm approve-scripts *)",
+      "Bash(timeout 8 npx vite build)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npx vite *)",
+      "Bash(curl -s -o /dev/null -w \"Status: %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -s -o /dev/null -w \"Status: %{http_code}\\\\n\" http://localhost:5173/api/health)",
+      "Bash(pkill -f \"node.*server.js\")",
+      "Bash(pkill -f \"node --watch server.js\")",
+      "Read(//opt/brave-bin/**)",
+      "Read(//opt/brave.com/brave-nightly/**)",
+      "Bash(pip show *)",
+      "Bash(npx playwright *)",
+      "Read(//tmp/**)",
+      "Bash(npm init *)",
+      "Bash(npm run *)",
+      "Bash(git --version)",
+      "Bash(paru -S github-cli --noconfirm)",
+      "Bash(paru -S github-cli --noconfirm --sudoflags=\"-S\")",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}
