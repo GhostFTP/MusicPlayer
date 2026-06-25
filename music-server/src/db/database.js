@@ -27,6 +27,7 @@ db.exec(`
     artist        TEXT,
     album         TEXT,
     album_artist  TEXT,
+    genre         TEXT,
     year          INTEGER,
     track_number  INTEGER,
     duration      REAL,
@@ -59,18 +60,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tracks_album  ON tracks(album);
 `);
 
-// Migración: añade las columnas de calidad de audio a bases ya existentes
-// (CREATE TABLE IF NOT EXISTS no modifica tablas que ya están creadas).
+// Migración: añade a bases ya existentes las columnas agregadas después del
+// esquema inicial (CREATE TABLE IF NOT EXISTS no modifica tablas ya creadas).
 const trackCols = new Set(db.prepare('PRAGMA table_info(tracks)').all().map(c => c.name));
-const QUALITY_COLUMNS = {
+const ADDED_COLUMNS = {
   codec:           'TEXT',
   bits_per_sample: 'INTEGER',
   sample_rate:     'INTEGER',
   bitrate:         'INTEGER',
   lossless:        'INTEGER',
+  genre:           'TEXT',
 };
-for (const [col, type] of Object.entries(QUALITY_COLUMNS)) {
+for (const [col, type] of Object.entries(ADDED_COLUMNS)) {
   if (!trackCols.has(col)) db.exec(`ALTER TABLE tracks ADD COLUMN ${col} ${type}`);
 }
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre);');
 
 export default db;

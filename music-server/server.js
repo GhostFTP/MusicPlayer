@@ -8,6 +8,7 @@ import cors from 'cors';
 import authRoutes      from './src/api/auth.js';
 import tracksRoutes    from './src/api/tracks.js';
 import albumsRoutes    from './src/api/albums.js';
+import browseRoutes    from './src/api/browse.js';
 import playlistRoutes  from './src/api/playlists.js';
 import streamRoutes    from './src/stream/stream.js';
 
@@ -26,6 +27,7 @@ app.use(express.json());
 app.use('/api/auth',      authRoutes);
 app.use('/api/tracks',    tracksRoutes);
 app.use('/api/albums',    albumsRoutes);
+app.use('/api/browse',    browseRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use('/stream',        streamRoutes);
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));

@@ -45,15 +45,16 @@ function saveCover(picture, trackId) {
 }
 
 const upsert = db.prepare(`
-  INSERT INTO tracks (title, artist, album, album_artist, year, track_number, duration, file_path, cover_path, mime_type,
+  INSERT INTO tracks (title, artist, album, album_artist, genre, year, track_number, duration, file_path, cover_path, mime_type,
                       codec, bits_per_sample, sample_rate, bitrate, lossless)
-  VALUES (@title, @artist, @album, @album_artist, @year, @track_number, @duration, @file_path, @cover_path, @mime_type,
+  VALUES (@title, @artist, @album, @album_artist, @genre, @year, @track_number, @duration, @file_path, @cover_path, @mime_type,
           @codec, @bits_per_sample, @sample_rate, @bitrate, @lossless)
   ON CONFLICT(file_path) DO UPDATE SET
     title        = excluded.title,
     artist       = excluded.artist,
     album        = excluded.album,
     album_artist = excluded.album_artist,
+    genre        = excluded.genre,
     year         = excluded.year,
     track_number = excluded.track_number,
     duration     = excluded.duration,
@@ -83,6 +84,9 @@ export async function scanLibrary(musicDir) {
         artist:       common.artist ?? null,
         album:        common.album  ?? null,
         album_artist: common.albumartist ?? null,
+        // common.genre es un array; tomamos el primero (género principal) para
+        // que la agrupación quede limpia. Vacío → null.
+        genre:        common.genre?.[0]?.trim() || null,
         year:         common.year   ?? null,
         track_number: common.track?.no ?? null,
         duration:     format.duration ?? null,

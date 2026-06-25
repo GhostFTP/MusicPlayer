@@ -4,11 +4,13 @@ import { authMiddleware } from '../auth/jwt.js';
 
 const router = Router();
 
-// GET /api/tracks?search=&artist=&album=&limit=50&offset=0
+// GET /api/tracks?search=&artist=&album_artist=&album=&genre=&year=&limit=50&offset=0
 router.get('/', authMiddleware, (req, res) => {
-  const { search, artist, album, limit = 50, offset = 0 } = req.query;
+  const { search, artist, album_artist, album, genre, year, limit = 50, offset = 0 } = req.query;
 
-  let sql = 'SELECT id, title, artist, album, duration, cover_path, codec, bits_per_sample, sample_rate, bitrate, lossless FROM tracks WHERE 1=1';
+  let sql = `SELECT id, title, artist, album, album_artist, genre, year, track_number,
+                    duration, cover_path, codec, bits_per_sample, sample_rate, bitrate, lossless
+             FROM tracks WHERE 1=1`;
   const params = [];
 
   if (search) {
@@ -16,8 +18,11 @@ router.get('/', authMiddleware, (req, res) => {
     const q = `%${search}%`;
     params.push(q, q, q);
   }
-  if (artist) { sql += ' AND artist = ?'; params.push(artist); }
-  if (album)  { sql += ' AND album = ?';  params.push(album);  }
+  if (artist)       { sql += ' AND artist = ?';       params.push(artist); }
+  if (album_artist) { sql += ' AND album_artist = ?'; params.push(album_artist); }
+  if (album)        { sql += ' AND album = ?';        params.push(album); }
+  if (genre)        { sql += ' AND genre = ?';        params.push(genre); }
+  if (year)         { sql += ' AND year = ?';         params.push(Number(year)); }
 
   sql += ' ORDER BY artist, album, track_number, title LIMIT ? OFFSET ?';
   params.push(Number(limit), Number(offset));
