@@ -33,6 +33,11 @@ db.exec(`
     file_path     TEXT UNIQUE NOT NULL,
     cover_path    TEXT,
     mime_type     TEXT DEFAULT 'audio/mpeg',
+    codec           TEXT,
+    bits_per_sample INTEGER,
+    sample_rate     INTEGER,
+    bitrate         INTEGER,
+    lossless        INTEGER,
     scanned_at    TEXT DEFAULT (datetime('now'))
   );
 
@@ -53,5 +58,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
   CREATE INDEX IF NOT EXISTS idx_tracks_album  ON tracks(album);
 `);
+
+// Migración: añade las columnas de calidad de audio a bases ya existentes
+// (CREATE TABLE IF NOT EXISTS no modifica tablas que ya están creadas).
+const trackCols = new Set(db.prepare('PRAGMA table_info(tracks)').all().map(c => c.name));
+const QUALITY_COLUMNS = {
+  codec:           'TEXT',
+  bits_per_sample: 'INTEGER',
+  sample_rate:     'INTEGER',
+  bitrate:         'INTEGER',
+  lossless:        'INTEGER',
+};
+for (const [col, type] of Object.entries(QUALITY_COLUMNS)) {
+  if (!trackCols.has(col)) db.exec(`ALTER TABLE tracks ADD COLUMN ${col} ${type}`);
+}
 
 export default db;

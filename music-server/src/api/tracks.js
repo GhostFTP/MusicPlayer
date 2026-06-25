@@ -8,7 +8,7 @@ const router = Router();
 router.get('/', authMiddleware, (req, res) => {
   const { search, artist, album, limit = 50, offset = 0 } = req.query;
 
-  let sql = 'SELECT id, title, artist, album, duration, cover_path FROM tracks WHERE 1=1';
+  let sql = 'SELECT id, title, artist, album, duration, cover_path, codec, bits_per_sample, sample_rate, bitrate, lossless FROM tracks WHERE 1=1';
   const params = [];
 
   if (search) {

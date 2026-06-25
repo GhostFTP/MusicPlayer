@@ -21,10 +21,16 @@ const MIME = {
 
 mkdirSync(COVERS_DIR, { recursive: true });
 
+// Carpetas excluidas del escaneo (además de cualquier carpeta oculta ".*")
+const IGNORED_DIRS = new Set(['_curador', '.claude']);
+
 function* walkDir(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
-    if (entry.isDirectory()) yield* walkDir(full);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || IGNORED_DIRS.has(entry.name)) continue;
+      yield* walkDir(full);
+    }
     else if (AUDIO_EXTS.has(extname(entry.name).toLowerCase())) yield full;
   }
 }
@@ -39,8 +45,10 @@ function saveCover(picture, trackId) {
 }
 
 const upsert = db.prepare(`
-  INSERT INTO tracks (title, artist, album, album_artist, year, track_number, duration, file_path, cover_path, mime_type)
-  VALUES (@title, @artist, @album, @album_artist, @year, @track_number, @duration, @file_path, @cover_path, @mime_type)
+  INSERT INTO tracks (title, artist, album, album_artist, year, track_number, duration, file_path, cover_path, mime_type,
+                      codec, bits_per_sample, sample_rate, bitrate, lossless)
+  VALUES (@title, @artist, @album, @album_artist, @year, @track_number, @duration, @file_path, @cover_path, @mime_type,
+          @codec, @bits_per_sample, @sample_rate, @bitrate, @lossless)
   ON CONFLICT(file_path) DO UPDATE SET
     title        = excluded.title,
     artist       = excluded.artist,
@@ -50,6 +58,11 @@ const upsert = db.prepare(`
     track_number = excluded.track_number,
     duration     = excluded.duration,
     cover_path   = excluded.cover_path,
+    codec           = excluded.codec,
+    bits_per_sample = excluded.bits_per_sample,
+    sample_rate     = excluded.sample_rate,
+    bitrate         = excluded.bitrate,
+    lossless        = excluded.lossless,
     scanned_at   = datetime('now')
 `);
 
@@ -76,6 +89,12 @@ export async function scanLibrary(musicDir) {
         file_path:    filePath,
         cover_path:   null,
         mime_type:    MIME[extname(filePath).toLowerCase()] ?? 'audio/mpeg',
+        // Calidad de audio. node:sqlite no acepta booleanos → lossless como 1/0.
+        codec:           format.codec ?? format.container ?? null,
+        bits_per_sample: format.bitsPerSample ?? null,
+        sample_rate:     format.sampleRate ?? null,
+        bitrate:         format.bitrate != null ? Math.round(format.bitrate) : null,
+        lossless:        format.lossless == null ? null : (format.lossless ? 1 : 0),
       });
 
       // node:sqlite devuelve lastInsertRowid=0 en conflictos DO UPDATE,

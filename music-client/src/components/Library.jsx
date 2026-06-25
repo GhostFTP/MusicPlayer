@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import QualityChip from './QualityChip.jsx';
 
 export default function Library() {
   const [tracks,  setTracks]  = useState([]);
@@ -51,11 +52,12 @@ export default function Library() {
         <table className="track-table">
           <thead>
             <tr>
-              <th>#</th>
+              <th className="col-num">#</th>
               <th>Título</th>
               <th className="col-artist">Artista</th>
               <th className="col-album">Álbum</th>
-              <th>⏱</th>
+              <th className="col-quality">Calidad</th>
+              <th className="col-time">⏱</th>
             </tr>
           </thead>
           <tbody>
@@ -67,7 +69,7 @@ export default function Library() {
                   className={`track-row${active ? ' playing' : ''}`}
                   onClick={() => play(tracks, i)}
                 >
-                  <td>
+                  <td className="col-num">
                     <span className={`track-num${active ? ' active' : ''}`}>
                       {active && isPlaying ? '▶' : i + 1}
                     </span>
@@ -79,17 +81,24 @@ export default function Library() {
                         ? <img className="track-art" src={coverUrl(track.id)} alt="" />
                         : <div className="track-art-placeholder">♪</div>
                       }
-                      <div>
+                      <div className="track-text">
                         <div className={`track-title${active ? ' active' : ''}`}>
                           {track.title ?? 'Sin título'}
                         </div>
-                        <div className="track-artist">{track.artist ?? '—'}</div>
+                        <div className="track-sub">
+                          <span className="track-artist">{track.artist ?? '—'}</span>
+                          {/* En móvil las columnas colapsan: el chip viaja junto al título */}
+                          <QualityChip track={track} className="chip-inline" />
+                        </div>
                       </div>
                     </div>
                   </td>
                   <td className="col-artist track-artist">{track.artist ?? '—'}</td>
                   <td className="col-album track-album">{track.album ?? '—'}</td>
-                  <td>{fmt(track.duration)}</td>
+                  <td className="col-quality">
+                    <QualityChip track={track} />
+                  </td>
+                  <td className="col-time">{fmt(track.duration)}</td>
                 </tr>
               );
             })}

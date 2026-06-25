@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
-import { coverUrl } from '../api/client.js';
+import { api, coverUrl } from '../api/client.js';
+import QualityChip from './QualityChip.jsx';
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00';
@@ -17,6 +18,22 @@ export default function Player() {
   const [expanded, setExpanded] = useState(false);
   const player = usePlayer();
   const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume } = player;
+
+  // Calidad de la pista que suena. Si la cola ya la trae (reproducción desde la
+  // Biblioteca) la usamos directo; si no (p.ej. un álbum), pedimos el detalle.
+  const [quality, setQuality] = useState(null);
+  useEffect(() => {
+    if (!currentTrack) { setQuality(null); return; }
+    if (currentTrack.codec || currentTrack.sample_rate || currentTrack.bitrate) {
+      setQuality(currentTrack);
+      return;
+    }
+    let cancelled = false;
+    api.track(currentTrack.id)
+      .then(full => { if (!cancelled) setQuality(full); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentTrack]);
 
   const art = currentTrack?.cover_path
     ? <img className="player-art" src={coverUrl(currentTrack.id)} alt="" />
@@ -42,7 +59,10 @@ export default function Player() {
 
           <div className="exp-meta">
             <div className="exp-title">{currentTrack?.title ?? 'Sin reproducción'}</div>
-            <div className="exp-artist">{currentTrack?.artist ?? '—'}</div>
+            <div className="exp-subline">
+              <span className="exp-artist">{currentTrack?.artist ?? '—'}</span>
+              <QualityChip track={quality} className="chip-lg" />
+            </div>
           </div>
 
           <div className="exp-progress">
@@ -97,7 +117,10 @@ export default function Player() {
               {art}
               <div className="player-meta">
                 <div className="player-title">{currentTrack.title ?? 'Sin título'}</div>
-                <div className="player-artist">{currentTrack.artist ?? 'Artista desconocido'}</div>
+                <div className="player-subline">
+                  <span className="player-artist">{currentTrack.artist ?? 'Artista desconocido'}</span>
+                  <QualityChip track={quality} className="player-quality" />
+                </div>
               </div>
             </>
           ) : (
