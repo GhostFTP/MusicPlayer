@@ -557,6 +557,22 @@ body {
 }
 .ptp-new-btn:hover { opacity: .85; }
 
+/* Menú hacia arriba (cuando el botón está pegado al fondo, p.ej. el Player) */
+.ptp-up .ptp-menu { top: auto; bottom: calc(100% + 8px); }
+
+/* En el Player no hay hover de fila: el botón "+" siempre visible */
+.ptp-player,
+.ptp-exp { flex-shrink: 0; }
+.ptp-player .ptp-btn,
+.ptp-exp .ptp-btn { opacity: 1; }
+
+/* Barra inferior: el "+" va a la izquierda → el menú se extiende a la derecha */
+.ptp-player { margin-left: 4px; }
+.ptp-player .ptp-menu { left: 0; right: auto; }
+
+/* Player expandido (móvil): "+" alineado a la derecha del header */
+.ptp-exp { margin-left: auto; }
+
 /* ── PLAYLIST DETAIL · TITLE / RENAME ───── */
 
 .pl-title {
@@ -1082,6 +1098,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-controls { display: none; }
   .player-volume   { display: none; }
   .player-bar .player-quality { display: none; }
+  .player-bar .ptp-player     { display: none; }
 
   /* Show mini controls */
   .player-mini-controls {

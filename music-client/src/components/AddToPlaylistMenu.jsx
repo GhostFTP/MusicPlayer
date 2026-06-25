@@ -3,7 +3,10 @@ import { api } from '../api/client.js';
 
 // Botón "+" por pista: abre un menú para añadirla a una playlist existente
 // o crear una nueva al vuelo. Persiste vía API (no estado local).
-export default function AddToPlaylistMenu({ trackId }) {
+// `placement`: 'down' (por defecto) o 'up' para abrir el menú hacia arriba
+// (útil en el Player, pegado al fondo de la pantalla). `className`: extra para
+// adaptar el botón a su contexto (biblioteca, barra, player expandido).
+export default function AddToPlaylistMenu({ trackId, placement = 'down', className = '' }) {
   const [open, setOpen]           = useState(false);
   const [playlists, setPlaylists] = useState([]);
   const [newName, setNewName]     = useState('');
@@ -60,9 +63,11 @@ export default function AddToPlaylistMenu({ trackId }) {
   }
 
   const active = open || done;
+  const cls = ['ptp', active && 'active', placement === 'up' && 'ptp-up', className]
+    .filter(Boolean).join(' ');
 
   return (
-    <div className={`ptp${active ? ' active' : ''}`} ref={ref} onClick={e => e.stopPropagation()}>
+    <div className={cls} ref={ref} onClick={e => e.stopPropagation()}>
       <button
         className="ptp-btn"
         title={done ? 'Añadida' : 'Añadir a playlist'}

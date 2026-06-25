@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
 import QualityChip from './QualityChip.jsx';
+import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00';
@@ -48,6 +49,9 @@ export default function Player() {
             <button className="exp-back" onClick={() => setExpanded(false)}>
               <ChevronDown /> Ahora reproduciendo
             </button>
+            {currentTrack && (
+              <AddToPlaylistMenu trackId={currentTrack.id} className="ptp-exp" />
+            )}
           </div>
 
           <div className="exp-art-wrap">
@@ -122,6 +126,7 @@ export default function Player() {
                   <QualityChip track={quality} className="player-quality" />
                 </div>
               </div>
+              <AddToPlaylistMenu trackId={currentTrack.id} placement="up" className="ptp-player" />
             </>
           ) : (
             <div className="player-meta">
