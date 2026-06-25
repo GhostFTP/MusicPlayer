@@ -7,7 +7,15 @@ router.use(authMiddleware);
 
 // GET /api/playlists
 router.get('/', (req, res) => {
-  res.json(db.prepare('SELECT * FROM playlists WHERE user_id = ?').all(req.user.id));
+  res.json(db.prepare(`
+    SELECT p.id, p.name, p.user_id, p.created_at,
+           COUNT(pt.track_id) AS track_count
+    FROM playlists p
+    LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+    WHERE p.user_id = ?
+    GROUP BY p.id
+    ORDER BY p.created_at, p.id
+  `).all(req.user.id));
 });
 
 // POST /api/playlists
@@ -24,7 +32,9 @@ router.get('/:id/tracks', (req, res) => {
   if (!pl) return res.status(404).json({ error: 'Playlist not found' });
 
   const tracks = db.prepare(`
-    SELECT t.id, t.title, t.artist, t.album, t.duration, t.cover_path, pt.position
+    SELECT t.id, t.title, t.artist, t.album, t.duration, t.cover_path,
+           t.codec, t.bits_per_sample, t.sample_rate, t.bitrate, t.lossless,
+           pt.position
     FROM playlist_tracks pt
     JOIN tracks t ON t.id = pt.track_id
     WHERE pt.playlist_id = ?
@@ -53,6 +63,18 @@ router.delete('/:id/tracks/:trackId', (req, res) => {
 
   db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?').run(req.params.id, req.params.trackId);
   res.status(204).send();
+});
+
+// PATCH /api/playlists/:id  — renombrar
+router.patch('/:id', (req, res) => {
+  const { name } = req.body ?? {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'name required' });
+
+  const result = db.prepare('UPDATE playlists SET name = ? WHERE id = ? AND user_id = ?')
+    .run(name.trim(), req.params.id, req.user.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Playlist not found' });
+
+  res.json({ id: Number(req.params.id), name: name.trim() });
 });
 
 // DELETE /api/playlists/:id

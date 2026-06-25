@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
+import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 
 export default function Library() {
   const [tracks,  setTracks]  = useState([]);
@@ -58,6 +59,7 @@ export default function Library() {
               <th className="col-album">Álbum</th>
               <th className="col-quality">Calidad</th>
               <th className="col-time">⏱</th>
+              <th className="col-actions"></th>
             </tr>
           </thead>
           <tbody>
@@ -99,6 +101,9 @@ export default function Library() {
                     <QualityChip track={track} />
                   </td>
                   <td className="col-time">{fmt(track.duration)}</td>
+                  <td className="col-actions">
+                    <AddToPlaylistMenu trackId={track.id} />
+                  </td>
                 </tr>
               );
             })}

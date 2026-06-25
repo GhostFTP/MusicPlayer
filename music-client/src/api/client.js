@@ -38,7 +38,8 @@ export const api = {
 
   // Playlists
   playlists:       ()           => request('/api/playlists'),
-  createPlaylist:  (name)       => request('/api/playlists',                  { method: 'POST', body: JSON.stringify({ name }) }),
+  createPlaylist:  (name)       => request('/api/playlists',                  { method: 'POST',   body: JSON.stringify({ name }) }),
+  renamePlaylist:  (id, name)   => request(`/api/playlists/${id}`,            { method: 'PATCH',  body: JSON.stringify({ name }) }),
   deletePlaylist:  (id)         => request(`/api/playlists/${id}`,            { method: 'DELETE' }),
   playlistTracks:  (id)         => request(`/api/playlists/${id}/tracks`),
   addToPlaylist:   (id, trackId)=> request(`/api/playlists/${id}/tracks`,     { method: 'POST', body: JSON.stringify({ track_id: trackId }) }),
