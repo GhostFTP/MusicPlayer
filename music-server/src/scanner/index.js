@@ -124,7 +124,8 @@ export async function scanLibrary(musicDir) {
 }
 
 // Si se ejecuta directamente: node src/scanner/index.js [ruta]
+// Ruta: 1º arg de CLI, 2º env MUSIC_DIR (.env), 3º fallback local ../../music.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const musicPath = process.argv[2] ?? resolve(__dir, '../../music');
+  const musicPath = process.argv[2] ?? process.env.MUSIC_DIR ?? resolve(__dir, '../../music');
   scanLibrary(musicPath).catch(console.error);
 }

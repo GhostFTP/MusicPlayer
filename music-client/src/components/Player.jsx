@@ -18,7 +18,12 @@ function progressStyle(value, max) {
 export default function Player() {
   const [expanded, setExpanded] = useState(false);
   const player = usePlayer();
-  const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume } = player;
+  const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
+          shuffle, repeat, toggleShuffle, cycleRepeat } = player;
+
+  const repeatTitle = repeat === 'one' ? 'Repetir: una canción'
+    : repeat === 'all' ? 'Repetir: toda la cola'
+    : 'Repetir: desactivado';
 
   // Calidad de la pista que suena. Si la cola ya la trae (reproducción desde la
   // Biblioteca) la usamos directo; si no (p.ej. un álbum), pedimos el detalle.
@@ -84,6 +89,14 @@ export default function Player() {
           </div>
 
           <div className="exp-controls">
+            <button
+              className={`exp-btn${shuffle ? ' active' : ''}`}
+              onClick={toggleShuffle}
+              aria-pressed={shuffle}
+              title={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
+            >
+              <ShuffleIcon size={24} />
+            </button>
             <button className="exp-btn" onClick={prev}>
               <PrevIcon size={28} />
             </button>
@@ -92,6 +105,14 @@ export default function Player() {
             </button>
             <button className="exp-btn" onClick={next}>
               <NextIcon size={28} />
+            </button>
+            <button
+              className={`exp-btn${repeat !== 'off' ? ' active' : ''}`}
+              onClick={cycleRepeat}
+              aria-pressed={repeat !== 'off'}
+              title={repeatTitle}
+            >
+              {repeat === 'one' ? <RepeatOneIcon size={24} /> : <RepeatIcon size={24} />}
             </button>
           </div>
 
@@ -138,11 +159,27 @@ export default function Player() {
         {/* Desktop: center controls + progress */}
         <div className="player-controls">
           <div className="player-buttons">
+            <button
+              className={`ctrl-btn${shuffle ? ' active' : ''}`}
+              onClick={toggleShuffle}
+              aria-pressed={shuffle}
+              title={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
+            >
+              <ShuffleIcon />
+            </button>
             <button className="ctrl-btn" onClick={prev} title="Anterior (←)"><PrevIcon /></button>
             <button className="ctrl-btn play" onClick={togglePlay} title="Play/Pause (Espacio)">
               {isPlaying ? <PauseIcon /> : <PlayIcon />}
             </button>
             <button className="ctrl-btn" onClick={next} title="Siguiente (→)"><NextIcon /></button>
+            <button
+              className={`ctrl-btn${repeat !== 'off' ? ' active' : ''}`}
+              onClick={cycleRepeat}
+              aria-pressed={repeat !== 'off'}
+              title={repeatTitle}
+            >
+              {repeat === 'one' ? <RepeatOneIcon /> : <RepeatIcon />}
+            </button>
           </div>
           <div className="player-progress">
             <span className="time-label">{fmt(currentTime)}</span>
@@ -201,6 +238,39 @@ function PrevIcon({ size = 18 }) {
 }
 function NextIcon({ size = 18 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><polygon points="5,4 15,12 5,20"/><line x1="19" y1="4" x2="19" y2="20" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/></svg>;
+}
+function ShuffleIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="16 3 21 3 21 8" />
+      <line x1="4" y1="20" x2="21" y2="3" />
+      <polyline points="21 16 21 21 16 21" />
+      <line x1="15" y1="15" x2="21" y2="21" />
+      <line x1="4" y1="4" x2="9" y2="9" />
+    </svg>
+  );
+}
+function RepeatIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    </svg>
+  );
+}
+function RepeatOneIcon({ size = 18 }) {
+  // Mismo lazo de repetir + un "1" centrado para distinguir "repetir una".
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+      <text x="12" y="15.5" textAnchor="middle" fontSize="9" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui, sans-serif">1</text>
+    </svg>
+  );
 }
 function ChevronDown() {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6,9 12,15 18,9"/></svg>;

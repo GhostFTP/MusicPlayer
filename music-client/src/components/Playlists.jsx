@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
+import ShuffleButton from './ShuffleButton.jsx';
 
 export default function Playlists() {
   const [playlists, setPlaylists] = useState([]);
@@ -93,7 +94,10 @@ export default function Playlists() {
           {!renaming && (
             <div className="pl-detail-actions">
               {tracks.length > 0 && (
-                <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
+                <>
+                  <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
+                  <ShuffleButton tracks={tracks} />
+                </>
               )}
               <button className="btn-icon" title="Eliminar playlist" onClick={() => remove(playlist.id)}>
                 <TrashIcon />

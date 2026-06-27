@@ -33,8 +33,13 @@ export const api = {
   track:    (id)          => request(`/api/tracks/${id}`),
 
   // Albums
-  albums:   ()            => request('/api/albums'),
+  albums:   (params = {}) => request('/api/albums?' + new URLSearchParams(params)),
   albumTracks: (album)    => request(`/api/albums/${encodeURIComponent(album)}/tracks`),
+
+  // Browse (géneros / artistas / años)
+  genres:   ()            => request('/api/browse/genres'),
+  artists:  ()            => request('/api/browse/artists'),
+  years:    ()            => request('/api/browse/years'),
 
   // Playlists
   playlists:       ()           => request('/api/playlists'),

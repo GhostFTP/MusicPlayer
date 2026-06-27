@@ -148,6 +148,49 @@ body {
   letter-spacing: -0.4px;
 }
 
+/* ── BIBLIOTECA: banner Mix aleatorio + contador ─────────── */
+.library-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 2px 0 18px;
+}
+
+.mix-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 26px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px var(--accent-dim);
+  transition: transform .12s ease, box-shadow .15s ease, background .15s ease;
+}
+.mix-btn:hover {
+  background: #b69bff;
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 24px var(--accent-dim);
+}
+.mix-btn:active { transform: translateY(0) scale(.99); }
+.mix-btn:disabled {
+  opacity: .45;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+.library-count {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 /* ── SEARCH ─────────────────────────────── */
 
 .search-box {
@@ -387,6 +430,79 @@ body {
   min-height: 44px;
 }
 .back-btn:hover { color: var(--text); }
+
+/* Conteo discreto en la cabecera de sección (ej. "5 artistas") */
+.section-count { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* Cabecera tipo "hero" para el detalle de álbum (reutilizable) */
+.detail-hero {
+  display: flex;
+  gap: 28px;
+  align-items: flex-end;
+  margin-bottom: 28px;
+}
+.detail-hero-cover {
+  width: 168px;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #2d1b69, #1a2f5c);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .55);
+}
+.detail-hero-cover.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 60px;
+}
+.detail-hero-info { min-width: 0; }
+.detail-kicker {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.detail-title { font-size: 28px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 4px; }
+.detail-sub   { color: var(--text-muted); font-size: 15px; }
+.detail-meta  { color: var(--text-muted); font-size: 13px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.detail-play  { margin-top: 16px; display: inline-flex; align-items: center; gap: 6px; }
+
+/* Fila de acciones (Reproducir + Mix aleatorio, etc.) consistente en los detalles */
+.detail-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.detail-hero-info .detail-actions { margin-top: 16px; }
+
+/* ── BROWSE · GÉNEROS / AÑOS (listas) ───── */
+
+.browse-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+
+.browse-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background .12s;
+  min-height: 54px;
+}
+.browse-item:hover { background: var(--surface); }
+.browse-item-name { font-size: 15px; font-weight: 600; }
+.browse-item-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* ── BROWSE · ARTISTAS (avatar circular) ── */
+
+.artist-card { text-align: center; }
+.artist-card .album-name { white-space: normal; }
+.album-cover.artist-avatar,
+.album-cover-placeholder.artist-avatar { border-radius: 50%; }
 
 /* ── PLAYLISTS ─────────────────────────── */
 
@@ -703,6 +819,10 @@ body {
   transition: color .15s;
 }
 .ctrl-btn:hover { color: var(--text); }
+
+/* Shuffle/Repeat activos: resaltados en color de acento */
+.ctrl-btn.active,
+.ctrl-btn.active:hover { color: var(--accent); }
 
 .ctrl-btn.play {
   background: var(--text);
@@ -1038,6 +1158,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
 .exp-btn:active { background: var(--surface); color: var(--text); }
 
+/* Shuffle/Repeat activos en el player expandido */
+.exp-btn.active { color: var(--accent); }
+
 .exp-btn.play {
   background: var(--accent);
   color: #fff;
@@ -1128,12 +1251,19 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     background: none;
   }
 
-  /* Bottom nav */
+  /* Bottom nav — 6 entradas: más compacto para que quepan */
   .bottom-nav {
     display: flex;
     grid-column: 1;
     grid-row: 3;
   }
+  .bottom-nav-btn { font-size: 9px; padding: 8px 2px; gap: 3px; }
+  .bottom-nav-btn svg { width: 19px; height: 19px; }
+
+  /* Detalle de álbum: cabecera apilada */
+  .detail-hero { gap: 16px; margin-bottom: 20px; }
+  .detail-hero-cover { width: 116px; border-radius: 8px; }
+  .detail-title { font-size: 22px; }
 
   /* Section header stacks vertically */
   .section-header {

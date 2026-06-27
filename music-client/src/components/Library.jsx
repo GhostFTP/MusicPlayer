@@ -3,6 +3,21 @@ import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
+import ShuffleButton from './ShuffleButton.jsx';
+
+// Orden de la biblioteca: ALBUMARTIST → álbum → nº de pista → título.
+// Así queda agrupada por artista/álbum y navegable. localeCompare respeta acentos.
+function byArtistAlbumTrack(a, b) {
+  const aa = (a.album_artist || a.artist || '').trim();
+  const ba = (b.album_artist || b.artist || '').trim();
+  let c = aa.localeCompare(ba, 'es', { sensitivity: 'base' });
+  if (c) return c;
+  c = (a.album || '').localeCompare(b.album || '', 'es', { sensitivity: 'base' });
+  if (c) return c;
+  const at = a.track_number ?? 0, bt = b.track_number ?? 0;
+  if (at !== bt) return at - bt;
+  return (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' });
+}
 
 export default function Library() {
   const [tracks,  setTracks]  = useState([]);
@@ -13,8 +28,11 @@ export default function Library() {
   const fetchTracks = useCallback(async (q) => {
     setLoading(true);
     try {
-      const params = q ? { search: q } : {};
-      setTracks(await api.tracks(params));
+      // Hogar central: traemos TODA la biblioteca (no el tope de 50 por defecto).
+      const params = { limit: 10000 };
+      if (q) params.search = q;
+      const data = await api.tracks(params);
+      setTracks([...data].sort(byArtistAlbumTrack));
     } finally {
       setLoading(false);
     }
@@ -24,6 +42,10 @@ export default function Library() {
     const t = setTimeout(() => fetchTracks(search), 280);
     return () => clearTimeout(t);
   }, [search, fetchTracks]);
+
+  const countLabel = search
+    ? `${tracks.length} resultado${tracks.length === 1 ? '' : 's'}`
+    : `${tracks.length} canción${tracks.length === 1 ? '' : 'es'}`;
 
   return (
     <div>
@@ -37,6 +59,12 @@ export default function Library() {
             placeholder="Buscar título, artista, álbum…"
           />
         </div>
+      </div>
+
+      {/* Banner de acción: Mix aleatorio + contador */}
+      <div className="library-actions">
+        <ShuffleButton tracks={tracks} />
+        {!loading && <span className="library-count">{countLabel}</span>}
       </div>
 
       {loading ? (
