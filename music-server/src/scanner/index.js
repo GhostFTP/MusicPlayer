@@ -1,4 +1,4 @@
-import { readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readdirSync, statSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, extname, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as mm from 'music-metadata';
@@ -45,9 +45,9 @@ function saveCover(picture, trackId) {
 }
 
 const upsert = db.prepare(`
-  INSERT INTO tracks (title, artist, album, album_artist, genre, year, track_number, duration, file_path, cover_path, mime_type,
+  INSERT INTO tracks (title, artist, album, album_artist, genre, year, track_number, duration, file_path, cover_path, lrc_path, vocals, mime_type,
                       codec, bits_per_sample, sample_rate, bitrate, lossless)
-  VALUES (@title, @artist, @album, @album_artist, @genre, @year, @track_number, @duration, @file_path, @cover_path, @mime_type,
+  VALUES (@title, @artist, @album, @album_artist, @genre, @year, @track_number, @duration, @file_path, @cover_path, @lrc_path, @vocals, @mime_type,
           @codec, @bits_per_sample, @sample_rate, @bitrate, @lossless)
   ON CONFLICT(file_path) DO UPDATE SET
     title        = excluded.title,
@@ -59,6 +59,8 @@ const upsert = db.prepare(`
     track_number = excluded.track_number,
     duration     = excluded.duration,
     cover_path   = excluded.cover_path,
+    lrc_path     = excluded.lrc_path,
+    vocals       = excluded.vocals,
     codec           = excluded.codec,
     bits_per_sample = excluded.bits_per_sample,
     sample_rate     = excluded.sample_rate,
@@ -66,6 +68,19 @@ const upsert = db.prepare(`
     lossless        = excluded.lossless,
     scanned_at   = datetime('now')
 `);
+
+// SONORAREV_VOCALS vive como comentario Vorbis (vocal|instrumental|review). music-metadata
+// lo expone en meta.native; lo buscamos por id sin depender del formato.
+function readVocals(meta) {
+  for (const tags of Object.values(meta.native ?? {})) {
+    for (const t of tags) {
+      if (t.id && t.id.toUpperCase() === 'SONORAREV_VOCALS') {
+        return String(t.value).toLowerCase().trim() || null;
+      }
+    }
+  }
+  return null;
+}
 
 export async function scanLibrary(musicDir) {
   const files = [...walkDir(resolve(musicDir))];
@@ -77,6 +92,9 @@ export async function scanLibrary(musicDir) {
     try {
       const meta = await mm.parseFile(filePath, { skipCovers: false });
       const { common, format } = meta;
+
+      // Sidecar .lrc: mismo nombre base que la pista, junto a ella.
+      const lrcPath = filePath.slice(0, -extname(filePath).length) + '.lrc';
 
       // We need the row ID to name the cover file, so insert first without cover
       const result = upsert.run({
@@ -92,6 +110,8 @@ export async function scanLibrary(musicDir) {
         duration:     format.duration ?? null,
         file_path:    filePath,
         cover_path:   null,
+        lrc_path:     existsSync(lrcPath) ? lrcPath : null,
+        vocals:       readVocals(meta),
         mime_type:    MIME[extname(filePath).toLowerCase()] ?? 'audio/mpeg',
         // Calidad de audio. node:sqlite no acepta booleanos → lossless como 1/0.
         codec:           format.codec ?? format.container ?? null,

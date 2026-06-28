@@ -3,6 +3,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
 import QualityChip from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
+import LyricsPanel from './LyricsPanel.jsx';
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00';
@@ -17,6 +18,7 @@ function progressStyle(value, max) {
 
 export default function Player() {
   const [expanded, setExpanded] = useState(false);
+  const [showLyrics, setShowLyrics] = useState(false);
   const player = usePlayer();
   const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
@@ -47,6 +49,9 @@ export default function Player() {
 
   return (
     <>
+      {/* ── Panel de letra (overlay, desktop y móvil) ── */}
+      {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} />}
+
       {/* ── Full-screen expanded player (mobile) ── */}
       {expanded && (
         <div className="player-expanded">
@@ -54,9 +59,18 @@ export default function Player() {
             <button className="exp-back" onClick={() => setExpanded(false)}>
               <ChevronDown /> Ahora reproduciendo
             </button>
-            {currentTrack && (
-              <AddToPlaylistMenu trackId={currentTrack.id} className="ptp-exp" />
-            )}
+            <div className="exp-head-actions">
+              <button
+                className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
+                onClick={() => setShowLyrics(v => !v)}
+                title="Letra"
+              >
+                <LyricsIcon size={22} />
+              </button>
+              {currentTrack && (
+                <AddToPlaylistMenu trackId={currentTrack.id} className="ptp-exp" />
+              )}
+            </div>
           </div>
 
           <div className="exp-art-wrap">
@@ -196,6 +210,13 @@ export default function Player() {
 
         {/* Desktop: volume */}
         <div className="player-volume">
+          <button
+            className={`ctrl-btn lyrics-toggle${showLyrics ? ' active' : ''}`}
+            onClick={() => setShowLyrics(v => !v)}
+            title="Letra"
+          >
+            <LyricsIcon />
+          </button>
           <VolumeIcon muted={volume === 0} />
           <input
             type="range"
@@ -269,6 +290,15 @@ function RepeatOneIcon({ size = 18 }) {
       <polyline points="7 23 3 19 7 15" />
       <path d="M21 13v2a4 4 0 0 1-4 4H3" />
       <text x="12" y="15.5" textAnchor="middle" fontSize="9" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui, sans-serif">1</text>
+    </svg>
+  );
+}
+function LyricsIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="4" y1="7"  x2="16" y2="7"/>
+      <line x1="4" y1="12" x2="20" y2="12"/>
+      <line x1="4" y1="17" x2="13" y2="17"/>
     </svg>
   );
 }

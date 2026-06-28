@@ -33,6 +33,8 @@ db.exec(`
     duration      REAL,
     file_path     TEXT UNIQUE NOT NULL,
     cover_path    TEXT,
+    lrc_path      TEXT,
+    vocals        TEXT,
     mime_type     TEXT DEFAULT 'audio/mpeg',
     codec           TEXT,
     bits_per_sample INTEGER,
@@ -70,6 +72,8 @@ const ADDED_COLUMNS = {
   bitrate:         'INTEGER',
   lossless:        'INTEGER',
   genre:           'TEXT',
+  lrc_path:        'TEXT',
+  vocals:          'TEXT',
 };
 for (const [col, type] of Object.entries(ADDED_COLUMNS)) {
   if (!trackCols.has(col)) db.exec(`ALTER TABLE tracks ADD COLUMN ${col} ${type}`);
