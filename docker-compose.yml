@@ -1,0 +1,29 @@
+services:
+  musicplayer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true                                  # PID 1 con manejo de señales/zombies
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      MUSIC_DIR: /music
+      # Falla aposta el arranque si no lo defines en Dokploy (evita el default inseguro)
+      JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET en las env vars de Dokploy}
+    volumes:
+      # 🎵 Biblioteca de música: host /mnt/storage → contenedor /music, SOLO LECTURA.
+      #    El ":ro" lo impone el kernel: nada del contenedor puede escribir tu música.
+      - /mnt/storage:/music:ro
+      # 💾 Datos persistentes (music.db + WAL + covers/) entre reinicios/redeploys.
+      - musicplayer-data:/app/music-server/data
+    expose:
+      - "3000"                                  # Dokploy/Traefik enruta el dominio a este puerto
+    healthcheck:
+      test: ["CMD","node","-e","fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  musicplayer-data:                             # volumen nombrado gestionado por Docker
