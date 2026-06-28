@@ -25,5 +25,19 @@ services:
       timeout: 5s
       retries: 3
 
+  # ☁️ Túnel de Cloudflare (modo token). Expone la app sin abrir puertos en el host.
+  #    El dashboard de Cloudflare enruta musica.lapeñadesantiago.com → este túnel,
+  #    y el Public Hostname del túnel apunta a http://musicplayer:3000.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # Alcanza a la app por NOMBRE de servicio (musicplayer) gracias a la red por
+    # defecto del proyecto Compose: estable ante redeploys, sin depender de IPs.
+    # El token se inyecta desde Dokploy; si falta, el arranque falla con mensaje claro
+    # (mismo patrón que JWT_SECRET en musicplayer).
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?define CLOUDFLARE_TUNNEL_TOKEN en Dokploy}
+    depends_on:
+      - musicplayer
+
 volumes:
   musicplayer-data:                             # volumen nombrado gestionado por Docker
