@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
-import { qualityFull } from './QualityChip.jsx';
+import { qualityFull, qualityTier, shortCodec } from './QualityChip.jsx';
 
 // Duración legible a partir de segundos: "1 h 12 min", "3 min 45 s", "48 s".
 function fmtDuration(sec) {
@@ -14,24 +14,83 @@ function fmtDuration(sec) {
   return `${ss} s`;
 }
 
+// kHz sin decimales innecesarios: 44100 → "44.1", 48000 → "48".
+function khz(sr) {
+  if (!sr) return null;
+  const k = sr / 1000;
+  return Number.isInteger(k) ? `${k}` : k.toFixed(1);
+}
+
+// Resumen de calidad del álbum a partir de sus pistas (campos ya en la DB):
+// "Todo el álbum en FLAC 16/44.1", "12/14 pistas lossless", etc.
+function albumQualitySummary(tracks) {
+  if (!tracks?.length) return null;
+  const n = tracks.length;
+  const ll = tracks.filter(t => t.lossless).length;
+  if (ll === n) {
+    const codecs = new Set(tracks.map(t => shortCodec(t.codec) ?? t.codec));
+    const bitsSet = new Set(tracks.map(t => t.bits_per_sample));
+    const srSet = new Set(tracks.map(t => t.sample_rate));
+    if (codecs.size === 1 && bitsSet.size === 1 && srSet.size === 1) {
+      const c = [...codecs][0];
+      const b = [...bitsSet][0];
+      const s = [...srSet][0];
+      const spec = b && s ? ` ${b}/${khz(s)}` : '';
+      return `Todo el álbum en ${c}${spec}`;
+    }
+    return `Álbum lossless (${n} pistas)`;
+  }
+  if (ll > 0) return `${ll}/${n} pistas lossless`;
+  return `Álbum con pérdida (${n} pistas)`;
+}
+
+// Filas clave/valor; se omiten limpio las que no tienen valor (sin "undefined").
+function InfoRows({ rows }) {
+  const visible = rows.filter(([, v]) => v != null && v !== '');
+  if (!visible.length) return null;
+  return (
+    <dl className="info-grid">
+      {visible.map(([k, v]) => (
+        <div className="info-row" key={k}><dt>{k}</dt><dd>{v}</dd></div>
+      ))}
+    </dl>
+  );
+}
+
+// Sección completa (título + filas); no se pinta si no hay ninguna fila visible.
+function InfoSection({ title, rows }) {
+  if (!rows.some(([, v]) => v != null && v !== '')) return null;
+  return (
+    <section className="info-section">
+      <h4 className="info-section-title">{title}</h4>
+      <InfoRows rows={rows} />
+    </section>
+  );
+}
+
 // Panel de información de la pista. SOLO usa datos que ya están en la DB
 // (no biografías ni fuentes externas). Pensado para crecer luego con MusicBrainz.
 export default function InfoPanel({ track, onClose }) {
-  const [albumAgg, setAlbumAgg] = useState(null);   // { count, total } del álbum
+  const [album, setAlbum] = useState(null);   // { count, total, summary }
 
-  // Agregados del álbum (nº de pistas + duración total) desde el endpoint existente.
+  // Agregados del álbum (nº de pistas, duración y calidad) desde el endpoint
+  // existente /api/tracks?album=… (trae los campos de calidad por pista).
+  // Se filtra por álbum + album_artist para no mezclar álbumes homónimos de
+  // artistas distintos (inflaría el conteo). album_artist sólo se incluye si existe.
   useEffect(() => {
-    if (!track?.album) { setAlbumAgg(null); return; }
+    if (!track?.album) { setAlbum(null); return; }
     let cancelled = false;
-    api.albumTracks(track.album)
+    const params = { album: track.album, limit: 500 };
+    if (track.album_artist) params.album_artist = track.album_artist;
+    api.tracks(params)
       .then(tracks => {
         if (cancelled) return;
         const total = tracks.reduce((acc, t) => acc + (t.duration || 0), 0);
-        setAlbumAgg({ count: tracks.length, total });
+        setAlbum({ count: tracks.length, total, summary: albumQualitySummary(tracks) });
       })
-      .catch(() => { if (!cancelled) setAlbumAgg(null); });
+      .catch(() => { if (!cancelled) setAlbum(null); });
     return () => { cancelled = true; };
-  }, [track?.album]);
+  }, [track?.album, track?.album_artist]);
 
   // Cerrar con Escape.
   useEffect(() => {
@@ -42,17 +101,30 @@ export default function InfoPanel({ track, onClose }) {
 
   if (!track) return null;
 
-  // Cada fila se omite limpia si su campo falta (nunca se muestra vacío/undefined).
-  const rows = [
-    ['Álbum',               track.album],
-    ['Artista',             track.album_artist || track.artist],
-    ['Año',                 track.year],
-    ['Género',              track.genre],
-    ['Pistas del álbum',    albumAgg?.count ? String(albumAgg.count) : null],
-    ['Duración del álbum',  albumAgg ? fmtDuration(albumAgg.total) : null],
-  ].filter(([, v]) => v != null && v !== '');
+  const tier = qualityTier(track);
+  const full = qualityFull(track);
 
-  const quality = qualityFull(track);
+  const trackRows = [
+    ['Nº de pista', track.track_number != null ? String(track.track_number) : null],
+    ['Duración',    fmtDuration(track.duration)],
+  ];
+  const albumRows = [
+    ['Título',   track.album],
+    ['Artista',  track.album_artist || track.artist],
+    ['Año',      track.year != null ? String(track.year) : null],
+    ['Género',   track.genre],
+    ['Pistas',   album?.count ? String(album.count) : null],
+    ['Duración', album ? fmtDuration(album.total) : null],
+  ];
+  const qualityRows = [
+    ['Códec',             shortCodec(track.codec) ?? track.codec],
+    ['Profundidad',       track.bits_per_sample ? `${track.bits_per_sample}-bit` : null],
+    ['Frecuencia',        track.sample_rate ? `${khz(track.sample_rate)} kHz` : null],
+    ['Bitrate',           track.bitrate ? `${Math.round(track.bitrate / 1000)} kbps` : null],
+    ['Sin pérdida',       track.lossless == null ? null : (track.lossless ? 'Sí' : 'No')],
+    ['Calidad del álbum', album?.summary ?? null],
+  ];
+  const hasQuality = full || qualityRows.some(([, v]) => v != null && v !== '');
 
   return (
     <div className="info-overlay" onClick={onClose}>
@@ -75,30 +147,25 @@ export default function InfoPanel({ track, onClose }) {
         </div>
 
         <div className="info-body">
-          {rows.length > 0 && (
-            <dl className="info-grid">
-              {rows.map(([k, v]) => (
-                <div className="info-row" key={k}>
-                  <dt>{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
+          <InfoSection title="Pista actual" rows={trackRows} />
+          <InfoSection title="Álbum" rows={albumRows} />
 
-          {quality && (
+          {hasQuality && (
             <section className="info-section">
-              <h4 className="info-section-title">Calidad de audio</h4>
-              <div className="info-quality">
-                <span className={`quality-chip${track.lossless ? ' lossless' : ''}`}>{quality}</span>
-                <span className="info-quality-note">{track.lossless ? 'Sin pérdida' : 'Con pérdida'}</span>
-              </div>
+              <h4 className="info-section-title">Calidad</h4>
+              {full && (
+                <div className="info-quality">
+                  <span className={`quality-chip q-${tier.id}`}>{full}</span>
+                  <span className="info-quality-note">{tier.name}</span>
+                </div>
+              )}
+              <InfoRows rows={qualityRows} />
             </section>
           )}
 
-          {/* Espacio reservado para datos de MusicBrainz (artista/álbum/relaciones).
-              Aún no implementado: cuando se importen los MBID se añade aquí otra
-              <section className="info-section"> sin tocar el resto del panel. */}
+          {/* Espacio reservado para datos de MusicBrainz (bio / discografía /
+              relaciones). Aún no implementado: cuando se importen los MBID se
+              añade aquí otra <InfoSection> sin tocar el resto del panel. */}
         </div>
       </div>
     </div>

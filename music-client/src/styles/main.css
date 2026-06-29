@@ -14,6 +14,11 @@
   --amber:         #fbbf24;                /* botón de info (se lee sobre #0a0a0a) */
   --amber-soft:    rgba(251, 191, 36, .72);/* info en reposo, ámbar tenue */
   --amber-dim:     rgba(251, 191, 36, .14);/* fondo del info activo/hover */
+  /* Colores del badge de calidad por tier (centralizados) */
+  --q-hires:       #22d3ee;                /* cian premium (distinto del ámbar) */
+  --q-lossless:    #5ee19a;                /* verde */
+  --q-lossy-high:  #fbbf24;                /* ámbar */
+  --q-lossy-low:   #fb7185;                /* rojo/naranja */
   --player-h:      80px;
   --mini-player-h: 64px;
   --bottom-nav-h:  60px;
@@ -339,6 +344,30 @@ body {
   background: rgba(74, 222, 128, .09);
   border-color: rgba(74, 222, 128, .30);
 }
+
+/* Badge por tier de calidad (barra + panel de info). Color/caja según el tier;
+   el neutro (q-unknown) usa el gris base del chip. */
+.quality-chip.q-hires {
+  color: var(--q-hires);
+  background: rgba(34, 211, 238, .10);
+  border-color: rgba(34, 211, 238, .32);
+}
+.quality-chip.q-lossless {
+  color: var(--q-lossless);
+  background: rgba(74, 222, 128, .09);
+  border-color: rgba(74, 222, 128, .30);
+}
+.quality-chip.q-lossy-high {
+  color: var(--q-lossy-high);
+  background: rgba(251, 191, 36, .10);
+  border-color: rgba(251, 191, 36, .30);
+}
+.quality-chip.q-lossy-low {
+  color: var(--q-lossy-low);
+  background: rgba(251, 113, 133, .10);
+  border-color: rgba(251, 113, 133, .32);
+}
+.quality-chip.q-unknown { color: var(--text-muted); }
 
 .quality-chip.chip-lg { font-size: 11px; padding: 2px 9px; }
 

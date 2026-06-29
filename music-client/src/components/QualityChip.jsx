@@ -73,6 +73,41 @@ export function qualityDetail(t) {
   return parts.length ? parts.join(' · ') : null;
 }
 
+// Tiers de calidad: clasificación + nombre legible. El color de cada tier se
+// define en CSS como var --q-<id> y se aplica con la clase q-<id>.
+export const Q_TIERS = {
+  hires:     { id: 'hires',      name: 'Hi-Res' },
+  lossless:  { id: 'lossless',   name: 'Lossless CD' },
+  lossyHigh: { id: 'lossy-high', name: 'Con pérdida (alta)' },
+  lossyLow:  { id: 'lossy-low',  name: 'Con pérdida (baja)' },
+  unknown:   { id: 'unknown',    name: 'Calidad' },
+};
+
+// Clasifica una pista en un tier usando SÓLO campos ya presentes en la DB.
+// Si faltan datos para clasificar, devuelve el tier neutro (gris).
+export function qualityTier(t) {
+  if (!t) return Q_TIERS.unknown;
+  const { bits_per_sample: bits, sample_rate: sr, bitrate } = t;
+  if (t.lossless) {
+    if ((bits != null && bits >= 24) || (sr != null && sr > 48000)) return Q_TIERS.hires;
+    if (bits === 16 && (sr == null || sr <= 48000))                 return Q_TIERS.lossless;
+    return Q_TIERS.lossless;   // lossless confirmado sin precisar → CD (verde)
+  }
+  if (t.lossless === 0) {
+    if (bitrate != null) return bitrate >= 256000 ? Q_TIERS.lossyHigh : Q_TIERS.lossyLow;
+    return Q_TIERS.unknown;    // con pérdida pero sin bitrate → neutro
+  }
+  return Q_TIERS.unknown;      // lossless desconocido → neutro
+}
+
+// Tooltip del badge: nombre del tier + specs reales.
+// Ej. "Lossless CD · FLAC · 16-bit · 44.1 kHz · 1029 kbps".
+export function qualityTierTitle(t) {
+  const tier = qualityTier(t);
+  const full = qualityFull(t);
+  return full ? `${tier.name} · ${full}` : tier.name;
+}
+
 export function qualityTooltip(t) {
   const parts = [];
   if (t.codec)           parts.push(shortCodec(t.codec) ?? t.codec);

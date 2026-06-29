@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
-import QualityChip, { qualityCodec, qualityDetail } from './QualityChip.jsx';
+import QualityChip, { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import InfoPanel from './InfoPanel.jsx';
@@ -81,8 +81,10 @@ export default function Player() {
   // Género (integrado al subtítulo) del track enriquecido (quality) o del actual.
   const genre = (quality ?? currentTrack)?.genre ?? null;
   // Calidad partida: códec para el badge + resto del detalle como texto gris.
+  // El color/caja del badge refleja el tier (hi-res / lossless / lossy…).
   const qCodec = qualityCodec(quality);
   const qDetail = qualityDetail(quality);
+  const qTier = qualityTier(quality);
 
   // Elige una frase distinta a la anterior en cada hover del shuffle.
   const pickShufflePhrase = () => setShufflePhrase(prev => {
@@ -219,7 +221,10 @@ export default function Player() {
                 {(qCodec || qDetail) && (
                   <div className="player-quality">
                     {qCodec && (
-                      <span className={`quality-chip player-quality-badge${quality?.lossless ? ' lossless' : ''}`}>
+                      <span
+                        className={`quality-chip player-quality-badge q-${qTier.id}`}
+                        title={qualityTierTitle(quality)}
+                      >
                         {qCodec}
                       </span>
                     )}
