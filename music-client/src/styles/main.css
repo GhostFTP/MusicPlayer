@@ -10,6 +10,10 @@
   --text-muted:    #888888;
   --accent:        #a78bfa;
   --accent-dim:    #7c3aed33;
+  --lyric-pink:    #f472b6;                /* nota + destello del glifo de letra */
+  --amber:         #fbbf24;                /* botón de info (se lee sobre #0a0a0a) */
+  --amber-soft:    rgba(251, 191, 36, .72);/* info en reposo, ámbar tenue */
+  --amber-dim:     rgba(251, 191, 36, .14);/* fondo del info activo/hover */
   --player-h:      80px;
   --mini-player-h: 64px;
   --bottom-nav-h:  60px;
@@ -743,7 +747,10 @@ body {
   background: #0a0a0a;
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: 1fr 2fr 1fr;
+  /* Centro más ancho (barra de progreso amplia) con lados simétricos para que
+     los controles queden centrados; minmax(0,…) deja que todo se encoja/trunque
+     en vez de quedar fijo a un ancho arbitrario. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
   align-items: center;
   padding: 0 24px;
   gap: 16px;
@@ -777,18 +784,41 @@ body {
   flex-shrink: 0;
 }
 
-.player-meta { min-width: 0; }
+/* Bloque de metadata flexible: crece para ocupar el espacio que dejan los
+   controles centrados; título y artista truncan con … sólo cuando no caben. */
+.player-meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .player-title  { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.player-artist { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 
-.player-subline {
+/* Subtítulo: artista · género en una sola línea que trunca con … (el género,
+   al final, cede primero). El género hereda color/tamaño del artista. */
+.player-artist { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.player-genre  { color: var(--text-muted); }
+
+/* Calidad partida: badge de códec (verde si lossless, gris si no) + detalle en
+   texto gris tenue, sin caja. El badge se mantiene; el detalle trunca primero. */
+.player-quality {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
   margin-top: 3px;
 }
-.player-subline .player-artist { min-width: 0; margin-top: 0; }
+.player-quality-badge { flex-shrink: 0; }
+.player-quality-detail {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Center: controls */
 .player-controls {
@@ -824,6 +854,47 @@ body {
 .ctrl-btn.active,
 .ctrl-btn.active:hover { color: var(--accent); }
 
+/* ── Shuffle con personalidad (item 5) ── */
+.shuffle-wrap { position: relative; display: inline-flex; }
+.shuffle-icon { display: inline-flex; }
+.shuffle-icon.spin { animation: shuffle-spin .5s ease; }
+@keyframes shuffle-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* Mini-tooltip coqueto: aparece al hover encima del botón. */
+.shuffle-tip {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  padding: 4px 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .16s ease, transform .16s ease;
+  z-index: 60;
+}
+.shuffle-tip::after {                  /* flechita hacia el botón */
+  content: '';
+  position: absolute;
+  top: 100%; left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--surface-2);
+}
+.shuffle-wrap:hover .shuffle-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .shuffle-icon.spin { animation: none; }
+  .shuffle-tip { transition: opacity .16s ease; transform: translateX(-50%); }
+  .shuffle-wrap:hover .shuffle-tip { transform: translateX(-50%); }
+}
+
 .ctrl-btn.play {
   background: var(--text);
   color: #000;
@@ -839,24 +910,94 @@ body {
   align-items: center;
   gap: 10px;
   width: 100%;
-  max-width: 480px;
+  max-width: 560px;             /* riel más ancho → mejor precisión de seek */
 }
 
-.time-label { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 36px; }
+.time-label { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 42px; }
 .time-label.right { text-align: right; }
 
 /* Mobile-only mini controls — hidden on desktop */
 .player-mini-controls { display: none; }
 
-/* Right: volume */
-.player-volume {
+/* Right: acciones (letra, info) + volumen. min-width:0 para que se encoja
+   antes de provocar overflow; nada de anchos fijos en la zona. */
+.player-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
 }
 
-.player-volume input[type="range"] { width: 90px; }
+.player-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.player-volume input[type="range"] { width: 88px; }   /* tamaño medio */
+
+/* Botones de acción (letra / info) */
+.action-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.action-btn:hover { color: var(--text); background: var(--surface-2); }
+.action-btn:disabled { opacity: .4; cursor: default; }
+.action-btn:disabled:hover { color: var(--text-muted); background: none; }
+
+/* Botón de letra: fondo morado del tema; estado activo más marcado. El color
+   del glifo lo fijan las clases internas (morado + rosa), no el botón. */
+.lyrics-btn:hover { background: var(--accent-dim); }
+.lyrics-btn.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+/* Botón de info en ámbar (se distingue del morado de la letra). */
+.info-btn { color: var(--amber-soft); }
+.info-btn:hover { color: var(--amber); background: var(--amber-dim); }
+.info-btn.active {
+  color: var(--amber);
+  background: var(--amber-dim);
+  border-color: var(--amber);
+}
+
+/* Glifo de letra: líneas en morado (accent), nota + destello en rosa. */
+.lyrics-glyph .lg-lines    { stroke: var(--accent);     stroke-width: 1.8; }
+.lyrics-glyph .lg-note-head{ fill: var(--lyric-pink); }
+.lyrics-glyph .lg-note-stem{ fill: none; stroke: var(--lyric-pink); stroke-width: 1.8; }
+.lyrics-glyph .lg-spark    { fill: var(--lyric-pink); }
+/* Activo (panel abierto): glifo "vivo" con un resplandor rosa tenue. */
+.lyrics-btn.active .lyrics-glyph,
+.mini-btn.lyrics-mini.active .lyrics-glyph,
+.exp-icon-btn.active .lyrics-glyph {
+  filter: drop-shadow(0 0 5px rgba(244, 114, 182, .5)) brightness(1.08);
+}
+
+/* Destello del glifo de letra: latido lento de escala. */
+.lyrics-glyph-sparkle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: sparkle-pulse 1.8s ease-in-out infinite;
+}
+@keyframes sparkle-pulse {
+  0%, 100% { transform: scale(1);   opacity: .6; }
+  50%      { transform: scale(1.8); opacity: 1;  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lyrics-glyph-sparkle { animation: none; }
+}
 
 /* ── RANGE INPUT ─────────────────────────── */
 
@@ -884,6 +1025,64 @@ input[type="range"]::-webkit-slider-thumb {
 
 input[type="range"]:hover::-webkit-slider-thumb,
 input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
+
+/* ── SEEK BAR (progreso animado) ──────────── */
+.seek {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 16px;
+  display: flex;
+  align-items: center;
+}
+.seek::before {                       /* riel base */
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  transform: translateY(-50%);
+  height: 4px; border-radius: 2px;
+  background: var(--border);
+}
+.seek-fill {                          /* parte ya reproducida */
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: var(--seek-pct, 0%);
+  height: 4px; border-radius: 2px;
+  background: var(--accent);
+  overflow: hidden;                   /* confina el shimmer a lo reproducido */
+  transition: width .12s linear;
+}
+.seek-shimmer {                       /* destello tenue y lento, sólo en play */
+  position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, .5) 50%, transparent 75%);
+  transform: translateX(-100%);
+  animation: seek-shimmer 2.6s ease-in-out infinite;
+}
+@keyframes seek-shimmer { to { transform: translateX(250%); } }
+
+.seek input[type="range"] {
+  position: relative; z-index: 2;
+  flex: 1; width: 100%; height: 16px;
+  margin: 0; background: none;
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+}
+.seek input[type="range"]::-webkit-slider-runnable-track { background: none; border: none; }
+.seek input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--text);
+  opacity: 0;
+  transition: opacity .15s, transform .12s ease;
+}
+/* El thumb crece al hover y, más, al arrastrar/seek. */
+.seek:hover input[type="range"]::-webkit-slider-thumb { opacity: 1; transform: scale(1.15); }
+.seek input[type="range"]:active::-webkit-slider-thumb { opacity: 1; transform: scale(1.4); }
+
+@media (prefers-reduced-motion: reduce) {
+  .seek-shimmer { animation: none; }   /* queda oculto a la izquierda (clip) */
+  .seek input[type="range"]::-webkit-slider-thumb { transition: opacity .15s; }
+}
 
 /* ── LOGIN ─────────────────────────────── */
 
@@ -1170,10 +1369,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   transition: color .15s, background .12s; -webkit-tap-highlight-color: transparent;
 }
 .exp-icon-btn.active { color: var(--accent); }
+/* Info en ámbar también en el player expandido. */
+.exp-info { color: var(--amber-soft); }
+.exp-info.active { color: var(--amber); }
 
 /* ── PANEL DE LETRA ───────────────────────── */
-.lyrics-toggle.active { color: var(--accent); }
-
 .lyrics-panel {
   position: fixed;
   left: 0; right: 0; top: 0;
@@ -1226,6 +1426,70 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .lyrics-empty-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
 .lyrics-empty-sub { font-size: 13px; color: var(--text-muted); }
 .lyrics-loading { margin: auto; color: var(--text-muted); }
+
+/* ── PANEL DE INFORMACIÓN (modal) ─────────── */
+.info-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;                            /* por encima de letra (250) y expandido (200) */
+  background: rgba(0, 0, 0, .55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: info-fade .15s ease;
+}
+@keyframes info-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.info-modal {
+  width: 100%;
+  max-width: 420px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+  animation: info-pop .18s ease;
+}
+@keyframes info-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+
+.info-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.info-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.info-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
+.info-title  { font-size: 16px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.info-close {
+  background: none; border: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: color .15s, background .15s;
+}
+.info-close:hover { color: var(--text); background: var(--surface-2); }
+
+.info-body { padding: 16px 18px 20px; overflow-y: auto; }
+
+.info-grid { display: flex; flex-direction: column; gap: 0; margin: 0; }
+.info-row {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.info-row:last-child { border-bottom: none; }
+.info-row dt { flex-shrink: 0; width: 130px; font-size: 12px; color: var(--text-muted); }
+.info-row dd { margin: 0; font-size: 14px; color: var(--text); font-weight: 500; min-width: 0; word-break: break-word; }
+
+.info-section { margin-top: 18px; }
+.info-section-title { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); font-weight: 700; margin-bottom: 10px; }
+.info-quality { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.info-quality .quality-chip { font-size: 11px; padding: 3px 9px; }
+.info-quality-note { font-size: 12px; color: var(--text-muted); }
 
 .exp-btn.play {
   background: var(--accent);
@@ -1283,11 +1547,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-bar .player-art   { width: 40px; height: 40px; border-radius: 4px; }
   .player-bar .player-art-placeholder { width: 40px; height: 40px; border-radius: 4px; font-size: 18px; }
 
-  /* Hide desktop-only sections in mini bar */
+  /* Mini bar: queda lo esencial (carátula + título + letra + play/siguiente).
+     Lo accesorio (controles centrales, acciones+volumen, calidad, género, cola)
+     se mueve a la vista expandida del player o al menú. */
   .player-controls { display: none; }
-  .player-volume   { display: none; }
+  .player-actions  { display: none; }
   .player-bar .player-quality { display: none; }
   .player-bar .ptp-player     { display: none; }
+
+  /* La letra nunca desaparece: se mantiene encima de la barra mini y el bottom-nav. */
+  .lyrics-panel { bottom: calc(var(--mini-player-h) + var(--bottom-nav-h)); }
 
   /* Show mini controls */
   .player-mini-controls {
@@ -1316,6 +1585,8 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     color: var(--text);
     background: none;
   }
+  /* Botón de letra en la barra mini: morado del tema (con su destello). */
+  .mini-btn.lyrics-mini { color: var(--accent); }
 
   /* Bottom nav — 6 entradas: más compacto para que quepan */
   .bottom-nav {
@@ -1390,4 +1661,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   :root { --sidebar-w: 180px; }
   .main-content { padding: 24px 24px; }
   .album-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); }
+
+  /* Barra del reproductor — tamaño medio: el bloque de metadata cede primero
+     (título · artista · género truncan con … por min-width:0) y el volumen se
+     encoge. El badge de calidad y los botones de control/letra se mantienen. */
+  .player-bar { padding: 0 16px; gap: 12px; }
+  .player-volume input[type="range"] { width: 56px; }
 }

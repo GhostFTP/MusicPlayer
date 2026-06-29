@@ -1,9 +1,9 @@
 // Chip discreto y reutilizable de calidad de audio: "FLAC 16/44.1", "MP3 320"…
 // Se pinta verde cuando la pista es lossless. Acepta `className` extra para
 // ajustar su contexto (lista, player, player expandido).
-export default function QualityChip({ track, className = '' }) {
+export default function QualityChip({ track, className = '', format = 'short' }) {
   if (!track) return null;
-  const label = qualityLabel(track);
+  const label = format === 'full' ? qualityFull(track) : qualityLabel(track);
   if (!label) return null;
 
   const cls = [
@@ -35,6 +35,42 @@ export function qualityLabel(t) {
     return `${fmtName ?? ''} ${Math.round(t.bitrate / 1000)}`.trim();
   }
   return fmtName;
+}
+
+// Cadena de calidad completa para el reproductor: "FLAC · 16-bit · 44.1 kHz · 1029 kbps".
+// Cada parte se omite si su campo viene null/0, así nunca se muestra "undefined".
+export function qualityFull(t) {
+  if (!t) return null;
+  const parts = [];
+  const codec = shortCodec(t.codec) ?? t.codec;
+  if (codec)             parts.push(codec);
+  if (t.bits_per_sample) parts.push(`${t.bits_per_sample}-bit`);
+  if (t.sample_rate) {
+    const khz = t.sample_rate / 1000;
+    parts.push(`${Number.isInteger(khz) ? khz : khz.toFixed(1)} kHz`);
+  }
+  if (t.bitrate)         parts.push(`${Math.round(t.bitrate / 1000)} kbps`);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+// Sólo el códec, para el badge del player (FLAC, MP3…). null si no se conoce.
+export function qualityCodec(t) {
+  if (!t) return null;
+  return shortCodec(t.codec) ?? t.codec ?? null;
+}
+
+// Detalle de calidad SIN el códec: "16-bit · 44.1 kHz · 877 kbps".
+// Omite cada parte que falte; null si no queda nada (nunca "undefined").
+export function qualityDetail(t) {
+  if (!t) return null;
+  const parts = [];
+  if (t.bits_per_sample) parts.push(`${t.bits_per_sample}-bit`);
+  if (t.sample_rate) {
+    const khz = t.sample_rate / 1000;
+    parts.push(`${Number.isInteger(khz) ? khz : khz.toFixed(1)} kHz`);
+  }
+  if (t.bitrate)         parts.push(`${Math.round(t.bitrate / 1000)} kbps`);
+  return parts.length ? parts.join(' · ') : null;
 }
 
 export function qualityTooltip(t) {
