@@ -27,6 +27,10 @@ export const api = {
   // Auth
   login:    (username, password) => request('/api/auth/login',    { method: 'POST', body: JSON.stringify({ username, password }) }),
   register: (username, password) => request('/api/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  // Auto-login vía Cloudflare Access: si la petición pasa por Cloudflare, el edge
+  // inyecta las cabeceras de identidad y el backend devuelve un token. Si no
+  // (red local), responde 401 y caemos al login tradicional.
+  cfLogin:  () => request('/api/auth/cf', { method: 'POST' }),
 
   // Tracks
   tracks:   (params = {}) => request('/api/tracks?' + new URLSearchParams(params)),
