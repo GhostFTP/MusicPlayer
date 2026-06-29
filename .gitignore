@@ -21,3 +21,6 @@ music-server/music/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code — permisos locales (no debe subirse; se trackeaba por error)
+.claude/settings.local.json

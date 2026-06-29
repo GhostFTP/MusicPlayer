@@ -1,6 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import QualityChip from './QualityChip.jsx';
+import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
+import ShuffleButton from './ShuffleButton.jsx';
+
+// Orden de la biblioteca: ALBUMARTIST → álbum → nº de pista → título.
+// Así queda agrupada por artista/álbum y navegable. localeCompare respeta acentos.
+function byArtistAlbumTrack(a, b) {
+  const aa = (a.album_artist || a.artist || '').trim();
+  const ba = (b.album_artist || b.artist || '').trim();
+  let c = aa.localeCompare(ba, 'es', { sensitivity: 'base' });
+  if (c) return c;
+  c = (a.album || '').localeCompare(b.album || '', 'es', { sensitivity: 'base' });
+  if (c) return c;
+  const at = a.track_number ?? 0, bt = b.track_number ?? 0;
+  if (at !== bt) return at - bt;
+  return (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' });
+}
 
 export default function Library() {
   const [tracks,  setTracks]  = useState([]);
@@ -11,8 +28,11 @@ export default function Library() {
   const fetchTracks = useCallback(async (q) => {
     setLoading(true);
     try {
-      const params = q ? { search: q } : {};
-      setTracks(await api.tracks(params));
+      // Hogar central: traemos TODA la biblioteca (no el tope de 50 por defecto).
+      const params = { limit: 10000 };
+      if (q) params.search = q;
+      const data = await api.tracks(params);
+      setTracks([...data].sort(byArtistAlbumTrack));
     } finally {
       setLoading(false);
     }
@@ -22,6 +42,10 @@ export default function Library() {
     const t = setTimeout(() => fetchTracks(search), 280);
     return () => clearTimeout(t);
   }, [search, fetchTracks]);
+
+  const countLabel = search
+    ? `${tracks.length} resultado${tracks.length === 1 ? '' : 's'}`
+    : `${tracks.length} canción${tracks.length === 1 ? '' : 'es'}`;
 
   return (
     <div>
@@ -35,6 +59,12 @@ export default function Library() {
             placeholder="Buscar título, artista, álbum…"
           />
         </div>
+      </div>
+
+      {/* Banner de acción: Mix aleatorio + contador */}
+      <div className="library-actions">
+        <ShuffleButton tracks={tracks} />
+        {!loading && <span className="library-count">{countLabel}</span>}
       </div>
 
       {loading ? (
@@ -51,11 +81,13 @@ export default function Library() {
         <table className="track-table">
           <thead>
             <tr>
-              <th>#</th>
+              <th className="col-num">#</th>
               <th>Título</th>
               <th className="col-artist">Artista</th>
               <th className="col-album">Álbum</th>
-              <th>⏱</th>
+              <th className="col-quality">Calidad</th>
+              <th className="col-time">⏱</th>
+              <th className="col-actions"></th>
             </tr>
           </thead>
           <tbody>
@@ -67,7 +99,7 @@ export default function Library() {
                   className={`track-row${active ? ' playing' : ''}`}
                   onClick={() => play(tracks, i)}
                 >
-                  <td>
+                  <td className="col-num">
                     <span className={`track-num${active ? ' active' : ''}`}>
                       {active && isPlaying ? '▶' : i + 1}
                     </span>
@@ -79,17 +111,27 @@ export default function Library() {
                         ? <img className="track-art" src={coverUrl(track.id)} alt="" />
                         : <div className="track-art-placeholder">♪</div>
                       }
-                      <div>
+                      <div className="track-text">
                         <div className={`track-title${active ? ' active' : ''}`}>
                           {track.title ?? 'Sin título'}
                         </div>
-                        <div className="track-artist">{track.artist ?? '—'}</div>
+                        <div className="track-sub">
+                          <span className="track-artist">{track.artist ?? '—'}</span>
+                          {/* En móvil las columnas colapsan: el chip viaja junto al título */}
+                          <QualityChip track={track} className="chip-inline" />
+                        </div>
                       </div>
                     </div>
                   </td>
                   <td className="col-artist track-artist">{track.artist ?? '—'}</td>
                   <td className="col-album track-album">{track.album ?? '—'}</td>
-                  <td>{fmt(track.duration)}</td>
+                  <td className="col-quality">
+                    <QualityChip track={track} />
+                  </td>
+                  <td className="col-time">{fmt(track.duration)}</td>
+                  <td className="col-actions">
+                    <AddToPlaylistMenu trackId={track.id} />
+                  </td>
                 </tr>
               );
             })}

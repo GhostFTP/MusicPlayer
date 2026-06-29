@@ -1,0 +1,12 @@
+**/node_modules
+music-server/data
+music-server/public
+music-client/dist
+.git
+.gitignore
+.claude
+**/.env*
+*.log
+.DS_Store
+Thumbs.db
+.directory

@@ -1,0 +1,49 @@
+services:
+  musicplayer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true                                  # PID 1 con manejo de señales/zombies
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      MUSIC_DIR: /music
+      # Falla aposta el arranque si no lo defines en Dokploy (evita el default inseguro)
+      JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET en las env vars de Dokploy}
+      # Auto-login vía Cloudflare Access (opcional). Si ambas están vacías, el
+      # auto-login queda desactivado y solo funciona el login por contraseña.
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      # Registro público cerrado por defecto (los usuarios se crean solos vía CF Access).
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+    volumes:
+      # 🎵 Biblioteca de música: host /mnt/storage → contenedor /music, SOLO LECTURA.
+      #    El ":ro" lo impone el kernel: nada del contenedor puede escribir tu música.
+      - /mnt/storage:/music:ro
+      # 💾 Datos persistentes (music.db + WAL + covers/) entre reinicios/redeploys.
+      - musicplayer-data:/app/music-server/data
+    expose:
+      - "3000"                                  # Dokploy/Traefik enruta el dominio a este puerto
+    healthcheck:
+      test: ["CMD","node","-e","fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ☁️ Túnel de Cloudflare (modo token). Expone la app sin abrir puertos en el host.
+  #    El dashboard de Cloudflare enruta musica.lapeñadesantiago.com → este túnel,
+  #    y el Public Hostname del túnel apunta a http://musicplayer:3000.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # Alcanza a la app por NOMBRE de servicio (musicplayer) gracias a la red por
+    # defecto del proyecto Compose: estable ante redeploys, sin depender de IPs.
+    # El token se inyecta desde Dokploy; si falta, el arranque falla con mensaje claro
+    # (mismo patrón que JWT_SECRET en musicplayer).
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?define CLOUDFLARE_TUNNEL_TOKEN en Dokploy}
+    depends_on:
+      - musicplayer
+
+volumes:
+  musicplayer-data:                             # volumen nombrado gestionado por Docker

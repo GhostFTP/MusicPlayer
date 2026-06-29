@@ -27,18 +27,29 @@ export const api = {
   // Auth
   login:    (username, password) => request('/api/auth/login',    { method: 'POST', body: JSON.stringify({ username, password }) }),
   register: (username, password) => request('/api/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  // Auto-login vía Cloudflare Access: si la petición pasa por Cloudflare, el edge
+  // inyecta las cabeceras de identidad y el backend devuelve un token. Si no
+  // (red local), responde 401 y caemos al login tradicional.
+  cfLogin:  () => request('/api/auth/cf', { method: 'POST' }),
 
   // Tracks
   tracks:   (params = {}) => request('/api/tracks?' + new URLSearchParams(params)),
   track:    (id)          => request(`/api/tracks/${id}`),
+  lyrics:   (id)          => request(`/api/tracks/${id}/lyrics`),
 
   // Albums
-  albums:   ()            => request('/api/albums'),
+  albums:   (params = {}) => request('/api/albums?' + new URLSearchParams(params)),
   albumTracks: (album)    => request(`/api/albums/${encodeURIComponent(album)}/tracks`),
+
+  // Browse (géneros / artistas / años)
+  genres:   ()            => request('/api/browse/genres'),
+  artists:  ()            => request('/api/browse/artists'),
+  years:    ()            => request('/api/browse/years'),
 
   // Playlists
   playlists:       ()           => request('/api/playlists'),
-  createPlaylist:  (name)       => request('/api/playlists',                  { method: 'POST', body: JSON.stringify({ name }) }),
+  createPlaylist:  (name)       => request('/api/playlists',                  { method: 'POST',   body: JSON.stringify({ name }) }),
+  renamePlaylist:  (id, name)   => request(`/api/playlists/${id}`,            { method: 'PATCH',  body: JSON.stringify({ name }) }),
   deletePlaylist:  (id)         => request(`/api/playlists/${id}`,            { method: 'DELETE' }),
   playlistTracks:  (id)         => request(`/api/playlists/${id}/tracks`),
   addToPlaylist:   (id, trackId)=> request(`/api/playlists/${id}/tracks`,     { method: 'POST', body: JSON.stringify({ track_id: trackId }) }),

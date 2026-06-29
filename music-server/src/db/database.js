@@ -27,12 +27,20 @@ db.exec(`
     artist        TEXT,
     album         TEXT,
     album_artist  TEXT,
+    genre         TEXT,
     year          INTEGER,
     track_number  INTEGER,
     duration      REAL,
     file_path     TEXT UNIQUE NOT NULL,
     cover_path    TEXT,
+    lrc_path      TEXT,
+    vocals        TEXT,
     mime_type     TEXT DEFAULT 'audio/mpeg',
+    codec           TEXT,
+    bits_per_sample INTEGER,
+    sample_rate     INTEGER,
+    bitrate         INTEGER,
+    lossless        INTEGER,
     scanned_at    TEXT DEFAULT (datetime('now'))
   );
 
@@ -53,5 +61,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
   CREATE INDEX IF NOT EXISTS idx_tracks_album  ON tracks(album);
 `);
+
+// Migración: añade a bases ya existentes las columnas agregadas después del
+// esquema inicial (CREATE TABLE IF NOT EXISTS no modifica tablas ya creadas).
+const trackCols = new Set(db.prepare('PRAGMA table_info(tracks)').all().map(c => c.name));
+const ADDED_COLUMNS = {
+  codec:           'TEXT',
+  bits_per_sample: 'INTEGER',
+  sample_rate:     'INTEGER',
+  bitrate:         'INTEGER',
+  lossless:        'INTEGER',
+  genre:           'TEXT',
+  lrc_path:        'TEXT',
+  vocals:          'TEXT',
+};
+for (const [col, type] of Object.entries(ADDED_COLUMNS)) {
+  if (!trackCols.has(col)) db.exec(`ALTER TABLE tracks ADD COLUMN ${col} ${type}`);
+}
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre);');
 
 export default db;

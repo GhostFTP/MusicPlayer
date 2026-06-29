@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import ShuffleButton from './ShuffleButton.jsx';
 
 export default function Albums() {
   const [albums,   setAlbums]   = useState([]);
@@ -102,7 +103,10 @@ export default function Albums() {
     <div>
       <div className="section-header">
         <h1 className="section-title">Álbumes</h1>
-        <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{albums.length} álbumes</span>
+        <div className="detail-actions">
+          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{albums.length} álbumes</span>
+          <ShuffleButton getTracks={() => api.tracks({ limit: 10000 })} />
+        </div>
       </div>
 
       <div className="album-grid">

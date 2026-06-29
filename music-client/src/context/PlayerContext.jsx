@@ -10,11 +10,20 @@ export function PlayerProvider({ children }) {
   const queueRef    = useRef([]);   // stable refs for event callbacks
   const idxRef      = useRef(-1);
 
+  // Modos de reproducción. Se duplican en refs porque el callback 'ended' del
+  // <audio> se registra una vez y necesita leer el valor actual, no el del montaje.
+  const shuffleRef  = useRef(false);
+  const repeatRef   = useRef('off');         // 'off' | 'all' | 'one'
+  const playedRef   = useRef(new Set());     // índices ya sonados en el ciclo de shuffle
+  const historyRef  = useRef([]);            // orden real de reproducción (para "anterior" en shuffle)
+
   const [currentTrack, setCurrentTrack] = useState(null);
   const [isPlaying,    setIsPlaying]    = useState(false);
   const [currentTime,  setCurrentTime]  = useState(0);
   const [duration,     setDuration]     = useState(0);
   const [volume,       setVolumeState]  = useState(1);
+  const [shuffle,      setShuffle]      = useState(false);
+  const [repeat,       setRepeat]       = useState('off');
 
   // Lazy-init audio element once (avoids SSR issues and StrictMode double-mount)
   function getAudio() {
@@ -29,11 +38,48 @@ export function PlayerProvider({ children }) {
     const track = queueRef.current[idx];
     if (!track) return;
     idxRef.current = idx;
+    playedRef.current.add(idx);            // marca como sonada (regla shuffle sin repetir)
     setCurrentTrack(track);
     const audio = getAudio();
     audio.src = streamUrl(track.id);
     audio.play().catch(() => {});
   }, []);
+
+  // Decide y reproduce la siguiente pista respetando shuffle + repeat.
+  // natural = true cuando la canción terminó sola (la única vez que aplica "repetir una").
+  const playNext = useCallback((natural) => {
+    const len = queueRef.current.length;
+    if (len === 0) return;
+
+    // Repetir una: al terminar sola, vuelve a empezar la misma.
+    if (natural && repeatRef.current === 'one') { playIndex(idxRef.current); return; }
+
+    let nextIdx = -1;
+    if (shuffleRef.current && len > 1) {
+      // candidatas: las que aún no han sonado en este ciclo (sin la actual)
+      let pool = [];
+      for (let i = 0; i < len; i++) {
+        if (i !== idxRef.current && !playedRef.current.has(i)) pool.push(i);
+      }
+      // ciclo agotado: si repetimos la cola, reinicia el ciclo (conserva la actual como sonada)
+      if (pool.length === 0 && repeatRef.current === 'all') {
+        playedRef.current = new Set(idxRef.current >= 0 ? [idxRef.current] : []);
+        for (let i = 0; i < len; i++) if (i !== idxRef.current) pool.push(i);
+      }
+      if (pool.length) nextIdx = pool[Math.floor(Math.random() * pool.length)];
+    } else {
+      const n = idxRef.current + 1;
+      if (n < len) nextIdx = n;
+      else if (repeatRef.current === 'all') nextIdx = 0;   // fin de cola → vuelve a la primera
+    }
+
+    if (nextIdx >= 0) {
+      historyRef.current.push(idxRef.current);
+      playIndex(nextIdx);
+    } else {
+      setIsPlaying(false);                 // fin sin repetición
+    }
+  }, [playIndex]);
 
   useEffect(() => {
     const audio = getAudio();
@@ -44,11 +90,7 @@ export function PlayerProvider({ children }) {
       setCurrentTime(audio.currentTime);
       setDuration(isFinite(audio.duration) ? audio.duration : 0);
     };
-    const onEnded = () => {
-      const next = idxRef.current + 1;
-      if (next < queueRef.current.length) playIndex(next);
-      else setIsPlaying(false);
-    };
+    const onEnded = () => playNext(true);
 
     audio.addEventListener('play',       onPlay);
     audio.addEventListener('pause',      onPause);
@@ -61,7 +103,7 @@ export function PlayerProvider({ children }) {
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('ended',      onEnded);
     };
-  }, [playIndex]);
+  }, [playNext]);
 
   // Keyboard: space = play/pause, ←/→ = seek 10s
   useEffect(() => {
@@ -77,6 +119,8 @@ export function PlayerProvider({ children }) {
 
   const play = useCallback((tracks, startIndex = 0) => {
     queueRef.current = tracks;
+    playedRef.current = new Set();         // nuevo origen de cola → reinicia ciclo shuffle e historial
+    historyRef.current = [];
     playIndex(startIndex);
   }, [playIndex]);
 
@@ -86,14 +130,17 @@ export function PlayerProvider({ children }) {
     else audio.pause();
   }, []);
 
-  const next = useCallback(() => {
-    const n = idxRef.current + 1;
-    if (n < queueRef.current.length) playIndex(n);
-  }, [playIndex]);
+  // "Siguiente" manual: avanza respetando shuffle/repeat, pero ignora "repetir una"
+  // (pulsar siguiente debe pasar de canción, no repetir la misma).
+  const next = useCallback(() => playNext(false), [playNext]);
 
   const prev = useCallback(() => {
     const audio = getAudio();
     if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+    if (shuffleRef.current && historyRef.current.length) {
+      playIndex(historyRef.current.pop());   // en shuffle, "anterior" = la realmente sonada antes
+      return;
+    }
     const p = idxRef.current - 1;
     if (p >= 0) playIndex(p);
   }, [playIndex]);
@@ -108,13 +155,35 @@ export function PlayerProvider({ children }) {
     setVolumeState(v);
   }, []);
 
+  const toggleShuffle = useCallback(() => {
+    setShuffle((s) => {
+      const v = !s;
+      shuffleRef.current = v;
+      if (v) {
+        // al activar: arranca un ciclo nuevo dejando la actual como ya sonada
+        playedRef.current = new Set(idxRef.current >= 0 ? [idxRef.current] : []);
+        historyRef.current = [];
+      }
+      return v;
+    });
+  }, []);
+
+  const cycleRepeat = useCallback(() => {
+    setRepeat((r) => {
+      const nextMode = r === 'off' ? 'all' : r === 'all' ? 'one' : 'off';
+      repeatRef.current = nextMode;
+      return nextMode;
+    });
+  }, []);
+
   const queueIndex = idxRef.current;
 
   return (
     <PlayerContext.Provider value={{
       currentTrack, isPlaying, currentTime, duration, volume, queueIndex,
+      shuffle, repeat,
       queue: queueRef.current,
-      play, togglePlay, next, prev, seek, setVolume,
+      play, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
     }}>
       {children}
     </PlayerContext.Provider>

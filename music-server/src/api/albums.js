@@ -4,9 +4,11 @@ import { authMiddleware } from '../auth/jwt.js';
 
 const router = Router();
 
-// GET /api/albums  — lista todos los álbumes únicos con su carátula
+// GET /api/albums?artist=&year=&genre=  — álbumes únicos (con filtros opcionales)
 router.get('/', authMiddleware, (req, res) => {
-  const albums = db.prepare(`
+  const { artist, year, genre } = req.query;
+
+  let sql = `
     SELECT
       album,
       album_artist,
@@ -14,11 +16,16 @@ router.get('/', authMiddleware, (req, res) => {
       COUNT(*) AS track_count,
       MIN(CASE WHEN cover_path IS NOT NULL THEN id END) AS sample_track_id
     FROM tracks
-    WHERE album IS NOT NULL
-    GROUP BY album, album_artist
-    ORDER BY album_artist, album
-  `).all();
-  res.json(albums);
+    WHERE album IS NOT NULL`;
+  const params = [];
+
+  if (artist) { sql += ' AND album_artist = ?'; params.push(artist); }
+  if (year)   { sql += ' AND year = ?';         params.push(Number(year)); }
+  if (genre)  { sql += ' AND genre = ?';        params.push(genre); }
+
+  sql += ' GROUP BY album, album_artist ORDER BY album_artist, album';
+
+  res.json(db.prepare(sql).all(...params));
 });
 
 // GET /api/albums/:album/tracks
