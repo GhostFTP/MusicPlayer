@@ -13,7 +13,7 @@ const EXPLORE = [
 ];
 
 export default function Sidebar({ view, setView }) {
-  const { user, logout } = useAuth();
+  const { user, logout, loginMethod } = useAuth();
 
   const navList = (items) => (
     <ul className="sidebar-nav">
@@ -44,7 +44,12 @@ export default function Sidebar({ view, setView }) {
       <div className="sidebar-footer">
         <div className="sidebar-user">
           <span>{user?.username ?? 'Usuario'}</span>
-          <button className="btn-logout" onClick={logout}>Salir</button>
+          {/* En SSO (Cloudflare Access) "Salir" no tiene sentido: la identidad
+              vive en el edge y el auto-login volvería a entrar. Solo se muestra
+              en el login tradicional (red local). */}
+          {loginMethod === 'password' && (
+            <button className="btn-logout" onClick={logout}>Salir</button>
+          )}
         </div>
       </div>
     </aside>
