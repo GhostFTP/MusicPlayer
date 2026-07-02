@@ -24,6 +24,13 @@ mkdirSync(COVERS_DIR, { recursive: true });
 // Carpetas excluidas del escaneo (además de cualquier carpeta oculta ".*")
 const IGNORED_DIRS = new Set(['_curador', '.claude']);
 
+// Barrido de huérfanas — límites de seguridad (ver el pruneo al final de scanLibrary):
+//  - GUARD 1: nunca barrer si el walk no encontró NINGÚN archivo (mount caído/vacío).
+//  - GUARD 2: aun con archivos, si el barrido borraría más de PRUNE_MAX_RATIO de la
+//    tabla Y más de PRUNE_MIN_ABS filas, abortar (probable mount PARCIAL). Override: --force-prune.
+const PRUNE_MAX_RATIO = 0.5;   // no borrar de una si supera el 50% de las filas
+const PRUNE_MIN_ABS   = 10;    // por debajo de esto, un % alto igual es poquitas filas → seguro
+
 function* walkDir(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -82,7 +89,36 @@ function readVocals(meta) {
   return null;
 }
 
-export async function scanLibrary(musicDir) {
+// Encuentra las filas huérfanas (archivo inexistente en disco). Solo lectura.
+function findOrphans() {
+  const rows = db.prepare('SELECT id, file_path FROM tracks').all();
+  const orphanIds = rows.filter(r => !r.file_path || !existsSync(r.file_path)).map(r => r.id);
+  return { orphanIds, total: rows.length };
+}
+
+// Borra las filas huérfanas dadas, en una transacción. FK ON → el CASCADE limpia
+// solas las filas de playlist_tracks. Devuelve cuántas pistas y cuántas filas de
+// playlist se fueron (para el log).
+function deleteOrphans(orphanIds) {
+  db.exec('PRAGMA foreign_keys = ON');   // defensivo: el CASCADE a playlist_tracks depende de esto
+  db.exec('PRAGMA busy_timeout = 5000'); // tolera escrituras concurrentes de la app (WAL) sin SQLITE_BUSY
+  const playlistRows = db.prepare(
+    `SELECT COUNT(*) c FROM playlist_tracks WHERE track_id IN (${orphanIds.join(',')})`
+  ).get().c;
+
+  const del = db.prepare('DELETE FROM tracks WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    for (const id of orphanIds) del.run(id);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return { deleted: orphanIds.length, playlistRows };
+}
+
+export async function scanLibrary(musicDir, { prune = true, forcePrune = false } = {}) {
   const files = [...walkDir(resolve(musicDir))];
   console.log(`Found ${files.length} audio files in ${musicDir}`);
 
@@ -141,11 +177,55 @@ export async function scanLibrary(musicDir) {
   }
 
   console.log(`\nDone. Added: ${added}, Updated: ${updated}, Failed: ${failed}`);
+
+  // --- Barrido de huérfanas (filas cuyo archivo ya no existe en disco) ---
+  if (!prune) {
+    console.log('  [PRUNE] Desactivado (--no-prune).');
+    return;
+  }
+  // GUARD 1 — mount caído/vacío: si el walk no halló NINGÚN archivo, barrer
+  // vaciaría la biblioteca entera de la DB. Jamás barrer con files.length === 0.
+  if (files.length === 0) {
+    console.warn('  [PRUNE] 0 archivos hallados: barrido OMITIDO (¿mount caído/vacío?). No se borró nada.');
+    return;
+  }
+
+  const { orphanIds, total } = findOrphans();
+  const n = orphanIds.length;
+  const ratio = total > 0 ? n / total : 0;
+
+  if (n === 0) {
+    console.log('  [PRUNE] Sin huérfanas.');
+    return;
+  }
+  // GUARD 2 — barrido masivo: un mount PARCIAL (pocos archivos, pero no cero) burlaría
+  // el Guard 1 y borraría filas válidas en masa. Si el barrido tocaría más de
+  // PRUNE_MAX_RATIO de la tabla Y más de PRUNE_MIN_ABS filas, abortar y pedir revisión.
+  if (!forcePrune && n > PRUNE_MIN_ABS && ratio > PRUNE_MAX_RATIO) {
+    console.warn(
+      `\n  ⚠️  [PRUNE] ABORTADO: el barrido quería borrar ${n}/${total} filas ` +
+      `(${(ratio * 100).toFixed(0)}% > ${PRUNE_MAX_RATIO * 100}%).\n` +
+      `      Un borrado normal de huérfanas es de pocas filas; esto sugiere un mount PARCIAL\n` +
+      `      o un problema, no una limpieza normal. NO se borró nada.\n` +
+      `      Revisá /music. Si el borrado es intencional, re-corré con --force-prune.`
+    );
+    return;
+  }
+
+  const { deleted, playlistRows } = deleteOrphans(orphanIds);
+  console.log(`  [PRUNE] Huérfanas borradas: ${deleted}` +
+              (playlistRows ? ` (+${playlistRows} filas de playlist por CASCADE)` : ''));
 }
 
-// Si se ejecuta directamente: node src/scanner/index.js [ruta]
-// Ruta: 1º arg de CLI, 2º env MUSIC_DIR (.env), 3º fallback local ../../music.
+// Si se ejecuta directamente: node src/scanner/index.js [ruta] [--no-prune] [--force-prune]
+// Ruta: 1º arg no-flag, 2º env MUSIC_DIR (.env), 3º fallback local ../../music.
+//   --no-prune    : no barrer huérfanas (solo agregar/actualizar).
+//   --force-prune : barrer aunque supere el guard de borrado masivo (Guard 2).
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const musicPath = process.argv[2] ?? process.env.MUSIC_DIR ?? resolve(__dir, '../../music');
-  scanLibrary(musicPath).catch(console.error);
+  const args = process.argv.slice(2);
+  const prune = !args.includes('--no-prune');
+  const forcePrune = args.includes('--force-prune');
+  // 1º arg que no sea flag = ruta; luego env MUSIC_DIR; luego fallback local.
+  const musicPath = args.find(a => !a.startsWith('--')) ?? process.env.MUSIC_DIR ?? resolve(__dir, '../../music');
+  scanLibrary(musicPath, { prune, forcePrune }).catch(console.error);
 }

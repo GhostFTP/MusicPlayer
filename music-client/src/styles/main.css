@@ -345,29 +345,36 @@ body {
   border-color: rgba(74, 222, 128, .30);
 }
 
-/* Badge por tier de calidad (barra + panel de info). Color/caja según el tier;
-   el neutro (q-unknown) usa el gris base del chip. */
-.quality-chip.q-hires {
+/* Color por tier — barra (badge del códec + caja de detalle) y panel de info.
+   Mismo tratamiento para ambas cajas: texto en el color CLARO del tier sobre un
+   fondo translúcido oscuro del mismo tier → alto contraste (no texto oscuro sobre
+   tono claro). El neutro (q-unknown) usa el gris base. */
+.quality-chip.q-hires,
+.player-quality-detail.q-hires {
   color: var(--q-hires);
   background: rgba(34, 211, 238, .10);
   border-color: rgba(34, 211, 238, .32);
 }
-.quality-chip.q-lossless {
+.quality-chip.q-lossless,
+.player-quality-detail.q-lossless {
   color: var(--q-lossless);
   background: rgba(74, 222, 128, .09);
   border-color: rgba(74, 222, 128, .30);
 }
-.quality-chip.q-lossy-high {
+.quality-chip.q-lossy-high,
+.player-quality-detail.q-lossy-high {
   color: var(--q-lossy-high);
   background: rgba(251, 191, 36, .10);
   border-color: rgba(251, 191, 36, .30);
 }
-.quality-chip.q-lossy-low {
+.quality-chip.q-lossy-low,
+.player-quality-detail.q-lossy-low {
   color: var(--q-lossy-low);
   background: rgba(251, 113, 133, .10);
   border-color: rgba(251, 113, 133, .32);
 }
-.quality-chip.q-unknown { color: var(--text-muted); }
+.quality-chip.q-unknown,
+.player-quality-detail.q-unknown { color: var(--text-muted); }
 
 .quality-chip.chip-lg { font-size: 11px; padding: 2px 9px; }
 
@@ -839,14 +846,24 @@ body {
   margin-top: 3px;
 }
 .player-quality-badge { flex-shrink: 0; }
+/* Caja de detalle (16-bit · 44.1 kHz · … ): misma forma que el badge del códec.
+   El color/fondo/borde del tier lo dan las clases .q-* (arriba); acá la forma y
+   el fallback gris (q-unknown). Sigue truncando con … en barra apretada. */
 .player-quality-detail {
   min-width: 0;
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  line-height: 1.7;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: var(--surface-2);
 }
 
 /* Center: controls */

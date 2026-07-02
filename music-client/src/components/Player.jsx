@@ -228,7 +228,7 @@ export default function Player() {
                         {qCodec}
                       </span>
                     )}
-                    {qDetail && <span className="player-quality-detail">{qDetail}</span>}
+                    {qDetail && <span className={`player-quality-detail q-${qTier.id}`}>{qDetail}</span>}
                   </div>
                 )}
               </div>
