@@ -12,14 +12,14 @@ const EXPLORE = [
   { id: 'years',   label: 'Años',     icon: <YearIcon /> },
 ];
 
-export default function Sidebar({ view, setView }) {
+export default function Sidebar({ view, navigate }) {
   const { user, logout, loginMethod } = useAuth();
 
   const navList = (items) => (
     <ul className="sidebar-nav">
       {items.map(v => (
         <li key={v.id}>
-          <button className={view === v.id ? 'active' : ''} onClick={() => setView(v.id)}>
+          <button className={view === v.id ? 'active' : ''} onClick={() => navigate(v.id)}>
             {v.icon}
             {v.label}
           </button>
