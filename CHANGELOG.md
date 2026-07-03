@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [Sin publicar] - 2026-07-02
+## [1.1.0] - 2026-07-02
 
 ### Nuevo
 - **Vista "Ahora reproduciendo" en escritorio.** Se abre con un clic en la
