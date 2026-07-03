@@ -784,6 +784,43 @@ button, input, select, textarea { font-family: inherit; }
 .playlist-emoji { font-size: 22px; line-height: 1; flex-shrink: 0; }
 .pl-title-emoji { margin-right: 8px; }
 
+/* ── Vista Novedades (CHANGELOG) ── */
+.changelog { max-width: 760px; }
+.cl-version { margin-bottom: 34px; }
+.cl-version-head {
+  display: flex; align-items: baseline; gap: 12px;
+  margin-bottom: 18px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.cl-badge {
+  font-size: 15px; font-weight: 700; color: #fff;
+  background: var(--accent); padding: 3px 12px; border-radius: 999px;
+  letter-spacing: .3px;
+}
+.cl-date { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.cl-section { margin-bottom: 18px; }
+.cl-section-title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 10px; color: var(--text-muted);
+}
+.cl-section-title.cl-nuevo    { color: var(--q-lossless); }   /* verde */
+.cl-section-title.cl-mejorado { color: var(--accent); }       /* morado */
+.cl-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.cl-list li {
+  position: relative; padding-left: 18px;
+  font-size: 14px; line-height: 1.55; color: var(--text);
+}
+.cl-list li::before { content: '›'; position: absolute; left: 4px; color: var(--accent); }
+.cl-list strong { font-weight: 700; color: #fff; }
+.cl-list code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px; background: var(--surface-2);
+  padding: 1px 6px; border-radius: 5px;
+}
+
+/* Separación del item "Novedades" respecto a "Explorar" en el sidebar. */
+.sidebar-extra { margin-top: 6px; }
+
 @media (prefers-reduced-motion: reduce) {
   .ptp-menu, .emoji-grid { animation: none; }
   .ptp-new-btn:hover, .ptp-new-btn:active,

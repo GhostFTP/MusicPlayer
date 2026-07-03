@@ -6,6 +6,7 @@ import Artists   from './Artists.jsx';
 import Genres    from './Genres.jsx';
 import Years     from './Years.jsx';
 import Playlists from './Playlists.jsx';
+import Changelog from './Changelog.jsx';
 import Player    from './Player.jsx';
 
 export default function Layout() {
@@ -32,6 +33,7 @@ export default function Layout() {
     genres:    <Genres    {...viewProps} />,
     years:     <Years     {...viewProps} />,
     playlists: <Playlists {...viewProps} />,
+    changelog: <Changelog {...viewProps} />,
   };
 
   return (
