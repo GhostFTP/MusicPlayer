@@ -9,6 +9,13 @@ Reproductor de música personal con streaming desde tu propio servidor. Sirve tu
 - **Autenticación JWT** — acceso protegido con usuario y contraseña
 - **Responsive** — funciona en escritorio, móvil y DAPs (probado en 480×800)
 - **Un solo servidor en producción** — el backend sirve también el frontend compilado
+- **Vista "Ahora reproduciendo"** — pantalla completa con carátula difuminada, dos columnas en escritorio, swipe sobre la carátula para cambiar de canción y Esc para cerrar
+- **Navegación clickeable** — clic en la canción, el artista o el género de la barra te lleva a su álbum, artista o género
+- **Playlists con emoji** — cada playlist puede llevar su propio emoji
+- **Silenciar rápido** — un clic en la bocina silencia y otro restaura el volumen
+- **Novedades in-app** — una sección muestra el CHANGELOG renderizado dentro de la app
+
+> Las novedades de cada versión están en el [CHANGELOG](CHANGELOG.md) (y en la vista **Novedades** dentro de la app).
 
 ## Stack
 
@@ -158,6 +165,7 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 | GET | `/api/playlists/:id/tracks` | Canciones de una playlist |
 | POST | `/api/playlists/:id/tracks` | Añadir canción a playlist |
 | DELETE | `/api/playlists/:id/tracks/:trackId` | Quitar canción de playlist |
+| GET | `/api/changelog` | Notas de versión (CHANGELOG.md) |
 | GET | `/stream/:id` | Stream de audio con Range Requests |
 
 ## Variables de entorno

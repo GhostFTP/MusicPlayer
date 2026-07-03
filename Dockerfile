@@ -34,6 +34,9 @@ WORKDIR /app/music-server
 # Código del server (el .dockerignore excluye node_modules, data, public, .env)
 COPY music-server/ ./
 
+# CHANGELOG.md (raíz del repo) → lo sirve GET /api/changelog para la vista Novedades.
+COPY CHANGELOG.md ./
+
 # node_modules de prod ya compilados, desde el stage build
 COPY --from=build /app/music-server/node_modules ./node_modules
 

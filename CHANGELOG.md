@@ -3,6 +3,18 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.1.1] - 2026-07-02
+
+### Nuevo
+- **Novedades dentro de la app.** Nueva sección en el menú lateral que muestra
+  las notas de cada versión (este mismo historial de cambios) con su fecha y sus
+  cambios, sin salir del reproductor.
+
+### Corregido
+- En la vista Novedades, los puntos que ocupaban varias líneas ya no se cortan
+  ni muestran asteriscos sueltos: se ven completos y con la **negrita** y el
+  `código` bien aplicados.
+
 ## [1.1.0] - 2026-07-02
 
 ### Nuevo

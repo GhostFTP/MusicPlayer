@@ -12,6 +12,10 @@ const EXPLORE = [
   { id: 'years',   label: 'Años',     icon: <YearIcon /> },
 ];
 
+const EXTRA = [
+  { id: 'changelog', label: 'Novedades', icon: <NewsIcon /> },
+];
+
 export default function Sidebar({ view, navigate }) {
   const { user, logout, loginMethod } = useAuth();
 
@@ -41,6 +45,8 @@ export default function Sidebar({ view, navigate }) {
       <p className="sidebar-section-title">Explorar</p>
       <nav>{navList(EXPLORE)}</nav>
 
+      <nav className="sidebar-extra">{navList(EXTRA)}</nav>
+
       <div className="sidebar-footer">
         <div className="sidebar-user">
           <span>{user?.username ?? 'Usuario'}</span>
@@ -58,6 +64,9 @@ export default function Sidebar({ view, navigate }) {
 
 function MusicIcon() {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>;
+}
+function NewsIcon() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>;
 }
 function LibraryIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>;

@@ -54,6 +54,9 @@ export const api = {
   playlistTracks:  (id)         => request(`/api/playlists/${id}/tracks`),
   addToPlaylist:   (id, trackId)=> request(`/api/playlists/${id}/tracks`,     { method: 'POST', body: JSON.stringify({ track_id: trackId }) }),
   removeFromPlaylist: (id, tid) => request(`/api/playlists/${id}/tracks/${tid}`, { method: 'DELETE' }),
+
+  // Novedades (CHANGELOG.md del repo) → { content }
+  changelog:       ()           => request('/api/changelog'),
 };
 
 // URL helpers for src attributes (need token in query param)
