@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
-export default function Albums() {
+export default function Albums({ target, clearTarget }) {
   const [albums,   setAlbums]   = useState([]);
   const [selected, setSelected] = useState(null); // { album, tracks }
   const [loading,  setLoading]  = useState(true);
   const { play, currentTrack } = usePlayer();
+  const activeRowRef = useRef(null);
 
   useEffect(() => {
     api.albums().then(setAlbums).finally(() => setLoading(false));
@@ -17,6 +18,26 @@ export default function Albums() {
     const tracks = await api.albumTracks(album.album);
     setSelected({ ...album, tracks });
   }
+
+  // Consumo del target de navegación (clic en el título de la pista en la barra/
+  // expandido). openAlbum necesita el objeto álbum → lo buscamos en la lista por
+  // album (+ album_artist si vino). Espera a que la lista termine (loading) para
+  // no perder el target. Consumo único: siempre limpia.
+  useEffect(() => {
+    if (!target?.album || loading) return;
+    const found = albums.find(a =>
+      a.album === target.album &&
+      (target.album_artist == null || a.album_artist === target.album_artist)
+    );
+    if (found) openAlbum(found);
+    clearTarget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, loading, albums]);
+
+  // Al abrir un álbum, desplaza la pista que suena a la vista (si está en él).
+  useEffect(() => {
+    if (selected) activeRowRef.current?.scrollIntoView({ block: 'center' });
+  }, [selected]);
 
   if (loading) return <div className="spinner">Cargando álbumes…</div>;
 
@@ -64,6 +85,7 @@ export default function Albums() {
               return (
                 <tr
                   key={track.id}
+                  ref={active ? activeRowRef : null}
                   className={`track-row${active ? ' playing' : ''}`}
                   onClick={() => play(selected.tracks, i)}
                 >

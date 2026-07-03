@@ -91,6 +91,43 @@ export default function Player({ navigate }) {
 
   // Género (integrado al subtítulo) del track enriquecido (quality) o del actual.
   const genre = (quality ?? currentTrack)?.genre ?? null;
+  // album_artist/album confiables: quality (api.track = SELECT *) o el track de la
+  // cola. Para navegar al artista usamos album_artist (NO el `artist` mostrado, que
+  // rompería "Various Artists"/feats). Pueden faltar si la cola vino de
+  // /albums/:album/tracks → en ese caso se resuelven con api.track(id).
+  const albumArtist = (quality ?? currentTrack)?.album_artist ?? null;
+  const album       = (quality ?? currentTrack)?.album ?? null;
+
+  // Navegación desde la barra Y el expandido. stopPropagation (no disparar el
+  // onClick de .player-track en móvil) y cierre del expandido antes de cambiar de
+  // vista. Inertes si falta el dato.
+  const goGenre = (e) => {
+    e.stopPropagation();
+    if (!genre) return;
+    setExpanded(false);
+    navigate('genres', { genre });
+  };
+  const goArtist = async (e) => {
+    e.stopPropagation();
+    if (!currentTrack) return;
+    let artist = albumArtist;
+    if (!artist) { try { artist = (await api.track(currentTrack.id))?.album_artist ?? null; } catch { /* ignore */ } }
+    if (!artist) return;
+    setExpanded(false);
+    navigate('artists', { artist });
+  };
+  const goAlbum = async (e) => {
+    e.stopPropagation();
+    if (!currentTrack) return;
+    let alb = album, aArtist = albumArtist;
+    if (!alb) {
+      try { const full = await api.track(currentTrack.id); alb = full?.album ?? null; aArtist = full?.album_artist ?? null; }
+      catch { /* ignore */ }
+    }
+    if (!alb) return;
+    setExpanded(false);
+    navigate('albums', { album: alb, album_artist: aArtist });
+  };
   // Calidad partida: códec para el badge + resto del detalle como texto gris.
   // El color/caja del badge refleja el tier (hi-res / lossless / lossy…).
   const qCodec = qualityCodec(quality);
@@ -150,9 +187,20 @@ export default function Player({ navigate }) {
           </div>
 
           <div className="exp-meta">
-            <div className="exp-title">{currentTrack?.title ?? 'Sin reproducción'}</div>
+            <div
+              className={`exp-title${currentTrack ? ' exp-link' : ''}`}
+              onClick={currentTrack ? goAlbum : undefined}
+              title={currentTrack ? 'Ir al álbum' : undefined}
+            >
+              {currentTrack?.title ?? 'Sin reproducción'}
+            </div>
             <div className="exp-subline">
-              <span className="exp-artist">{currentTrack?.artist ?? '—'}</span>
+              {currentTrack?.artist
+                ? <span className="exp-artist exp-link" onClick={goArtist} title="Ir al artista">{currentTrack.artist}</span>
+                : <span className="exp-artist">—</span>}
+              {genre && (
+                <span className="exp-genre exp-link" onClick={goGenre} title={`Ver género: ${genre}`}>{genre}</span>
+              )}
               <QualityChip track={quality} format="full" className="chip-lg" />
             </div>
           </div>
@@ -224,15 +272,19 @@ export default function Player({ navigate }) {
             <>
               {art}
               <div className="player-meta">
-                <div className="player-title">{currentTrack.title ?? 'Sin título'}</div>
+                <div className="player-title player-bar-link" onClick={goAlbum} title="Ir al álbum">
+                  {currentTrack.title ?? 'Sin título'}
+                </div>
                 <div className="player-artist">
-                  {currentTrack.artist ?? 'Artista desconocido'}
+                  {currentTrack.artist
+                    ? <span className="player-bar-link" onClick={goArtist} title="Ir al artista">{currentTrack.artist}</span>
+                    : 'Artista desconocido'}
                   {genre && (
                     <>
                       <span className="player-genre"> · </span>
                       <span
-                        className="player-genre player-genre-link"
-                        onClick={(e) => { e.stopPropagation(); navigate('genres', { genre }); }}
+                        className="player-genre player-bar-link"
+                        onClick={goGenre}
                         title={`Ver género: ${genre}`}
                       >
                         {genre}

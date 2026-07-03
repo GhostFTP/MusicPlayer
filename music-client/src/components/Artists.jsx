@@ -4,7 +4,7 @@ import AlbumGrid from './AlbumGrid.jsx';
 import AlbumDetail from './AlbumDetail.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
-export default function Artists() {
+export default function Artists({ target, clearTarget }) {
   const [artists,  setArtists]  = useState(null);
   const [sel,      setSel]      = useState(null);   // artista seleccionado
   const [albums,   setAlbums]   = useState(null);
@@ -17,6 +17,18 @@ export default function Artists() {
     setAlbums(null);
     setAlbums(await api.albums({ artist: a.artist }));
   }
+
+  // Consumo del target de navegación (clic en el artista de la barra/expandido).
+  // El target trae album_artist; la lista se agrupa por album_artist (alias
+  // `artist`), así que el match es directo. Espera a que la lista cargue (deps).
+  // Consumo único: siempre limpia; si no existe, queda en la lista.
+  useEffect(() => {
+    if (!target?.artist || !artists) return;
+    const a = artists.find(x => x.artist === target.artist);
+    if (a) open(a);
+    clearTarget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, artists]);
 
   // ── Álbum abierto desde un artista ──
   if (selAlbum) {

@@ -854,9 +854,10 @@ body {
    al final, cede primero). El género hereda color/tamaño del artista. */
 .player-artist { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .player-genre  { color: var(--text-muted); }
-/* Género clickeable → navega a Géneros y abre ese género. Realce discreto al hover. */
-.player-genre-link { cursor: pointer; transition: color .12s; }
-.player-genre-link:hover { color: var(--text); text-decoration: underline; }
+/* Clickeables de la barra: título→álbum, artista→artista, género→género.
+   Realce discreto al hover, consistente entre sí. */
+.player-bar-link { cursor: pointer; transition: color .12s; }
+.player-bar-link:hover { color: var(--text); text-decoration: underline; }
 
 /* Calidad partida: badge de códec (verde si lossless, gris si no) + detalle en
    texto gris tenue, sin caja. El badge se mantiene; el detalle trunca primero. */
@@ -1378,6 +1379,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   flex-wrap: wrap;
 }
 .exp-subline .exp-artist { margin-top: 0; }
+/* Género en el expandido: mismo tono/tamaño que el artista. */
+.exp-genre { color: var(--text-muted); font-size: 16px; }
+/* Clickeables del expandido: título→álbum, artista→artista, género→género. */
+.exp-link { cursor: pointer; transition: color .12s; }
+.exp-link:hover { color: var(--text); text-decoration: underline; }
 
 .exp-progress { margin-bottom: 8px; }
 .exp-progress input[type="range"] {
