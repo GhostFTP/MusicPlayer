@@ -47,6 +47,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS playlists (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL,
+    emoji      TEXT,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TEXT    DEFAULT (datetime('now'))
   );
@@ -80,5 +81,9 @@ for (const [col, type] of Object.entries(ADDED_COLUMNS)) {
 }
 
 db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre);');
+
+// Migración de playlists: emoji opcional por playlist (bases ya existentes).
+const playlistCols = new Set(db.prepare('PRAGMA table_info(playlists)').all().map(c => c.name));
+if (!playlistCols.has('emoji')) db.exec('ALTER TABLE playlists ADD COLUMN emoji TEXT');
 
 export default db;

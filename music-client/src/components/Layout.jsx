@@ -8,29 +8,43 @@ import Years     from './Years.jsx';
 import Playlists from './Playlists.jsx';
 import Player    from './Player.jsx';
 
-const VIEWS = {
-  library:   <Library />,
-  albums:    <Albums />,
-  artists:   <Artists />,
-  genres:    <Genres />,
-  years:     <Years />,
-  playlists: <Playlists />,
-};
-
 export default function Layout() {
   const [view, setView] = useState('library');
+  const [navTarget, setNavTarget] = useState(null);
+
+  // Navegación central: cambia de vista y (opcionalmente) fija un target para
+  // que la vista destino lo consuma. El menú y el bottom-nav navegan siempre
+  // con target null, así entrar por el menú nunca hereda un target viejo.
+  const navigate = (nextView, target = null) => {
+    setView(nextView);
+    setNavTarget(target);
+  };
+  const clearTarget = () => setNavTarget(null);
+
+  // Canal del target hacia las vistas. Por ahora lo RECIBEN pero no lo usan
+  // (los pasos 3-5 harán que cada vista consuma y limpie su target). Al cambiar
+  // de `view` cada vista se monta/desmonta igual que antes (reset de su estado).
+  const viewProps = { target: navTarget, clearTarget };
+  const VIEWS = {
+    library:   <Library   {...viewProps} />,
+    albums:    <Albums    {...viewProps} />,
+    artists:   <Artists   {...viewProps} />,
+    genres:    <Genres    {...viewProps} />,
+    years:     <Years     {...viewProps} />,
+    playlists: <Playlists {...viewProps} />,
+  };
 
   return (
     <div className="layout">
-      <Sidebar view={view} setView={setView} />
+      <Sidebar view={view} navigate={navigate} />
 
       <main className="main-content">
         {VIEWS[view]}
       </main>
 
-      <Player />
+      <Player navigate={navigate} />
 
-      <BottomNav view={view} setView={setView} />
+      <BottomNav view={view} navigate={navigate} />
     </div>
   );
 }
@@ -44,14 +58,14 @@ const NAV_ITEMS = [
   { id: 'playlists', label: 'Playlists',  icon: <PlaylistIcon /> },
 ];
 
-function BottomNav({ view, setView }) {
+function BottomNav({ view, navigate }) {
   return (
     <nav className="bottom-nav">
       {NAV_ITEMS.map(v => (
         <button
           key={v.id}
           className={`bottom-nav-btn${view === v.id ? ' active' : ''}`}
-          onClick={() => setView(v.id)}
+          onClick={() => navigate(v.id)}
         >
           {v.icon}
           {v.label}

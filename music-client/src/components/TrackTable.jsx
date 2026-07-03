@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { coverUrl } from '../api/client.js';
 import QualityChip from './QualityChip.jsx';
@@ -8,6 +9,12 @@ import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 // `showAlbum`: oculta la columna Álbum cuando el contexto ya es un álbum.
 export default function TrackTable({ tracks, showAlbum = true }) {
   const { play, currentTrack, isPlaying } = usePlayer();
+  const activeRowRef = useRef(null);
+
+  // Al abrir una lista (álbum/género), desplaza la pista que suena a la vista.
+  useEffect(() => {
+    activeRowRef.current?.scrollIntoView({ block: 'center' });
+  }, [tracks]);
 
   return (
     <table className="track-table">
@@ -28,6 +35,7 @@ export default function TrackTable({ tracks, showAlbum = true }) {
           return (
             <tr
               key={track.id}
+              ref={active ? activeRowRef : null}
               className={`track-row${active ? ' playing' : ''}`}
               onClick={() => play(tracks, i)}
             >

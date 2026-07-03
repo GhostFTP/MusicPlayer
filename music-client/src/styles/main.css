@@ -19,12 +19,13 @@
   --q-lossless:    #5ee19a;                /* verde */
   --q-lossy-high:  #fbbf24;                /* ámbar */
   --q-lossy-low:   #fb7185;                /* rojo/naranja */
+  --teal:          #2dd4a7;                /* identidad del botón "+" (playlist) */
   --player-h:      80px;
   --mini-player-h: 64px;
   --bottom-nav-h:  60px;
   --sidebar-w:     220px;
   --radius:        8px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 body {
@@ -32,6 +33,11 @@ body {
   color: var(--text);
   overflow: hidden;
 }
+
+/* Los controles de formulario NO heredan la tipografía por defecto (usan la del
+   navegador) → forzamos la herencia para que botones, sliders e inputs (incluida
+   toda la barra de reproducción) usen el stack global. */
+button, input, select, textarea { font-family: inherit; }
 
 /* ── LAYOUT ─────────────────────────────── */
 
@@ -581,6 +587,7 @@ body {
 
 .new-playlist-form {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-bottom: 24px;
 }
@@ -636,25 +643,34 @@ body {
 
 .ptp-menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
   z-index: 50;
-  width: 232px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 16px 44px rgba(0, 0, 0, .55);
-  padding: 8px;
+  width: 244px;
+  background: rgba(24, 24, 24, .82);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
+  padding: 10px;
   text-align: left;
+  transform-origin: top right;
+  animation: ptp-menu-in .16s ease;
 }
+.ptp-up .ptp-menu     { transform-origin: bottom right; }
+.ptp-player .ptp-menu { transform-origin: bottom left; }
+@keyframes ptp-menu-in { from { opacity: 0; transform: scale(.94) translateY(-4px); } to { opacity: 1; transform: none; } }
 
 .ptp-menu-head {
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
   color: var(--text-muted);
-  padding: 4px 8px 8px;
+  padding: 2px 8px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
 }
 
 .ptp-list {
@@ -668,50 +684,111 @@ body {
 .ptp-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
-  padding: 8px;
-  border-radius: 6px;
+  padding: 8px 10px;
+  border-radius: 9px;
   cursor: pointer;
   font-size: 13.5px;
-  transition: background .12s;
+  transition: background .12s, color .12s;
 }
-.ptp-item:hover { background: var(--surface-hover); }
-.ptp-item-name  { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ptp-item-count { font-size: 11px; color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ptp-item:hover { background: var(--accent-dim); color: #fff; }
+.ptp-item-emoji { font-size: 15px; line-height: 1; flex-shrink: 0; }
+.ptp-item-name  { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptp-item-count {
+  font-size: 11px; color: var(--text-muted); flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  background: rgba(255, 255, 255, .06); padding: 1px 7px; border-radius: 999px;
+}
 
 .ptp-new {
   display: flex;
+  align-items: center;
   gap: 6px;
-  margin-top: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, .07);
 }
 .ptp-new input {
   flex: 1;
   min-width: 0;
-  background: var(--surface-2);
+  background: rgba(255, 255, 255, .05);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text);
   font-size: 13px;
-  padding: 7px 9px;
+  padding: 8px 10px;
   outline: none;
+  transition: border-color .15s;
 }
 .ptp-new input:focus { border-color: var(--accent); }
 .ptp-new-btn {
   background: var(--accent);
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   color: #fff;
   font-size: 17px;
   font-weight: 700;
   width: 34px;
+  height: 34px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: opacity .15s;
+  transition: opacity .15s, transform .12s;
 }
-.ptp-new-btn:hover { opacity: .85; }
+.ptp-new-btn:hover  { opacity: .85; transform: scale(1.05); }
+.ptp-new-btn:active { transform: scale(.94); }
+
+/* ── Emoji picker (crear playlist con emoji) ── */
+.emoji-picker { position: relative; display: inline-flex; flex-shrink: 0; }
+.emoji-picker-btn {
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 34px; height: 34px;
+  font-size: 16px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color .15s, background .15s, transform .12s;
+}
+.emoji-picker-btn:hover { border-color: var(--teal); background: rgba(255, 255, 255, .09); transform: scale(1.05); }
+.emoji-grid {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  width: 224px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  padding: 8px;
+  background: rgba(24, 24, 24, .92);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .6);
+  transform-origin: bottom left;
+  animation: ptp-menu-in .14s ease;
+}
+.emoji-cell {
+  background: none; border: none; cursor: pointer;
+  font-size: 18px; line-height: 1;
+  width: 100%; aspect-ratio: 1;
+  border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .12s, transform .12s;
+}
+.emoji-cell:hover  { background: var(--surface-hover); transform: scale(1.18); }
+.emoji-cell.active { background: var(--accent-dim); }
+
+/* Emoji en la vista Playlists (lista + detalle) */
+.playlist-item-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.playlist-emoji { font-size: 22px; line-height: 1; flex-shrink: 0; }
+.pl-title-emoji { margin-right: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ptp-menu, .emoji-grid { animation: none; }
+  .ptp-new-btn:hover, .ptp-new-btn:active,
+  .emoji-picker-btn:hover, .emoji-cell:hover { transform: none; }
+}
 
 /* Menú hacia arriba (cuando el botón está pegado al fondo, p.ej. el Player) */
 .ptp-up .ptp-menu { top: auto; bottom: calc(100% + 8px); }
@@ -722,12 +799,30 @@ body {
 .ptp-player .ptp-btn,
 .ptp-exp .ptp-btn { opacity: 1; }
 
+/* Identidad del "+": teal (familia con letra=morado/rosa e info=ámbar). Solo en
+   barra y expandido; en listas queda sutil. Hover: pill teal + glow + micro-scale. */
+.ptp-player .ptp-btn,
+.ptp-exp .ptp-btn {
+  color: var(--teal);
+  transition: color .15s, background .15s, transform .15s, box-shadow .15s;
+}
+.ptp-player .ptp-btn:hover,
+.ptp-exp .ptp-btn:hover {
+  color: #0c1512;
+  background: var(--teal);
+  transform: scale(1.12);
+  box-shadow: 0 0 14px rgba(45, 212, 167, .5);
+}
+.ptp-player.active .ptp-btn,
+.ptp-exp.active .ptp-btn { color: var(--teal); background: rgba(45, 212, 167, .16); }
+
 /* Barra inferior: el "+" va a la izquierda → el menú se extiende a la derecha */
 .ptp-player { margin-left: 4px; }
 .ptp-player .ptp-menu { left: 0; right: auto; }
 
-/* Player expandido (móvil): "+" alineado a la derecha del header */
-.ptp-exp { margin-left: auto; }
+/* Player expandido (móvil): "+" alineado a la derecha del header. En desktop el
+   "+" vive en .exp-actions (fila propia) y NO debe empujarse — de ahí el scope. */
+.exp-head-actions .ptp-exp { margin-left: auto; }
 
 /* ── PLAYLIST DETAIL · TITLE / RENAME ───── */
 
@@ -820,6 +915,25 @@ body {
   flex-shrink: 0;
 }
 
+/* La portada es clickeable → abre "Ahora reproduciendo". Realce sutil al hover. */
+.player-art,
+.player-art-placeholder {
+  cursor: pointer;
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+}
+.player-art:hover,
+.player-art-placeholder:hover {
+  transform: scale(1.06);
+  filter: brightness(1.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .45);
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-art,
+  .player-art-placeholder { transition: none; }
+  .player-art:hover,
+  .player-art-placeholder:hover { transform: none; }
+}
+
 /* Bloque de metadata flexible: crece para ocupar el espacio que dejan los
    controles centrados; título y artista truncan con … sólo cuando no caben. */
 .player-meta {
@@ -835,6 +949,10 @@ body {
    al final, cede primero). El género hereda color/tamaño del artista. */
 .player-artist { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .player-genre  { color: var(--text-muted); }
+/* Clickeables de la barra: título→álbum, artista→artista, género→género.
+   Realce discreto al hover, consistente entre sí. */
+.player-bar-link { cursor: pointer; transition: color .12s; }
+.player-bar-link:hover { color: var(--text); text-decoration: underline; }
 
 /* Calidad partida: badge de códec (verde si lossless, gris si no) + detalle en
    texto gris tenue, sin caja. El badge se mantiene; el detalle trunca primero. */
@@ -902,9 +1020,28 @@ body {
 
 /* ── Shuffle con personalidad (item 5) ── */
 .shuffle-wrap { position: relative; display: inline-flex; }
-.shuffle-icon { display: inline-flex; }
+.shuffle-icon { display: inline-flex; transition: filter .2s; }
+/* Hover: "saludo" con wiggle (en el botón, para no chocar con el spin del ícono). */
+.shuffle-btn:hover { animation: shuffle-wiggle .45s ease; }
+@keyframes shuffle-wiggle {
+  0%, 100% { transform: rotate(0); }
+  30%      { transform: rotate(-11deg); }
+  65%      { transform: rotate(9deg); }
+}
+/* Activo: glow morado permanente → se nota "encendido" de un vistazo. */
+.shuffle-btn.active .shuffle-icon { filter: drop-shadow(0 0 5px rgba(167, 139, 250, .65)); }
 .shuffle-icon.spin { animation: shuffle-spin .5s ease; }
 @keyframes shuffle-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* Repeat de la barra: "pop" (scale + leve rotación) al ciclar de modo, en la
+   misma familia que el spin del shuffle. */
+.repeat-icon { display: inline-flex; }
+.repeat-icon.spin { animation: repeat-pop .45s ease; }
+@keyframes repeat-pop {
+  0%   { transform: scale(1)    rotate(0); }
+  45%  { transform: scale(1.28) rotate(18deg); }
+  100% { transform: scale(1)    rotate(0); }
+}
 
 /* Mini-tooltip coqueto: aparece al hover encima del botón. */
 .shuffle-tip {
@@ -947,9 +1084,20 @@ body {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  transition: transform .1s, background .15s;
+  transition: transform .12s, background .15s, box-shadow .15s;
 }
-.ctrl-btn.play:hover { transform: scale(1.06); background: #fff; }
+.ctrl-btn.play:hover  { transform: scale(1.08); background: #fff; box-shadow: 0 0 16px rgba(167, 139, 250, .55); }
+.ctrl-btn.play:active { transform: scale(.92); }
+
+/* Transición play↔pause en la barra: mismo patrón que el expandido (key + scale-in
+   reusando @keyframes exp-icon-swap). */
+.ctrl-play-swap { display: inline-flex; animation: exp-icon-swap .18s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ctrl-play-swap { animation: none; }
+  .shuffle-btn:hover { animation: none; }
+  .ctrl-btn.play:hover, .ctrl-btn.play:active { transform: none; }
+}
 
 .player-progress {
   display: flex;
@@ -959,7 +1107,7 @@ body {
   max-width: 560px;             /* riel más ancho → mejor precisión de seek */
 }
 
-.time-label { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 42px; }
+.time-label { font-size: 12px; font-weight: 500; letter-spacing: .3px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 42px; }
 .time-label.right { text-align: right; }
 
 /* Mobile-only mini controls — hidden on desktop */
@@ -1299,6 +1447,32 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   overflow-y: auto;
 }
 
+/* Fondo del expandido (móvil y desktop): carátula actual difuminada, ampliada
+   para tapar los bordes del blur, con overlay oscuro para que el texto quede
+   legible. Capa fija DEBAJO del contenido del expandido (z-index -1 dentro de su
+   stacking context de z-index 200) → nunca tapa lyrics/info (250/300). */
+.exp-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  filter: blur(28px) saturate(1.3);
+  transform: scale(1.2);
+  animation: exp-bg-in .4s ease;   /* refade al cambiar de canción (via key) */
+  pointer-events: none;
+}
+.exp-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .7);
+}
+@keyframes exp-bg-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .exp-bg { animation: none; }
+}
+
 .exp-header {
   display: flex;
   align-items: center;
@@ -1308,21 +1482,55 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .exp-back {
   background: none;
   border: none;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, .9);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .5);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  padding: 8px 0;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  padding: 8px 12px;
+  margin-left: -12px;            /* el label queda al borde; el hover extiende hacia la izquierda */
+  border-radius: 10px;
   min-height: 44px;
+  transition: background .12s, color .12s;
   -webkit-tap-highlight-color: transparent;
+}
+.exp-back:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.exp-back svg { flex-shrink: 0; transition: transform .18s ease; }
+.exp-back:hover svg { transform: translateY(3px); }   /* chevron se desliza (hint de cerrar) */
+/* Entrada al abrir el expandido: el botón entra deslizando desde la izquierda. */
+.exp-back { animation: exp-back-in .32s ease .04s both; }
+@keyframes exp-back-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+
+/* Overlay del expandido: slide-up (se usa en móvil). */
+@keyframes exp-slide-up { from { transform: translateY(100%); } to { transform: none; } }
+
+/* Bocina clickeable (mute) en barra y expandido. */
+.volume-btn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: inherit; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s;
+}
+.volume-btn:hover  { transform: scale(1.12); }
+.volume-btn:active { transform: scale(.9); }
+
+@media (prefers-reduced-motion: reduce) {
+  .exp-back, .player-expanded { animation: none; }
+  .exp-back:hover svg { transform: none; }
+  .volume-btn:hover, .volume-btn:active { transform: none; }
 }
 
 .exp-art-wrap {
   display: flex;
   justify-content: center;
   margin-bottom: 28px;
+  touch-action: pan-y;   /* swipe horizontal → JS (cambiar pista); vertical → scroll */
+  user-select: none;
 }
 
 .exp-art {
@@ -1356,6 +1564,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   flex-wrap: wrap;
 }
 .exp-subline .exp-artist { margin-top: 0; }
+/* Género en el expandido: mismo tono/tamaño que el artista. */
+.exp-genre { color: var(--text-muted); font-size: 16px; }
+/* Clickeables del expandido: título→álbum, artista→artista, género→género. */
+.exp-link { cursor: pointer; transition: color .12s; }
+.exp-link:hover { color: var(--text); text-decoration: underline; }
 
 .exp-progress { margin-bottom: 8px; }
 .exp-progress input[type="range"] {
@@ -1373,6 +1586,8 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex;
   justify-content: space-between;
   font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .3px;
   color: var(--text-muted);
   margin-bottom: 28px;
   font-variant-numeric: tabular-nums;
@@ -1397,17 +1612,26 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  transition: color .15s, background .12s;
+  transition: color .15s, background .12s, transform .15s, box-shadow .15s;
   -webkit-tap-highlight-color: transparent;
 }
 
-.exp-btn:active { background: var(--surface); color: var(--text); }
+.exp-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, .06);
+  transform: scale(1.08);
+  box-shadow: 0 0 18px rgba(255, 255, 255, .12);
+}
+.exp-btn:active { background: rgba(255, 255, 255, .1); color: var(--text); transform: scale(.92); }
 
 /* Shuffle/Repeat activos en el player expandido */
 .exp-btn.active { color: var(--accent); }
 
 /* Acciones del header del expandido (letra + añadir a playlist) */
 .exp-head-actions { display: flex; align-items: center; gap: 8px; }
+/* Fila de acciones en la columna de info (solo desktop; en móvil se usan las del
+   header). Oculta por defecto. */
+.exp-actions { display: none; }
 .exp-icon-btn {
   background: none; border: none; color: var(--text-muted); cursor: pointer;
   width: 40px; height: 40px; border-radius: 50%;
@@ -1418,6 +1642,73 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 /* Info en ámbar también en el player expandido. */
 .exp-info { color: var(--amber-soft); }
 .exp-info.active { color: var(--amber); }
+
+/* La calidad en el expandido usa el MISMO bloque que la barra (.player-quality);
+   solo neutralizamos su margen superior dentro del subtítulo. */
+.exp-subline .player-quality { margin-top: 0; }
+
+/* Wrappers del cuerpo transparentes por defecto → en móvil el layout de columna
+   del expandido queda EXACTO (header, carátula, meta, progreso, controles…). */
+.exp-body, .exp-col-art, .exp-col-info { display: contents; }
+
+/* Desktop (>700px): expandido tipo Spotify — dos columnas (carátula | info)
+   centradas en pantalla. No afecta el layout móvil (por los wrappers de arriba). */
+@media (min-width: 701px) {
+  .player-expanded { align-items: center; }
+  .exp-header { width: 100%; max-width: 1040px; justify-content: space-between; }
+
+  /* Dos columnas simétricas (1fr/1fr): la carátula se pega al centro por la
+     derecha y la info por la izquierda; columnas iguales → márgenes externos
+     equilibrados y el conjunto centrado en pantalla (no cargado a un lado). */
+  .exp-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    column-gap: 48px;
+    width: 100%;
+    max-width: 1040px;
+    margin: 0 auto;
+    flex: 1 1 auto;               /* ocupa el alto restante → centra vertical */
+    padding-bottom: 24px;
+  }
+  .exp-col-art  { display: flex; justify-self: end; }
+  .exp-col-info {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    justify-self: start;
+    width: 100%;
+    max-width: 460px;
+    min-width: 0;
+  }
+
+  .exp-art, .exp-art-placeholder { width: min(42vw, 460px); }
+
+  /* Reset de márgenes verticales móviles (ahora el gap de la columna da el aire). */
+  .exp-art-wrap, .exp-meta, .exp-progress, .exp-times, .exp-controls { margin-bottom: 0; }
+
+  .exp-title    { font-size: 30px; }
+  .exp-artist   { font-size: 18px; }
+
+  /* Los 3 bloques (progreso, controles, volumen) ocupan el mismo ancho (el de la
+     columna) y quedan alineados al mismo eje. Controles repartidos en ese ancho. */
+  .exp-controls { justify-content: space-between; }
+  .exp-volume   { max-width: none; }
+
+  /* El header queda solo con el botón de cerrar; las acciones bajan a la columna
+     de info, bajo el volumen, alineadas a la izquierda y con buen tamaño de toque. */
+  .exp-head-actions { display: none; }
+  .exp-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .exp-actions .exp-icon-btn { width: 44px; height: 44px; }
+
+  /* Controles del expandido un poco más grandes en desktop. */
+  .exp-btn      { width: 60px; height: 60px; }
+  .exp-btn.play { width: 76px; height: 76px; }
+}
 
 /* ── PANEL DE LETRA ───────────────────────── */
 .lyrics-panel {
@@ -1543,7 +1834,20 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   width: 70px;
   height: 70px;
 }
-.exp-btn.play:active { opacity: .85; }
+.exp-btn.play:hover  { background: var(--accent); transform: scale(1.06); box-shadow: 0 10px 30px rgba(167, 139, 250, .55); }
+.exp-btn.play:active { transform: scale(.94); opacity: .9; }
+
+/* Transición play↔pause: el ícono entra con un breve scale-in (key en JSX). */
+.exp-play-swap { display: inline-flex; animation: exp-icon-swap .18s ease; }
+@keyframes exp-icon-swap { from { opacity: .35; transform: scale(.7); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .exp-btn, .exp-btn:hover, .exp-btn:active,
+  .exp-btn.play:hover, .exp-btn.play:active { transform: none; }
+  .exp-play-swap { animation: none; }
+  .repeat-icon.spin { animation: none; }
+  .ptp-player .ptp-btn:hover, .ptp-exp .ptp-btn:hover { transform: none; }
+}
 
 .exp-volume {
   display: flex;
@@ -1587,7 +1891,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     padding: 0 12px 0 14px;
     grid-template-columns: 1fr auto;
     gap: 8px;
+    cursor: pointer;
+    touch-action: manipulation;          /* sin delay de doble-tap al abrir el expandido */
+    -webkit-tap-highlight-color: transparent;
   }
+
+  /* Entrada del overlay expandido en móvil: slide-up suave. */
+  .player-expanded { animation: exp-slide-up .28s ease; }
 
   .player-bar .player-track { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .player-bar .player-art   { width: 40px; height: 40px; border-radius: 4px; }
@@ -1600,6 +1910,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-actions  { display: none; }
   .player-bar .player-quality { display: none; }
   .player-bar .ptp-player     { display: none; }
+
+  /* ── Player expandido en móvil: aprovechar el alto ──
+     Carátula más grande, centrada en el espacio libre; header arriba y el bloque de
+     info (meta → volumen) abajo con aire. Las dos auto-margins reparten el espacio
+     sobrante a partes iguales (arriba de la carátula y arriba del bloque de info);
+     si el contenido no cabe, colapsan y .player-expanded hace scroll normal. */
+  .exp-art, .exp-art-placeholder { width: min(80vw, 400px); }
+  .exp-art-wrap { margin-top: auto; margin-bottom: 0; }
+  .exp-meta     { margin-top: auto; margin-bottom: 28px; }
+  .exp-controls { margin-bottom: 28px; }
+  .exp-volume   { margin-bottom: 4px; }
 
   /* La letra nunca desaparece: se mantiene encima de la barra mini y el bottom-nav. */
   .lyrics-panel { bottom: calc(var(--mini-player-h) + var(--bottom-nav-h)); }

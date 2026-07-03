@@ -3,10 +3,12 @@ import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import EmojiPicker from './EmojiPicker.jsx';
 
 export default function Playlists() {
   const [playlists, setPlaylists] = useState([]);
   const [newName,   setNewName]   = useState('');
+  const [emoji,     setEmoji]     = useState('🎵');
   const [selected,  setSelected]  = useState(null); // { playlist, tracks }
   const [renaming,  setRenaming]  = useState(false);
   const [renameVal, setRenameVal] = useState('');
@@ -17,9 +19,10 @@ export default function Playlists() {
   async function create(e) {
     e.preventDefault();
     if (!newName.trim()) return;
-    const pl = await api.createPlaylist(newName.trim());
+    const pl = await api.createPlaylist(newName.trim(), emoji);
     setPlaylists(prev => [...prev, { ...pl, track_count: 0 }]);
     setNewName('');
+    setEmoji('🎵');
   }
 
   async function remove(id, e) {
@@ -84,6 +87,7 @@ export default function Playlists() {
             </form>
           ) : (
             <h1 className="section-title pl-title">
+              <span className="pl-title-emoji">{playlist.emoji || '🎵'}</span>
               {playlist.name}
               <button className="btn-icon pl-edit" title="Renombrar" onClick={startRename}>
                 <EditIcon />
@@ -188,6 +192,7 @@ export default function Playlists() {
       </div>
 
       <form className="new-playlist-form" onSubmit={create}>
+        <EmojiPicker value={emoji} onChange={setEmoji} />
         <input
           value={newName}
           onChange={e => setNewName(e.target.value)}
@@ -206,9 +211,12 @@ export default function Playlists() {
         <ul className="playlist-list">
           {playlists.map(pl => (
             <li key={pl.id} className="playlist-item" onClick={() => open(pl)}>
-              <div>
-                <div className="playlist-name">{pl.name}</div>
-                <div className="playlist-meta">{pl.track_count ?? 0} canciones</div>
+              <div className="playlist-item-left">
+                <span className="playlist-emoji">{pl.emoji || '🎵'}</span>
+                <div>
+                  <div className="playlist-name">{pl.name}</div>
+                  <div className="playlist-meta">{pl.track_count ?? 0} canciones</div>
+                </div>
               </div>
               <button className="btn-icon" title="Eliminar" onClick={e => remove(pl.id, e)}>
                 <TrashIcon />
