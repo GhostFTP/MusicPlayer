@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { api } from '../api/client.js';
+import EmojiPicker from './EmojiPicker.jsx';
 
 // Botón "+" por pista: abre un menú para añadirla a una playlist existente
 // o crear una nueva al vuelo. Persiste vía API (no estado local).
@@ -10,6 +11,7 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
   const [open, setOpen]           = useState(false);
   const [playlists, setPlaylists] = useState([]);
   const [newName, setNewName]     = useState('');
+  const [emoji, setEmoji]         = useState('🎵');
   const [done, setDone]           = useState(false);
   const [busy, setBusy]           = useState(false);
   const ref = useRef(null);
@@ -52,9 +54,10 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
     if (!name || busy) return;
     setBusy(true);
     try {
-      const pl = await api.createPlaylist(name);
+      const pl = await api.createPlaylist(name, emoji);
       await api.addToPlaylist(pl.id, trackId);
       setNewName('');
+      setEmoji('🎵');
       setOpen(false);
       flashDone();
     } finally {
@@ -84,6 +87,7 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
             <ul className="ptp-list">
               {playlists.map(pl => (
                 <li key={pl.id} className="ptp-item" onClick={() => addTo(pl)}>
+                  <span className="ptp-item-emoji">{pl.emoji || '🎵'}</span>
                   <span className="ptp-item-name">{pl.name}</span>
                   <span className="ptp-item-count">{pl.track_count ?? 0}</span>
                 </li>
@@ -92,6 +96,7 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
           )}
 
           <form className="ptp-new" onSubmit={createAndAdd}>
+            <EmojiPicker value={emoji} onChange={setEmoji} />
             <input
               value={newName}
               onChange={e => setNewName(e.target.value)}

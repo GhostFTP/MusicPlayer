@@ -48,7 +48,7 @@ export const api = {
 
   // Playlists
   playlists:       ()           => request('/api/playlists'),
-  createPlaylist:  (name)       => request('/api/playlists',                  { method: 'POST',   body: JSON.stringify({ name }) }),
+  createPlaylist:  (name, emoji)=> request('/api/playlists',                  { method: 'POST',   body: JSON.stringify({ name, emoji }) }),
   renamePlaylist:  (id, name)   => request(`/api/playlists/${id}`,            { method: 'PATCH',  body: JSON.stringify({ name }) }),
   deletePlaylist:  (id)         => request(`/api/playlists/${id}`,            { method: 'DELETE' }),
   playlistTracks:  (id)         => request(`/api/playlists/${id}/tracks`),

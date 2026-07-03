@@ -8,7 +8,7 @@ router.use(authMiddleware);
 // GET /api/playlists
 router.get('/', (req, res) => {
   res.json(db.prepare(`
-    SELECT p.id, p.name, p.user_id, p.created_at,
+    SELECT p.id, p.name, p.emoji, p.user_id, p.created_at,
            COUNT(pt.track_id) AS track_count
     FROM playlists p
     LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
@@ -20,10 +20,11 @@ router.get('/', (req, res) => {
 
 // POST /api/playlists
 router.post('/', (req, res) => {
-  const { name } = req.body ?? {};
+  const { name, emoji } = req.body ?? {};
   if (!name) return res.status(400).json({ error: 'name required' });
-  const result = db.prepare('INSERT INTO playlists (name, user_id) VALUES (?, ?)').run(name, req.user.id);
-  res.status(201).json({ id: result.lastInsertRowid, name });
+  const result = db.prepare('INSERT INTO playlists (name, user_id, emoji) VALUES (?, ?, ?)')
+    .run(name, req.user.id, emoji ?? null);
+  res.status(201).json({ id: result.lastInsertRowid, name, emoji: emoji ?? null });
 });
 
 // GET /api/playlists/:id/tracks
