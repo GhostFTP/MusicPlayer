@@ -24,6 +24,7 @@ export default function Genres({ target, clearTarget }) {
   // nada. Siempre limpia el target → consumo único (volver por el menú muestra la
   // lista, no el género anterior). clearTarget queda fuera de deps a propósito.
   useEffect(() => {
+    if (target?.reset) { setSel(null); setTracks(null); clearTarget(); return; }
     if (!target?.genre || !genres) return;
     const g = genres.find(x => x.genre === target.genre);
     if (g) open(g);

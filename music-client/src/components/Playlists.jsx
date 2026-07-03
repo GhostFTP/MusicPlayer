@@ -5,7 +5,7 @@ import QualityChip from './QualityChip.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 
-export default function Playlists() {
+export default function Playlists({ target, clearTarget }) {
   const [playlists, setPlaylists] = useState([]);
   const [newName,   setNewName]   = useState('');
   const [emoji,     setEmoji]     = useState('🎵');
@@ -15,6 +15,14 @@ export default function Playlists() {
   const { play, currentTrack, isPlaying } = usePlayer();
 
   useEffect(() => { api.playlists().then(setPlaylists); }, []);
+
+  // Tap en la pestaña ya activa → salir del detalle (volver a la lista).
+  useEffect(() => {
+    if (!target?.reset) return;
+    setSelected(null);
+    clearTarget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
 
   async function create(e) {
     e.preventDefault();
