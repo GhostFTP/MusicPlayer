@@ -333,7 +333,13 @@ export default function Player({ navigate }) {
       {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} />}
 
       {/* ── Panel de información de la pista (modal) ── */}
-      {showInfo && <InfoPanel track={quality ?? currentTrack} onClose={() => setShowInfo(false)} />}
+      {showInfo && (
+        <InfoPanel
+          track={quality ?? currentTrack}
+          onClose={() => setShowInfo(false)}
+          navigate={(view, target) => { setShowInfo(false); setExpanded(false); navigate(view, target); }}
+        />
+      )}
 
       {/* ── Full-screen expanded player (mobile) ── */}
       {expanded && (

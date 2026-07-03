@@ -1863,15 +1863,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
 .info-modal {
   width: 100%;
-  max-width: 420px;
-  max-height: 80vh;
+  max-width: 440px;
+  max-height: 82vh;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: rgba(24, 24, 24, .85);           /* glass, consistente con el menú de playlists */
+  backdrop-filter: blur(24px) saturate(1.3);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .6);
   animation: info-pop .18s ease;
 }
 @keyframes info-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
@@ -1880,7 +1882,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
   padding: 16px 18px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
 }
 .info-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .info-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
@@ -1899,7 +1901,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .info-row {
   display: flex; align-items: baseline; gap: 12px;
   padding: 9px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
 }
 .info-row:last-child { border-bottom: none; }
 .info-row dt { flex-shrink: 0; width: 130px; font-size: 12px; color: var(--text-muted); }
@@ -1910,6 +1912,59 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .info-quality { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .info-quality .quality-chip { font-size: 11px; padding: 3px 9px; }
 .info-quality-note { font-size: 12px; color: var(--text-muted); }
+
+/* ── Submenú del artista (expandible) ── */
+.info-artist-row {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 10px;
+  padding: 11px 14px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.info-artist-row:hover:not(:disabled) { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .12); }
+.info-artist-row:disabled { cursor: default; }
+.info-artist-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.info-artist-chev { flex-shrink: 0; color: var(--text-muted); transition: transform .22s ease; }
+.info-artist-row.open .info-artist-chev { transform: rotate(180deg); }
+
+/* Expandir/colapsar suave (altura + opacidad) vía grid-template-rows 0fr↔1fr. */
+.info-artist-sub {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows .28s ease, opacity .2s ease;
+}
+.info-artist-sub.open { grid-template-rows: 1fr; opacity: 1; }
+.info-artist-sub-inner { overflow: hidden; min-height: 0; }
+.info-artist-empty { font-size: 13px; color: var(--text-muted); padding: 10px 2px; }
+
+.info-artist-go {
+  margin-top: 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(167, 139, 250, .35);
+  border-radius: 9px;
+  padding: 8px 14px;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, transform .12s, box-shadow .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.info-artist-go:hover  { background: rgba(167, 139, 250, .22); box-shadow: 0 0 14px rgba(167, 139, 250, .3); transform: translateX(2px); }
+.info-artist-go:active { transform: scale(.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  .info-overlay, .info-modal { animation: none; }
+  .info-artist-sub { transition: none; }
+  .info-artist-chev { transition: none; }
+  .info-artist-go:hover, .info-artist-go:active { transform: none; }
+}
 
 .exp-btn.play {
   background: var(--accent);

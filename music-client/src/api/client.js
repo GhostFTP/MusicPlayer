@@ -44,6 +44,7 @@ export const api = {
   // Browse (géneros / artistas / años)
   genres:   ()            => request('/api/browse/genres'),
   artists:  ()            => request('/api/browse/artists'),
+  artistDetail: (artist)  => request('/api/browse/artists/' + encodeURIComponent(artist)),
   years:    ()            => request('/api/browse/years'),
 
   // Playlists
