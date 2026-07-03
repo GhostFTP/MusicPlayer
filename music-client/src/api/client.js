@@ -45,6 +45,7 @@ export const api = {
   genres:   ()            => request('/api/browse/genres'),
   artists:  ()            => request('/api/browse/artists'),
   artistDetail: (artist)  => request('/api/browse/artists/' + encodeURIComponent(artist)),
+  artistInfo:   (name)    => request('/api/info/artist/'    + encodeURIComponent(name)),   // MusicBrainz en vivo
   years:    ()            => request('/api/browse/years'),
 
   // Playlists

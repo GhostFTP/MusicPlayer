@@ -11,6 +11,7 @@ import albumsRoutes    from './src/api/albums.js';
 import browseRoutes    from './src/api/browse.js';
 import playlistRoutes  from './src/api/playlists.js';
 import changelogRoutes from './src/api/changelog.js';
+import infoRoutes      from './src/api/info.js';
 import streamRoutes    from './src/stream/stream.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,7 @@ app.use('/api/albums',    albumsRoutes);
 app.use('/api/browse',    browseRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use('/api/changelog', changelogRoutes);
+app.use('/api/info',      infoRoutes);
 app.use('/stream',        streamRoutes);
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

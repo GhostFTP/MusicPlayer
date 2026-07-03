@@ -1,6 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client.js';
 import { qualityTier, qualityCodec, qualityTierTitle, shortCodec } from './QualityChip.jsx';
+
+// Etiquetas de MusicBrainz legibles en español.
+const MB_TYPE_ES = { Person: 'Solista', Group: 'Grupo', Orchestra: 'Orquesta', Choir: 'Coro', Character: 'Personaje', Other: 'Otro' };
+function mbType(t) { return t ? (MB_TYPE_ES[t] ?? t) : null; }
+function mbYears(mb) {
+  if (!mb?.begin && !mb?.end) return null;
+  const begin = mb.begin ? mb.begin.slice(0, 4) : '¿?';
+  if (mb.end)   return `${begin}–${mb.end.slice(0, 4)}`;
+  if (mb.ended) return begin;                         // terminó, sin fecha de fin conocida
+  return mb.begin ? `${begin}–presente` : null;       // activo
+}
 
 // Duración legible a partir de segundos: "1 h 12 min", "3 min 45 s", "48 s".
 function fmtDuration(sec) {
@@ -83,6 +94,7 @@ function ArtistBlock({ artistName, artistKey, navigate }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
   const [err, setErr] = useState(false);
+  const [mb, setMb] = useState(null);     // datos de MusicBrainz (opcionales)
 
   useEffect(() => {
     if (!open || data || err || !artistKey) return;
@@ -92,6 +104,17 @@ function ArtistBlock({ artistName, artistKey, navigate }) {
       .catch(() => { if (!cancelled) setErr(true); });
     return () => { cancelled = true; };
   }, [open, artistKey, data, err]);
+
+  // Datos EN VIVO de MusicBrainz (opcional): si no hay match o falla, no se muestra
+  // nada extra (solo los datos locales). Se busca por el nombre visible del artista.
+  useEffect(() => {
+    if (!open || mb || !artistName) return;
+    let cancelled = false;
+    api.artistInfo(artistName)
+      .then(d => { if (!cancelled) setMb(d); })
+      .catch(() => { /* MB es opcional: silencioso */ });
+    return () => { cancelled = true; };
+  }, [open, artistName, mb]);
 
   if (!artistName) return null;
   const canExpand = !!artistKey;
@@ -128,6 +151,19 @@ function ArtistBlock({ artistName, artistKey, navigate }) {
                 ['Géneros',   data.genres?.length ? data.genres.join(' · ') : null],
                 ['Calidad',   qParts],
               ]} />
+
+              {mb?.found && (
+                <div className="info-mb">
+                  <InfoRows rows={[
+                    ['Tipo',    mbType(mb.type)],
+                    ['País',    mb.country],
+                    ['Activo',  mbYears(mb)],
+                    ['Géneros', mb.tags?.length ? mb.tags.join(' · ') : null],
+                  ]} />
+                  <span className="info-mb-note">vía MusicBrainz</span>
+                </div>
+              )}
+
               <button className="info-artist-go" onClick={() => navigate('artists', { artist: artistKey })}>
                 Ver artista <span aria-hidden="true">→</span>
               </button>
@@ -143,6 +179,21 @@ function ArtistBlock({ artistName, artistKey, navigate }) {
 // (no biografías ni fuentes externas). Pensado para crecer luego con MusicBrainz.
 export default function InfoPanel({ track, onClose, navigate }) {
   const [album, setAlbum] = useState(null);   // { count, total, summary }
+  const [closing, setClosing] = useState(false);   // animación de cierre antes de desmontar
+  const closingRef = useRef(false);
+  const closeTimer = useRef(null);
+
+  // Cierre orgánico: dispara la animación de salida y recién luego desmonta.
+  // Con movimiento reducido, cierra al instante (sin animación).
+  const requestClose = () => {
+    if (closingRef.current) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { onClose(); return; }
+    closingRef.current = true;
+    setClosing(true);
+    closeTimer.current = setTimeout(onClose, 180);
+  };
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
 
   // Agregados del álbum (para el resumen de calidad) desde /api/tracks?album=…
   // Filtrado por álbum + album_artist para no mezclar homónimos de otros artistas.
@@ -161,11 +212,12 @@ export default function InfoPanel({ track, onClose, navigate }) {
     return () => { cancelled = true; };
   }, [track?.album, track?.album_artist]);
 
-  // Cerrar con Escape.
+  // Cerrar con Escape (animado).
   useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    const onKey = e => { if (e.key === 'Escape') requestClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose]);
 
   if (!track) return null;
@@ -194,9 +246,9 @@ export default function InfoPanel({ track, onClose, navigate }) {
   const artistKey  = track.album_artist || null;
 
   return (
-    <div className="info-overlay" onClick={onClose}>
+    <div className={`info-overlay${closing ? ' closing' : ''}`} onClick={requestClose}>
       <div
-        className="info-modal"
+        className={`info-modal${closing ? ' closing' : ''}`}
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-label="Información de la pista"
@@ -206,7 +258,7 @@ export default function InfoPanel({ track, onClose, navigate }) {
             <span className="info-kicker">Información</span>
             <span className="info-title">{track.title ?? '—'}</span>
           </div>
-          <button className="info-close" onClick={onClose} title="Cerrar">
+          <button className="info-close" onClick={requestClose} title="Cerrar">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
