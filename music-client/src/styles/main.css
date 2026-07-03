@@ -1499,7 +1499,31 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   -webkit-tap-highlight-color: transparent;
 }
 .exp-back:hover { background: rgba(255, 255, 255, .1); color: #fff; }
-.exp-back svg { flex-shrink: 0; }
+.exp-back svg { flex-shrink: 0; transition: transform .18s ease; }
+.exp-back:hover svg { transform: translateY(3px); }   /* chevron se desliza (hint de cerrar) */
+/* Entrada al abrir el expandido: el botón entra deslizando desde la izquierda. */
+.exp-back { animation: exp-back-in .32s ease .04s both; }
+@keyframes exp-back-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+
+/* Overlay del expandido: slide-up (se usa en móvil). */
+@keyframes exp-slide-up { from { transform: translateY(100%); } to { transform: none; } }
+
+/* Bocina clickeable (mute) en barra y expandido. */
+.volume-btn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: inherit; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s;
+}
+.volume-btn:hover  { transform: scale(1.12); }
+.volume-btn:active { transform: scale(.9); }
+
+@media (prefers-reduced-motion: reduce) {
+  .exp-back, .player-expanded { animation: none; }
+  .exp-back:hover svg { transform: none; }
+  .volume-btn:hover, .volume-btn:active { transform: none; }
+}
 
 .exp-art-wrap {
   display: flex;
@@ -1867,7 +1891,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     padding: 0 12px 0 14px;
     grid-template-columns: 1fr auto;
     gap: 8px;
+    cursor: pointer;
+    touch-action: manipulation;          /* sin delay de doble-tap al abrir el expandido */
+    -webkit-tap-highlight-color: transparent;
   }
+
+  /* Entrada del overlay expandido en móvil: slide-up suave. */
+  .player-expanded { animation: exp-slide-up .28s ease; }
 
   .player-bar .player-track { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .player-bar .player-art   { width: 40px; height: 40px; border-radius: 4px; }

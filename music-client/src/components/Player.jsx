@@ -58,6 +58,7 @@ export default function Player({ navigate }) {
   const [repeatSpin, setRepeatSpin] = useState(false);
   const [dragX, setDragX] = useState(0);   // desplazamiento de la carátula al hacer swipe
   const swipe = useRef(null);              // gesto en curso: { x, y, dir } | null
+  const preMuteVol = useRef(0.7);          // volumen a restaurar al quitar el mute
   const player = usePlayer();
   const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
@@ -128,6 +129,14 @@ export default function Player({ navigate }) {
       else if (dx >= SWIPE_THRESHOLD) prev();
     }
     setDragX(0);
+  };
+
+  // Mute: clic en la bocina silencia (guardando el volumen previo) y otro clic lo
+  // restaura. stopPropagation para no abrir el expandido desde la barra.
+  const toggleMute = (e) => {
+    e.stopPropagation();
+    if (volume > 0) { preMuteVol.current = volume; setVolume(0); }
+    else { setVolume(preMuteVol.current > 0 ? preMuteVol.current : 0.7); }
   };
 
   // La portada abre la vista "Ahora reproduciendo" (también en desktop). Lleva
@@ -343,7 +352,14 @@ export default function Player({ navigate }) {
           </div>
 
           <div className="exp-volume">
-            <VolumeIcon muted={volume === 0} color={volumeColor(volume)} />
+            <button
+              className="volume-btn"
+              onClick={toggleMute}
+              title={volume === 0 ? 'Activar sonido' : 'Silenciar'}
+              aria-label={volume === 0 ? 'Activar sonido' : 'Silenciar'}
+            >
+              <VolumeIcon muted={volume === 0} color={volumeColor(volume)} />
+            </button>
             <input
               type="range"
               min={0} max={1} step={0.02}
@@ -503,7 +519,14 @@ export default function Player({ navigate }) {
             <InfoIcon />
           </button>
           <div className="player-volume">
-            <VolumeIcon muted={volume === 0} color={volumeColor(volume)} />
+            <button
+              className="volume-btn"
+              onClick={toggleMute}
+              title={volume === 0 ? 'Activar sonido' : 'Silenciar'}
+              aria-label={volume === 0 ? 'Activar sonido' : 'Silenciar'}
+            >
+              <VolumeIcon muted={volume === 0} color={volumeColor(volume)} />
+            </button>
             <input
               type="range"
               min={0} max={1} step={0.02}
