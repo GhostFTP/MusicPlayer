@@ -44,8 +44,26 @@ const SHUFFLE_PHRASES = [
   'Dale shuffle', 'A ver qué sale', 'Confía en mí', 'Ruleta musical',
 ];
 
-// Umbral (px) del swipe sobre la carátula del expandido para pasar de pista.
-const SWIPE_THRESHOLD = 70;
+// ── Swipe de la carátula del expandido ──────────────────────────────────────
+// Cambia de pista con gesto horizontal, por DISTANCIA (arrastre largo) o por
+// VELOCIDAD (flick corto y rápido). Seguimiento 1:1 hasta RUBBER_LIMIT y luego
+// resistencia progresiva (rubber-band), sin tope duro.
+const DIST_THRESH  = 80;    // px de arrastre para disparar el cambio
+const VEL_THRESH   = 0.5;   // px/ms (flick): a esta velocidad basta poca distancia
+const MIN_FLICK    = 36;    // px mínimos recorridos para aceptar un flick
+const RUBBER_LIMIT = 120;   // px de seguimiento 1:1 antes de la resistencia
+const DUR_OUT      = 250;   // ms de la salida (carta que sale volando)
+const DUR_IN       = 320;   // ms de la entrada (desliza desde abajo + rebote), coincide con el CSS
+
+// Resistencia progresiva más allá de RUBBER_LIMIT (no un clamp seco).
+function rubber(dx) {
+  const a = Math.abs(dx);
+  if (a <= RUBBER_LIMIT) return dx;
+  return Math.sign(dx) * (RUBBER_LIMIT + (a - RUBBER_LIMIT) * 0.28);
+}
+// Feedback sutil durante el arrastre (se ignora si prefers-reduced-motion, en el estilo).
+function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
+function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
 export default function Player({ navigate }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
@@ -56,12 +74,21 @@ export default function Player({ navigate }) {
   const [shufflePhrase, setShufflePhrase] = useState('');
   const [shuffleSpin, setShuffleSpin] = useState(false);
   const [repeatSpin, setRepeatSpin] = useState(false);
-  const [dragX, setDragX] = useState(0);   // desplazamiento de la carátula al hacer swipe
-  const swipe = useRef(null);              // gesto en curso: { x, y, dir } | null
   const preMuteVol = useRef(0.7);          // volumen a restaurar al quitar el mute
   const player = usePlayer();
   const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
+
+  // ── Estado del swipe de la carátula ──
+  const [dragX, setDragX]     = useState(0);                // desplazamiento crudo durante el arrastre
+  const [motion, setMotion]   = useState({ mode: 'idle' }); // idle | drag | out | in | return
+  const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  const [coverTrack, setCoverTrack] = useState(currentTrack); // carátula visible (difiere de currentTrack durante la animación)
+  const gesture   = useRef(null);          // gesto en curso: { x0, y0, dir, lastX, lastT, vx } | null
+  const busy      = useRef(false);         // animación de salida/entrada en curso → ignora gestos nuevos
+  const timers    = useRef([]);            // timeouts de la animación (para limpiarlos)
+  const artRef    = useRef(null);          // nodo de la carátula (ancho para las animaciones)
+  const currentTrackRef = useRef(currentTrack); // último currentTrack (para leerlo dentro de timeouts)
 
   const repeatTitle = repeat === 'one' ? 'Repetir: una canción'
     : repeat === 'all' ? 'Repetir: toda la cola'
@@ -100,35 +127,135 @@ export default function Player({ navigate }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [expanded, showInfo, showLyrics]);
 
-  // Swipe sobre la carátula del expandido para cambiar de pista: izquierda =
-  // siguiente, derecha = anterior. Pointer Events (touch + mouse); touch-action:
-  // pan-y (CSS) deja el scroll vertical al navegador y nos cede el gesto horizontal.
+  // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
+  // Pointer Events (touch + mouse). touch-action: pan-y (CSS) cede el scroll
+  // vertical al navegador y nos deja el gesto horizontal. Un solo elemento: la
+  // carátula vieja SALE hacia el lado del swipe, se cambia la fuente ya fuera de
+  // pantalla y la nueva ENTRA desde el lado opuesto.
+
+  // currentTrack más reciente, legible dentro de los timeouts de la animación.
+  useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
+  // La carátula visible sigue a currentTrack, salvo mientras corre la animación
+  // (ahí se cambia a mano al quedar fuera de pantalla).
+  useEffect(() => { if (!busy.current) setCoverTrack(currentTrack); }, [currentTrack]);
+  // prefers-reduced-motion en vivo.
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const on = () => setReduced(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
+
+  const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
+  // Al cerrar el expandido (o desmontar): corta la animación y resetea, para no
+  // dejar la carátula colgada ni disparar setState de más.
+  useEffect(() => {
+    if (expanded) return;
+    clearTimers(); busy.current = false; gesture.current = null;
+    setMotion({ mode: 'idle' }); setDragX(0);
+  }, [expanded]);
+  useEffect(() => clearTimers, []);
+
+  // Vuelta con spring (bajo el umbral).
+  const springBack = () => {
+    if (reduced) { setMotion({ mode: 'idle' }); setDragX(0); return; }
+    setMotion({ mode: 'return' });
+    setDragX(0);
+    timers.current.push(setTimeout(() => setMotion({ mode: 'idle' }), 520));
+  };
+  // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
+  const cancelGesture = () => {
+    if (!gesture.current) return;
+    const hadH = gesture.current.dir === 'h';
+    gesture.current = null;
+    if (hadH) springBack(); else { setMotion({ mode: 'idle' }); setDragX(0); }
+  };
+  useEffect(() => {
+    const onBlur = () => cancelGesture();
+    window.addEventListener('blur', onBlur);
+    return () => window.removeEventListener('blur', onBlur);
+  });
+
+  // Cambio de pista: dispara al ARRANCAR la salida (respuesta inmediata), no al
+  // terminar. busy corta cualquier gesto nuevo hasta que la entrada acaba.
+  const triggerChange = (dir) => {
+    busy.current = true;
+    if (dir === 'next') next(); else prev();
+    if (reduced) { busy.current = false; setMotion({ mode: 'idle' }); setDragX(0); return; }
+    // la carta sale volando hacia el lado del swipe (bien fuera de pantalla)
+    const w = artRef.current?.offsetWidth || 300;
+    const off = Math.max(w + 280, (window.innerWidth || 800) * 0.85);
+    setMotion({ mode: 'out', outX: dir === 'next' ? -off : off, rot: dir === 'next' ? -18 : 18 });
+    timers.current.push(setTimeout(() => {
+      setCoverTrack(currentTrackRef.current);        // ya fuera de pantalla → intercambia la fuente
+      setMotion({ mode: 'in' });                     // la nueva entra deslizando desde abajo
+      timers.current.push(setTimeout(() => {
+        setMotion({ mode: 'idle' }); setDragX(0); busy.current = false;
+        setCoverTrack(currentTrackRef.current);      // resync final (por si hubo auto-avance)
+      }, DUR_IN + 30));
+    }, DUR_OUT));
+  };
+
   const onArtPointerDown = (e) => {
-    if (!currentTrack) return;
-    swipe.current = { x: e.clientX, y: e.clientY, dir: null };
+    if (busy.current || !currentTrack) return;                             // ignora gestos durante la animación
+    if (e.target.closest?.('button, a, input, [role="button"]')) return;  // no arrancar sobre un control
+    gesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastX: e.clientX, lastT: e.timeStamp, vx: 0 };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
   const onArtPointerMove = (e) => {
-    const s = swipe.current;
-    if (!s || s.dir === 'v') return;
-    const dx = e.clientX - s.x;
-    const dy = e.clientY - s.y;
-    if (s.dir === null) {
+    const g = gesture.current;
+    if (!g || g.dir === 'v') return;
+    const dx = e.clientX - g.x0;
+    const dy = e.clientY - g.y0;
+    if (g.dir === null) {
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;   // aún indeciso
-      s.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';    // fija el eje del gesto
-      if (s.dir === 'v') return;                          // scroll vertical → no capturar
+      g.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';    // fija el eje del gesto
+      if (g.dir === 'v') return;                          // scroll vertical → soltar el gesto
+      setMotion({ mode: 'drag' });
     }
-    setDragX(Math.max(-100, Math.min(100, dx)));          // seguimiento con clamp visual
+    const dt = e.timeStamp - g.lastT;                     // velocidad instantánea suavizada (px/ms)
+    if (dt > 0) { g.vx = g.vx * 0.7 + ((e.clientX - g.lastX) / dt) * 0.3; g.lastX = e.clientX; g.lastT = e.timeStamp; }
+    setDragX(dx);                                         // crudo; el rubber se aplica en el estilo
   };
   const onArtPointerUp = (e) => {
-    const s = swipe.current;
-    swipe.current = null;
-    if (s?.dir === 'h') {
-      const dx = e.clientX - s.x;
-      if (dx <= -SWIPE_THRESHOLD) next();
-      else if (dx >= SWIPE_THRESHOLD) prev();
+    const g = gesture.current;
+    gesture.current = null;
+    if (!g || g.dir !== 'h') { setMotion({ mode: 'idle' }); setDragX(0); return; }
+    const dx = e.clientX - g.x0;
+    const flick = Math.abs(g.vx) > VEL_THRESH && Math.abs(dx) > MIN_FLICK && Math.sign(g.vx) === Math.sign(dx);
+    if (Math.abs(dx) >= DIST_THRESH || flick) triggerChange(dx < 0 ? 'next' : 'prev');
+    else springBack();
+  };
+
+  // Estilo del wrapper según la fase. La SALIDA (out) lanza la carátula vieja
+  // volando hacia el lado del swipe (parte del transform actual del drag,
+  // continuidad). La ENTRADA (in) la hace el keyframe exp-card-in (desde abajo).
+  const wrapStyle = () => {
+    const m = motion.mode;
+    if (m === 'drag') {
+      const x = rubber(dragX);
+      return reduced
+        ? { transform: `translateX(${x}px)`, transition: 'none' }
+        : { transform: `translateX(${x}px) rotate(${dragRotation(x)}deg)`, opacity: dragOpacity(x), transition: 'none', willChange: 'transform' };
     }
-    setDragX(0);
+    if (m === 'out') {
+      // sale volando hacia el lado: translateX grande + subida + rotación marcada,
+      // fade al final (opacity ease-in). Transiciona desde el transform del drag.
+      return {
+        transform: `translateX(${motion.outX}px) translateY(-20px) rotate(${motion.rot}deg)`,
+        opacity: 0,
+        transition: `transform ${DUR_OUT}ms cubic-bezier(.25,.8,.4,1), opacity ${DUR_OUT}ms ease-in`,
+        willChange: 'transform',
+      };
+    }
+    if (m === 'return') {
+      return {
+        transform: 'translateX(0) rotate(0deg)',
+        opacity: 1,
+        transition: reduced ? 'transform .12s linear' : 'transform .52s cubic-bezier(.34,1.42,.6,1), opacity .3s ease',
+      };
+    }
+    return undefined;   // in → keyframe exp-card-in; idle → neutral
   };
 
   // Mute: clic en la bocina silencia (guardando el volumen previo) y otro clic lo
@@ -257,18 +384,17 @@ export default function Player({ navigate }) {
           <div className="exp-body">
             <div className="exp-col-art">
               <div
-                className="exp-art-wrap"
+                ref={artRef}
+                className={`exp-art-wrap${motion.mode === 'in' ? ' exp-card-in' : ''}`}
                 onPointerDown={onArtPointerDown}
                 onPointerMove={onArtPointerMove}
                 onPointerUp={onArtPointerUp}
-                onPointerCancel={onArtPointerUp}
-                style={{
-                  transform: dragX ? `translateX(${dragX}px)` : undefined,
-                  transition: swipe.current ? 'none' : 'transform .3s ease',
-                }}
+                onPointerCancel={cancelGesture}
+                onLostPointerCapture={cancelGesture}
+                style={wrapStyle()}
               >
-                {currentTrack?.cover_path
-                  ? <img className="exp-art" src={coverUrl(currentTrack.id)} alt="" draggable={false} />
+                {coverTrack?.cover_path
+                  ? <img className="exp-art" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
                   : <div className="exp-art-placeholder">♪</div>
                 }
               </div>

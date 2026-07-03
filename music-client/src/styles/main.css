@@ -1482,6 +1482,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   flex-direction: column;
   padding: max(env(safe-area-inset-top), 20px) 28px max(env(safe-area-inset-bottom), 24px);
   overflow-y: auto;
+  overflow-x: hidden;   /* la carta que sale volando se recorta en el borde, sin scroll horizontal */
 }
 
 /* Fondo del expandido (móvil y desktop): carátula actual difuminada, ampliada
@@ -1560,6 +1561,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-back, .player-expanded { animation: none; }
   .exp-back:hover svg { transform: none; }
   .volume-btn:hover, .volume-btn:active { transform: none; }
+  .exp-card-in { animation: none; }   /* swipe sin animación de entrada */
 }
 
 .exp-art-wrap {
@@ -1568,6 +1570,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   margin-bottom: 28px;
   touch-action: pan-y;   /* swipe horizontal → JS (cambiar pista); vertical → scroll */
   user-select: none;
+  backface-visibility: hidden;   /* transform más suave durante el swipe */
+}
+
+/* Swipe estilo baraja: la SALIDA (carta que sale volando) es inline (parte del
+   transform del drag). La ENTRADA es este keyframe: la nueva entra deslizando desde
+   abajo (translateY + scale) con fade-in y un pequeño rebote al asentarse (bezier
+   con overshoot → translateY sube algo por encima de 0 y scale pasa levemente de 1). */
+.exp-card-in { animation: exp-card-in 320ms cubic-bezier(.22, 1.2, .36, 1) both; will-change: transform; }
+@keyframes exp-card-in {
+  from { transform: translateY(40px) scale(.92); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);   opacity: 1; }
 }
 
 .exp-art {
