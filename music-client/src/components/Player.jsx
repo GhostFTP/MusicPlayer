@@ -12,11 +12,6 @@ function fmt(s) {
   return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 }
 
-function progressStyle(value, max) {
-  const pct = max ? (value / max) * 100 : 0;
-  return { background: `linear-gradient(to right, var(--accent) ${pct}%, var(--border) ${pct}%)` };
-}
-
 // Color del relleno del volumen según el nivel: teal calmado (bajo/medio) →
 // ámbar (alto) → rojo (tope). Se interpola para que la transición sea suave.
 const VOL_TEAL  = [45, 212, 191];   // #2dd4bf
@@ -434,13 +429,7 @@ export default function Player({ navigate }) {
           </div>
 
           <div className="exp-progress">
-            <input
-              type="range"
-              min={0} max={duration || 0} step={0.5}
-              value={currentTime}
-              onChange={e => seek(Number(e.target.value))}
-              style={progressStyle(currentTime, duration)}
-            />
+            <SeekBar value={currentTime} max={duration} playing={isPlaying} onSeek={seek} />
           </div>
           <div className="exp-times">
             <span>{fmt(currentTime)}</span>

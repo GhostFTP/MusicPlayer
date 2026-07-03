@@ -852,6 +852,8 @@ button, input, select, textarea { font-family: inherit; }
 }
 .ptp-player.active .ptp-btn,
 .ptp-exp.active .ptp-btn { color: var(--teal); background: rgba(45, 212, 167, .16); }
+.ptp-player .ptp-btn:active,
+.ptp-exp .ptp-btn:active { transform: scale(.9); }   /* press, en familia con los demás */
 
 /* Barra inferior: el "+" va a la izquierda → el menú se extiende a la derecha */
 .ptp-player { margin-left: 4px; }
@@ -1552,7 +1554,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: inline-flex; align-items: center; justify-content: center;
   color: inherit; flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
-  transition: transform .12s;
+  transition: transform .15s ease;
 }
 .volume-btn:hover  { transform: scale(1.12); }
 .volume-btn:active { transform: scale(.9); }
@@ -1621,15 +1623,25 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .exp-link:hover { color: var(--text); text-decoration: underline; }
 
 .exp-progress { margin-bottom: 8px; }
-.exp-progress input[type="range"] {
-  width: 100%;
-  height: 6px;
-  border-radius: 3px;
+/* El progreso del expandido reutiliza .seek (fill + shimmer + thumb). Aquí solo
+   lo agrandamos y le sumamos glow accent en la parte llena y en el thumb. */
+.exp-progress .seek { height: 22px; }
+.exp-progress .seek::before,
+.exp-progress .seek-fill { height: 6px; border-radius: 3px; }
+.exp-progress .seek-fill { box-shadow: 0 0 8px rgba(167, 139, 250, .55); }   /* glow sutil de lo reproducido */
+.exp-progress .seek input[type="range"] { height: 22px; }
+.exp-progress .seek input[type="range"]::-webkit-slider-thumb {
+  width: 16px; height: 16px; opacity: 1; background: #fff;
+  box-shadow: 0 0 0 4px rgba(167, 139, 250, .20);
+  transition: transform .14s ease, box-shadow .14s ease, opacity .15s;
 }
-.exp-progress input[type="range"]::-webkit-slider-thumb {
-  width: 22px;
-  height: 22px;
-  opacity: 1;
+.exp-progress .seek:hover input[type="range"]::-webkit-slider-thumb {
+  transform: scale(1.18);
+  box-shadow: 0 0 0 5px rgba(167, 139, 250, .26), 0 0 14px rgba(167, 139, 250, .6);
+}
+.exp-progress .seek input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 6px rgba(167, 139, 250, .30), 0 0 22px rgba(167, 139, 250, .8);
 }
 
 .exp-times {
@@ -1686,11 +1698,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   background: none; border: none; color: var(--text-muted); cursor: pointer;
   width: 40px; height: 40px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  transition: color .15s, background .12s; -webkit-tap-highlight-color: transparent;
+  transition: color .15s, background .15s, transform .15s, box-shadow .15s;
+  -webkit-tap-highlight-color: transparent;
 }
+/* Hover: scale + glow del color de identidad (letra = morado/rosa); press = scale-down. */
+.exp-icon-btn:hover  { color: var(--text); background: var(--accent-dim); transform: scale(1.12); box-shadow: 0 0 14px rgba(167, 139, 250, .4); }
+.exp-icon-btn:active { transform: scale(.9); }
 .exp-icon-btn.active { color: var(--accent); }
-/* Info en ámbar también en el player expandido. */
+/* Info en ámbar (identidad propia) también en el player expandido. */
 .exp-info { color: var(--amber-soft); }
+.exp-info:hover { color: var(--amber); background: var(--amber-dim); box-shadow: 0 0 14px rgba(251, 191, 36, .4); }
 .exp-info.active { color: var(--amber); }
 
 /* La calidad en el expandido usa el MISMO bloque que la barra (.player-quality);
@@ -1909,10 +1926,30 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   flex: 1;
   height: 6px;
 }
+/* Thumb del volumen: mismo tratamiento que el de progreso (crece al hover/drag +
+   glow). Glow neutro (blanco) para no pelear con el color del nivel. */
 .exp-volume input[type="range"]::-webkit-slider-thumb {
-  width: 22px;
-  height: 22px;
-  opacity: 1;
+  width: 16px; height: 16px; opacity: 1; background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .14);
+  transition: transform .14s ease, box-shadow .14s ease, opacity .15s;
+}
+.exp-volume input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.18);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, .2), 0 0 12px rgba(255, 255, 255, .35);
+}
+.exp-volume input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, .24), 0 0 18px rgba(255, 255, 255, .45);
+}
+
+/* Movimiento reducido: sin scale en thumbs ni en los botones de acciones/"+". */
+@media (prefers-reduced-motion: reduce) {
+  .exp-icon-btn:hover, .exp-icon-btn:active,
+  .ptp-exp .ptp-btn:active, .ptp-player .ptp-btn:active,
+  .exp-progress .seek:hover input[type="range"]::-webkit-slider-thumb,
+  .exp-progress .seek input[type="range"]:active::-webkit-slider-thumb,
+  .exp-volume input[type="range"]:hover::-webkit-slider-thumb,
+  .exp-volume input[type="range"]:active::-webkit-slider-thumb { transform: none; }
 }
 
 /* ── RESPONSIVE — mobile / DAP (≤ 700px) ── */
