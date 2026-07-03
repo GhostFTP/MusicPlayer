@@ -50,6 +50,12 @@ const RUBBER_LIMIT = 120;   // px de seguimiento 1:1 antes de la resistencia
 const DUR_OUT      = 250;   // ms de la salida (carta que sale volando)
 const DUR_IN       = 320;   // ms de la entrada (desliza desde abajo + rebote), coincide con el CSS
 
+// ── Cerrar el expandido deslizando hacia abajo (móvil) ──
+const CLOSE_DIST = 120;   // px de arrastre hacia abajo para cerrar
+const CLOSE_VEL  = 0.55;  // px/ms (flick hacia abajo): a esta velocidad basta poca distancia
+const CLOSE_MIN  = 24;    // px mínimos recorridos para aceptar un flick
+const DUR_CLOSE  = 300;   // ms de la animación de cierre (coincide con la transición del estilo)
+
 // Resistencia progresiva más allá de RUBBER_LIMIT (no un clamp seco).
 function rubber(dx) {
   const a = Math.abs(dx);
@@ -85,6 +91,11 @@ export default function Player({ navigate }) {
   const artRef    = useRef(null);          // nodo de la carátula (ancho para las animaciones)
   const currentTrackRef = useRef(currentTrack); // último currentTrack (para leerlo dentro de timeouts)
 
+  // ── Estado del gesto "deslizar hacia abajo para cerrar" (móvil) ──
+  const [dragY, setDragY] = useState(0);              // desplazamiento vertical del overlay durante el arrastre
+  const [sheet, setSheet] = useState('idle');         // idle | drag | return | closing
+  const vGesture = useRef(null);                      // { x0, y0, dir, lastY, lastT, vy } | null
+
   const repeatTitle = repeat === 'one' ? 'Repetir: una canción'
     : repeat === 'all' ? 'Repetir: toda la cola'
     : 'Repetir: desactivado';
@@ -105,18 +116,17 @@ export default function Player({ navigate }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
-  // Esc en el expandido: cierra primero el panel de letra/info si está abierto;
-  // si no, cierra el expandido (vuelve a donde estabas). Escucha solo mientras
-  // expanded=true y se limpia al cerrar. (InfoPanel también cierra solo con Esc;
-  // el check de showInfo/showLyrics evita que Esc cierre el expandido con un panel
-  // abierto — cierra el panel y recién el siguiente Esc cierra el expandido.)
+  // Esc global del reproductor, por prioridad de lo más "encima": el InfoPanel
+  // (modal, z 300) maneja su propio Esc; luego la Letra —esté o no en el expandido—;
+  // por último, si no hay panel abierto, cierra el expandido. Antes este handler
+  // vivía sólo mientras expanded=true, así que Esc no cerraba la Letra abierta desde
+  // la barra (fuera del expandido); ahora escucha siempre.
   useEffect(() => {
-    if (!expanded) return;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
-      if (showInfo)        setShowInfo(false);
-      else if (showLyrics) setShowLyrics(false);
-      else                 setExpanded(false);
+      if (showInfo)        return;                 // el InfoPanel maneja su propio Esc (cierre animado)
+      else if (showLyrics) setShowLyrics(false);   // cierra la letra donde sea que esté abierta
+      else if (expanded)   setExpanded(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -148,6 +158,7 @@ export default function Player({ navigate }) {
     if (expanded) return;
     clearTimers(); busy.current = false; gesture.current = null;
     setMotion({ mode: 'idle' }); setDragX(0);
+    vGesture.current = null; setSheet('idle'); setDragY(0);   // gesto de cierre por swipe-down
   }, [expanded]);
   useEffect(() => clearTimers, []);
 
@@ -161,12 +172,14 @@ export default function Player({ navigate }) {
   // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
   const cancelGesture = () => {
     if (!gesture.current) return;
-    const hadH = gesture.current.dir === 'h';
+    const d = gesture.current.dir;
     gesture.current = null;
-    if (hadH) springBack(); else { setMotion({ mode: 'idle' }); setDragX(0); }
+    if (d === 'h') springBack();
+    else if (d === 'close') sheetBack();                  // swipe-down desde la carátula
+    else { setMotion({ mode: 'idle' }); setDragX(0); }
   };
   useEffect(() => {
-    const onBlur = () => cancelGesture();
+    const onBlur = () => { cancelGesture(); cancelSheet(); };
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
   });
@@ -194,9 +207,12 @@ export default function Player({ navigate }) {
   const onArtPointerDown = (e) => {
     if (busy.current || !currentTrack) return;                             // ignora gestos durante la animación
     if (e.target.closest?.('button, a, input, [role="button"]')) return;  // no arrancar sobre un control
-    gesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastX: e.clientX, lastT: e.timeStamp, vx: 0 };
+    gesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastX: e.clientX, lastY: e.clientY, lastT: e.timeStamp, vx: 0, vy: 0 };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
+  // Un solo gesto sobre la carátula, con el eje fijado en el primer movimiento:
+  //   horizontal → cambiar de pista · vertical hacia ABAJO (táctil) → cerrar el
+  //   expandido (mismo cierre que el header) · vertical hacia arriba → soltar.
   const onArtPointerMove = (e) => {
     const g = gesture.current;
     if (!g || g.dir === 'v') return;
@@ -204,9 +220,22 @@ export default function Player({ navigate }) {
     const dy = e.clientY - g.y0;
     if (g.dir === null) {
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;   // aún indeciso
-      g.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';    // fija el eje del gesto
-      if (g.dir === 'v') return;                          // scroll vertical → soltar el gesto
-      setMotion({ mode: 'drag' });
+      if (Math.abs(dx) > Math.abs(dy)) {
+        g.dir = 'h';                                       // horizontal → cambiar de pista
+        setMotion({ mode: 'drag' });
+      } else if (dy > 0 && e.pointerType !== 'mouse') {
+        g.dir = 'close';                                   // vertical hacia abajo → cerrar (solo táctil)
+        setSheet('drag');
+      } else {
+        g.dir = 'v';                                       // vertical hacia arriba (o mouse) → soltar
+        return;
+      }
+    }
+    if (g.dir === 'close') {                               // arrastre de cierre desde la carátula
+      const dt = e.timeStamp - g.lastT;
+      if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
+      setDragY(Math.max(0, dy));
+      return;
     }
     const dt = e.timeStamp - g.lastT;                     // velocidad instantánea suavizada (px/ms)
     if (dt > 0) { g.vx = g.vx * 0.7 + ((e.clientX - g.lastX) / dt) * 0.3; g.lastX = e.clientX; g.lastT = e.timeStamp; }
@@ -215,7 +244,14 @@ export default function Player({ navigate }) {
   const onArtPointerUp = (e) => {
     const g = gesture.current;
     gesture.current = null;
-    if (!g || g.dir !== 'h') { setMotion({ mode: 'idle' }); setDragX(0); return; }
+    if (!g) return;
+    if (g.dir === 'close') {                               // swipe-down desde la carátula → cerrar o volver
+      const dy = Math.max(0, e.clientY - g.y0);
+      const flick = g.vy > CLOSE_VEL && dy > CLOSE_MIN;
+      if (dy >= CLOSE_DIST || flick) closeSheet(); else sheetBack();
+      return;
+    }
+    if (g.dir !== 'h') { setMotion({ mode: 'idle' }); setDragX(0); return; }
     const dx = e.clientX - g.x0;
     const flick = Math.abs(g.vx) > VEL_THRESH && Math.abs(dx) > MIN_FLICK && Math.sign(g.vx) === Math.sign(dx);
     if (Math.abs(dx) >= DIST_THRESH || flick) triggerChange(dx < 0 ? 'next' : 'prev');
@@ -251,6 +287,79 @@ export default function Player({ navigate }) {
       };
     }
     return undefined;   // in → keyframe exp-card-in; idle → neutral
+  };
+
+  // ── Cerrar el expandido deslizando hacia abajo (móvil) ──
+  // Mismos patrones que el swipe de carátula (Pointer Events, eje fijado por el
+  // primer movimiento, velocidad suavizada, cancelación limpia). Sólo táctil:
+  // en desktop el cierre sigue siendo Esc / botón "Ahora reproduciendo".
+  // Vuelta con spring si no se alcanza el umbral.
+  const sheetBack = () => {
+    if (reduced) { setSheet('idle'); setDragY(0); return; }
+    setSheet('return');
+    setDragY(0);
+    timers.current.push(setTimeout(() => setSheet('idle'), 360));
+  };
+  // Cierre: el overlay baja fuera de pantalla y recién ahí se desmonta.
+  const closeSheet = () => {
+    if (reduced) { setExpanded(false); return; }
+    setSheet('closing');
+    setDragY(window.innerHeight || 800);
+    timers.current.push(setTimeout(() => setExpanded(false), DUR_CLOSE));
+  };
+  const onSheetPointerDown = (e) => {
+    if (e.pointerType === 'mouse') return;   // sólo táctil (móvil)
+    if (busy.current || sheet === 'closing') return;
+    if (e.target.closest?.('button, a, input, [role="button"]')) return;   // no sobre los botones del header
+    vGesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastY: e.clientY, lastT: e.timeStamp, vy: 0 };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  };
+  const onSheetPointerMove = (e) => {
+    const g = vGesture.current;
+    if (!g || g.dir === 'x' || g.dir === 'up') return;
+    const dx = e.clientX - g.x0;
+    const dy = e.clientY - g.y0;
+    if (g.dir === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;          // aún indeciso
+      if (Math.abs(dx) > Math.abs(dy)) { g.dir = 'x'; return; }  // horizontal → no es cierre
+      if (dy < 0) { g.dir = 'up'; return; }                      // hacia arriba → ignorar (deja el scroll)
+      g.dir = 'y';
+      setSheet('drag');
+    }
+    const dt = e.timeStamp - g.lastT;                            // velocidad vertical suavizada (px/ms)
+    if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
+    setDragY(Math.max(0, dy));                                   // sólo hacia abajo
+  };
+  const onSheetPointerUp = (e) => {
+    const g = vGesture.current;
+    vGesture.current = null;
+    if (!g || g.dir !== 'y') return;
+    const dy = Math.max(0, e.clientY - g.y0);
+    const flick = g.vy > CLOSE_VEL && dy > CLOSE_MIN;
+    if (dy >= CLOSE_DIST || flick) closeSheet();
+    else sheetBack();
+  };
+  // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
+  const cancelSheet = () => {
+    const g = vGesture.current;
+    if (!g) return;
+    const wasY = g.dir === 'y';
+    vGesture.current = null;
+    if (wasY) sheetBack();
+  };
+
+  // Estilo del overlay según la fase del gesto de cierre (translateY + fade sutil).
+  const sheetStyle = () => {
+    if (sheet === 'drag') {
+      return { transform: `translateY(${dragY}px)`, opacity: 1 - Math.min(0.5, dragY / 900), transition: 'none', willChange: 'transform' };
+    }
+    if (sheet === 'closing') {
+      return { transform: `translateY(${dragY}px)`, opacity: 0, transition: `transform ${DUR_CLOSE}ms cubic-bezier(.4,0,.6,1), opacity ${DUR_CLOSE}ms ease` };
+    }
+    if (sheet === 'return') {
+      return { transform: 'translateY(0)', opacity: 1, transition: 'transform .36s cubic-bezier(.34,1.42,.6,1), opacity .2s ease' };
+    }
+    return undefined;   // idle → deja la animación de entrada del CSS (slide-up)
   };
 
   // Mute: clic en la bocina silencia (guardando el volumen previo) y otro clic lo
@@ -319,6 +428,12 @@ export default function Player({ navigate }) {
   const qDetail = qualityDetail(quality);
   const qTier = qualityTier(quality);
 
+  // Color del tiempo transcurrido, por PRIORIDAD: pausa (ámbar) > últimos 15s (rojo)
+  // > normal (lavanda). El color transiciona suave (va en el span estable, no en el
+  // interior que se remonta cada segundo). Al reanudar/cambiar de canción vuelve solo.
+  const ending = duration > 0 && duration - currentTime <= 15;
+  const timeClass = !isPlaying ? ' time-paused' : ending ? ' time-ending' : '';
+
   // Elige una frase distinta a la anterior en cada hover del shuffle.
   const pickShufflePhrase = () => setShufflePhrase(prev => {
     if (SHUFFLE_PHRASES.length < 2) return SHUFFLE_PHRASES[0];
@@ -343,7 +458,7 @@ export default function Player({ navigate }) {
 
       {/* ── Full-screen expanded player (mobile) ── */}
       {expanded && (
-        <div className="player-expanded">
+        <div className="player-expanded" style={sheetStyle()}>
           {/* Fondo: carátula actual difuminada + overlay oscuro. key → refade al
               cambiar de canción. aria-hidden: decorativo. */}
           {currentTrack?.cover_path && (
@@ -354,7 +469,14 @@ export default function Player({ navigate }) {
               aria-hidden="true"
             />
           )}
-          <div className="exp-header">
+          <div
+            className="exp-header"
+            onPointerDown={onSheetPointerDown}
+            onPointerMove={onSheetPointerMove}
+            onPointerUp={onSheetPointerUp}
+            onPointerCancel={cancelSheet}
+            onLostPointerCapture={cancelSheet}
+          >
             <button className="exp-back" onClick={() => setExpanded(false)}>
               <ChevronDown /> Ahora reproduciendo
             </button>
@@ -438,8 +560,10 @@ export default function Player({ navigate }) {
             <SeekBar value={currentTime} max={duration} playing={isPlaying} onSeek={seek} />
           </div>
           <div className="exp-times">
-            <span>{fmt(currentTime)}</span>
-            <span>{fmt(duration)}</span>
+            <span className={`exp-time-elapsed${timeClass}`}>
+              <span key={fmt(currentTime)} className="time-tick">{fmt(currentTime)}</span>
+            </span>
+            <span className="exp-time-total">{fmt(duration)}</span>
           </div>
 
           <div className="exp-controls">
@@ -624,9 +748,11 @@ export default function Player({ navigate }) {
             </button>
           </div>
           <div className="player-progress">
-            <span className="time-label">{fmt(currentTime)}</span>
+            <span className={`time-label time-elapsed${timeClass}`}>
+              <span key={fmt(currentTime)} className="time-tick">{fmt(currentTime)}</span>
+            </span>
             <SeekBar value={currentTime} max={duration} playing={isPlaying} onSeek={seek} />
-            <span className="time-label right">{fmt(duration)}</span>
+            <span className="time-label right time-total">{fmt(duration)}</span>
           </div>
         </div>
 

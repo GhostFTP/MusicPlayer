@@ -9,6 +9,7 @@
   --text:          #f0f0f0;
   --text-muted:    #888888;
   --text-time:     #a8a8a8;                /* tiempos de reproducción: un punto sobre muted */
+  --time-elapsed:  #b7a3f5;                /* tiempo transcurrido: acento suave (lavanda) */
   --accent:        #a78bfa;
   --accent-dim:    #7c3aed33;
   --lyric-pink:    #f472b6;                /* nota + destello del glifo de letra */
@@ -647,7 +648,7 @@ button, input, select, textarea { font-family: inherit; }
   top: calc(100% + 8px);
   right: 0;
   z-index: 50;
-  width: 244px;
+  width: 288px;
   background: rgba(24, 24, 24, .82);
   backdrop-filter: blur(16px) saturate(1.3);
   -webkit-backdrop-filter: blur(16px) saturate(1.3);
@@ -685,20 +686,70 @@ button, input, select, textarea { font-family: inherit; }
 .ptp-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 2px;
   border-radius: 9px;
-  cursor: pointer;
   font-size: 13.5px;
+}
+/* Zona clickeable para añadir (todo menos las acciones de la derecha). */
+.ptp-item-main {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: none; color: inherit; font: inherit; text-align: left;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer;
   transition: background .12s, color .12s;
 }
-.ptp-item:hover { background: var(--accent-dim); color: #fff; }
-.ptp-item-emoji { font-size: 15px; line-height: 1; flex-shrink: 0; }
+.ptp-item-main:hover { background: var(--accent-dim); color: #fff; }
+.ptp-item-emoji {
+  font-size: 18px; line-height: 1; flex-shrink: 0;
+  transition: transform .16s cubic-bezier(.34, 1.5, .6, 1);
+  animation: emoji-pop .32s ease backwards;
+  animation-delay: calc(var(--i, 0) * 28ms);          /* aparición escalonada al abrir el menú */
+}
+.ptp-item-main:hover .ptp-item-emoji { transform: scale(1.18) rotate(-6deg); }
+@keyframes emoji-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
 .ptp-item-name  { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ptp-item-count {
   font-size: 11px; color: var(--text-muted); flex-shrink: 0;
   font-variant-numeric: tabular-nums;
   background: rgba(255, 255, 255, .06); padding: 1px 7px; border-radius: 999px;
+}
+
+/* Acciones por fila (renombrar / borrar): aparecen al hover; en táctil, siempre. */
+.ptp-item-actions { display: flex; gap: 1px; flex-shrink: 0; opacity: 0; transition: opacity .14s; }
+.ptp-item:hover .ptp-item-actions { opacity: 1; }
+@media (hover: none) { .ptp-item-actions { opacity: 1; } }
+
+.ptp-mini-btn {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  width: 27px; height: 27px; border-radius: 7px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+  transition: color .12s, background .12s, transform .12s;
+}
+.ptp-mini-btn:hover  { color: var(--text); background: rgba(255, 255, 255, .09); }
+.ptp-mini-btn:active { transform: scale(.88); }
+.ptp-mini-btn.save { color: var(--q-lossless); }
+.ptp-mini-btn.save:hover { background: rgba(94, 225, 154, .16); }
+.ptp-mini-btn.danger:hover, .ptp-mini-btn.danger-hint:hover {
+  color: var(--q-lossy-low); background: rgba(251, 113, 133, .14);
+}
+
+/* Edición inline (renombrar + emoji) y confirmación de borrado, dentro de la fila. */
+.ptp-item-edit, .ptp-item-confirm {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 4px;
+}
+.ptp-edit-input {
+  flex: 1; min-width: 0;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text); font-size: 13px; padding: 6px 8px; outline: none;
+  transition: border-color .15s;
+}
+.ptp-edit-input:focus { border-color: var(--accent); }
+.ptp-confirm-text {
+  flex: 1; min-width: 0; padding-left: 4px;
+  font-size: 12.5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .ptp-new {
@@ -755,11 +806,11 @@ button, input, select, textarea { font-family: inherit; }
   bottom: calc(100% + 8px);
   left: 0;
   z-index: 60;
-  width: 224px;
+  width: 246px;
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 2px;
-  padding: 8px;
+  gap: 4px;
+  padding: 10px;
   background: rgba(24, 24, 24, .92);
   backdrop-filter: blur(16px) saturate(1.3);
   -webkit-backdrop-filter: blur(16px) saturate(1.3);
@@ -771,14 +822,14 @@ button, input, select, textarea { font-family: inherit; }
 }
 .emoji-cell {
   background: none; border: none; cursor: pointer;
-  font-size: 18px; line-height: 1;
+  font-size: 20px; line-height: 1;
   width: 100%; aspect-ratio: 1;
-  border-radius: 8px;
+  border-radius: 9px;
   display: inline-flex; align-items: center; justify-content: center;
-  transition: background .12s, transform .12s;
+  transition: background .12s, transform .14s cubic-bezier(.34, 1.5, .6, 1);
 }
-.emoji-cell:hover  { background: var(--surface-hover); transform: scale(1.18); }
-.emoji-cell.active { background: var(--accent-dim); }
+.emoji-cell:hover  { background: var(--surface-hover); transform: scale(1.25); }
+.emoji-cell.active { background: var(--accent-dim); box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 /* Emoji en la vista Playlists (lista + detalle) */
 .playlist-item-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -826,6 +877,13 @@ button, input, select, textarea { font-family: inherit; }
   .ptp-menu, .emoji-grid { animation: none; }
   .ptp-new-btn:hover, .ptp-new-btn:active,
   .emoji-picker-btn:hover, .emoji-cell:hover { transform: none; }
+  .ptp-item-emoji { animation: none; transition: none; }
+  .ptp-item-main:hover .ptp-item-emoji { transform: none; }
+  .ptp-mini-btn:active { transform: none; }
+  /* Tiempos y letra: sin micro-animaciones ni glow animado. */
+  .time-tick, .time-ending .time-tick { animation: none; }   /* cuenta regresiva: solo color, sin pulso */
+  .lyrics-panel { animation: none; }
+  .lyrics-line { transition: none; }
 }
 
 /* Menú hacia arriba (cuando el botón está pegado al fondo, p.ej. el Player) */
@@ -1164,6 +1222,25 @@ button, input, select, textarea { font-family: inherit; }
 
 .time-label { font-size: 13px; font-weight: 600; letter-spacing: .5px; color: var(--text-time); font-variant-numeric: tabular-nums; min-width: 44px; }
 .time-label.right { text-align: right; }
+
+/* Tiempo transcurrido con vida: acento suave (lavanda) + micro-latido al cambiar
+   de dígito. El total queda sutil. tabular-nums evita que los dígitos "bailen". */
+.time-label.time-elapsed, .exp-time-elapsed { color: var(--time-elapsed); transition: color .45s ease; }
+.time-label.time-total,   .exp-time-total   { color: var(--text-muted); }
+.time-tick { display: inline-block; animation: time-tick .22s ease; }
+@keyframes time-tick { from { opacity: .5; transform: translateY(-1px); } to { opacity: 1; transform: none; } }
+
+/* Cuenta regresiva (últimos 15s de la pista): transcurrido en rojo con transición
+   suave de color (heredada por el .time-tick interno) + un pulso sutil por segundo. */
+.time-label.time-elapsed.time-ending, .exp-time-elapsed.time-ending { color: var(--q-lossy-low); }
+.time-ending .time-tick { animation: time-pulse .6s ease; }
+/* Pausa: transcurrido en ÁMBAR (prioridad sobre el rojo de la cuenta regresiva). */
+.time-label.time-elapsed.time-paused, .exp-time-elapsed.time-paused { color: var(--amber); }
+@keyframes time-pulse {
+  0%   { transform: scale(1);    text-shadow: none; }
+  30%  { transform: scale(1.14); text-shadow: 0 0 10px rgba(251, 113, 133, .65); }
+  100% { transform: scale(1);    text-shadow: none; }
+}
 
 /* Mobile-only mini controls — hidden on desktop */
 .player-mini-controls { display: none; }
@@ -1586,7 +1663,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex;
   justify-content: center;
   margin-bottom: 28px;
-  touch-action: pan-y;   /* swipe horizontal → JS (cambiar pista); vertical → scroll */
+  touch-action: none;    /* el JS maneja el gesto: horizontal = cambiar pista; abajo = cerrar */
   user-select: none;
   backface-visibility: hidden;   /* transform más suave durante el swipe */
 }
@@ -1799,17 +1876,19 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   left: 0; right: 0; top: 0;
   bottom: var(--player-h);                 /* deja visible la barra del reproductor */
   z-index: 250;                            /* por encima del player expandido (200) */
-  background: linear-gradient(180deg, #0d0d13 0%, #0a0a0a 100%);
-  border-top: 1px solid var(--border);
+  background: rgba(13, 13, 19, .72);       /* glassmorphism, en familia con el panel de Info */
+  backdrop-filter: blur(30px) saturate(1.3);
+  -webkit-backdrop-filter: blur(30px) saturate(1.3);
+  border-top: 1px solid rgba(255, 255, 255, .08);
   display: flex;
   flex-direction: column;
-  animation: lyrics-in .18s ease;
+  animation: lyrics-in .3s cubic-bezier(.22, 1, .36, 1);
 }
-@keyframes lyrics-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes lyrics-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 
 .lyrics-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 28px; border-bottom: 1px solid var(--border);
+  padding: 18px 28px; border-bottom: 1px solid rgba(255, 255, 255, .08);
 }
 .lyrics-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .lyrics-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
@@ -1820,24 +1899,34 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex; align-items: center; justify-content: center;
   transition: color .15s, background .15s;
 }
-.lyrics-close:hover { color: var(--text); background: var(--surface); }
+.lyrics-close:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
 
 .lyrics-body {
   flex: 1; overflow-y: auto;
   padding: 44px 28px 80px;
   display: flex; flex-direction: column; align-items: center;
+  /* Degradado de desvanecido arriba/abajo: las líneas lejanas a la activa
+     (centrada) se atenúan suavemente hacia los bordes del panel. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 82%, transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 82%, transparent 100%);
 }
 
 .lyrics-synced, .lyrics-plain { width: 100%; max-width: 640px; text-align: center; }
 
 .lyrics-line {
   font-size: 22px; font-weight: 600; line-height: 1.5;
-  color: var(--text-muted); opacity: .45;
+  color: var(--text-muted); opacity: .38;
   margin: 0; padding: 8px 6px; cursor: pointer;
-  transition: color .2s, opacity .2s, transform .2s;
+  transition: color .28s ease, opacity .28s ease,
+              transform .28s cubic-bezier(.22, 1, .36, 1), text-shadow .28s ease;
 }
-.lyrics-line:hover { opacity: .75; }
-.lyrics-line.active { color: var(--accent); opacity: 1; transform: scale(1.05); }
+.lyrics-line:hover { opacity: .8; }
+.lyrics-line.near  { opacity: .68; }                 /* vecinas inmediatas: un punto más vivas */
+.lyrics-line.active {
+  color: var(--accent); opacity: 1; font-weight: 700;
+  transform: scale(1.08);
+  text-shadow: 0 0 20px rgba(167, 139, 250, .45);    /* glow sutil */
+}
 
 .lyrics-plain p { font-size: 18px; line-height: 1.75; color: var(--text); margin: 0 0 2px; white-space: pre-wrap; }
 
@@ -1874,9 +1963,15 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 24px 64px rgba(0, 0, 0, .6);
-  animation: info-pop .18s ease;
+  animation: info-pop .28s cubic-bezier(.34, 1.42, .5, 1);   /* entrada con spring sutil */
 }
-@keyframes info-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes info-pop { from { opacity: 0; transform: translateY(10px) scale(.94); } to { opacity: 1; transform: none; } }
+
+/* Cierre orgánico: fade + scale-down antes de desmontar (Esc, clic fuera o botón). */
+.info-overlay.closing { animation: info-fade-out .18s ease forwards; }
+.info-modal.closing   { animation: info-pop-out  .18s ease forwards; }
+@keyframes info-fade-out { to { opacity: 0; } }
+@keyframes info-pop-out  { to { opacity: 0; transform: translateY(6px) scale(.93); } }
 
 .info-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -1958,6 +2053,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 .info-artist-go:hover  { background: rgba(167, 139, 250, .22); box-shadow: 0 0 14px rgba(167, 139, 250, .3); transform: translateX(2px); }
 .info-artist-go:active { transform: scale(.97); }
+
+/* Datos en vivo de MusicBrainz: bajo los locales, separados por una línea sutil. */
+.info-mb {
+  margin-top: 10px; padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, .12);
+}
+.info-mb-note {
+  display: block; margin-top: 4px;
+  font-size: 10.5px; letter-spacing: .3px; color: var(--text-muted);
+  font-style: italic; opacity: .8;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .info-overlay, .info-modal { animation: none; }
@@ -2057,6 +2163,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   /* Entrada del overlay expandido en móvil: slide-up suave. */
   .player-expanded { animation: exp-slide-up .28s ease; }
+
+  /* El header actúa como "asa" para cerrar con swipe-down: le cedemos el gesto al JS
+     (touch-action: none) y ampliamos la zona de agarre a ~100px (franja superior del
+     overlay), con los botones arriba (align-items: flex-start). Los botones siguen
+     funcionando; el drag arranca en el espacio libre de esa franja. */
+  .exp-header { touch-action: none; min-height: 100px; align-items: flex-start; }
 
   .player-bar .player-track { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .player-bar .player-art   { width: 40px; height: 40px; border-radius: 4px; }
