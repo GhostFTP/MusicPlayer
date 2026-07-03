@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
@@ -44,6 +44,9 @@ const SHUFFLE_PHRASES = [
   'Dale shuffle', 'A ver qué sale', 'Confía en mí', 'Ruleta musical',
 ];
 
+// Umbral (px) del swipe sobre la carátula del expandido para pasar de pista.
+const SWIPE_THRESHOLD = 70;
+
 export default function Player({ navigate }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
@@ -52,6 +55,9 @@ export default function Player({ navigate }) {
   const [showInfo, setShowInfo] = useState(false);
   const [shufflePhrase, setShufflePhrase] = useState('');
   const [shuffleSpin, setShuffleSpin] = useState(false);
+  const [repeatSpin, setRepeatSpin] = useState(false);
+  const [dragX, setDragX] = useState(0);   // desplazamiento de la carátula al hacer swipe
+  const swipe = useRef(null);              // gesto en curso: { x, y, dir } | null
   const player = usePlayer();
   const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
@@ -76,9 +82,57 @@ export default function Player({ navigate }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
+  // Esc en el expandido: cierra primero el panel de letra/info si está abierto;
+  // si no, cierra el expandido (vuelve a donde estabas). Escucha solo mientras
+  // expanded=true y se limpia al cerrar. (InfoPanel también cierra solo con Esc;
+  // el check de showInfo/showLyrics evita que Esc cierre el expandido con un panel
+  // abierto — cierra el panel y recién el siguiente Esc cierra el expandido.)
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (showInfo)        setShowInfo(false);
+      else if (showLyrics) setShowLyrics(false);
+      else                 setExpanded(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded, showInfo, showLyrics]);
+
+  // Swipe sobre la carátula del expandido para cambiar de pista: izquierda =
+  // siguiente, derecha = anterior. Pointer Events (touch + mouse); touch-action:
+  // pan-y (CSS) deja el scroll vertical al navegador y nos cede el gesto horizontal.
+  const onArtPointerDown = (e) => {
+    if (!currentTrack) return;
+    swipe.current = { x: e.clientX, y: e.clientY, dir: null };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  };
+  const onArtPointerMove = (e) => {
+    const s = swipe.current;
+    if (!s || s.dir === 'v') return;
+    const dx = e.clientX - s.x;
+    const dy = e.clientY - s.y;
+    if (s.dir === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;   // aún indeciso
+      s.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';    // fija el eje del gesto
+      if (s.dir === 'v') return;                          // scroll vertical → no capturar
+    }
+    setDragX(Math.max(-100, Math.min(100, dx)));          // seguimiento con clamp visual
+  };
+  const onArtPointerUp = (e) => {
+    const s = swipe.current;
+    swipe.current = null;
+    if (s?.dir === 'h') {
+      const dx = e.clientX - s.x;
+      if (dx <= -SWIPE_THRESHOLD) next();
+      else if (dx >= SWIPE_THRESHOLD) prev();
+    }
+    setDragX(0);
+  };
+
   // La portada abre la vista "Ahora reproduciendo" (también en desktop). Lleva
-  // stopPropagation porque .player-track tiene su propio onClick (abrir en móvil):
-  // el clic en la portada no debe disparar ambos. Inerte si no hay pista.
+  // stopPropagation porque .player-bar abre el expandido en cualquier zona libre:
+  // el clic en la portada ya lo abre y no debe re-disparar. Inerte si no hay pista.
   const openExpanded = (e) => {
     if (!currentTrack) return;
     e.stopPropagation();
@@ -153,6 +207,16 @@ export default function Player({ navigate }) {
       {/* ── Full-screen expanded player (mobile) ── */}
       {expanded && (
         <div className="player-expanded">
+          {/* Fondo: carátula actual difuminada + overlay oscuro. key → refade al
+              cambiar de canción. aria-hidden: decorativo. */}
+          {currentTrack?.cover_path && (
+            <div
+              key={currentTrack.id}
+              className="exp-bg"
+              style={{ backgroundImage: `url(${coverUrl(currentTrack.id)})` }}
+              aria-hidden="true"
+            />
+          )}
           <div className="exp-header">
             <button className="exp-back" onClick={() => setExpanded(false)}>
               <ChevronDown /> Ahora reproduciendo
@@ -183,9 +247,19 @@ export default function Player({ navigate }) {
               wrappers son display:contents y el layout de columna queda igual. */}
           <div className="exp-body">
             <div className="exp-col-art">
-              <div className="exp-art-wrap">
+              <div
+                className="exp-art-wrap"
+                onPointerDown={onArtPointerDown}
+                onPointerMove={onArtPointerMove}
+                onPointerUp={onArtPointerUp}
+                onPointerCancel={onArtPointerUp}
+                style={{
+                  transform: dragX ? `translateX(${dragX}px)` : undefined,
+                  transition: swipe.current ? 'none' : 'transform .3s ease',
+                }}
+              >
                 {currentTrack?.cover_path
-                  ? <img className="exp-art" src={coverUrl(currentTrack.id)} alt="" />
+                  ? <img className="exp-art" src={coverUrl(currentTrack.id)} alt="" draggable={false} />
                   : <div className="exp-art-placeholder">♪</div>
                 }
               </div>
@@ -251,7 +325,9 @@ export default function Player({ navigate }) {
               <PrevIcon size={28} />
             </button>
             <button className="exp-btn play" onClick={togglePlay}>
-              {isPlaying ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
+              <span key={isPlaying ? 'pause' : 'play'} className="exp-play-swap">
+                {isPlaying ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
+              </span>
             </button>
             <button className="exp-btn" onClick={next}>
               <NextIcon size={28} />
@@ -276,19 +352,42 @@ export default function Player({ navigate }) {
               style={volumeFillStyle(volume)}
             />
           </div>
+
+          {/* Acciones (letra, info, +): en desktop van aquí, bajo el volumen; en
+              móvil se ocultan (CSS) y se usan las del header. */}
+          <div className="exp-actions">
+            <button
+              className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
+              onClick={() => setShowLyrics(v => !v)}
+              title="Letra"
+            >
+              <LyricsGlyph size={22} />
+            </button>
+            <button
+              className={`exp-icon-btn exp-info${showInfo ? ' active' : ''}`}
+              onClick={() => setShowInfo(v => !v)}
+              disabled={!currentTrack}
+              title="Información de la pista"
+            >
+              <InfoIcon size={22} />
+            </button>
+            {currentTrack && (
+              <AddToPlaylistMenu trackId={currentTrack.id} className="ptp-exp" placement="up" />
+            )}
+          </div>
             </div>{/* /exp-col-info */}
           </div>{/* /exp-body */}
         </div>
       )}
 
       {/* ── Player bar (desktop full / mobile mini) ── */}
-      <div className="player-bar">
+      {/* Clic en CUALQUIER zona libre de la barra (huecos alrededor de controles,
+          seek y volumen) abre el expandido. Cada control interactivo corta la
+          propagación para no dispararlo. */}
+      <div className="player-bar" onClick={() => setExpanded(true)}>
 
-        {/* Track info — tappable on mobile to open expanded */}
-        <div
-          className="player-track"
-          onClick={() => { if (window.innerWidth <= 700) setExpanded(true); }}
-        >
+        {/* Track info (portada, links y "+" cortan la propagación) */}
+        <div className="player-track">
           {currentTrack ? (
             <>
               {art}
@@ -342,7 +441,7 @@ export default function Player({ navigate }) {
             <div className="shuffle-wrap">
               <button
                 className={`ctrl-btn shuffle-btn${shuffle ? ' active' : ''}`}
-                onClick={() => { toggleShuffle(); setShuffleSpin(true); }}
+                onClick={e => { e.stopPropagation(); toggleShuffle(); setShuffleSpin(true); }}
                 onMouseEnter={pickShufflePhrase}
                 aria-pressed={shuffle}
                 aria-label={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
@@ -356,18 +455,25 @@ export default function Player({ navigate }) {
               </button>
               <span className="shuffle-tip" aria-hidden="true">{shufflePhrase || SHUFFLE_PHRASES[0]}</span>
             </div>
-            <button className="ctrl-btn" onClick={prev} title="Anterior (←)"><PrevIcon /></button>
-            <button className="ctrl-btn play" onClick={togglePlay} title="Play/Pause (Espacio)">
-              {isPlaying ? <PauseIcon /> : <PlayIcon />}
+            <button className="ctrl-btn" onClick={e => { e.stopPropagation(); prev(); }} title="Anterior (←)"><PrevIcon /></button>
+            <button className="ctrl-btn play" onClick={e => { e.stopPropagation(); togglePlay(); }} title="Play/Pause (Espacio)">
+              <span key={isPlaying ? 'pause' : 'play'} className="ctrl-play-swap">
+                {isPlaying ? <PauseIcon /> : <PlayIcon />}
+              </span>
             </button>
-            <button className="ctrl-btn" onClick={next} title="Siguiente (→)"><NextIcon /></button>
+            <button className="ctrl-btn" onClick={e => { e.stopPropagation(); next(); }} title="Siguiente (→)"><NextIcon /></button>
             <button
               className={`ctrl-btn${repeat !== 'off' ? ' active' : ''}`}
-              onClick={cycleRepeat}
+              onClick={e => { e.stopPropagation(); cycleRepeat(); setRepeatSpin(true); }}
               aria-pressed={repeat !== 'off'}
               title={repeatTitle}
             >
-              {repeat === 'one' ? <RepeatOneIcon /> : <RepeatIcon />}
+              <span
+                className={`repeat-icon${repeatSpin ? ' spin' : ''}`}
+                onAnimationEnd={() => setRepeatSpin(false)}
+              >
+                {repeat === 'one' ? <RepeatOneIcon /> : <RepeatIcon />}
+              </span>
             </button>
           </div>
           <div className="player-progress">
@@ -381,7 +487,7 @@ export default function Player({ navigate }) {
         <div className="player-actions">
           <button
             className={`action-btn lyrics-btn${showLyrics ? ' active' : ''}`}
-            onClick={() => setShowLyrics(v => !v)}
+            onClick={e => { e.stopPropagation(); setShowLyrics(v => !v); }}
             aria-pressed={showLyrics}
             title="Letra"
           >
@@ -389,7 +495,7 @@ export default function Player({ navigate }) {
           </button>
           <button
             className={`action-btn info-btn${showInfo ? ' active' : ''}`}
-            onClick={() => setShowInfo(v => !v)}
+            onClick={e => { e.stopPropagation(); setShowInfo(v => !v); }}
             aria-pressed={showInfo}
             disabled={!currentTrack}
             title="Información de la pista"
@@ -403,6 +509,8 @@ export default function Player({ navigate }) {
               min={0} max={1} step={0.02}
               value={volume}
               onChange={e => setVolume(Number(e.target.value))}
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
               style={volumeFillStyle(volume)}
             />
           </div>
@@ -529,7 +637,12 @@ function VolumeIcon({ muted, color }) {
 function SeekBar({ value, max, playing, onSeek }) {
   const pct = max ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   return (
-    <div className="seek" style={{ '--seek-pct': `${pct}%` }}>
+    <div
+      className="seek"
+      style={{ '--seek-pct': `${pct}%` }}
+      onClick={e => e.stopPropagation()}
+      onMouseDown={e => e.stopPropagation()}
+    >
       <div className="seek-fill">
         {playing && <span className="seek-shimmer" aria-hidden="true" />}
       </div>
