@@ -4,7 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
-export default function Genres() {
+export default function Genres({ target, clearTarget }) {
   const [genres, setGenres] = useState(null);
   const [sel,    setSel]    = useState(null);   // género seleccionado
   const [tracks, setTracks] = useState(null);
@@ -17,6 +17,19 @@ export default function Genres() {
     setTracks(null);
     setTracks(await api.tracks({ genre: g.genre, limit: 500 }));
   }
+
+  // Consumo del target de navegación (clic en el género de la barra del player).
+  // Corre cuando hay target Y la lista ya cargó (por eso `genres` está en deps:
+  // resuelve el timing del fetch async). Abre el género si existe; si no, no pasa
+  // nada. Siempre limpia el target → consumo único (volver por el menú muestra la
+  // lista, no el género anterior). clearTarget queda fuera de deps a propósito.
+  useEffect(() => {
+    if (!target?.genre || !genres) return;
+    const g = genres.find(x => x.genre === target.genre);
+    if (g) open(g);
+    clearTarget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, genres]);
 
   // ── Detalle: la música de un género ──
   if (sel) {

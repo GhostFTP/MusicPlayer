@@ -44,7 +44,9 @@ const SHUFFLE_PHRASES = [
   'Dale shuffle', 'A ver qué sale', 'Confía en mí', 'Ruleta musical',
 ];
 
-export default function Player() {
+export default function Player({ navigate }) {
+  // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
+  // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -225,7 +227,18 @@ export default function Player() {
                 <div className="player-title">{currentTrack.title ?? 'Sin título'}</div>
                 <div className="player-artist">
                   {currentTrack.artist ?? 'Artista desconocido'}
-                  {genre && <span className="player-genre"> · {genre}</span>}
+                  {genre && (
+                    <>
+                      <span className="player-genre"> · </span>
+                      <span
+                        className="player-genre player-genre-link"
+                        onClick={(e) => { e.stopPropagation(); navigate('genres', { genre }); }}
+                        title={`Ver género: ${genre}`}
+                      >
+                        {genre}
+                      </span>
+                    </>
+                  )}
                 </div>
                 {(qCodec || qDetail) && (
                   <div className="player-quality">

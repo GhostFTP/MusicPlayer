@@ -854,6 +854,9 @@ body {
    al final, cede primero). El género hereda color/tamaño del artista. */
 .player-artist { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .player-genre  { color: var(--text-muted); }
+/* Género clickeable → navega a Géneros y abre ese género. Realce discreto al hover. */
+.player-genre-link { cursor: pointer; transition: color .12s; }
+.player-genre-link:hover { color: var(--text); text-decoration: underline; }
 
 /* Calidad partida: badge de códec (verde si lossless, gris si no) + detalle en
    texto gris tenue, sin caja. El badge se mantiene; el detalle trunca primero. */
