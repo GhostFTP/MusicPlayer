@@ -820,6 +820,25 @@ body {
   flex-shrink: 0;
 }
 
+/* La portada es clickeable → abre "Ahora reproduciendo". Realce sutil al hover. */
+.player-art,
+.player-art-placeholder {
+  cursor: pointer;
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+}
+.player-art:hover,
+.player-art-placeholder:hover {
+  transform: scale(1.06);
+  filter: brightness(1.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .45);
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-art,
+  .player-art-placeholder { transition: none; }
+  .player-art:hover,
+  .player-art-placeholder:hover { transform: none; }
+}
+
 /* Bloque de metadata flexible: crece para ocupar el espacio que dejan los
    controles centrados; título y artista truncan con … sólo cuando no caben. */
 .player-meta {
@@ -1418,6 +1437,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 /* Info en ámbar también en el player expandido. */
 .exp-info { color: var(--amber-soft); }
 .exp-info.active { color: var(--amber); }
+
+/* Desktop (>700px): el player expandido no se estira a lo ancho. Mantiene el
+   overlay fixed inset:0 con su fondo; solo acota el contenido a una columna
+   centrada. No rediseña la vista móvil. */
+@media (min-width: 701px) {
+  .player-expanded { align-items: center; }
+  .player-expanded > * {
+    width: 100%;
+    max-width: 500px;
+  }
+}
 
 /* ── PANEL DE LETRA ───────────────────────── */
 .lyrics-panel {

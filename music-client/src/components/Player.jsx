@@ -74,9 +74,18 @@ export default function Player() {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
+  // La portada abre la vista "Ahora reproduciendo" (también en desktop). Lleva
+  // stopPropagation porque .player-track tiene su propio onClick (abrir en móvil):
+  // el clic en la portada no debe disparar ambos. Inerte si no hay pista.
+  const openExpanded = (e) => {
+    if (!currentTrack) return;
+    e.stopPropagation();
+    setExpanded(true);
+  };
+
   const art = currentTrack?.cover_path
-    ? <img className="player-art" src={coverUrl(currentTrack.id)} alt="" />
-    : <div className="player-art-placeholder">♪</div>;
+    ? <img className="player-art" src={coverUrl(currentTrack.id)} alt="" onClick={openExpanded} title="Abrir reproductor" />
+    : <div className="player-art-placeholder" onClick={openExpanded} title="Abrir reproductor">♪</div>;
 
   // Género (integrado al subtítulo) del track enriquecido (quality) o del actual.
   const genre = (quality ?? currentTrack)?.genre ?? null;
