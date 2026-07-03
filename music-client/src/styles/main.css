@@ -8,6 +8,7 @@
   --border:        #2c2c2c;
   --text:          #f0f0f0;
   --text-muted:    #888888;
+  --text-time:     #a8a8a8;                /* tiempos de reproducción: un punto sobre muted */
   --accent:        #a78bfa;
   --accent-dim:    #7c3aed33;
   --lyric-pink:    #f472b6;                /* nota + destello del glifo de letra */
@@ -1072,14 +1073,29 @@ button, input, select, textarea { font-family: inherit; }
 .shuffle-icon.spin { animation: shuffle-spin .5s ease; }
 @keyframes shuffle-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
-/* Repeat de la barra: "pop" (scale + leve rotación) al ciclar de modo, en la
-   misma familia que el spin del shuffle. */
-.repeat-icon { display: inline-flex; }
-.repeat-icon.spin { animation: repeat-pop .45s ease; }
-@keyframes repeat-pop {
-  0%   { transform: scale(1)    rotate(0); }
-  45%  { transform: scale(1.28) rotate(18deg); }
-  100% { transform: scale(1)    rotate(0); }
+/* Repeat (barra + expandido): al ciclar de modo, giro completo 360° con easing con
+   carácter + un flash breve de glow accent (el "color activo"). */
+.repeat-icon { display: inline-flex; transition: filter .2s; }
+.repeat-icon.spin { animation: repeat-cycle .55s cubic-bezier(.34, 1.4, .5, 1); }
+@keyframes repeat-cycle {
+  0%   { transform: rotate(0deg);   filter: drop-shadow(0 0 0 rgba(167, 139, 250, 0)); }
+  45%  { filter: drop-shadow(0 0 7px rgba(167, 139, 250, .95)); }
+  100% { transform: rotate(360deg); filter: drop-shadow(0 0 0 rgba(167, 139, 250, 0)); }
+}
+/* Activo: glow morado permanente (como el shuffle), en barra y expandido. */
+.ctrl-btn.active .repeat-icon,
+.exp-btn.active .repeat-icon,
+.exp-btn.active .shuffle-icon { filter: drop-shadow(0 0 5px rgba(167, 139, 250, .65)); }
+/* El "1" de "repetir una" entra con su propio pop al montar el ícono. */
+.repeat-one-digit {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: repeat-one-pop .4s cubic-bezier(.2, 1.5, .4, 1) both;
+}
+@keyframes repeat-one-pop {
+  0%   { transform: scale(0);    opacity: 0; }
+  60%  { transform: scale(1.35); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
 }
 
 /* Mini-tooltip coqueto: aparece al hover encima del botón. */
@@ -1146,7 +1162,7 @@ button, input, select, textarea { font-family: inherit; }
   max-width: 560px;             /* riel más ancho → mejor precisión de seek */
 }
 
-.time-label { font-size: 12px; font-weight: 500; letter-spacing: .3px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 42px; }
+.time-label { font-size: 13px; font-weight: 600; letter-spacing: .5px; color: var(--text-time); font-variant-numeric: tabular-nums; min-width: 44px; }
 .time-label.right { text-align: right; }
 
 /* Mobile-only mini controls — hidden on desktop */
@@ -1647,10 +1663,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .exp-times {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: .3px;
-  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .5px;
+  color: var(--text-time);
   margin-bottom: 28px;
   font-variant-numeric: tabular-nums;
 }
@@ -1913,6 +1929,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-btn.play:hover, .exp-btn.play:active { transform: none; }
   .exp-play-swap { animation: none; }
   .repeat-icon.spin { animation: none; }
+  .repeat-one-digit { animation: none; }
   .ptp-player .ptp-btn:hover, .ptp-exp .ptp-btn:hover { transform: none; }
 }
 

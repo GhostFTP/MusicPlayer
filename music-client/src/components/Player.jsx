@@ -439,11 +439,16 @@ export default function Player({ navigate }) {
           <div className="exp-controls">
             <button
               className={`exp-btn${shuffle ? ' active' : ''}`}
-              onClick={toggleShuffle}
+              onClick={() => { toggleShuffle(); setShuffleSpin(true); }}
               aria-pressed={shuffle}
               title={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
             >
-              <ShuffleIcon size={24} />
+              <span
+                className={`shuffle-icon${shuffleSpin ? ' spin' : ''}`}
+                onAnimationEnd={() => setShuffleSpin(false)}
+              >
+                <ShuffleIcon size={24} />
+              </span>
             </button>
             <button className="exp-btn" onClick={prev}>
               <PrevIcon size={28} />
@@ -458,11 +463,16 @@ export default function Player({ navigate }) {
             </button>
             <button
               className={`exp-btn${repeat !== 'off' ? ' active' : ''}`}
-              onClick={cycleRepeat}
+              onClick={() => { cycleRepeat(); setRepeatSpin(true); }}
               aria-pressed={repeat !== 'off'}
               title={repeatTitle}
             >
-              {repeat === 'one' ? <RepeatOneIcon size={24} /> : <RepeatIcon size={24} />}
+              <span
+                className={`repeat-icon${repeatSpin ? ' spin' : ''}`}
+                onAnimationEnd={() => setRepeatSpin(false)}
+              >
+                {repeat === 'one' ? <RepeatOneIcon size={24} /> : <RepeatIcon size={24} />}
+              </span>
             </button>
           </div>
 
@@ -723,7 +733,7 @@ function RepeatOneIcon({ size = 18 }) {
       <path d="M3 11V9a4 4 0 0 1 4-4h14" />
       <polyline points="7 23 3 19 7 15" />
       <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-      <text x="12" y="15.5" textAnchor="middle" fontSize="9" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui, sans-serif">1</text>
+      <text className="repeat-one-digit" x="12" y="15.5" textAnchor="middle" fontSize="9" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui, sans-serif">1</text>
     </svg>
   );
 }
