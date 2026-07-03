@@ -12,11 +12,6 @@ function fmt(s) {
   return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 }
 
-function progressStyle(value, max) {
-  const pct = max ? (value / max) * 100 : 0;
-  return { background: `linear-gradient(to right, var(--accent) ${pct}%, var(--border) ${pct}%)` };
-}
-
 // Color del relleno del volumen según el nivel: teal calmado (bajo/medio) →
 // ámbar (alto) → rojo (tope). Se interpola para que la transición sea suave.
 const VOL_TEAL  = [45, 212, 191];   // #2dd4bf
@@ -44,8 +39,32 @@ const SHUFFLE_PHRASES = [
   'Dale shuffle', 'A ver qué sale', 'Confía en mí', 'Ruleta musical',
 ];
 
-// Umbral (px) del swipe sobre la carátula del expandido para pasar de pista.
-const SWIPE_THRESHOLD = 70;
+// ── Swipe de la carátula del expandido ──────────────────────────────────────
+// Cambia de pista con gesto horizontal, por DISTANCIA (arrastre largo) o por
+// VELOCIDAD (flick corto y rápido). Seguimiento 1:1 hasta RUBBER_LIMIT y luego
+// resistencia progresiva (rubber-band), sin tope duro.
+const DIST_THRESH  = 80;    // px de arrastre para disparar el cambio
+const VEL_THRESH   = 0.5;   // px/ms (flick): a esta velocidad basta poca distancia
+const MIN_FLICK    = 36;    // px mínimos recorridos para aceptar un flick
+const RUBBER_LIMIT = 120;   // px de seguimiento 1:1 antes de la resistencia
+const DUR_OUT      = 250;   // ms de la salida (carta que sale volando)
+const DUR_IN       = 320;   // ms de la entrada (desliza desde abajo + rebote), coincide con el CSS
+
+// ── Cerrar el expandido deslizando hacia abajo (móvil) ──
+const CLOSE_DIST = 120;   // px de arrastre hacia abajo para cerrar
+const CLOSE_VEL  = 0.55;  // px/ms (flick hacia abajo): a esta velocidad basta poca distancia
+const CLOSE_MIN  = 24;    // px mínimos recorridos para aceptar un flick
+const DUR_CLOSE  = 300;   // ms de la animación de cierre (coincide con la transición del estilo)
+
+// Resistencia progresiva más allá de RUBBER_LIMIT (no un clamp seco).
+function rubber(dx) {
+  const a = Math.abs(dx);
+  if (a <= RUBBER_LIMIT) return dx;
+  return Math.sign(dx) * (RUBBER_LIMIT + (a - RUBBER_LIMIT) * 0.28);
+}
+// Feedback sutil durante el arrastre (se ignora si prefers-reduced-motion, en el estilo).
+function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
+function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
 export default function Player({ navigate }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
@@ -56,12 +75,26 @@ export default function Player({ navigate }) {
   const [shufflePhrase, setShufflePhrase] = useState('');
   const [shuffleSpin, setShuffleSpin] = useState(false);
   const [repeatSpin, setRepeatSpin] = useState(false);
-  const [dragX, setDragX] = useState(0);   // desplazamiento de la carátula al hacer swipe
-  const swipe = useRef(null);              // gesto en curso: { x, y, dir } | null
   const preMuteVol = useRef(0.7);          // volumen a restaurar al quitar el mute
   const player = usePlayer();
   const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
+
+  // ── Estado del swipe de la carátula ──
+  const [dragX, setDragX]     = useState(0);                // desplazamiento crudo durante el arrastre
+  const [motion, setMotion]   = useState({ mode: 'idle' }); // idle | drag | out | in | return
+  const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  const [coverTrack, setCoverTrack] = useState(currentTrack); // carátula visible (difiere de currentTrack durante la animación)
+  const gesture   = useRef(null);          // gesto en curso: { x0, y0, dir, lastX, lastT, vx } | null
+  const busy      = useRef(false);         // animación de salida/entrada en curso → ignora gestos nuevos
+  const timers    = useRef([]);            // timeouts de la animación (para limpiarlos)
+  const artRef    = useRef(null);          // nodo de la carátula (ancho para las animaciones)
+  const currentTrackRef = useRef(currentTrack); // último currentTrack (para leerlo dentro de timeouts)
+
+  // ── Estado del gesto "deslizar hacia abajo para cerrar" (móvil) ──
+  const [dragY, setDragY] = useState(0);              // desplazamiento vertical del overlay durante el arrastre
+  const [sheet, setSheet] = useState('idle');         // idle | drag | return | closing
+  const vGesture = useRef(null);                      // { x0, y0, dir, lastY, lastT, vy } | null
 
   const repeatTitle = repeat === 'one' ? 'Repetir: una canción'
     : repeat === 'all' ? 'Repetir: toda la cola'
@@ -83,52 +116,250 @@ export default function Player({ navigate }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
-  // Esc en el expandido: cierra primero el panel de letra/info si está abierto;
-  // si no, cierra el expandido (vuelve a donde estabas). Escucha solo mientras
-  // expanded=true y se limpia al cerrar. (InfoPanel también cierra solo con Esc;
-  // el check de showInfo/showLyrics evita que Esc cierre el expandido con un panel
-  // abierto — cierra el panel y recién el siguiente Esc cierra el expandido.)
+  // Esc global del reproductor, por prioridad de lo más "encima": el InfoPanel
+  // (modal, z 300) maneja su propio Esc; luego la Letra —esté o no en el expandido—;
+  // por último, si no hay panel abierto, cierra el expandido. Antes este handler
+  // vivía sólo mientras expanded=true, así que Esc no cerraba la Letra abierta desde
+  // la barra (fuera del expandido); ahora escucha siempre.
   useEffect(() => {
-    if (!expanded) return;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
-      if (showInfo)        setShowInfo(false);
-      else if (showLyrics) setShowLyrics(false);
-      else                 setExpanded(false);
+      if (showInfo)        return;                 // el InfoPanel maneja su propio Esc (cierre animado)
+      else if (showLyrics) setShowLyrics(false);   // cierra la letra donde sea que esté abierta
+      else if (expanded)   setExpanded(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [expanded, showInfo, showLyrics]);
 
-  // Swipe sobre la carátula del expandido para cambiar de pista: izquierda =
-  // siguiente, derecha = anterior. Pointer Events (touch + mouse); touch-action:
-  // pan-y (CSS) deja el scroll vertical al navegador y nos cede el gesto horizontal.
+  // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
+  // Pointer Events (touch + mouse). touch-action: pan-y (CSS) cede el scroll
+  // vertical al navegador y nos deja el gesto horizontal. Un solo elemento: la
+  // carátula vieja SALE hacia el lado del swipe, se cambia la fuente ya fuera de
+  // pantalla y la nueva ENTRA desde el lado opuesto.
+
+  // currentTrack más reciente, legible dentro de los timeouts de la animación.
+  useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
+  // La carátula visible sigue a currentTrack, salvo mientras corre la animación
+  // (ahí se cambia a mano al quedar fuera de pantalla).
+  useEffect(() => { if (!busy.current) setCoverTrack(currentTrack); }, [currentTrack]);
+  // prefers-reduced-motion en vivo.
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const on = () => setReduced(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
+
+  const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
+  // Al cerrar el expandido (o desmontar): corta la animación y resetea, para no
+  // dejar la carátula colgada ni disparar setState de más.
+  useEffect(() => {
+    if (expanded) return;
+    clearTimers(); busy.current = false; gesture.current = null;
+    setMotion({ mode: 'idle' }); setDragX(0);
+    vGesture.current = null; setSheet('idle'); setDragY(0);   // gesto de cierre por swipe-down
+  }, [expanded]);
+  useEffect(() => clearTimers, []);
+
+  // Vuelta con spring (bajo el umbral).
+  const springBack = () => {
+    if (reduced) { setMotion({ mode: 'idle' }); setDragX(0); return; }
+    setMotion({ mode: 'return' });
+    setDragX(0);
+    timers.current.push(setTimeout(() => setMotion({ mode: 'idle' }), 520));
+  };
+  // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
+  const cancelGesture = () => {
+    if (!gesture.current) return;
+    const d = gesture.current.dir;
+    gesture.current = null;
+    if (d === 'h') springBack();
+    else if (d === 'close') sheetBack();                  // swipe-down desde la carátula
+    else { setMotion({ mode: 'idle' }); setDragX(0); }
+  };
+  useEffect(() => {
+    const onBlur = () => { cancelGesture(); cancelSheet(); };
+    window.addEventListener('blur', onBlur);
+    return () => window.removeEventListener('blur', onBlur);
+  });
+
+  // Cambio de pista: dispara al ARRANCAR la salida (respuesta inmediata), no al
+  // terminar. busy corta cualquier gesto nuevo hasta que la entrada acaba.
+  const triggerChange = (dir) => {
+    busy.current = true;
+    if (dir === 'next') next(); else prev();
+    if (reduced) { busy.current = false; setMotion({ mode: 'idle' }); setDragX(0); return; }
+    // la carta sale volando hacia el lado del swipe (bien fuera de pantalla)
+    const w = artRef.current?.offsetWidth || 300;
+    const off = Math.max(w + 280, (window.innerWidth || 800) * 0.85);
+    setMotion({ mode: 'out', outX: dir === 'next' ? -off : off, rot: dir === 'next' ? -18 : 18 });
+    timers.current.push(setTimeout(() => {
+      setCoverTrack(currentTrackRef.current);        // ya fuera de pantalla → intercambia la fuente
+      setMotion({ mode: 'in' });                     // la nueva entra deslizando desde abajo
+      timers.current.push(setTimeout(() => {
+        setMotion({ mode: 'idle' }); setDragX(0); busy.current = false;
+        setCoverTrack(currentTrackRef.current);      // resync final (por si hubo auto-avance)
+      }, DUR_IN + 30));
+    }, DUR_OUT));
+  };
+
   const onArtPointerDown = (e) => {
-    if (!currentTrack) return;
-    swipe.current = { x: e.clientX, y: e.clientY, dir: null };
+    if (busy.current || !currentTrack) return;                             // ignora gestos durante la animación
+    if (e.target.closest?.('button, a, input, [role="button"]')) return;  // no arrancar sobre un control
+    gesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastX: e.clientX, lastY: e.clientY, lastT: e.timeStamp, vx: 0, vy: 0 };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
+  // Un solo gesto sobre la carátula, con el eje fijado en el primer movimiento:
+  //   horizontal → cambiar de pista · vertical hacia ABAJO (táctil) → cerrar el
+  //   expandido (mismo cierre que el header) · vertical hacia arriba → soltar.
   const onArtPointerMove = (e) => {
-    const s = swipe.current;
-    if (!s || s.dir === 'v') return;
-    const dx = e.clientX - s.x;
-    const dy = e.clientY - s.y;
-    if (s.dir === null) {
+    const g = gesture.current;
+    if (!g || g.dir === 'v') return;
+    const dx = e.clientX - g.x0;
+    const dy = e.clientY - g.y0;
+    if (g.dir === null) {
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;   // aún indeciso
-      s.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';    // fija el eje del gesto
-      if (s.dir === 'v') return;                          // scroll vertical → no capturar
+      if (Math.abs(dx) > Math.abs(dy)) {
+        g.dir = 'h';                                       // horizontal → cambiar de pista
+        setMotion({ mode: 'drag' });
+      } else if (dy > 0 && e.pointerType !== 'mouse') {
+        g.dir = 'close';                                   // vertical hacia abajo → cerrar (solo táctil)
+        setSheet('drag');
+      } else {
+        g.dir = 'v';                                       // vertical hacia arriba (o mouse) → soltar
+        return;
+      }
     }
-    setDragX(Math.max(-100, Math.min(100, dx)));          // seguimiento con clamp visual
+    if (g.dir === 'close') {                               // arrastre de cierre desde la carátula
+      const dt = e.timeStamp - g.lastT;
+      if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
+      setDragY(Math.max(0, dy));
+      return;
+    }
+    const dt = e.timeStamp - g.lastT;                     // velocidad instantánea suavizada (px/ms)
+    if (dt > 0) { g.vx = g.vx * 0.7 + ((e.clientX - g.lastX) / dt) * 0.3; g.lastX = e.clientX; g.lastT = e.timeStamp; }
+    setDragX(dx);                                         // crudo; el rubber se aplica en el estilo
   };
   const onArtPointerUp = (e) => {
-    const s = swipe.current;
-    swipe.current = null;
-    if (s?.dir === 'h') {
-      const dx = e.clientX - s.x;
-      if (dx <= -SWIPE_THRESHOLD) next();
-      else if (dx >= SWIPE_THRESHOLD) prev();
+    const g = gesture.current;
+    gesture.current = null;
+    if (!g) return;
+    if (g.dir === 'close') {                               // swipe-down desde la carátula → cerrar o volver
+      const dy = Math.max(0, e.clientY - g.y0);
+      const flick = g.vy > CLOSE_VEL && dy > CLOSE_MIN;
+      if (dy >= CLOSE_DIST || flick) closeSheet(); else sheetBack();
+      return;
     }
-    setDragX(0);
+    if (g.dir !== 'h') { setMotion({ mode: 'idle' }); setDragX(0); return; }
+    const dx = e.clientX - g.x0;
+    const flick = Math.abs(g.vx) > VEL_THRESH && Math.abs(dx) > MIN_FLICK && Math.sign(g.vx) === Math.sign(dx);
+    if (Math.abs(dx) >= DIST_THRESH || flick) triggerChange(dx < 0 ? 'next' : 'prev');
+    else springBack();
+  };
+
+  // Estilo del wrapper según la fase. La SALIDA (out) lanza la carátula vieja
+  // volando hacia el lado del swipe (parte del transform actual del drag,
+  // continuidad). La ENTRADA (in) la hace el keyframe exp-card-in (desde abajo).
+  const wrapStyle = () => {
+    const m = motion.mode;
+    if (m === 'drag') {
+      const x = rubber(dragX);
+      return reduced
+        ? { transform: `translateX(${x}px)`, transition: 'none' }
+        : { transform: `translateX(${x}px) rotate(${dragRotation(x)}deg)`, opacity: dragOpacity(x), transition: 'none', willChange: 'transform' };
+    }
+    if (m === 'out') {
+      // sale volando hacia el lado: translateX grande + subida + rotación marcada,
+      // fade al final (opacity ease-in). Transiciona desde el transform del drag.
+      return {
+        transform: `translateX(${motion.outX}px) translateY(-20px) rotate(${motion.rot}deg)`,
+        opacity: 0,
+        transition: `transform ${DUR_OUT}ms cubic-bezier(.25,.8,.4,1), opacity ${DUR_OUT}ms ease-in`,
+        willChange: 'transform',
+      };
+    }
+    if (m === 'return') {
+      return {
+        transform: 'translateX(0) rotate(0deg)',
+        opacity: 1,
+        transition: reduced ? 'transform .12s linear' : 'transform .52s cubic-bezier(.34,1.42,.6,1), opacity .3s ease',
+      };
+    }
+    return undefined;   // in → keyframe exp-card-in; idle → neutral
+  };
+
+  // ── Cerrar el expandido deslizando hacia abajo (móvil) ──
+  // Mismos patrones que el swipe de carátula (Pointer Events, eje fijado por el
+  // primer movimiento, velocidad suavizada, cancelación limpia). Sólo táctil:
+  // en desktop el cierre sigue siendo Esc / botón "Ahora reproduciendo".
+  // Vuelta con spring si no se alcanza el umbral.
+  const sheetBack = () => {
+    if (reduced) { setSheet('idle'); setDragY(0); return; }
+    setSheet('return');
+    setDragY(0);
+    timers.current.push(setTimeout(() => setSheet('idle'), 360));
+  };
+  // Cierre: el overlay baja fuera de pantalla y recién ahí se desmonta.
+  const closeSheet = () => {
+    if (reduced) { setExpanded(false); return; }
+    setSheet('closing');
+    setDragY(window.innerHeight || 800);
+    timers.current.push(setTimeout(() => setExpanded(false), DUR_CLOSE));
+  };
+  const onSheetPointerDown = (e) => {
+    if (e.pointerType === 'mouse') return;   // sólo táctil (móvil)
+    if (busy.current || sheet === 'closing') return;
+    if (e.target.closest?.('button, a, input, [role="button"]')) return;   // no sobre los botones del header
+    vGesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastY: e.clientY, lastT: e.timeStamp, vy: 0 };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  };
+  const onSheetPointerMove = (e) => {
+    const g = vGesture.current;
+    if (!g || g.dir === 'x' || g.dir === 'up') return;
+    const dx = e.clientX - g.x0;
+    const dy = e.clientY - g.y0;
+    if (g.dir === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;          // aún indeciso
+      if (Math.abs(dx) > Math.abs(dy)) { g.dir = 'x'; return; }  // horizontal → no es cierre
+      if (dy < 0) { g.dir = 'up'; return; }                      // hacia arriba → ignorar (deja el scroll)
+      g.dir = 'y';
+      setSheet('drag');
+    }
+    const dt = e.timeStamp - g.lastT;                            // velocidad vertical suavizada (px/ms)
+    if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
+    setDragY(Math.max(0, dy));                                   // sólo hacia abajo
+  };
+  const onSheetPointerUp = (e) => {
+    const g = vGesture.current;
+    vGesture.current = null;
+    if (!g || g.dir !== 'y') return;
+    const dy = Math.max(0, e.clientY - g.y0);
+    const flick = g.vy > CLOSE_VEL && dy > CLOSE_MIN;
+    if (dy >= CLOSE_DIST || flick) closeSheet();
+    else sheetBack();
+  };
+  // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
+  const cancelSheet = () => {
+    const g = vGesture.current;
+    if (!g) return;
+    const wasY = g.dir === 'y';
+    vGesture.current = null;
+    if (wasY) sheetBack();
+  };
+
+  // Estilo del overlay según la fase del gesto de cierre (translateY + fade sutil).
+  const sheetStyle = () => {
+    if (sheet === 'drag') {
+      return { transform: `translateY(${dragY}px)`, opacity: 1 - Math.min(0.5, dragY / 900), transition: 'none', willChange: 'transform' };
+    }
+    if (sheet === 'closing') {
+      return { transform: `translateY(${dragY}px)`, opacity: 0, transition: `transform ${DUR_CLOSE}ms cubic-bezier(.4,0,.6,1), opacity ${DUR_CLOSE}ms ease` };
+    }
+    if (sheet === 'return') {
+      return { transform: 'translateY(0)', opacity: 1, transition: 'transform .36s cubic-bezier(.34,1.42,.6,1), opacity .2s ease' };
+    }
+    return undefined;   // idle → deja la animación de entrada del CSS (slide-up)
   };
 
   // Mute: clic en la bocina silencia (guardando el volumen previo) y otro clic lo
@@ -197,6 +428,12 @@ export default function Player({ navigate }) {
   const qDetail = qualityDetail(quality);
   const qTier = qualityTier(quality);
 
+  // Color del tiempo transcurrido, por PRIORIDAD: pausa (ámbar) > últimos 15s (rojo)
+  // > normal (lavanda). El color transiciona suave (va en el span estable, no en el
+  // interior que se remonta cada segundo). Al reanudar/cambiar de canción vuelve solo.
+  const ending = duration > 0 && duration - currentTime <= 15;
+  const timeClass = !isPlaying ? ' time-paused' : ending ? ' time-ending' : '';
+
   // Elige una frase distinta a la anterior en cada hover del shuffle.
   const pickShufflePhrase = () => setShufflePhrase(prev => {
     if (SHUFFLE_PHRASES.length < 2) return SHUFFLE_PHRASES[0];
@@ -211,11 +448,17 @@ export default function Player({ navigate }) {
       {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} />}
 
       {/* ── Panel de información de la pista (modal) ── */}
-      {showInfo && <InfoPanel track={quality ?? currentTrack} onClose={() => setShowInfo(false)} />}
+      {showInfo && (
+        <InfoPanel
+          track={quality ?? currentTrack}
+          onClose={() => setShowInfo(false)}
+          navigate={(view, target) => { setShowInfo(false); setExpanded(false); navigate(view, target); }}
+        />
+      )}
 
       {/* ── Full-screen expanded player (mobile) ── */}
       {expanded && (
-        <div className="player-expanded">
+        <div className="player-expanded" style={sheetStyle()}>
           {/* Fondo: carátula actual difuminada + overlay oscuro. key → refade al
               cambiar de canción. aria-hidden: decorativo. */}
           {currentTrack?.cover_path && (
@@ -226,7 +469,14 @@ export default function Player({ navigate }) {
               aria-hidden="true"
             />
           )}
-          <div className="exp-header">
+          <div
+            className="exp-header"
+            onPointerDown={onSheetPointerDown}
+            onPointerMove={onSheetPointerMove}
+            onPointerUp={onSheetPointerUp}
+            onPointerCancel={cancelSheet}
+            onLostPointerCapture={cancelSheet}
+          >
             <button className="exp-back" onClick={() => setExpanded(false)}>
               <ChevronDown /> Ahora reproduciendo
             </button>
@@ -257,18 +507,17 @@ export default function Player({ navigate }) {
           <div className="exp-body">
             <div className="exp-col-art">
               <div
-                className="exp-art-wrap"
+                ref={artRef}
+                className={`exp-art-wrap${motion.mode === 'in' ? ' exp-card-in' : ''}`}
                 onPointerDown={onArtPointerDown}
                 onPointerMove={onArtPointerMove}
                 onPointerUp={onArtPointerUp}
-                onPointerCancel={onArtPointerUp}
-                style={{
-                  transform: dragX ? `translateX(${dragX}px)` : undefined,
-                  transition: swipe.current ? 'none' : 'transform .3s ease',
-                }}
+                onPointerCancel={cancelGesture}
+                onLostPointerCapture={cancelGesture}
+                style={wrapStyle()}
               >
-                {currentTrack?.cover_path
-                  ? <img className="exp-art" src={coverUrl(currentTrack.id)} alt="" draggable={false} />
+                {coverTrack?.cover_path
+                  ? <img className="exp-art" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
                   : <div className="exp-art-placeholder">♪</div>
                 }
               </div>
@@ -308,27 +557,28 @@ export default function Player({ navigate }) {
           </div>
 
           <div className="exp-progress">
-            <input
-              type="range"
-              min={0} max={duration || 0} step={0.5}
-              value={currentTime}
-              onChange={e => seek(Number(e.target.value))}
-              style={progressStyle(currentTime, duration)}
-            />
+            <SeekBar value={currentTime} max={duration} playing={isPlaying} onSeek={seek} />
           </div>
           <div className="exp-times">
-            <span>{fmt(currentTime)}</span>
-            <span>{fmt(duration)}</span>
+            <span className={`exp-time-elapsed${timeClass}`}>
+              <span key={fmt(currentTime)} className="time-tick">{fmt(currentTime)}</span>
+            </span>
+            <span className="exp-time-total">{fmt(duration)}</span>
           </div>
 
           <div className="exp-controls">
             <button
               className={`exp-btn${shuffle ? ' active' : ''}`}
-              onClick={toggleShuffle}
+              onClick={() => { toggleShuffle(); setShuffleSpin(true); }}
               aria-pressed={shuffle}
               title={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
             >
-              <ShuffleIcon size={24} />
+              <span
+                className={`shuffle-icon${shuffleSpin ? ' spin' : ''}`}
+                onAnimationEnd={() => setShuffleSpin(false)}
+              >
+                <ShuffleIcon size={24} />
+              </span>
             </button>
             <button className="exp-btn" onClick={prev}>
               <PrevIcon size={28} />
@@ -343,11 +593,16 @@ export default function Player({ navigate }) {
             </button>
             <button
               className={`exp-btn${repeat !== 'off' ? ' active' : ''}`}
-              onClick={cycleRepeat}
+              onClick={() => { cycleRepeat(); setRepeatSpin(true); }}
               aria-pressed={repeat !== 'off'}
               title={repeatTitle}
             >
-              {repeat === 'one' ? <RepeatOneIcon size={24} /> : <RepeatIcon size={24} />}
+              <span
+                className={`repeat-icon${repeatSpin ? ' spin' : ''}`}
+                onAnimationEnd={() => setRepeatSpin(false)}
+              >
+                {repeat === 'one' ? <RepeatOneIcon size={24} /> : <RepeatIcon size={24} />}
+              </span>
             </button>
           </div>
 
@@ -493,9 +748,11 @@ export default function Player({ navigate }) {
             </button>
           </div>
           <div className="player-progress">
-            <span className="time-label">{fmt(currentTime)}</span>
+            <span className={`time-label time-elapsed${timeClass}`}>
+              <span key={fmt(currentTime)} className="time-tick">{fmt(currentTime)}</span>
+            </span>
             <SeekBar value={currentTime} max={duration} playing={isPlaying} onSeek={seek} />
-            <span className="time-label right">{fmt(duration)}</span>
+            <span className="time-label right time-total">{fmt(duration)}</span>
           </div>
         </div>
 
@@ -608,7 +865,7 @@ function RepeatOneIcon({ size = 18 }) {
       <path d="M3 11V9a4 4 0 0 1 4-4h14" />
       <polyline points="7 23 3 19 7 15" />
       <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-      <text x="12" y="15.5" textAnchor="middle" fontSize="9" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui, sans-serif">1</text>
+      <text className="repeat-one-digit" x="12" y="15.5" textAnchor="middle" fontSize="9" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui, sans-serif">1</text>
     </svg>
   );
 }

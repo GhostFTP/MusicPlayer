@@ -23,6 +23,7 @@ export default function Artists({ target, clearTarget }) {
   // `artist`), así que el match es directo. Espera a que la lista cargue (deps).
   // Consumo único: siempre limpia; si no existe, queda en la lista.
   useEffect(() => {
+    if (target?.reset) { setSel(null); setSelAlbum(null); setAlbums(null); clearTarget(); return; }
     if (!target?.artist || !artists) return;
     const a = artists.find(x => x.artist === target.artist);
     if (a) open(a);

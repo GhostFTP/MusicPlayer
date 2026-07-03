@@ -66,16 +66,29 @@ router.delete('/:id/tracks/:trackId', (req, res) => {
   res.status(204).send();
 });
 
-// PATCH /api/playlists/:id  — renombrar
+// PATCH /api/playlists/:id  — renombrar y/o cambiar emoji (campos opcionales).
+// Actualiza sólo lo que venga en el body; siempre acotado a la playlist del usuario.
 router.patch('/:id', (req, res) => {
-  const { name } = req.body ?? {};
-  if (!name || !name.trim()) return res.status(400).json({ error: 'name required' });
+  const body = req.body ?? {};
+  const hasName  = typeof body.name === 'string';
+  const hasEmoji = Object.prototype.hasOwnProperty.call(body, 'emoji');
+  if (!hasName && !hasEmoji) return res.status(400).json({ error: 'name or emoji required' });
 
-  const result = db.prepare('UPDATE playlists SET name = ? WHERE id = ? AND user_id = ?')
-    .run(name.trim(), req.params.id, req.user.id);
+  const sets = [], vals = [];
+  if (hasName) {
+    const name = body.name.trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    sets.push('name = ?'); vals.push(name);
+  }
+  if (hasEmoji) { sets.push('emoji = ?'); vals.push(body.emoji || null); }
+  vals.push(req.params.id, req.user.id);
+
+  const result = db.prepare(`UPDATE playlists SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`).run(...vals);
   if (result.changes === 0) return res.status(404).json({ error: 'Playlist not found' });
 
-  res.json({ id: Number(req.params.id), name: name.trim() });
+  const pl = db.prepare('SELECT id, name, emoji FROM playlists WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  res.json(pl);
 });
 
 // DELETE /api/playlists/:id

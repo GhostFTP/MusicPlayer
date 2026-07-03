@@ -3,6 +3,43 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.2.0] - 2026-07-03
+
+### Nuevo
+- **Datos del artista desde MusicBrainz** en el panel de Información: tipo, país,
+  años en activo y géneros, junto a los datos de tu biblioteca y con la etiqueta
+  discreta "vía MusicBrainz". Si no hay coincidencia, se muestran solo los datos
+  locales, sin errores.
+- **Editar y borrar playlists desde el menú "+"**: renombrar (con cambio de
+  emoji) y eliminar con confirmación, sin salir del menú.
+- **Cerrar "Ahora reproduciendo" deslizando hacia abajo** en el celular, desde la
+  franja superior o arrastrando la carátula; el deslizamiento horizontal sigue
+  cambiando de canción.
+- **Tocar la pestaña activa** (Álbumes, Artistas, Géneros…) vuelve a su lista y
+  cierra el detalle abierto; en la Biblioteca, limpia el buscador.
+
+### Mejorado
+- **Panel de Información rediseñado**: estética glass, datos agrupados
+  (Pista / Artista / Calidad) con el badge de calidad, submenú del artista con
+  agregados de tu biblioteca, y apertura/cierre animados.
+- **Panel de Letra** con estética glass: la línea activa resalta con brillo y
+  color, las vecinas se atenúan en degradado y el desplazamiento acompaña suave
+  al avanzar la canción.
+- **El tiempo transcurrido toma color**: ámbar cuando está en pausa y rojo (con
+  un pulso sutil) en los últimos 15 segundos de la canción.
+- **Carátula del reproductor ampliado**: cambio de canción con deslizamiento
+  estilo baraja de cartas y pulido general de animaciones (barra de progreso,
+  botones, aleatorio y repetir).
+- **Esc** cierra el panel que esté abierto, por prioridad: Información, luego
+  Letra (esté donde esté), y por último la vista ampliada.
+- Todas las animaciones respetan la preferencia del sistema de **movimiento
+  reducido**.
+
+### Técnico
+- Nuevo endpoint de solo lectura `GET /api/info/artist/:name` (consulta a
+  MusicBrainz con User-Agent propio, límite de 1 petición/segundo y caché en
+  memoria por 24 h). `PATCH /api/playlists/:id` ahora acepta también el `emoji`.
+
 ## [1.1.1] - 2026-07-02
 
 ### Nuevo

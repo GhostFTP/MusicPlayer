@@ -4,13 +4,21 @@ import AlbumGrid from './AlbumGrid.jsx';
 import AlbumDetail from './AlbumDetail.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
-export default function Years() {
+export default function Years({ target, clearTarget }) {
   const [years,    setYears]    = useState(null);
   const [sel,      setSel]      = useState(null);   // año seleccionado
   const [albums,   setAlbums]   = useState(null);
   const [selAlbum, setSelAlbum] = useState(null);
 
   useEffect(() => { api.years().then(setYears); }, []);
+
+  // Tap en la pestaña ya activa → salir del detalle (volver a la lista).
+  useEffect(() => {
+    if (!target?.reset) return;
+    setSel(null); setSelAlbum(null); setAlbums(null);
+    clearTarget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
 
   async function open(y) {
     setSel(y);

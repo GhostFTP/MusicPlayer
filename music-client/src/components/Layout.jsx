@@ -16,15 +16,18 @@ export default function Layout() {
   // Navegación central: cambia de vista y (opcionalmente) fija un target para
   // que la vista destino lo consuma. El menú y el bottom-nav navegan siempre
   // con target null, así entrar por el menú nunca hereda un target viejo.
+  // Excepción: tocar la pestaña YA activa (mismo view, sin target) envía la señal
+  // { reset: true } para que la vista salga del detalle y vuelva a su lista.
   const navigate = (nextView, target = null) => {
     setView(nextView);
-    setNavTarget(target);
+    setNavTarget(target == null && nextView === view ? { reset: true } : target);
   };
   const clearTarget = () => setNavTarget(null);
 
-  // Canal del target hacia las vistas. Por ahora lo RECIBEN pero no lo usan
-  // (los pasos 3-5 harán que cada vista consuma y limpie su target). Al cambiar
-  // de `view` cada vista se monta/desmonta igual que antes (reset de su estado).
+  // Canal del target hacia las vistas: cada vista consume su target de navegación
+  // (album/artist/genre para ir al detalle, o { reset:true } para volver a la lista)
+  // y llama a clearTarget → consumo único. Al cambiar de `view` la vista destino se
+  // monta de cero (reset natural de su estado).
   const viewProps = { target: navTarget, clearTarget };
   const VIEWS = {
     library:   <Library   {...viewProps} />,

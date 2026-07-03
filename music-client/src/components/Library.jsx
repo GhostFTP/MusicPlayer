@@ -19,7 +19,7 @@ function byArtistAlbumTrack(a, b) {
   return (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' });
 }
 
-export default function Library() {
+export default function Library({ target, clearTarget }) {
   const [tracks,  setTracks]  = useState([]);
   const [search,  setSearch]  = useState('');
   const [loading, setLoading] = useState(true);
@@ -42,6 +42,15 @@ export default function Library() {
     const t = setTimeout(() => fetchTracks(search), 280);
     return () => clearTimeout(t);
   }, [search, fetchTracks]);
+
+  // Tap en la pestaña ya activa → limpiar el buscador (volver a la lista completa).
+  // La Biblioteca no tiene "detalle", pero el filtro de búsqueda es su estado navegable.
+  useEffect(() => {
+    if (!target?.reset) return;
+    setSearch('');
+    clearTarget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
 
   const countLabel = search
     ? `${tracks.length} resultado${tracks.length === 1 ? '' : 's'}`

@@ -24,6 +24,7 @@ export default function Albums({ target, clearTarget }) {
   // album (+ album_artist si vino). Espera a que la lista termine (loading) para
   // no perder el target. Consumo único: siempre limpia.
   useEffect(() => {
+    if (target?.reset) { setSelected(null); clearTarget(); return; }   // tap en la pestaña activa
     if (!target?.album || loading) return;
     const found = albums.find(a =>
       a.album === target.album &&

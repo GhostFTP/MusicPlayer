@@ -55,7 +55,9 @@ export default function LyricsPanel({ onClose }) {
   }
 
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Scroll suave al avanzar; instantáneo si el sistema pide movimiento reducido.
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    activeRef.current?.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
   }, [activeIdx]);
 
   let body;
@@ -76,17 +78,21 @@ export default function LyricsPanel({ onClose }) {
   } else {
     body = (
       <div className="lyrics-synced">
-        {lines.map((l, i) => (
-          <p
-            key={i}
-            ref={i === activeIdx ? activeRef : null}
-            className={`lyrics-line${i === activeIdx ? ' active' : ''}`}
-            onClick={() => l.time != null && seek(l.time)}
-            title={l.time != null ? 'Saltar a esta línea' : undefined}
-          >
-            {l.text || '♪'}
-          </p>
-        ))}
+        {lines.map((l, i) => {
+          const dist = activeIdx >= 0 ? Math.abs(i - activeIdx) : null;   // distancia a la línea activa
+          const state = i === activeIdx ? ' active' : dist === 1 ? ' near' : '';
+          return (
+            <p
+              key={i}
+              ref={i === activeIdx ? activeRef : null}
+              className={`lyrics-line${state}`}
+              onClick={() => l.time != null && seek(l.time)}
+              title={l.time != null ? 'Saltar a esta línea' : undefined}
+            >
+              {l.text || '♪'}
+            </p>
+          );
+        })}
       </div>
     );
   }
