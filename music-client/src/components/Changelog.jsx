@@ -24,6 +24,10 @@ function parseChangelog(md) {
       cur.sections.push(sec);
     } else if (line.startsWith('- ')) {
       if (sec) sec.items.push(line.slice(2).trim());
+    } else if (line.trim() && sec && sec.items.length) {
+      // Continuación de un item envuelto en varias líneas → concatenar con un
+      // espacio, para no truncarlo ni partir una negrita/código entre líneas.
+      sec.items[sec.items.length - 1] += ' ' + line.trim();
     }
   }
   return versions;
