@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
-import QualityChip, { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
+import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import InfoPanel from './InfoPanel.jsx';
@@ -179,12 +179,19 @@ export default function Player({ navigate }) {
             </div>
           </div>
 
-          <div className="exp-art-wrap">
-            {currentTrack?.cover_path
-              ? <img className="exp-art" src={coverUrl(currentTrack.id)} alt="" />
-              : <div className="exp-art-placeholder">♪</div>
-            }
-          </div>
+          {/* Cuerpo: en desktop dos columnas (carátula | info); en móvil los
+              wrappers son display:contents y el layout de columna queda igual. */}
+          <div className="exp-body">
+            <div className="exp-col-art">
+              <div className="exp-art-wrap">
+                {currentTrack?.cover_path
+                  ? <img className="exp-art" src={coverUrl(currentTrack.id)} alt="" />
+                  : <div className="exp-art-placeholder">♪</div>
+                }
+              </div>
+            </div>
+
+            <div className="exp-col-info">
 
           <div className="exp-meta">
             <div
@@ -201,7 +208,19 @@ export default function Player({ navigate }) {
               {genre && (
                 <span className="exp-genre exp-link" onClick={goGenre} title={`Ver género: ${genre}`}>{genre}</span>
               )}
-              <QualityChip track={quality} format="full" className="chip-lg" />
+              {(qCodec || qDetail) && (
+                <div className="player-quality">
+                  {qCodec && (
+                    <span
+                      className={`quality-chip player-quality-badge q-${qTier.id}`}
+                      title={qualityTierTitle(quality)}
+                    >
+                      {qCodec}
+                    </span>
+                  )}
+                  {qDetail && <span className={`player-quality-detail q-${qTier.id}`}>{qDetail}</span>}
+                </div>
+              )}
             </div>
           </div>
 
@@ -257,6 +276,8 @@ export default function Player({ navigate }) {
               style={volumeFillStyle(volume)}
             />
           </div>
+            </div>{/* /exp-col-info */}
+          </div>{/* /exp-body */}
         </div>
       )}
 

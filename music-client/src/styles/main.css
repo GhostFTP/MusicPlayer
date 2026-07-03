@@ -1447,15 +1447,42 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .exp-info { color: var(--amber-soft); }
 .exp-info.active { color: var(--amber); }
 
-/* Desktop (>700px): el player expandido no se estira a lo ancho. Mantiene el
-   overlay fixed inset:0 con su fondo; solo acota el contenido a una columna
-   centrada. No rediseña la vista móvil. */
+/* La calidad en el expandido usa el MISMO bloque que la barra (.player-quality);
+   solo neutralizamos su margen superior dentro del subtítulo. */
+.exp-subline .player-quality { margin-top: 0; }
+
+/* Wrappers del cuerpo transparentes por defecto → en móvil el layout de columna
+   del expandido queda EXACTO (header, carátula, meta, progreso, controles…). */
+.exp-body, .exp-col-art, .exp-col-info { display: contents; }
+
+/* Desktop (>700px): expandido tipo Spotify — dos columnas (carátula | info)
+   centradas en pantalla. No afecta el layout móvil (por los wrappers de arriba). */
 @media (min-width: 701px) {
   .player-expanded { align-items: center; }
-  .player-expanded > * {
+  .exp-header { width: 100%; max-width: 1100px; justify-content: space-between; }
+
+  .exp-body {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 48px;
     width: 100%;
-    max-width: 500px;
+    max-width: 1100px;
+    flex: 1 1 auto;               /* ocupa el alto restante → centra vertical */
+    padding-bottom: 24px;
   }
+  .exp-col-art  { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; }
+  .exp-col-info { display: flex; flex-direction: column; gap: 24px; flex: 1 1 auto; min-width: 0; }
+
+  .exp-art, .exp-art-placeholder { width: min(45vw, 500px); }
+
+  /* Reset de márgenes verticales móviles (ahora el gap de la columna da el aire). */
+  .exp-meta, .exp-progress, .exp-times, .exp-controls { margin-bottom: 0; }
+
+  .exp-title    { font-size: 30px; }
+  .exp-artist   { font-size: 18px; }
+  .exp-controls { justify-content: flex-start; }   /* alineado a la izquierda */
+  .exp-volume   { max-width: 340px; }
 }
 
 /* ── PANEL DE LETRA ───────────────────────── */
