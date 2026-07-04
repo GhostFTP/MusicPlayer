@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api } from '../api/client.js';
+import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 
 // Parsea .lrc → [{time:number|null, text}]. Soporta varias marcas por línea
@@ -26,11 +26,29 @@ function parseLrc(lrc) {
   return out;
 }
 
-export default function LyricsPanel({ onClose }) {
-  const { currentTrack, currentTime, seek } = usePlayer();
+export default function LyricsPanel({ onClose, startImmersive = false }) {
+  const { currentTrack, currentTime, duration, isPlaying, seek } = usePlayer();
   const [data, setData]       = useState(null);   // { instrumental, synced, lyrics }
   const [loading, setLoading] = useState(false);
+  // Inmersivo: full-bleed (tapa la barra) vs panel (deja la barra visible). Arranca
+  // en inmersivo si la letra se abrió desde el reproductor expandido.
+  const [immersive, setImmersive] = useState(startImmersive);
   const activeRef = useRef(null);
+
+  // ── Reloj de barrido (wipe) ────────────────────────────────────────────────
+  // El PlayerContext NO expone el <audio>; currentTime llega por 'timeupdate' a
+  // ~4 Hz (grueso para un wipe suave). Interpolamos con rAF: sembramos t0/perf0
+  // en cada tick (o cambio de línea) y en el frame calculamos
+  //   liveTime = t0 + (now - perf0)/1000  → ~60fps entre ticks, autocorregido cada
+  // ~250ms. El rAF corre SOLO con synced && isPlaying (y sin reduced-motion); al
+  // pausar se cancela y --p queda congelado.
+  const t0Ref        = useRef(0);   // segundos: currentTime del último tick sembrado
+  const perf0Ref     = useRef(0);   // ms: performance.now() de esa siembra
+  const linesRef     = useRef([]);  // últimas líneas (leídas dentro del rAF sin recrear el loop)
+  const activeIdxRef = useRef(-1);
+  const durationRef  = useRef(0);
+
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
   useEffect(() => {
     if (!currentTrack) { setData(null); return; }
@@ -54,11 +72,54 @@ export default function LyricsPanel({ onClose }) {
     }
   }
 
+  // Valores frescos para el rAF sin recrear el loop en cada tick.
+  linesRef.current     = lines;
+  activeIdxRef.current = activeIdx;
+  durationRef.current  = duration;
+
   useEffect(() => {
     // Scroll suave al avanzar; instantáneo si el sistema pide movimiento reducido.
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     activeRef.current?.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
   }, [activeIdx]);
+
+  // Siembra del reloj: en cada tick de currentTime (~4Hz), cambio de línea activa,
+  // y al pausar/reanudar. Incluir isPlaying evita el salto al reanudar: sin él,
+  // perf0 quedaría viejo (con toda la pausa acumulada) hasta el próximo timeupdate.
+  useEffect(() => {
+    t0Ref.current    = currentTime;
+    perf0Ref.current = performance.now();
+  }, [currentTime, activeIdx, isPlaying]);
+
+  // rAF del barrido: interpola --p (0→1) sobre la línea activa. Solo con sync +
+  // reproduciendo + sin reduced-motion. Cleanup cancela el frame (pausa, cambio de
+  // track, desmontaje) → nada de loops colgados.
+  useEffect(() => {
+    if (!synced || !isPlaying || reduced) return;
+    let raf;
+    const tick = () => {
+      const node = activeRef.current;
+      const idx  = activeIdxRef.current;
+      const ls   = linesRef.current;
+      const cur  = ls[idx];
+      if (node && cur && cur.time != null) {
+        const live  = t0Ref.current + (performance.now() - perf0Ref.current) / 1000;
+        const nextT = ls[idx + 1]?.time;
+        // Duración de la línea: hasta la próxima marca, o un tope de 4s (acotado por
+        // la duración de la pista) si es la última.
+        const cap   = Math.min(cur.time + 4, durationRef.current || cur.time + 4);
+        const end   = nextT != null ? nextT : cap;
+        const den   = end - cur.time;
+        const p     = den > 0 ? Math.min(1, Math.max(0, (live - cur.time) / den)) : 1;
+        node.style.setProperty('--p', p.toFixed(4));   // una sola CSS var por frame
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [synced, isPlaying, reduced, activeIdx]);
+
+  const hasCover = !!currentTrack?.cover_path;
 
   let body;
   if (!currentTrack) {
@@ -72,7 +133,7 @@ export default function LyricsPanel({ onClose }) {
   } else if (!synced) {
     body = (
       <div className="lyrics-plain">
-        {lines.map((l, i) => <p key={i}>{l.text || ' '}</p>)}
+        {lines.map((l, i) => <p key={i}>{l.text || ' '}</p>)}
       </div>
     );
   } else {
@@ -80,16 +141,25 @@ export default function LyricsPanel({ onClose }) {
       <div className="lyrics-synced">
         {lines.map((l, i) => {
           const dist = activeIdx >= 0 ? Math.abs(i - activeIdx) : null;   // distancia a la línea activa
-          const state = i === activeIdx ? ' active' : dist === 1 ? ' near' : '';
+          const isActive = i === activeIdx;
+          const state = isActive ? ' active' : dist === 1 ? ' near' : '';
+          const text = l.text || '♪';
           return (
             <p
               key={i}
-              ref={i === activeIdx ? activeRef : null}
+              ref={isActive ? activeRef : null}
               className={`lyrics-line${state}`}
               onClick={() => l.time != null && seek(l.time)}
               title={l.time != null ? 'Saltar a esta línea' : undefined}
             >
-              {l.text || '♪'}
+              {isActive ? (
+                <>
+                  {/* Base atenuada (define el tamaño y es la que anuncian los lectores) */}
+                  <span className="lyrics-base">{text}</span>
+                  {/* Copia brillante recortada por --p (barrido izq→der). Decorativa. */}
+                  <span className="lyrics-wipe" aria-hidden="true">{text}</span>
+                </>
+              ) : text}
             </p>
           );
         })}
@@ -98,17 +168,37 @@ export default function LyricsPanel({ onClose }) {
   }
 
   return (
-    <div className="lyrics-panel">
+    <div className={`lyrics-panel${immersive ? ' immersive' : ''}`}>
+      {/* Fondo: carátula actual difuminada + doble oscurecido (legibilidad sobre
+          portadas claras). Solo si hay carátula; si no, queda el glass sólido. */}
+      {hasCover && (
+        <div
+          className="lyrics-bg"
+          style={{ backgroundImage: `url(${coverUrl(currentTrack.id)})` }}
+          aria-hidden="true"
+        />
+      )}
       <div className="lyrics-header">
         <div className="lyrics-head-text">
           <span className="lyrics-kicker">Letra{synced ? ' · sincronizada' : ''}</span>
           {currentTrack && <span className="lyrics-song">{currentTrack.title ?? ''}</span>}
         </div>
-        <button className="lyrics-close" onClick={onClose} title="Cerrar letra">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
+        <div className="lyrics-head-actions">
+          <button
+            className="lyrics-toggle"
+            onClick={() => setImmersive(v => !v)}
+            title={immersive ? 'Reducir' : 'Pantalla completa'}
+            aria-label={immersive ? 'Reducir' : 'Pantalla completa'}
+            aria-pressed={immersive}
+          >
+            {immersive ? <ContractIcon /> : <ExpandIcon />}
+          </button>
+          <button className="lyrics-close" onClick={onClose} title="Cerrar letra">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div className="lyrics-body">{body}</div>
     </div>
@@ -122,5 +212,28 @@ function Empty({ icon, title, sub }) {
       <div className="lyrics-empty-title">{title}</div>
       {sub && <div className="lyrics-empty-sub">{sub}</div>}
     </div>
+  );
+}
+
+// Entrar a pantalla completa (flechas hacia afuera).
+function ExpandIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </svg>
+  );
+}
+// Salir de pantalla completa (flechas hacia adentro).
+function ContractIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="4 14 10 14 10 20" />
+      <polyline points="20 10 14 10 14 4" />
+      <line x1="14" y1="10" x2="21" y2="3" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </svg>
   );
 }

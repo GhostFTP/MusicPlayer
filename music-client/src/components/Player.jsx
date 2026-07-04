@@ -445,7 +445,7 @@ export default function Player({ navigate }) {
   return (
     <>
       {/* ── Panel de letra (overlay, desktop y móvil) ── */}
-      {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} />}
+      {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} startImmersive={expanded} />}
 
       {/* ── Panel de información de la pista (modal) ── */}
       {showInfo && (
