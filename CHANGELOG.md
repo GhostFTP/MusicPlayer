@@ -3,6 +3,20 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.2.1] - 2026-07-03
+
+### Mejorado
+- **Panel de Información con "carátula viva"**: la portada de la pista aparece
+  difuminada de fondo del panel, con iconos por sección (Pista / Artista /
+  Calidad) y los datos de MusicBrainz mejor jerarquizados (tipo · país · años
+  en una línea y los géneros como chips). La legibilidad está cuidada tanto con
+  portadas claras como oscuras; si la pista no tiene carátula, se mantiene el
+  fondo sólido de siempre.
+- **Menú de playlists ("+") con color por emoji**: cada playlist toma un tinte
+  estable derivado de su emoji (tile redondeado con fondo y aro sutiles), y al
+  pasar el cursor aparece un borde-guía de ese color. El texto sigue igual de
+  legible y todo respeta la preferencia de movimiento reducido.
+
 ## [1.2.0] - 2026-07-03
 
 ### Nuevo

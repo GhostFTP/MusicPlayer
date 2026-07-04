@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api } from '../api/client.js';
+import { api, coverUrl } from '../api/client.js';
 import { qualityTier, qualityCodec, qualityTierTitle, shortCodec } from './QualityChip.jsx';
 
 // Etiquetas de MusicBrainz legibles en español.
@@ -69,11 +69,11 @@ function InfoRows({ rows }) {
 }
 
 // Sección completa (título + filas); no se pinta si no hay ninguna fila visible.
-function InfoSection({ title, rows }) {
+function InfoSection({ title, icon, rows }) {
   if (!rows.some(([, v]) => v != null && v !== '')) return null;
   return (
     <section className="info-section">
-      <h4 className="info-section-title">{title}</h4>
+      <h4 className="info-section-title">{icon}{title}</h4>
       <InfoRows rows={rows} />
     </section>
   );
@@ -84,6 +84,38 @@ function Chevron() {
     <svg className="info-artist-chev" width="18" height="18" viewBox="0 0 24 24" fill="none"
          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+// Iconos de sección (line SVG, mismo estilo que Chevron/X). Color vía CSS
+// (.info-section-icon) para que no herede el muted del título.
+function IconNote() {
+  return (
+    <svg className="info-section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </svg>
+  );
+}
+function IconBust() {
+  return (
+    <svg className="info-section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
+}
+function IconMeter() {
+  return (
+    <svg className="info-section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="6" y1="20" x2="6" y2="12" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="18" y1="20" x2="18" y2="9" />
     </svg>
   );
 }
@@ -126,9 +158,13 @@ function ArtistBlock({ artistName, artistKey, navigate }) {
     q.lossy    ? `${q.lossy} con pérdida` : null,
   ].filter(Boolean).join(' · ') : null;
 
+  // MusicBrainz jerarquizado: fila meta (Tipo · País · Activo) + géneros como chips.
+  const mbMeta = mb?.found ? [mbType(mb.type), mb.country, mbYears(mb)].filter(Boolean) : [];
+  const mbTags = mb?.found && mb.tags?.length ? mb.tags : [];
+
   return (
     <section className="info-section">
-      <h4 className="info-section-title">Artista</h4>
+      <h4 className="info-section-title"><IconBust />Artista</h4>
       <button
         className={`info-artist-row${open ? ' open' : ''}`}
         onClick={() => canExpand && setOpen(o => !o)}
@@ -154,13 +190,24 @@ function ArtistBlock({ artistName, artistKey, navigate }) {
 
               {mb?.found && (
                 <div className="info-mb">
-                  <InfoRows rows={[
-                    ['Tipo',    mbType(mb.type)],
-                    ['País',    mb.country],
-                    ['Activo',  mbYears(mb)],
-                    ['Géneros', mb.tags?.length ? mb.tags.join(' · ') : null],
-                  ]} />
-                  <span className="info-mb-note">vía MusicBrainz</span>
+                  {mbMeta.length > 0 && (
+                    <p className="info-mb-meta">
+                      {mbMeta.map((m, i) => (
+                        <span key={i}>
+                          {i > 0 && <span className="info-mb-sep" aria-hidden="true"> · </span>}
+                          {m}
+                        </span>
+                      ))}
+                    </p>
+                  )}
+                  {mbTags.length > 0 && (
+                    <div className="info-mb-tags">
+                      {mbTags.map(t => <span className="info-mb-chip" key={t}>{t}</span>)}
+                    </div>
+                  )}
+                  <span className="info-mb-note">
+                    <span className="info-mb-dot" aria-hidden="true">●</span>vía MusicBrainz
+                  </span>
                 </div>
               )}
 
@@ -253,6 +300,9 @@ export default function InfoPanel({ track, onClose, navigate }) {
         role="dialog"
         aria-label="Información de la pista"
       >
+        {track.cover_path && (
+          <div className="info-bg" style={{ backgroundImage: `url(${coverUrl(track.id)})` }} aria-hidden="true" />
+        )}
         <div className="info-header">
           <div className="info-head-text">
             <span className="info-kicker">Información</span>
@@ -266,13 +316,13 @@ export default function InfoPanel({ track, onClose, navigate }) {
         </div>
 
         <div className="info-body">
-          <InfoSection title="Pista" rows={trackRows} />
+          <InfoSection title="Pista" icon={<IconNote />} rows={trackRows} />
 
           <ArtistBlock artistName={artistName} artistKey={artistKey} navigate={navigate} />
 
           {hasQuality && (
             <section className="info-section">
-              <h4 className="info-section-title">Calidad</h4>
+              <h4 className="info-section-title"><IconMeter />Calidad</h4>
               {qCodec && (
                 <div className="info-quality">
                   <span className={`quality-chip q-${tier.id}`} title={qualityTierTitle(track)}>{qCodec}</span>
