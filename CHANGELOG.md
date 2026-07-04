@@ -3,6 +3,39 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.3.0] - 2026-07-04
+
+### Nuevo
+- **Karaoke "Escenario"**: el panel de Letra se abre a pantalla completa con la
+  carátula de la canción difuminada de fondo, la línea activa protagonista (con
+  glow) y un **barrido de progreso sincronizado** que rellena la línea a medida
+  que avanza. Desde el reproductor ampliado abre inmersivo; desde la barra, como
+  panel con un botón para expandir.
+- **Ajuste fino de sincronía** en la letra: botones −0.5 / −0.1 / +0.1 / +0.5 (y
+  reset) para corregir el desfase de esa canción; se recuerda por dispositivo. Se
+  respeta además la etiqueta `[offset:]` del archivo `.lrc`.
+- **Avisos con toast central**: al añadir una canción a una playlist aparece un
+  aviso glass en el centro de la pantalla ("Añadida a…"), que se cierra solo.
+- **Vista Playlists renovada ("Mosaico Prisma")**: la lista pasa a una **grilla de
+  tarjetas**, cada una con un color propio derivado de su emoji, y la playlist
+  abierta estrena un **hero** a juego con ese color.
+
+### Mejorado
+- **Menú "+" en fichas**: filas más grandes con el emoji en un tile de color y el
+  nombre sobre "N canciones", más un estado vacío con carácter cuando aún no hay
+  playlists.
+- **Cambiar el emoji al renombrar** una playlist desde su propia vista (antes solo
+  se podía desde el menú "+").
+- **Al añadir una canción que ya está** en la playlist, ahora se avisa ("Ya está
+  en…") en vez de no hacer nada en silencio.
+- Todas las animaciones nuevas respetan la preferencia de **movimiento reducido**.
+
+### Técnico
+- El endpoint de añadir a playlist informa cuando la pista ya estaba
+  (`POST /api/playlists/:id/tracks` responde `{ already: true }` sin duplicar).
+- `emojiHue()` (color estable derivado del emoji) se unifica en un helper
+  compartido por la vista Playlists y el menú "+".
+
 ## [1.2.1] - 2026-07-03
 
 ### Mejorado
