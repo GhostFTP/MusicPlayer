@@ -1954,11 +1954,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   width: 100%;
   max-width: 440px;
   max-height: 82vh;
+  position: relative;                          /* ancla .info-bg sin depender del backdrop-filter */
   display: flex;
   flex-direction: column;
   background: rgba(24, 24, 24, .85);           /* glass, consistente con el menú de playlists */
-  backdrop-filter: blur(24px) saturate(1.3);
-  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);   /* bajado de 24px: la carátula .info-bg ya aporta blur */
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
   border: 1px solid rgba(255, 255, 255, .1);
   border-radius: 16px;
   overflow: hidden;
@@ -1973,7 +1974,33 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @keyframes info-fade-out { to { opacity: 0; } }
 @keyframes info-pop-out  { to { opacity: 0; transform: translateY(6px) scale(.93); } }
 
+/* Carátula viva: la portada de la pista difuminada como fondo del modal (recortada
+   por overflow:hidden + radio). Capa base bajo header/body; estática (no anima). */
+.info-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(32px) saturate(1.2);
+  transform: scale(1.15);
+  pointer-events: none;
+}
+/* Doble oscurecido: overlay sólido + gradiente vertical para asegurar contraste del
+   texto incluso con portadas claras (p. ej. NewJeans). Erramos del lado oscuro. */
+.info-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .15), rgba(0, 0, 0, .35)), rgba(0, 0, 0, .72);
+}
+/* Móvil: aliviamos GPU (doble blur: .info-bg + backdrop-filter del modal). */
+@media (max-width: 700px) {
+  .info-bg { filter: blur(20px) saturate(1.2); }
+}
+
 .info-header {
+  position: relative; z-index: 1;              /* por encima de .info-bg */
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
   padding: 16px 18px;
@@ -1981,7 +2008,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 .info-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .info-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
-.info-title  { font-size: 16px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.info-title  { font-size: 20px; color: var(--text); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .info-close {
   background: none; border: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0;
   width: 34px; height: 34px; border-radius: 50%;
@@ -1990,7 +2017,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 .info-close:hover { color: var(--text); background: var(--surface-2); }
 
-.info-body { padding: 16px 18px 20px; overflow-y: auto; }
+.info-body { position: relative; z-index: 1; padding: 16px 18px 20px; overflow-y: auto; }
 
 .info-grid { display: flex; flex-direction: column; gap: 0; margin: 0; }
 .info-row {
@@ -2003,7 +2030,8 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .info-row dd { margin: 0; font-size: 14px; color: var(--text); font-weight: 500; min-width: 0; word-break: break-word; }
 
 .info-section { margin-top: 18px; }
-.info-section-title { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); font-weight: 700; margin-bottom: 10px; }
+.info-section-title { display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); font-weight: 700; margin-bottom: 10px; }
+.info-section-icon { flex-shrink: 0; color: rgba(255, 255, 255, .55); }   /* stroke=currentColor; independiente del muted del título */
 .info-quality { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .info-quality .quality-chip { font-size: 11px; padding: 3px 9px; }
 .info-quality-note { font-size: 12px; color: var(--text-muted); }
@@ -2059,11 +2087,25 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   margin-top: 10px; padding-top: 8px;
   border-top: 1px dashed rgba(255, 255, 255, .12);
 }
-.info-mb-note {
-  display: block; margin-top: 4px;
-  font-size: 10.5px; letter-spacing: .3px; color: var(--text-muted);
-  font-style: italic; opacity: .8;
+/* Fila meta: Tipo · País · Activo (los faltantes se omiten). */
+.info-mb-meta { margin: 0; font-size: 13px; color: var(--text); font-weight: 500; }
+.info-mb-sep  { color: var(--text-muted); }
+/* Géneros/tags como pills. */
+.info-mb-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.info-mb-chip {
+  font-size: 11px; padding: 3px 9px;
+  background: rgba(255, 255, 255, .08);
+  border-radius: 7px; color: var(--text);
 }
+/* "vía MusicBrainz" como badge con puntito, sutil/muted. */
+.info-mb-note {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 10px; padding: 3px 8px;
+  background: rgba(255, 255, 255, .05);
+  border-radius: 6px;
+  font-size: 10.5px; letter-spacing: .3px; color: var(--text-muted);
+}
+.info-mb-dot { font-size: 8px; line-height: 1; color: var(--text-muted); opacity: .7; }
 
 @media (prefers-reduced-motion: reduce) {
   .info-overlay, .info-modal { animation: none; }
