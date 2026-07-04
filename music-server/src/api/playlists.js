@@ -53,7 +53,10 @@ router.post('/:id/tracks', (req, res) => {
   const max = db.prepare('SELECT MAX(position) AS m FROM playlist_tracks WHERE playlist_id = ?').get(req.params.id);
   const position = (max?.m ?? 0) + 1;
 
-  db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)').run(req.params.id, track_id, position);
+  // PK (playlist_id, track_id): si ya estaba, INSERT OR IGNORE no inserta
+  // (changes === 0) → avisamos al cliente en vez de fingir que se añadió.
+  const result = db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)').run(req.params.id, track_id, position);
+  if (result.changes === 0) return res.json({ already: true });
   res.status(201).json({ position });
 });
 

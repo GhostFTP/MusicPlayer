@@ -554,22 +554,89 @@ button, input, select, textarea { font-family: inherit; }
 
 /* ── PLAYLISTS ─────────────────────────── */
 
-.playlist-list { list-style: none; }
+/* "Mosaico Prisma": grilla de tarjetas tintadas por el hue del emoji (lenguaje
+   de .album-grid, algo más compacto). El hue llega por --h desde emojiHue(). */
+.playlist-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
 
 .playlist-item {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-radius: var(--radius);
+  flex-direction: column;
+  gap: 14px;
+  min-height: 150px;
+  padding: 16px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: background .12s;
-  min-height: 56px;
+  overflow: hidden;
+  /* Degradado OSCURO por hue (L 13-20%, alpha baja) sobre --surface, para que
+     --text conserve contraste incluso con hues claros (amarillo/cian). */
+  background:
+    linear-gradient(150deg,
+      hsl(var(--h, 265) 50% 20% / .55),
+      hsl(calc(var(--h, 265) + 34) 45% 13% / .35)),
+    var(--surface);
+  border: 1px solid hsl(var(--h, 265) 60% 60% / .22);
+  transition: transform .16s cubic-bezier(.34, 1.42, .5, 1), border-color .16s, box-shadow .16s;
+  /* Entrada escalonada al montar (reusa el patrón de emoji-pop + --i). */
+  animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 24ms);
 }
-.playlist-item:hover { background: var(--surface); }
+.playlist-item:hover {
+  transform: translateY(-3px);
+  border-color: hsl(var(--h, 265) 65% 62% / .4);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .38);
+}
 
-.playlist-name { font-size: 15px; font-weight: 500; }
-.playlist-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+/* Medallón del emoji (tile grande con wash + aro tintados por el hue). */
+.playlist-medallion {
+  width: 60px; height: 60px; border-radius: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 30px; line-height: 1; flex-shrink: 0;
+  background: hsl(var(--h, 265) 55% 55% / .16);
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .35);
+}
+
+.playlist-card-text { min-width: 0; margin-top: auto; }
+.playlist-name {
+  font-size: 15px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.playlist-meta {
+  font-size: 12px; color: var(--text-muted); margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Borrar: aparece en hover (esquina sup-der); en táctil, siempre visible. */
+.playlist-del {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px;
+  background: rgba(0, 0, 0, .35);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .14s, color .12s, background .12s;
+}
+.playlist-item:hover .playlist-del { opacity: 1; }
+.playlist-del:hover { color: var(--q-lossy-low); background: rgba(0, 0, 0, .55); }
+.playlist-del:focus-visible {
+  opacity: 1; outline: 2px solid var(--accent); outline-offset: 2px;
+}
+@media (hover: none) { .playlist-del { opacity: 1; } }
+
+/* prefers-reduced-motion: sin entrada escalonada ni desplazamiento en hover;
+   se conservan color/degradado/borde (cambios de color, no de movimiento). */
+@media (prefers-reduced-motion: reduce) {
+  .playlist-item { animation: none; transition: border-color .16s, box-shadow .16s; }
+  .playlist-item:hover { transform: none; }
+}
 
 .btn-icon {
   background: none;
@@ -677,7 +744,7 @@ button, input, select, textarea { font-family: inherit; }
 
 .ptp-list {
   list-style: none;
-  max-height: 220px;
+  max-height: 264px;
   overflow-y: auto;
   margin: 0;
   padding: 0;
@@ -703,11 +770,12 @@ button, input, select, textarea { font-family: inherit; }
   background: var(--accent-dim); color: #fff;
   box-shadow: inset 3px 0 0 hsl(var(--h, 265) 60% 60%);
 }
-/* Emoji como tile redondeado tintado por el hue del propio emoji (Dirección A). */
+/* Emoji como tile redondeado (ficha) tintado por el hue del propio emoji
+   (Dirección A + B: tile más grande). */
 .ptp-item-emoji {
-  width: 32px; height: 32px; border-radius: 9px;
+  width: 38px; height: 38px; border-radius: 10px;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 18px; line-height: 1; flex-shrink: 0;
+  font-size: 20px; line-height: 1; flex-shrink: 0;
   background: hsl(var(--h, 265) 55% 55% / .16);         /* wash tintado, alpha baja: no bloque sólido */
   box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .35);   /* aro del hue */
   transition: transform .16s cubic-bezier(.34, 1.5, .6, 1);
@@ -716,11 +784,13 @@ button, input, select, textarea { font-family: inherit; }
 }
 .ptp-item-main:hover .ptp-item-emoji { transform: scale(1.08); }
 @keyframes emoji-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
-.ptp-item-name  { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ptp-item-count {
-  font-size: 11px; color: var(--text-muted); flex-shrink: 0;
+/* Ficha en dos líneas: nombre + subtítulo "N canciones". */
+.ptp-item-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.ptp-item-name { min-width: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptp-item-sub  {
+  font-size: 11px; color: var(--text-muted);
   font-variant-numeric: tabular-nums;
-  background: rgba(255, 255, 255, .06); padding: 1px 7px; border-radius: 999px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* Acciones por fila (renombrar / borrar): aparecen al hover; en táctil, siempre. */
@@ -760,6 +830,12 @@ button, input, select, textarea { font-family: inherit; }
   font-size: 12.5px; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* Estado vacío del menú: sin playlists todavía (con carácter, no un hueco). */
+.ptp-empty { text-align: center; padding: 20px 12px 14px; }
+.ptp-empty-icon { font-size: 32px; opacity: .8; margin-bottom: 6px; }
+.ptp-empty-text { font-size: 13px; font-weight: 600; color: var(--text); }
+.ptp-empty-sub  { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
 
 .ptp-new {
   display: flex;
@@ -840,11 +916,6 @@ button, input, select, textarea { font-family: inherit; }
 .emoji-cell:hover  { background: var(--surface-hover); transform: scale(1.25); }
 .emoji-cell.active { background: var(--accent-dim); box-shadow: inset 0 0 0 1.5px var(--accent); }
 
-/* Emoji en la vista Playlists (lista + detalle) */
-.playlist-item-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.playlist-emoji { font-size: 22px; line-height: 1; flex-shrink: 0; }
-.pl-title-emoji { margin-right: 8px; }
-
 /* ── Vista Novedades (CHANGELOG) ── */
 .changelog { max-width: 760px; }
 .cl-version { margin-bottom: 34px; }
@@ -893,6 +964,9 @@ button, input, select, textarea { font-family: inherit; }
   .time-tick, .time-ending .time-tick { animation: none; }   /* cuenta regresiva: solo color, sin pulso */
   .lyrics-panel { animation: none; }
   .lyrics-line { transition: none; }
+  /* Sin barrido: la copia brillante se muestra entera → la activa queda --accent
+     sólida de una (el rAF ni siquiera arranca). */
+  .lyrics-line.active > .lyrics-wipe { clip-path: none; }
 }
 
 /* Menú hacia arriba (cuando el botón está pegado al fondo, p.ej. el Player) */
@@ -931,12 +1005,27 @@ button, input, select, textarea { font-family: inherit; }
    "+" vive en .exp-actions (fila propia) y NO debe empujarse — de ahí el scope. */
 .exp-head-actions .ptp-exp { margin-left: auto; }
 
-/* ── PLAYLIST DETAIL · TITLE / RENAME ───── */
+/* ── PLAYLIST DETAIL · HERO / TITLE / RENAME ───── */
 
-.pl-title {
+/* Hero de la playlist abierta: reusa .detail-hero con un banner en degradado por
+   hue (OSCURO, alpha .6 → transparent) y un medallón del emoji como "cover". */
+.pl-hero {
+  align-items: center;
+  padding: 20px 22px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, hsl(var(--h, 265) 45% 20% / .6), transparent);
+}
+.pl-hero-cover {
+  background: hsl(var(--h, 265) 50% 22% / .5);
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .4),
+    0 16px 40px rgba(0, 0, 0, .45);
+}
+
+.pl-detail-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .pl-edit {
   min-width: 32px;
@@ -975,6 +1064,7 @@ button, input, select, textarea { font-family: inherit; }
   align-items: center;
   gap: 8px;
 }
+.detail-hero-info .pl-detail-actions { margin-top: 16px; }
 
 /* ── PLAYER BAR ─────────────────────────── */
 
@@ -1885,32 +1975,81 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   left: 0; right: 0; top: 0;
   bottom: var(--player-h);                 /* deja visible la barra del reproductor */
   z-index: 250;                            /* por encima del player expandido (200) */
+  overflow: hidden;                        /* recorta la carátula ampliada del .lyrics-bg */
   background: rgba(13, 13, 19, .72);       /* glassmorphism, en familia con el panel de Info */
-  backdrop-filter: blur(30px) saturate(1.3);
-  -webkit-backdrop-filter: blur(30px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);   /* bajado de 30px: la carátula .lyrics-bg ya aporta blur */
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
   border-top: 1px solid rgba(255, 255, 255, .08);
   display: flex;
   flex-direction: column;
   animation: lyrics-in .3s cubic-bezier(.22, 1, .36, 1);
 }
+/* Inmersivo: full-bleed (tapa la barra del reproductor). z 250 > barra (grid, sin z)
+   y < Info (300). */
+.lyrics-panel.immersive { inset: 0; border-top: none; }
 @keyframes lyrics-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 
+/* Fondo "escenario": carátula actual difuminada como capa base del panel. Doble
+   oscurecido (gradiente + sólido) para asegurar contraste con portadas claras.
+   Erramos del lado oscuro. Estático (no anima); hereda el fade de entrada del panel. */
+.lyrics-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(28px) saturate(1.3);
+  transform: scale(1.2);
+  pointer-events: none;
+}
+.lyrics-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .2), rgba(0, 0, 0, .4)), rgba(0, 0, 0, .72);
+}
+@media (max-width: 700px) {
+  .lyrics-bg { filter: blur(20px) saturate(1.3); }
+}
+
 .lyrics-header {
+  position: relative; z-index: 1;          /* por encima de .lyrics-bg */
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 28px; border-bottom: 1px solid rgba(255, 255, 255, .08);
 }
+.lyrics-head-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* Ajuste fino de sincronía (solo con letra sincronizada). */
+.lyrics-sync { display: inline-flex; align-items: center; gap: 1px; margin-right: 2px; }
+.lyrics-sync-btn {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  min-width: 26px; height: 26px; padding: 0 4px; border-radius: 7px; flex-shrink: 0;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: color .12s, background .12s;
+}
+.lyrics-sync-btn:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
+.lyrics-sync-val {
+  background: none; border: none; color: var(--text-muted); cursor: default;
+  font-size: 10.5px; font-variant-numeric: tabular-nums; letter-spacing: .2px;
+  min-width: 36px; text-align: center; padding: 3px 2px; border-radius: 6px;
+  transition: color .12s, background .12s;
+}
+.lyrics-sync-val.on { color: var(--accent); cursor: pointer; font-weight: 600; }
+.lyrics-sync-val.on:hover { background: rgba(255, 255, 255, .08); }
 .lyrics-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .lyrics-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
 .lyrics-song { font-size: 15px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lyrics-close {
+.lyrics-close, .lyrics-toggle {
   background: none; border: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0;
   width: 36px; height: 36px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   transition: color .15s, background .15s;
 }
-.lyrics-close:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
+.lyrics-close:hover, .lyrics-toggle:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
 
 .lyrics-body {
+  position: relative; z-index: 1;          /* por encima de .lyrics-bg */
   flex: 1; overflow-y: auto;
   padding: 44px 28px 80px;
   display: flex; flex-direction: column; align-items: center;
@@ -1931,13 +2070,32 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 .lyrics-line:hover { opacity: .8; }
 .lyrics-line.near  { opacity: .68; }                 /* vecinas inmediatas: un punto más vivas */
+/* Línea activa protagonista: grande y con sombra de contraste + glow morado para
+   legibilidad sobre la carátula. El color base va atenuado; el barrido (.lyrics-wipe)
+   la lleva a --accent de izquierda a derecha. */
 .lyrics-line.active {
-  color: var(--accent); opacity: 1; font-weight: 700;
-  transform: scale(1.08);
-  text-shadow: 0 0 20px rgba(167, 139, 250, .45);    /* glow sutil */
+  display: grid;                                     /* apila base + wipe en la misma celda */
+  color: var(--text-muted); opacity: 1;
+  font-size: clamp(28px, 5vw, 40px); font-weight: 800; line-height: 1.25;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, .6), 0 0 22px rgba(167, 139, 250, .5);
+}
+.lyrics-line.active > .lyrics-base,
+.lyrics-line.active > .lyrics-wipe {
+  grid-area: 1 / 1;                                  /* mismo box → wrapping idéntico */
+}
+.lyrics-line.active > .lyrics-wipe {
+  color: var(--accent);
+  /* Relleno izq→der con --p (0→1). Compositor-friendly: recorta, no repinta texto. */
+  clip-path: inset(0 calc(100% - var(--p, 0) * 100%) 0 0);
 }
 
-.lyrics-plain p { font-size: 18px; line-height: 1.75; color: var(--text); margin: 0 0 2px; white-space: pre-wrap; }
+/* Estado NO sincronizado: mismo fondo de carátula, tipografía cuidada y aireada. */
+.lyrics-plain { display: flex; flex-direction: column; }
+.lyrics-plain p {
+  font-size: clamp(19px, 2.4vw, 23px); line-height: 1.9;
+  color: var(--text); margin: 0; white-space: pre-wrap;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, .55);        /* legibilidad sobre la carátula */
+}
 
 .lyrics-empty { margin: auto; text-align: center; color: var(--text-muted); }
 .lyrics-empty-icon { font-size: 46px; margin-bottom: 12px; opacity: .85; }
@@ -2326,6 +2484,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .album-card { padding: 12px; }
   .album-card:hover { transform: none; }
 
+  /* Playlists: grilla más compacta + medallón/hero algo menores */
+  .playlist-list { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .playlist-item { min-height: 132px; }
+  .playlist-medallion { width: 52px; height: 52px; font-size: 26px; }
+  .pl-hero { padding: 16px; }
+  .pl-hero-cover { font-size: 46px; }
+
   /* Login */
   .login-card { padding: 32px 24px; }
 }
@@ -2356,4 +2521,30 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      encoge. El badge de calidad y los botones de control/letra se mantienen. */
   .player-bar { padding: 0 16px; gap: 12px; }
   .player-volume input[type="range"] { width: 56px; }
+}
+
+/* ── Toast central reutilizable ───────────────────────────────────────────── */
+.toast-layer {
+  position: fixed; inset: 0; z-index: 400;      /* por encima de Info (300) y Letra (250) */
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 20px;
+  pointer-events: none;                          /* no bloquea la UI de abajo */
+}
+.toast {
+  display: inline-flex; align-items: center; gap: 9px;
+  max-width: min(90vw, 420px);
+  padding: 13px 20px; border-radius: 14px;
+  background: rgba(24, 24, 24, .86);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .12);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .45);
+  color: var(--text); font-size: 14px; font-weight: 500;
+  animation: toast-in .24s cubic-bezier(.34, 1.4, .5, 1);
+}
+.toast-icon { color: var(--q-lossless); font-size: 15px; flex-shrink: 0; }
+.toast-text { min-width: 0; }
+@keyframes toast-in { from { opacity: 0; transform: scale(.9) translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
 }

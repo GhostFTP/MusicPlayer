@@ -1,15 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { api } from '../api/client.js';
 import EmojiPicker from './EmojiPicker.jsx';
-
-// Deriva un hue (0-359) del emoji de la playlist, de forma PURA y determinista.
-// Multiplicativo de Knuth sobre el primer code point → buen spread angular, así
-// los emoji "de música" no se agrupan en un rango de color angosto. Se pasa por
-// fila como CSS var `--h` (hereda a tile + borde-guía). No es dato nuevo de DB.
-function emojiHue(emoji) {
-  const c = (emoji || '🎵').codePointAt(0) || 0;
-  return (c * 2654435761 >>> 0) % 360;
-}
+import { useToast } from './Toast.jsx';
+import { emojiHue } from '../utils/emojiHue.js';
 
 // Botón "+" por pista: abre un menú para añadirla a una playlist existente
 // o crear una nueva al vuelo. Desde aquí también se pueden RENOMBRAR (con cambio
@@ -22,13 +15,13 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
   const [playlists, setPlaylists] = useState([]);
   const [newName, setNewName]     = useState('');
   const [emoji, setEmoji]         = useState('🎵');
-  const [done, setDone]           = useState(false);
   const [busy, setBusy]           = useState(false);
   const [editingId, setEditingId] = useState(null);   // id de la playlist en edición inline
   const [editName, setEditName]   = useState('');
   const [editEmoji, setEditEmoji] = useState('🎵');
   const [confirmId, setConfirmId] = useState(null);   // id pendiente de confirmar borrado
   const ref = useRef(null);
+  const toast = useToast();
 
   // Al abrir: refresca la lista y cierra al hacer clic fuera o con Escape. Al
   // cerrar: descarta cualquier edición/confirmación a medias.
@@ -46,18 +39,13 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
     };
   }, [open]);
 
-  function flashDone() {
-    setDone(true);
-    setTimeout(() => setDone(false), 1600);
-  }
-
   async function addTo(playlist) {
     if (busy) return;
     setBusy(true);
     try {
-      await api.addToPlaylist(playlist.id, trackId);
+      const res = await api.addToPlaylist(playlist.id, trackId);
       setOpen(false);
-      flashDone();
+      toast(res?.already ? `Ya está en «${playlist.name}»` : `Añadida a «${playlist.name}»`);
     } finally {
       setBusy(false);
     }
@@ -74,7 +62,7 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
       setNewName('');
       setEmoji('🎵');
       setOpen(false);
-      flashDone();
+      toast(`Añadida a «${pl.name ?? name}»`);
     } finally {
       setBusy(false);
     }
@@ -116,25 +104,24 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
     }
   }
 
-  const active = open || done;
-  const cls = ['ptp', active && 'active', placement === 'up' && 'ptp-up', className]
+  const cls = ['ptp', open && 'active', placement === 'up' && 'ptp-up', className]
     .filter(Boolean).join(' ');
 
   return (
     <div className={cls} ref={ref} onClick={e => e.stopPropagation()}>
       <button
         className="ptp-btn"
-        title={done ? 'Añadida' : 'Añadir a playlist'}
+        title="Añadir a playlist"
         onClick={() => setOpen(o => !o)}
       >
-        {done ? <CheckIcon /> : <PlusIcon />}
+        <PlusIcon />
       </button>
 
       {open && (
         <div className="ptp-menu">
           <div className="ptp-menu-head">Añadir a playlist</div>
 
-          {playlists.length > 0 && (
+          {playlists.length > 0 ? (
             <ul className="ptp-list">
               {playlists.map((pl, idx) => (
                 <li key={pl.id} className="ptp-item" style={{ '--h': emojiHue(pl.emoji), '--i': idx }}>
@@ -161,8 +148,10 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
                     <>
                       <button className="ptp-item-main" onClick={() => addTo(pl)} title="Añadir a esta playlist">
                         <span className="ptp-item-emoji">{pl.emoji || '🎵'}</span>
-                        <span className="ptp-item-name">{pl.name}</span>
-                        <span className="ptp-item-count">{pl.track_count ?? 0}</span>
+                        <span className="ptp-item-text">
+                          <span className="ptp-item-name">{pl.name}</span>
+                          <span className="ptp-item-sub">{pl.track_count ?? 0} {pl.track_count === 1 ? 'canción' : 'canciones'}</span>
+                        </span>
                       </button>
                       <div className="ptp-item-actions">
                         <button className="ptp-mini-btn" title="Renombrar" onClick={() => startEdit(pl)}><PencilIcon /></button>
@@ -173,6 +162,12 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
                 </li>
               ))}
             </ul>
+          ) : (
+            <div className="ptp-empty">
+              <div className="ptp-empty-icon">🎶</div>
+              <div className="ptp-empty-text">Aún no tenés playlists</div>
+              <div className="ptp-empty-sub">Creá la primera abajo 👇</div>
+            </div>
           )}
 
           <form className="ptp-new" onSubmit={createAndAdd}>
@@ -194,14 +189,6 @@ function PlusIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5ee19a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12" />
     </svg>
   );
 }
