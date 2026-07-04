@@ -2,15 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { api } from '../api/client.js';
 import EmojiPicker from './EmojiPicker.jsx';
 import { useToast } from './Toast.jsx';
-
-// Deriva un hue (0-359) del emoji de la playlist, de forma PURA y determinista.
-// Multiplicativo de Knuth sobre el primer code point → buen spread angular, así
-// los emoji "de música" no se agrupan en un rango de color angosto. Se pasa por
-// fila como CSS var `--h` (hereda a tile + borde-guía). No es dato nuevo de DB.
-function emojiHue(emoji) {
-  const c = (emoji || '🎵').codePointAt(0) || 0;
-  return (c * 2654435761 >>> 0) % 360;
-}
+import { emojiHue } from '../utils/emojiHue.js';
 
 // Botón "+" por pista: abre un menú para añadirla a una playlist existente
 // o crear una nueva al vuelo. Desde aquí también se pueden RENOMBRAR (con cambio

@@ -554,22 +554,89 @@ button, input, select, textarea { font-family: inherit; }
 
 /* ── PLAYLISTS ─────────────────────────── */
 
-.playlist-list { list-style: none; }
+/* "Mosaico Prisma": grilla de tarjetas tintadas por el hue del emoji (lenguaje
+   de .album-grid, algo más compacto). El hue llega por --h desde emojiHue(). */
+.playlist-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
 
 .playlist-item {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-radius: var(--radius);
+  flex-direction: column;
+  gap: 14px;
+  min-height: 150px;
+  padding: 16px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: background .12s;
-  min-height: 56px;
+  overflow: hidden;
+  /* Degradado OSCURO por hue (L 13-20%, alpha baja) sobre --surface, para que
+     --text conserve contraste incluso con hues claros (amarillo/cian). */
+  background:
+    linear-gradient(150deg,
+      hsl(var(--h, 265) 50% 20% / .55),
+      hsl(calc(var(--h, 265) + 34) 45% 13% / .35)),
+    var(--surface);
+  border: 1px solid hsl(var(--h, 265) 60% 60% / .22);
+  transition: transform .16s cubic-bezier(.34, 1.42, .5, 1), border-color .16s, box-shadow .16s;
+  /* Entrada escalonada al montar (reusa el patrón de emoji-pop + --i). */
+  animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 24ms);
 }
-.playlist-item:hover { background: var(--surface); }
+.playlist-item:hover {
+  transform: translateY(-3px);
+  border-color: hsl(var(--h, 265) 65% 62% / .4);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .38);
+}
 
-.playlist-name { font-size: 15px; font-weight: 500; }
-.playlist-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+/* Medallón del emoji (tile grande con wash + aro tintados por el hue). */
+.playlist-medallion {
+  width: 60px; height: 60px; border-radius: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 30px; line-height: 1; flex-shrink: 0;
+  background: hsl(var(--h, 265) 55% 55% / .16);
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .35);
+}
+
+.playlist-card-text { min-width: 0; margin-top: auto; }
+.playlist-name {
+  font-size: 15px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.playlist-meta {
+  font-size: 12px; color: var(--text-muted); margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Borrar: aparece en hover (esquina sup-der); en táctil, siempre visible. */
+.playlist-del {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px;
+  background: rgba(0, 0, 0, .35);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .14s, color .12s, background .12s;
+}
+.playlist-item:hover .playlist-del { opacity: 1; }
+.playlist-del:hover { color: var(--q-lossy-low); background: rgba(0, 0, 0, .55); }
+.playlist-del:focus-visible {
+  opacity: 1; outline: 2px solid var(--accent); outline-offset: 2px;
+}
+@media (hover: none) { .playlist-del { opacity: 1; } }
+
+/* prefers-reduced-motion: sin entrada escalonada ni desplazamiento en hover;
+   se conservan color/degradado/borde (cambios de color, no de movimiento). */
+@media (prefers-reduced-motion: reduce) {
+  .playlist-item { animation: none; transition: border-color .16s, box-shadow .16s; }
+  .playlist-item:hover { transform: none; }
+}
 
 .btn-icon {
   background: none;
@@ -849,11 +916,6 @@ button, input, select, textarea { font-family: inherit; }
 .emoji-cell:hover  { background: var(--surface-hover); transform: scale(1.25); }
 .emoji-cell.active { background: var(--accent-dim); box-shadow: inset 0 0 0 1.5px var(--accent); }
 
-/* Emoji en la vista Playlists (lista + detalle) */
-.playlist-item-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.playlist-emoji { font-size: 22px; line-height: 1; flex-shrink: 0; }
-.pl-title-emoji { margin-right: 8px; }
-
 /* ── Vista Novedades (CHANGELOG) ── */
 .changelog { max-width: 760px; }
 .cl-version { margin-bottom: 34px; }
@@ -943,12 +1005,27 @@ button, input, select, textarea { font-family: inherit; }
    "+" vive en .exp-actions (fila propia) y NO debe empujarse — de ahí el scope. */
 .exp-head-actions .ptp-exp { margin-left: auto; }
 
-/* ── PLAYLIST DETAIL · TITLE / RENAME ───── */
+/* ── PLAYLIST DETAIL · HERO / TITLE / RENAME ───── */
 
-.pl-title {
+/* Hero de la playlist abierta: reusa .detail-hero con un banner en degradado por
+   hue (OSCURO, alpha .6 → transparent) y un medallón del emoji como "cover". */
+.pl-hero {
+  align-items: center;
+  padding: 20px 22px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, hsl(var(--h, 265) 45% 20% / .6), transparent);
+}
+.pl-hero-cover {
+  background: hsl(var(--h, 265) 50% 22% / .5);
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .4),
+    0 16px 40px rgba(0, 0, 0, .45);
+}
+
+.pl-detail-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .pl-edit {
   min-width: 32px;
@@ -987,6 +1064,7 @@ button, input, select, textarea { font-family: inherit; }
   align-items: center;
   gap: 8px;
 }
+.detail-hero-info .pl-detail-actions { margin-top: 16px; }
 
 /* ── PLAYER BAR ─────────────────────────── */
 
@@ -2405,6 +2483,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .album-card { padding: 12px; }
   .album-card:hover { transform: none; }
+
+  /* Playlists: grilla más compacta + medallón/hero algo menores */
+  .playlist-list { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .playlist-item { min-height: 132px; }
+  .playlist-medallion { width: 52px; height: 52px; font-size: 26px; }
+  .pl-hero { padding: 16px; }
+  .pl-hero-cover { font-size: 46px; }
 
   /* Login */
   .login-card { padding: 32px 24px; }
