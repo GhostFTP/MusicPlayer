@@ -1931,6 +1931,25 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   padding: 18px 28px; border-bottom: 1px solid rgba(255, 255, 255, .08);
 }
 .lyrics-head-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* Ajuste fino de sincronía (solo con letra sincronizada). */
+.lyrics-sync { display: inline-flex; align-items: center; gap: 1px; margin-right: 2px; }
+.lyrics-sync-btn {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  min-width: 26px; height: 26px; padding: 0 4px; border-radius: 7px; flex-shrink: 0;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: color .12s, background .12s;
+}
+.lyrics-sync-btn:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
+.lyrics-sync-val {
+  background: none; border: none; color: var(--text-muted); cursor: default;
+  font-size: 10.5px; font-variant-numeric: tabular-nums; letter-spacing: .2px;
+  min-width: 36px; text-align: center; padding: 3px 2px; border-radius: 6px;
+  transition: color .12s, background .12s;
+}
+.lyrics-sync-val.on { color: var(--accent); cursor: pointer; font-weight: 600; }
+.lyrics-sync-val.on:hover { background: rgba(255, 255, 255, .08); }
 .lyrics-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .lyrics-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
 .lyrics-song { font-size: 15px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

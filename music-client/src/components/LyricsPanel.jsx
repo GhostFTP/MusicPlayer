@@ -7,13 +7,17 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 function parseLrc(lrc) {
   const stampRe = /\[(\d{1,2}):(\d{2}(?:[.:]\d{1,3})?)\]/g;
   const metaRe  = /^\s*\[[a-z#]+:[^\]]*\]\s*$/i;
+  // Etiqueta [offset:±ms] del formato LRC: desplaza TODAS las marcas. Convención
+  // estándar: un valor positivo RETRASA la letra y uno negativo la ADELANTA (ms→s).
+  const offMatch = lrc.match(/\[offset:\s*([+-]?\d+)\s*\]/i);
+  const offset = offMatch ? parseInt(offMatch[1], 10) / 1000 : 0;
   const out = [];
   for (const raw of lrc.split(/\r?\n/)) {
     if (metaRe.test(raw)) continue;
     const stamps = [];
     let m; stampRe.lastIndex = 0;
     while ((m = stampRe.exec(raw)) !== null) {
-      stamps.push(parseInt(m[1], 10) * 60 + parseFloat(m[2].replace(':', '.')));
+      stamps.push(parseInt(m[1], 10) * 60 + parseFloat(m[2].replace(':', '.')) + offset);
     }
     const text = raw.replace(stampRe, '').trim();
     if (stamps.length === 0) {
@@ -33,6 +37,9 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
   // Inmersivo: full-bleed (tapa la barra) vs panel (deja la barra visible). Arranca
   // en inmersivo si la letra se abrió desde el reproductor expandido.
   const [immersive, setImmersive] = useState(startImmersive);
+  // Ajuste fino de sincronía por canción (segundos). Desplaza el tiempo efectivo
+  // (línea activa + barrido); +: la letra va adelante. Se persiste en localStorage.
+  const [offset, setOffset] = useState(0);
   const activeRef = useRef(null);
 
   // ── Reloj de barrido (wipe) ────────────────────────────────────────────────
@@ -47,6 +54,7 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
   const linesRef     = useRef([]);  // últimas líneas (leídas dentro del rAF sin recrear el loop)
   const activeIdxRef = useRef(-1);
   const durationRef  = useRef(0);
+  const offsetRef    = useRef(0);   // ajuste de sync leído dentro del rAF
 
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
@@ -61,6 +69,13 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
+  // Cargar el ajuste de sync guardado al cambiar de pista (localStorage por trackId).
+  useEffect(() => {
+    if (!currentTrack) { setOffset(0); return; }
+    const saved = parseFloat(localStorage.getItem('lyricsOffset:' + currentTrack.id));
+    setOffset(Number.isFinite(saved) ? saved : 0);
+  }, [currentTrack]);
+
   const lines  = data && !data.instrumental && data.lyrics ? parseLrc(data.lyrics) : [];
   const synced = !!data?.synced && lines.some(l => l.time != null);
 
@@ -68,7 +83,9 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
   let activeIdx = -1;
   if (synced) {
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].time != null && lines[i].time <= currentTime + 0.2) activeIdx = i;
+      // Tiempo efectivo = reloj + ajuste manual; +0.1 s de anticipación de lectura
+      // (bajada de 0.2 → 0.1: sumaba sensación de "adelantada"; el resto lo afina el offset).
+      if (lines[i].time != null && lines[i].time <= currentTime + offset + 0.1) activeIdx = i;
     }
   }
 
@@ -76,6 +93,7 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
   linesRef.current     = lines;
   activeIdxRef.current = activeIdx;
   durationRef.current  = duration;
+  offsetRef.current    = offset;
 
   useEffect(() => {
     // Scroll suave al avanzar; instantáneo si el sistema pide movimiento reducido.
@@ -103,7 +121,7 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
       const ls   = linesRef.current;
       const cur  = ls[idx];
       if (node && cur && cur.time != null) {
-        const live  = t0Ref.current + (performance.now() - perf0Ref.current) / 1000;
+        const live  = t0Ref.current + (performance.now() - perf0Ref.current) / 1000 + offsetRef.current;
         const nextT = ls[idx + 1]?.time;
         // Duración de la línea: hasta la próxima marca, o un tope de 4s (acotado por
         // la duración de la pista) si es la última.
@@ -118,6 +136,24 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [synced, isPlaying, reduced, activeIdx]);
+
+  // Ajuste fino de sync (persistido por trackId). +0.5: adelanta; −0.5: atrasa.
+  function persistOffset(v) {
+    if (!currentTrack) return;
+    if (v === 0) localStorage.removeItem('lyricsOffset:' + currentTrack.id);
+    else         localStorage.setItem('lyricsOffset:' + currentTrack.id, String(v));
+  }
+  function adjustOffset(delta) {
+    setOffset(o => {
+      const v = Math.round((o + delta) * 10) / 10;   // 0.1 s de precisión, sin drift de float
+      persistOffset(v);
+      return v;
+    });
+  }
+  function resetOffset() {
+    setOffset(0);
+    persistOffset(0);
+  }
 
   const hasCover = !!currentTrack?.cover_path;
 
@@ -149,7 +185,7 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
               key={i}
               ref={isActive ? activeRef : null}
               className={`lyrics-line${state}`}
-              onClick={() => l.time != null && seek(l.time)}
+              onClick={() => l.time != null && seek(l.time - offset)}
               title={l.time != null ? 'Saltar a esta línea' : undefined}
             >
               {isActive ? (
@@ -184,6 +220,21 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
           {currentTrack && <span className="lyrics-song">{currentTrack.title ?? ''}</span>}
         </div>
         <div className="lyrics-head-actions">
+          {synced && (
+            <div className="lyrics-sync" title="Ajuste de sincronía (se guarda para esta canción)">
+              <button className="lyrics-sync-btn" onClick={() => adjustOffset(-0.5)} title="Atrasar 0.5 s" aria-label="Atrasar medio segundo">−.5</button>
+              <button className="lyrics-sync-btn" onClick={() => adjustOffset(-0.1)} title="Atrasar 0.1 s" aria-label="Atrasar una décima">−.1</button>
+              <button
+                className={`lyrics-sync-val${offset !== 0 ? ' on' : ''}`}
+                onClick={offset !== 0 ? resetOffset : undefined}
+                title={offset !== 0 ? 'Restablecer sincronía' : 'Sincronía'}
+              >
+                {offset === 0 ? 'sync' : `${offset > 0 ? '+' : '−'}${Math.abs(offset).toFixed(1)} s`}
+              </button>
+              <button className="lyrics-sync-btn" onClick={() => adjustOffset(0.1)} title="Adelantar 0.1 s" aria-label="Adelantar una décima">+.1</button>
+              <button className="lyrics-sync-btn" onClick={() => adjustOffset(0.5)} title="Adelantar 0.5 s" aria-label="Adelantar medio segundo">+.5</button>
+            </div>
+          )}
           <button
             className="lyrics-toggle"
             onClick={() => setImmersive(v => !v)}
