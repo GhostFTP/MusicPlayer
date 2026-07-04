@@ -2,6 +2,15 @@ import { useState, useRef, useEffect } from 'react';
 import { api } from '../api/client.js';
 import EmojiPicker from './EmojiPicker.jsx';
 
+// Deriva un hue (0-359) del emoji de la playlist, de forma PURA y determinista.
+// Multiplicativo de Knuth sobre el primer code point → buen spread angular, así
+// los emoji "de música" no se agrupan en un rango de color angosto. Se pasa por
+// fila como CSS var `--h` (hereda a tile + borde-guía). No es dato nuevo de DB.
+function emojiHue(emoji) {
+  const c = (emoji || '🎵').codePointAt(0) || 0;
+  return (c * 2654435761 >>> 0) % 360;
+}
+
 // Botón "+" por pista: abre un menú para añadirla a una playlist existente
 // o crear una nueva al vuelo. Desde aquí también se pueden RENOMBRAR (con cambio
 // de emoji) y BORRAR playlists, sin salir del menú. Persiste vía API.
@@ -128,7 +137,7 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
           {playlists.length > 0 && (
             <ul className="ptp-list">
               {playlists.map((pl, idx) => (
-                <li key={pl.id} className="ptp-item">
+                <li key={pl.id} className="ptp-item" style={{ '--h': emojiHue(pl.emoji), '--i': idx }}>
                   {editingId === pl.id ? (
                     <form className="ptp-item-edit" onSubmit={saveEdit}>
                       <EmojiPicker value={editEmoji} onChange={setEditEmoji} />
@@ -151,7 +160,7 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
                   ) : (
                     <>
                       <button className="ptp-item-main" onClick={() => addTo(pl)} title="Añadir a esta playlist">
-                        <span className="ptp-item-emoji" style={{ '--i': idx }}>{pl.emoji || '🎵'}</span>
+                        <span className="ptp-item-emoji">{pl.emoji || '🎵'}</span>
                         <span className="ptp-item-name">{pl.name}</span>
                         <span className="ptp-item-count">{pl.track_count ?? 0}</span>
                       </button>

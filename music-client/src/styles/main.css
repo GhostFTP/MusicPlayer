@@ -696,16 +696,25 @@ button, input, select, textarea { font-family: inherit; }
   display: flex; align-items: center; gap: 10px;
   background: none; border: none; color: inherit; font: inherit; text-align: left;
   padding: 8px 10px; border-radius: 8px; cursor: pointer;
-  transition: background .12s, color .12s;
+  box-shadow: inset 3px 0 0 transparent;                /* borde-guía del color de la playlist (aparece en hover) */
+  transition: background .12s, color .12s, box-shadow .12s;
 }
-.ptp-item-main:hover { background: var(--accent-dim); color: #fff; }
+.ptp-item-main:hover {
+  background: var(--accent-dim); color: #fff;
+  box-shadow: inset 3px 0 0 hsl(var(--h, 265) 60% 60%);
+}
+/* Emoji como tile redondeado tintado por el hue del propio emoji (Dirección A). */
 .ptp-item-emoji {
+  width: 32px; height: 32px; border-radius: 9px;
+  display: inline-flex; align-items: center; justify-content: center;
   font-size: 18px; line-height: 1; flex-shrink: 0;
+  background: hsl(var(--h, 265) 55% 55% / .16);         /* wash tintado, alpha baja: no bloque sólido */
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .35);   /* aro del hue */
   transition: transform .16s cubic-bezier(.34, 1.5, .6, 1);
   animation: emoji-pop .32s ease backwards;
   animation-delay: calc(var(--i, 0) * 28ms);          /* aparición escalonada al abrir el menú */
 }
-.ptp-item-main:hover .ptp-item-emoji { transform: scale(1.18) rotate(-6deg); }
+.ptp-item-main:hover .ptp-item-emoji { transform: scale(1.08); }
 @keyframes emoji-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
 .ptp-item-name  { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ptp-item-count {
