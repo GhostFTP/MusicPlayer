@@ -12,6 +12,7 @@ export default function Playlists({ target, clearTarget }) {
   const [selected,  setSelected]  = useState(null); // { playlist, tracks }
   const [renaming,  setRenaming]  = useState(false);
   const [renameVal, setRenameVal] = useState('');
+  const [renameEmoji, setRenameEmoji] = useState('🎵');
   const { play, currentTrack, isPlaying } = usePlayer();
 
   useEffect(() => { api.playlists().then(setPlaylists); }, []);
@@ -48,6 +49,7 @@ export default function Playlists({ target, clearTarget }) {
 
   function startRename() {
     setRenameVal(selected.playlist.name);
+    setRenameEmoji(selected.playlist.emoji || '🎵');
     setRenaming(true);
   }
 
@@ -55,9 +57,9 @@ export default function Playlists({ target, clearTarget }) {
     e.preventDefault();
     const name = renameVal.trim();
     if (!name) return;
-    const updated = await api.renamePlaylist(selected.playlist.id, name);
-    setSelected(s => ({ ...s, playlist: { ...s.playlist, name: updated.name } }));
-    setPlaylists(prev => prev.map(p => (p.id === updated.id ? { ...p, name: updated.name } : p)));
+    const updated = await api.updatePlaylist(selected.playlist.id, { name, emoji: renameEmoji });
+    setSelected(s => ({ ...s, playlist: { ...s.playlist, name: updated.name, emoji: updated.emoji } }));
+    setPlaylists(prev => prev.map(p => (p.id === updated.id ? { ...p, name: updated.name, emoji: updated.emoji } : p)));
     setRenaming(false);
   }
 
@@ -82,6 +84,7 @@ export default function Playlists({ target, clearTarget }) {
         <div className="section-header">
           {renaming ? (
             <form className="pl-rename" onSubmit={saveRename}>
+              <EmojiPicker value={renameEmoji} onChange={setRenameEmoji} />
               <input
                 value={renameVal}
                 onChange={e => setRenameVal(e.target.value)}
