@@ -2103,7 +2103,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: grid;                                     /* apila base + wipe en la misma celda */
   color: var(--text-muted); opacity: 1;
   font-size: clamp(28px, 5vw, 40px); font-weight: 800; line-height: 1.25;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, .6), 0 0 22px rgba(167, 139, 250, .5);
+  /* Aire vertical en EM: escala con el tamaño REAL renderizado (clamp + nº de
+     renglones). Con los 8px fijos heredados, la protagonista quedaba pegada a
+     las vecinas y su glow pintaba encima → "líneas encimadas". */
+  padding: .38em .15em;
+  /* Glow contenido (24/22 → 18/12px): legible sobre la carátula sin sangrar
+     sobre las líneas vecinas. */
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .6), 0 0 12px rgba(167, 139, 250, .45);
 }
 .lyrics-line.active > .lyrics-base,
 .lyrics-line.active > .lyrics-wipe {
