@@ -47,7 +47,7 @@ export default function Layout() {
         {VIEWS[view]}
       </main>
 
-      <Player navigate={navigate} />
+      <Player navigate={navigate} view={view} />
 
       <BottomNav view={view} navigate={navigate} />
     </div>

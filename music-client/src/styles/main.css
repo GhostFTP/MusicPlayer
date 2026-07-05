@@ -1304,6 +1304,19 @@ button, input, select, textarea { font-family: inherit; }
 .ctrl-btn.play:hover  { transform: scale(1.08); background: #fff; box-shadow: 0 0 16px rgba(167, 139, 250, .55); }
 .ctrl-btn.play:active { transform: scale(.92); }
 
+/* Prev/Next de la barra: tratamiento de familia (hover crece con glow morado,
+   press encoge con micro-nudge de 2px hacia su dirección; el spring lo da el easing). */
+.ctrl-btn.ctrl-prev, .ctrl-btn.ctrl-next {
+  transition: color .15s, transform .18s cubic-bezier(.34, 1.42, .5, 1), filter .15s;
+}
+.ctrl-btn.ctrl-prev:hover, .ctrl-btn.ctrl-next:hover {
+  color: var(--text);
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 6px rgba(167, 139, 250, .45));
+}
+.ctrl-btn.ctrl-prev:active { transform: scale(.88) translateX(-2px); }
+.ctrl-btn.ctrl-next:active { transform: scale(.88) translateX(2px); }
+
 /* Transición play↔pause en la barra: mismo patrón que el expandido (key + scale-in
    reusando @keyframes exp-icon-swap). */
 .ctrl-play-swap { display: inline-flex; animation: exp-icon-swap .18s ease; }
@@ -1312,6 +1325,9 @@ button, input, select, textarea { font-family: inherit; }
   .ctrl-play-swap { animation: none; }
   .shuffle-btn:hover { animation: none; }
   .ctrl-btn.play:hover, .ctrl-btn.play:active { transform: none; }
+  /* prev/next: sin movimiento ni glow; conserva el cambio de color al hover */
+  .ctrl-btn.ctrl-prev:hover, .ctrl-btn.ctrl-next:hover,
+  .ctrl-btn.ctrl-prev:active, .ctrl-btn.ctrl-next:active { transform: none; filter: none; }
 }
 
 .player-progress {
@@ -1880,6 +1896,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   box-shadow: 0 0 18px rgba(255, 255, 255, .12);
 }
 .exp-btn:active { background: rgba(255, 255, 255, .1); color: var(--text); transform: scale(.92); }
+/* Prev/Next del expandido: micro-nudge direccional al presionar (familia con la barra). */
+.exp-btn.exp-prev:active { transform: scale(.92) translateX(-2px); }
+.exp-btn.exp-next:active { transform: scale(.92) translateX(2px); }
 
 /* Shuffle/Repeat activos en el player expandido */
 .exp-btn.active { color: var(--accent); }
@@ -2042,6 +2061,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .lyrics-sync-val.on:hover { background: rgba(255, 255, 255, .08); }
 .lyrics-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .lyrics-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
+/* "vía LRCLIB": badge con puntito junto al kicker, misma familia que el
+   "vía MusicBrainz" del panel de Info. Distingue la letra remota de los .lrc curados. */
+.lyrics-via {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 8px; padding: 2px 7px;
+  background: rgba(255, 255, 255, .06);
+  border-radius: 6px;
+  font-size: 9.5px; letter-spacing: .3px; color: var(--text-muted);
+  text-transform: none; font-weight: 600; vertical-align: middle;
+}
+.lyrics-via-dot { font-size: 7px; line-height: 1; opacity: .7; }
 .lyrics-song { font-size: 15px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lyrics-close, .lyrics-toggle {
   background: none; border: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0;
@@ -2063,6 +2093,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 
 .lyrics-synced, .lyrics-plain { width: 100%; max-width: 640px; text-align: center; }
+/* Aire inferior ≥ media pantalla SOLO en karaoke: deja que las últimas líneas
+   también se centren en el cuerpo (sin esto quedaban pegadas al borde y el
+   auto-scroll intentaba compensar hacia afuera). En letra plana no aplica. */
+.lyrics-synced { padding-bottom: 44vh; }
 
 .lyrics-line {
   font-size: 22px; font-weight: 600; line-height: 1.5;
@@ -2080,7 +2114,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: grid;                                     /* apila base + wipe en la misma celda */
   color: var(--text-muted); opacity: 1;
   font-size: clamp(28px, 5vw, 40px); font-weight: 800; line-height: 1.25;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, .6), 0 0 22px rgba(167, 139, 250, .5);
+  /* Aire vertical en EM: escala con el tamaño REAL renderizado (clamp + nº de
+     renglones). Con los 8px fijos heredados, la protagonista quedaba pegada a
+     las vecinas y su glow pintaba encima → "líneas encimadas". */
+  padding: .38em .15em;
+  /* Glow contenido (24/22 → 18/12px): legible sobre la carátula sin sangrar
+     sobre las líneas vecinas. */
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .6), 0 0 12px rgba(167, 139, 250, .45);
 }
 .lyrics-line.active > .lyrics-base,
 .lyrics-line.active > .lyrics-wipe {
@@ -2299,6 +2339,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   .exp-btn, .exp-btn:hover, .exp-btn:active,
+  .exp-btn.exp-prev:active, .exp-btn.exp-next:active,
   .exp-btn.play:hover, .exp-btn.play:active { transform: none; }
   .exp-play-swap { animation: none; }
   .repeat-icon.spin { animation: none; }
@@ -2428,9 +2469,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     height: 48px;
     border-radius: 50%;
     -webkit-tap-highlight-color: transparent;
-    transition: color .12s;
+    transition: color .12s, transform .15s cubic-bezier(.34, 1.42, .5, 1);
   }
-  .mini-btn:active { color: var(--text); }
+  /* Press con encogimiento (familia con la barra); el "siguiente" además se
+     desliza 2px hacia su dirección. */
+  .mini-btn:active { color: var(--text); transform: scale(.88); }
+  .mini-btn.mini-next:active { transform: scale(.88) translateX(2px); }
   .mini-btn.play-mini {
     color: var(--text);
     background: none;
@@ -2547,7 +2591,63 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 .toast-icon { color: var(--q-lossless); font-size: 15px; flex-shrink: 0; }
 .toast-text { min-width: 0; }
+/* Variante WARNING (aviso, no confirmación): borde y halo ámbar, ⚠️ más grande
+   y tipografía mayor — claramente distinta del "Añadida" verde. Dura ~3.5s (JS). */
+.toast.warning {
+  border-color: rgba(251, 191, 36, .5);
+  background: rgba(33, 27, 12, .88);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .45), 0 0 26px rgba(251, 191, 36, .14);
+  font-size: 15px;
+  padding: 16px 24px;
+}
+.toast.warning .toast-icon { font-size: 19px; }
 @keyframes toast-in { from { opacity: 0; transform: scale(.9) translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
+}
+
+/* ── Campanita flotante de Novedades (solo móvil; en desktop está el sidebar) ── */
+.changelog-bell { display: none; }
+@media (max-width: 700px) {
+  .changelog-bell {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    right: calc(env(safe-area-inset-right, 0px) + 14px);
+    z-index: 150;                         /* sobre el contenido; con overlays no se renderiza */
+    width: 40px; height: 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 50%;
+    background: rgba(24, 24, 24, .7);
+    backdrop-filter: blur(12px) saturate(1.3);
+    -webkit-backdrop-filter: blur(12px) saturate(1.3);
+    color: var(--text-muted);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+    transition: color .15s, background .15s, transform .15s;
+  }
+  .changelog-bell:hover  { color: var(--text); background: rgba(36, 36, 36, .78); }
+  .changelog-bell:active { transform: scale(.92); }
+}
+/* Puntito de "hay novedad" (color de acento), anclado al botón fijo. */
+.changelog-bell-dot {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid rgba(24, 24, 24, .9);   /* separa el punto del ícono */
+  animation: bell-dot-in .3s cubic-bezier(.34, 1.42, .5, 1);
+}
+@keyframes bell-dot-in { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .changelog-bell:active { transform: none; }
+  .changelog-bell-dot { animation: none; }
+}
+
+/* Mini-botones de la barra móvil: sin encogimiento ni nudge (va al final para
+   ganar en cascada al bloque móvil; conserva el cambio de color al presionar). */
+@media (prefers-reduced-motion: reduce) {
+  .mini-btn:active, .mini-btn.mini-next:active { transform: none; }
 }

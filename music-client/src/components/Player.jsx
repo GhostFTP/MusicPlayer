@@ -3,6 +3,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
+import ChangelogBell from './ChangelogBell.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import InfoPanel from './InfoPanel.jsx';
 
@@ -66,7 +67,7 @@ function rubber(dx) {
 function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
 function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
-export default function Player({ navigate }) {
+export default function Player({ navigate, view }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
@@ -444,6 +445,9 @@ export default function Player({ navigate }) {
 
   return (
     <>
+      {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
+      <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
+
       {/* ── Panel de letra (overlay, desktop y móvil) ── */}
       {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} startImmersive={expanded} />}
 
@@ -580,7 +584,7 @@ export default function Player({ navigate }) {
                 <ShuffleIcon size={24} />
               </span>
             </button>
-            <button className="exp-btn" onClick={prev}>
+            <button className="exp-btn exp-prev" onClick={prev}>
               <PrevIcon size={28} />
             </button>
             <button className="exp-btn play" onClick={togglePlay}>
@@ -588,7 +592,7 @@ export default function Player({ navigate }) {
                 {isPlaying ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
               </span>
             </button>
-            <button className="exp-btn" onClick={next}>
+            <button className="exp-btn exp-next" onClick={next}>
               <NextIcon size={28} />
             </button>
             <button
@@ -663,8 +667,13 @@ export default function Player({ navigate }) {
             <>
               {art}
               <div className="player-meta">
-                <div className="player-title player-bar-link" onClick={goAlbum} title="Ir al álbum">
-                  {currentTrack.title ?? 'Sin título'}
+                {/* El link va en un span inline (ancho = texto): el div ocupa todo el
+                    ancho de la barra y con el onClick encima se tragaba el tap en la
+                    zona "vacía" (goAlbum + stopPropagation) en vez de abrir el expandido. */}
+                <div className="player-title">
+                  <span className="player-bar-link" onClick={goAlbum} title="Ir al álbum">
+                    {currentTrack.title ?? 'Sin título'}
+                  </span>
                 </div>
                 <div className="player-artist">
                   {currentTrack.artist
@@ -726,13 +735,13 @@ export default function Player({ navigate }) {
               </button>
               <span className="shuffle-tip" aria-hidden="true">{shufflePhrase || SHUFFLE_PHRASES[0]}</span>
             </div>
-            <button className="ctrl-btn" onClick={e => { e.stopPropagation(); prev(); }} title="Anterior (←)"><PrevIcon /></button>
+            <button className="ctrl-btn ctrl-prev" onClick={e => { e.stopPropagation(); prev(); }} title="Anterior (←)"><PrevIcon /></button>
             <button className="ctrl-btn play" onClick={e => { e.stopPropagation(); togglePlay(); }} title="Play/Pause (Espacio)">
               <span key={isPlaying ? 'pause' : 'play'} className="ctrl-play-swap">
                 {isPlaying ? <PauseIcon /> : <PlayIcon />}
               </span>
             </button>
-            <button className="ctrl-btn" onClick={e => { e.stopPropagation(); next(); }} title="Siguiente (→)"><NextIcon /></button>
+            <button className="ctrl-btn ctrl-next" onClick={e => { e.stopPropagation(); next(); }} title="Siguiente (→)"><NextIcon /></button>
             <button
               className={`ctrl-btn${repeat !== 'off' ? ' active' : ''}`}
               onClick={e => { e.stopPropagation(); cycleRepeat(); setRepeatSpin(true); }}
@@ -812,7 +821,7 @@ export default function Player({ navigate }) {
             {isPlaying ? <PauseIcon size={24} /> : <PlayIcon size={24} />}
           </button>
           <button
-            className="mini-btn"
+            className="mini-btn mini-next"
             onClick={e => { e.stopPropagation(); next(); }}
           >
             <NextIcon size={22} />

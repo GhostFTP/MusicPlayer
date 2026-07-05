@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 
@@ -30,6 +30,16 @@ function parseLrc(lrc) {
   return out;
 }
 
+// Línea activa = última cuyo timestamp ya pasó. +0.1 s de anticipación de lectura
+// (bajada de 0.2 → 0.1: sumaba sensación de "adelantada"; el resto lo afina el offset).
+function findActiveIdx(lines, t) {
+  let idx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].time != null && lines[i].time <= t + 0.1) idx = i;
+  }
+  return idx;
+}
+
 export default function LyricsPanel({ onClose, startImmersive = false }) {
   const { currentTrack, currentTime, duration, isPlaying, seek } = usePlayer();
   const [data, setData]       = useState(null);   // { instrumental, synced, lyrics }
@@ -41,14 +51,16 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
   // (línea activa + barrido); +: la letra va adelante. Se persiste en localStorage.
   const [offset, setOffset] = useState(0);
   const activeRef = useRef(null);
+  const bodyRef   = useRef(null);   // .lyrics-body: contenedor de scroll de las líneas
 
-  // ── Reloj de barrido (wipe) ────────────────────────────────────────────────
+  // ── Reloj interpolado (línea activa + wipe) ──────────────────────────────
   // El PlayerContext NO expone el <audio>; currentTime llega por 'timeupdate' a
-  // ~4 Hz (grueso para un wipe suave). Interpolamos con rAF: sembramos t0/perf0
-  // en cada tick (o cambio de línea) y en el frame calculamos
+  // ~4 Hz (grueso para karaoke). Interpolamos con rAF: sembramos t0/perf0 en cada
+  // tick y en el frame calculamos
   //   liveTime = t0 + (now - perf0)/1000  → ~60fps entre ticks, autocorregido cada
-  // ~250ms. El rAF corre SOLO con synced && isPlaying (y sin reduced-motion); al
-  // pausar se cancela y --p queda congelado.
+  // ~250ms. Ese reloj conmuta la línea activa Y pinta el wipe. El rAF corre SOLO
+  // con synced && isPlaying (y sin reduced-motion); al pausar se cancela, --p
+  // queda congelado y la línea activa la sostiene el camino lento (estado 4 Hz).
   const t0Ref        = useRef(0);   // segundos: currentTime del último tick sembrado
   const perf0Ref     = useRef(0);   // ms: performance.now() de esa siembra
   const linesRef     = useRef([]);  // últimas líneas (leídas dentro del rAF sin recrear el loop)
@@ -76,18 +88,21 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
     setOffset(Number.isFinite(saved) ? saved : 0);
   }, [currentTrack]);
 
-  const lines  = data && !data.instrumental && data.lyrics ? parseLrc(data.lyrics) : [];
+  const lines = useMemo(
+    () => (data && !data.instrumental && data.lyrics ? parseLrc(data.lyrics) : []),
+    [data],
+  );
   const synced = !!data?.synced && lines.some(l => l.time != null);
 
-  // línea activa = última cuyo timestamp ya pasó
-  let activeIdx = -1;
-  if (synced) {
-    for (let i = 0; i < lines.length; i++) {
-      // Tiempo efectivo = reloj + ajuste manual; +0.1 s de anticipación de lectura
-      // (bajada de 0.2 → 0.1: sumaba sensación de "adelantada"; el resto lo afina el offset).
-      if (lines[i].time != null && lines[i].time <= currentTime + offset + 0.1) activeIdx = i;
-    }
-  }
+  // Línea activa en ESTADO, no derivada de currentTime en el render: derivada del
+  // estado (~4 Hz por 'timeupdate') cada línea encendía 0–250 ms tarde según dónde
+  // cayera el tick — jitter POR LÍNEA que el ajuste ± (constante) no puede
+  // compensar. El rAF de abajo la conmuta con el reloj interpolado, exacta en su
+  // marca; este efecto queda como camino lento (pausa, reduced-motion, seeks).
+  const [activeIdx, setActiveIdx] = useState(-1);
+  useEffect(() => {
+    setActiveIdx(synced ? findActiveIdx(lines, currentTime + offset) : -1);
+  }, [synced, lines, currentTime, offset]);
 
   // Valores frescos para el rAF sin recrear el loop en cada tick.
   linesRef.current     = lines;
@@ -96,46 +111,60 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
   offsetRef.current    = offset;
 
   useEffect(() => {
-    // Scroll suave al avanzar; instantáneo si el sistema pide movimiento reducido.
+    // Centra la línea activa SOLO dentro de .lyrics-body. scrollIntoView({block:'center'})
+    // desplazaba también los scrollers exteriores (documento / visual viewport):
+    // en las últimas líneas, cuando el cuerpo ya no puede centrarla, escalaba
+    // hacia afuera y en móvil empujaba el panel → el header "se iba".
+    // scrollTo sobre el contenedor queda contenido y clampa solo.
+    const node = activeRef.current;
+    const cont = bodyRef.current;
+    if (!node || !cont) return;
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    activeRef.current?.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+    const top = node.offsetTop - (cont.clientHeight - node.offsetHeight) / 2;
+    cont.scrollTo({ top: Math.max(0, top), behavior: reduce ? 'auto' : 'smooth' });
   }, [activeIdx]);
 
-  // Siembra del reloj: en cada tick de currentTime (~4Hz), cambio de línea activa,
-  // y al pausar/reanudar. Incluir isPlaying evita el salto al reanudar: sin él,
-  // perf0 quedaría viejo (con toda la pausa acumulada) hasta el próximo timeupdate.
+  // Siembra del reloj: en cada tick de currentTime (~4Hz) y al pausar/reanudar.
+  // Incluir isPlaying evita el salto al reanudar: sin él, perf0 quedaría viejo
+  // (con toda la pausa acumulada) hasta el próximo timeupdate. Un seek también
+  // pasa por acá: el elemento dispara 'timeupdate' al saltar.
   useEffect(() => {
     t0Ref.current    = currentTime;
     perf0Ref.current = performance.now();
-  }, [currentTime, activeIdx, isPlaying]);
+  }, [currentTime, isPlaying]);
 
-  // rAF del barrido: interpola --p (0→1) sobre la línea activa. Solo con sync +
-  // reproduciendo + sin reduced-motion. Cleanup cancela el frame (pausa, cambio de
-  // track, desmontaje) → nada de loops colgados.
+  // rAF del reloj: con el tiempo interpolado (a) CONMUTA la línea activa exacta en
+  // su marca y (b) interpola --p (0→1) sobre ella. Solo con sync + reproduciendo +
+  // sin reduced-motion. Cleanup cancela el frame (pausa, cambio de track,
+  // desmontaje) → nada de loops colgados.
   useEffect(() => {
     if (!synced || !isPlaying || reduced) return;
     let raf;
     const tick = () => {
-      const node = activeRef.current;
-      const idx  = activeIdxRef.current;
+      const live = t0Ref.current + (performance.now() - perf0Ref.current) / 1000 + offsetRef.current;
       const ls   = linesRef.current;
-      const cur  = ls[idx];
-      if (node && cur && cur.time != null) {
-        const live  = t0Ref.current + (performance.now() - perf0Ref.current) / 1000 + offsetRef.current;
-        const nextT = ls[idx + 1]?.time;
-        // Duración de la línea: hasta la próxima marca, o un tope de 4s (acotado por
-        // la duración de la pista) si es la última.
-        const cap   = Math.min(cur.time + 4, durationRef.current || cur.time + 4);
-        const end   = nextT != null ? nextT : cap;
-        const den   = end - cur.time;
-        const p     = den > 0 ? Math.min(1, Math.max(0, (live - cur.time) / den)) : 1;
-        node.style.setProperty('--p', p.toFixed(4));   // una sola CSS var por frame
+      const idx  = findActiveIdx(ls, live);
+      if (idx !== activeIdxRef.current) {
+        setActiveIdx(idx);               // re-render; el ref se actualiza al pintar
+      } else {
+        const node = activeRef.current;
+        const cur  = ls[idx];
+        if (node && cur && cur.time != null) {
+          const nextT = ls[idx + 1]?.time;
+          // Duración de la línea: hasta la próxima marca, o un tope de 4s (acotado por
+          // la duración de la pista) si es la última.
+          const cap = Math.min(cur.time + 4, durationRef.current || cur.time + 4);
+          const end = nextT != null ? nextT : cap;
+          const den = end - cur.time;
+          const p   = den > 0 ? Math.min(1, Math.max(0, (live - cur.time) / den)) : 1;
+          node.style.setProperty('--p', p.toFixed(4));   // una sola CSS var por frame
+        }
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [synced, isPlaying, reduced, activeIdx]);
+  }, [synced, isPlaying, reduced]);
 
   // Ajuste fino de sync (persistido por trackId). +0.5: adelanta; −0.5: atrasa.
   function persistOffset(v) {
@@ -216,7 +245,16 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
       )}
       <div className="lyrics-header">
         <div className="lyrics-head-text">
-          <span className="lyrics-kicker">Letra{synced ? ' · sincronizada' : ''}</span>
+          <span className="lyrics-kicker">
+            Letra{synced ? ' · sincronizada' : ''}
+            {/* Letra remota (fallback): badge sutil, en familia con el "vía
+                MusicBrainz" del panel de Info, para distinguirla de los .lrc curados. */}
+            {data?.source === 'lrclib' && !data?.instrumental && (
+              <span className="lyrics-via" title="Letra obtenida de LRCLIB (lrclib.net)">
+                <span className="lyrics-via-dot" aria-hidden="true">●</span>vía LRCLIB
+              </span>
+            )}
+          </span>
           {currentTrack && <span className="lyrics-song">{currentTrack.title ?? ''}</span>}
         </div>
         <div className="lyrics-head-actions">
@@ -251,7 +289,7 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
           </button>
         </div>
       </div>
-      <div className="lyrics-body">{body}</div>
+      <div className="lyrics-body" ref={bodyRef}>{body}</div>
     </div>
   );
 }

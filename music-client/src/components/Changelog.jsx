@@ -53,7 +53,12 @@ export default function Changelog() {
 
   useEffect(() => {
     api.changelog()
-      .then(({ content }) => setVersions(parseChangelog(content || '')))
+      .then(({ content }) => {
+        const parsed = parseChangelog(content || '');
+        setVersions(parsed);
+        // Marcar la última versión como vista → apaga el puntito de la campana móvil.
+        if (parsed[0]?.version) localStorage.setItem('lastSeenVersion', parsed[0].version);
+      })
       .catch(() => setError(true));
   }, []);
 

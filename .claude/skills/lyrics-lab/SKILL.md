@@ -1,0 +1,100 @@
+---
+name: lyrics-lab
+description: Mapa del sistema de letras/karaoke de SonoraRev (parser LRC, reloj interpolado, fallback LRCLIB, estados del panel, reglas duras y checklist de QA). Úsala SIEMPRE antes de tocar o auditar el pipeline de letras (LyricsPanel, lrclib.js, endpoint /lyrics).
+---
+
+# Lyrics Lab — sistema de letras/karaoke de SonoraRev
+
+Fuente de verdad del pipeline de letras. Antes de opinar o tocar, **inspeccioná
+los archivos reales** — este mapa dice dónde vive cada cosa y qué NO se puede romper.
+
+## Archivos del sistema
+
+| Archivo | Rol |
+|---|---|
+| `music-client/src/components/LyricsPanel.jsx` | Panel/overlay de letra: `parseLrc`, `findActiveIdx`, reloj interpolado (rAF), ajuste ± por pista, auto-scroll contenido, estados vacíos |
+| `music-client/src/context/PlayerContext.jsx` | Reproductor global. **NO expone el `<audio>`**; entrega `currentTime` por `timeupdate` (~4 Hz), `seek()`, y resetea `currentTime/duration` a 0 en `playIndex` |
+| `music-server/src/api/tracks.js` | `GET /api/tracks/:id/lyrics`: instrumental (columna `vocals`) → `.lrc` sidecar (`lrc_path` + `SYNCED_RE`) → fallback LRCLIB → sin letra. **Nunca** responde error por falta de letra |
+| `music-server/src/lyrics/lrclib.js` | Fallback remoto con matching estricto y caché en memoria |
+| `music-client/src/styles/main.css` | `.lyrics-panel/-body/-line(.active/.near)/-wipe/-via` + ramas reduced-motion (~líneas 960-975 y 2000-2130) |
+
+## Reglas duras (NO romper)
+
+1. **Parser line-level only (no A2).** `parseLrc` solo entiende marcas de línea
+   `[mm:ss.xx]` (varias por línea = línea repetida); las word-level `<mm:ss.xx>`
+   (LRC A2) NO están soportadas — el barrido las simula interpolando entre marcas
+   de línea. Metadatos `[ar:][ti:]…` se descartan; **`[offset:±ms]` se honra**
+   (positivo RETRASA la letra, se suma a todas las marcas al parsear).
+2. **El PlayerContext NO expone el `<audio>`.** El reloj del karaoke es
+   interpolado: se siembra `t0 = currentTime` + `perf0 = performance.now()` en
+   cada tick (~4 Hz) **y al cambiar `isPlaying`** (evita el salto al reanudar);
+   `live = t0 + (now − perf0)/1000 + offset`. El rAF **conmuta la línea activa
+   exacta en su marca Y pinta `--p`** (una sola CSS var por frame); el camino
+   lento (estado 4 Hz) cubre pausa, reduced-motion y seeks. `playIndex` resetea
+   `currentTime` a 0 al cambiar de pista — sin eso la letra nueva se evalúa con
+   el tiempo de la anterior. **No "optimizar" nada de esto sin entenderlo.**
+3. **Anticipación de lectura: +0.1 s** en `findActiveIdx`. No subirla (0.2 se
+   sintió adelantada); el resto lo afina el usuario con el ±.
+4. **Offsets por pista**: localStorage `lyricsOffset:<trackId>`, pasos ±0.1/±0.5
+   redondeados a décima, offset 0 ⇒ se borra la key. El clic en una línea hace
+   `seek(l.time − offset)` (inversa del ajuste).
+5. **Auto-scroll contenido**: `scrollTo` sobre `.lyrics-body` (ref) con clamp.
+   **NUNCA `scrollIntoView`**: escala a los scrollers exteriores y en móvil
+   empuja el panel (el header "se iba"). `.lyrics-synced` lleva 44vh de aire
+   inferior para centrar las últimas líneas.
+6. **z-index canónico**: barra (sin z) < campanita 150 < expandido 200 <
+   **Letra 250** < Info 300 < toast 400.
+7. **`prefers-reduced-motion` SIEMPRE**: el rAF ni arranca; la línea activa se
+   muestra sólida (`clip-path: none` sobre `.lyrics-wipe`), scroll `auto`, sin
+   animación de entrada del panel.
+8. **Datos reales**: nunca inventar letra. La remota lleva badge **"vía LRCLIB"**
+   (`.lyrics-via`, familia del "vía MusicBrainz" de Info); los `.lrc` curados van
+   sin badge. Fallos externos degradan en silencio.
+
+## Estados posibles del panel (del endpoint real)
+
+| Estado | Origen | UI |
+|---|---|---|
+| Instrumental local | `vocals = 'instrumental'` en DB | Empty 🎹 "Instrumental" |
+| Synced local | `.lrc` con marcas (`SYNCED_RE`) | Karaoke completo, sin badge |
+| Plano local | `.lrc` sin marcas | `.lyrics-plain` (texto aireado) |
+| Synced vía LRCLIB | `source: 'lrclib'` (siempre synced) | Karaoke + badge "vía LRCLIB" |
+| Sin letra | nada de lo anterior | Empty 🎙️ "Sin letra disponible" |
+
+**No existe "plano vía LRCLIB"**: el backend descarta `plainLyrics` remota
+(mejor "sin letra" que el karaoke a medias). Si se quiere ese estado a futuro,
+es una decisión de producto + presentación digna, no un fix.
+
+## Matching LRCLIB (estricto, en `lrclib.js`)
+
+- `GET lrclib.net/api/get` por artista + título + álbum + **duración**;
+  User-Agent `SonoraRev/1.0` (misma cortesía que MusicBrainz en `info.js`).
+- **Solo `syncedLyrics`**; y solo si la duración del resultado difiere ≤5 s de la
+  pista local (>5 s = otra versión: radio edit, en vivo, la cantada…).
+- **Guard instrumental**: título con `/instrumental/i` ⇒ ni se consulta;
+  resultado con `instrumental: true` ⇒ descartado.
+- **Caché en memoria**: 24 h positiva Y negativa (todo descarte incluido);
+  fallos de red/5xx solo 10 min; timeout 6 s. Se pierde al reiniciar el server.
+
+## Checklist QA del karaoke
+
+1. **Sync exacto**: cada línea enciende en su marca (sin jitter línea a línea);
+   el wipe avanza suave ~60 fps y termina al llegar la marca siguiente (tope 4 s
+   en la última).
+2. **Cambio rápido de pista** (swipe / next / auto-avance): sin flash de líneas
+   de la canción anterior; la letra nueva arranca desde 0.
+3. **Seek** (barra y clic en línea): re-encuadre inmediato de línea y scroll;
+   el clic en línea aterriza donde dice esa línea (respetando el offset).
+4. **Pausa/play**: wipe congelado en pausa; al reanudar no hay salto (perf0 se
+   resiembra por `isPlaying`).
+5. **Instrumentales**: `vocals='instrumental'` → estado Instrumental; título con
+   "instrumental" → jamás letra de LRCLIB (ni la de la versión cantada).
+6. **Sin letra**: Empty sin error visible, también con LRCLIB caído o sin red.
+7. **Móvil vs desktop**: en móvil el panel respeta `bottom` (mini barra + nav);
+   el header con el ajuste ± nunca se escapa; últimas líneas centradas.
+8. **Inmersivo vs panel**: `inset: 0` (tapa la barra) vs `bottom: var(--player-h)`;
+   Esc cierra la Letra antes que el expandido; toggle expandir/reducir funciona.
+9. **reduced-motion**: línea activa sólida de una (sin barrido), scroll
+   instantáneo, sin animaciones — pero los estados y colores se conservan.
+10. **Offsets**: persisten por pista, el reset limpia la key, `[offset:]` del
+    archivo se aplica además del ajuste manual.

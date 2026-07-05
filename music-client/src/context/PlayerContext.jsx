@@ -42,6 +42,10 @@ export function PlayerProvider({ children }) {
     setCurrentTrack(track);
     const audio = getAudio();
     audio.src = streamUrl(track.id);
+    // Reflejar YA el reset del elemento: hasta el primer 'timeupdate' de la pista
+    // nueva, la UI (letra sincronizada, tiempos) veía el tiempo de la ANTERIOR.
+    setCurrentTime(0);
+    setDuration(0);
     audio.play().catch(() => {});
   }, []);
 
