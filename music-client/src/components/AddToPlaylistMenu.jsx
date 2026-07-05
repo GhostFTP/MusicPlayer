@@ -45,7 +45,10 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
     try {
       const res = await api.addToPlaylist(playlist.id, trackId);
       setOpen(false);
-      toast(res?.already ? `Ya está en «${playlist.name}»` : `Añadida a «${playlist.name}»`);
+      // Duplicado → variante warning (ámbar, ⚠️, más grande y dura más): que se
+      // note que NO se añadió de nuevo. La DB ya impedía duplicados.
+      if (res?.already) toast(`Ya está en «${playlist.name}»`, { variant: 'warning' });
+      else toast(`Añadida a «${playlist.name}»`);
     } finally {
       setBusy(false);
     }

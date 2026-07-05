@@ -2591,6 +2591,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 .toast-icon { color: var(--q-lossless); font-size: 15px; flex-shrink: 0; }
 .toast-text { min-width: 0; }
+/* Variante WARNING (aviso, no confirmación): borde y halo ámbar, ⚠️ más grande
+   y tipografía mayor — claramente distinta del "Añadida" verde. Dura ~3.5s (JS). */
+.toast.warning {
+  border-color: rgba(251, 191, 36, .5);
+  background: rgba(33, 27, 12, .88);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .45), 0 0 26px rgba(251, 191, 36, .14);
+  font-size: 15px;
+  padding: 16px 24px;
+}
+.toast.warning .toast-icon { font-size: 19px; }
 @keyframes toast-in { from { opacity: 0; transform: scale(.9) translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
