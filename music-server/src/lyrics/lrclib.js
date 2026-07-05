@@ -1,8 +1,12 @@
 // Fallback de letras vía LRCLIB (lrclib.net) para pistas SIN .lrc local.
 // API pública sin key; nos identificamos con User-Agent propio (misma cortesía
 // que con MusicBrainz en info.js).
-// - Caché en memoria 24h, positiva Y negativa (si LRCLIB no la tiene, no se
-//   re-pide en cada apertura del panel).
+// - Solo se acepta letra SINCRONIZADA (syncedLyrics) con duración compatible
+//   (±5s): una plainLyrics suelta rompía el layout karaoke, y un match con otra
+//   duración era la versión equivocada (p.ej. la cantada para un instrumental).
+// - Pistas con "instrumental" en el título ni se consultan.
+// - Caché en memoria 24h, positiva Y negativa (descartes incluidos: si no hay
+//   letra válida, no se re-pide en cada apertura del panel).
 // - Los fallos de red/servicio se cachean solo 10 min: si LRCLIB estaba caído,
 //   se reintenta pronto sin martillarlo mientras tanto.
 
@@ -20,9 +24,13 @@ function getCached(id) {
 }
 
 // Busca la letra de la pista por su firma (artista + título + álbum + duración,
-// GET /api/get; LRCLIB matchea duración con ±2s). Devuelve
-// { instrumental, synced, lyrics } o null (sin letra / servicio caído).
+// GET /api/get). Devuelve { instrumental, synced, lyrics } o null (sin letra
+// válida / servicio caído).
 export async function lrclibLyrics(track) {
+  // Versión instrumental (según el título): no hay letra que buscar — consultar
+  // devolvía la letra de la versión CANTADA. Chequeo barato, sin pasar por caché.
+  if (/instrumental/i.test(track.title ?? '')) return null;
+
   const cached = getCached(track.id);
   if (cached !== undefined) return cached;
 
@@ -42,10 +50,16 @@ export async function lrclibLyrics(track) {
     });
     if (resp.ok) {
       const d = await resp.json();
-      if (d?.instrumental)      value = { instrumental: true,  synced: false, lyrics: null };
-      else if (d?.syncedLyrics) value = { instrumental: false, synced: true,  lyrics: d.syncedLyrics };
-      else if (d?.plainLyrics)  value = { instrumental: false, synced: false, lyrics: d.plainLyrics };
-      // sin campos útiles → null con caché negativa de 24h
+      // Duración del match vs la pista local: si difiere >5s es OTRA versión
+      // (radio edit, en vivo, la cantada de un instrumental…) → descartar.
+      const durOk = !(track.duration && d?.duration)
+        || Math.abs(d.duration - track.duration) <= 5;
+      // Solo letra sincronizada y no instrumental; plainLyrics suelta se
+      // descarta (mejor "sin letra" que el karaoke a medias). Todo descarte
+      // queda en caché negativa 24h.
+      if (durOk && !d?.instrumental && d?.syncedLyrics) {
+        value = { instrumental: false, synced: true, lyrics: d.syncedLyrics };
+      }
     } else if (resp.status !== 404) {
       ttl = TTL_ERR;   // 5xx / rate limit: no castigar 24h
     }
