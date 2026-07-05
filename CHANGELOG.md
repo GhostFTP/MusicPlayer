@@ -3,6 +3,13 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.3.1] - 2026-07-04
+
+### Corregido
+- El menú **"Añadir a playlist"** de la barra quedaba oculto detrás del panel de
+  Letra cuando estaba abierto; ahora aparece por encima y se puede usar mientras
+  lees la letra.
+
 ## [1.3.0] - 2026-07-04
 
 ### Nuevo
