@@ -2078,6 +2078,19 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   text-transform: none; font-weight: 600; vertical-align: middle;
 }
 .lyrics-via-dot { font-size: 7px; line-height: 1; opacity: .7; }
+/* "×" del badge: override "no es la letra" (solo existe con letra LRCLIB).
+   Filete separador; padding + margen negativo rellenan el chip hasta su borde
+   → target táctil ~24×22px sin agrandarlo visualmente. Solo transiciones de
+   color/fondo (se conservan en reduced-motion, sin rama extra). */
+.lyrics-via-x {
+  background: none; border: none; cursor: pointer;
+  border-left: 1px solid rgba(255, 255, 255, .12);
+  margin: -2px -7px -2px 2px; padding: 5px 8px 5px 7px;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px; line-height: 1; font-weight: 600; color: var(--text-muted);
+  transition: color .12s, background .12s;
+}
+.lyrics-via-x:hover { color: var(--q-lossy-low); background: rgba(255, 255, 255, .08); }
 .lyrics-song { font-size: 15px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lyrics-close, .lyrics-toggle {
   background: none; border: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0;
@@ -2150,6 +2163,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .lyrics-empty-icon { font-size: 46px; margin-bottom: 12px; opacity: .85; }
 .lyrics-empty-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
 .lyrics-empty-sub { font-size: 13px; color: var(--text-muted); }
+/* Deshacer del override "no es la letra": pastilla glass bajo el sub del Empty.
+   Solo transiciones de color/fondo (se conservan en reduced-motion). */
+.lyrics-empty-action {
+  margin-top: 16px; padding: 8px 16px;
+  border-radius: 9px; border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .05);
+  color: var(--text); font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.lyrics-empty-action:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .2); }
 .lyrics-loading { margin: auto; color: var(--text-muted); }
 
 /* ── PANEL DE INFORMACIÓN (modal) ─────────── */
