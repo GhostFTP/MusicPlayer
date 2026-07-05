@@ -2061,6 +2061,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .lyrics-sync-val.on:hover { background: rgba(255, 255, 255, .08); }
 .lyrics-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .lyrics-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
+/* "vía LRCLIB": badge con puntito junto al kicker, misma familia que el
+   "vía MusicBrainz" del panel de Info. Distingue la letra remota de los .lrc curados. */
+.lyrics-via {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 8px; padding: 2px 7px;
+  background: rgba(255, 255, 255, .06);
+  border-radius: 6px;
+  font-size: 9.5px; letter-spacing: .3px; color: var(--text-muted);
+  text-transform: none; font-weight: 600; vertical-align: middle;
+}
+.lyrics-via-dot { font-size: 7px; line-height: 1; opacity: .7; }
 .lyrics-song { font-size: 15px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lyrics-close, .lyrics-toggle {
   background: none; border: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0;

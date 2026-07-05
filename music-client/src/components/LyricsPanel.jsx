@@ -245,7 +245,16 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
       )}
       <div className="lyrics-header">
         <div className="lyrics-head-text">
-          <span className="lyrics-kicker">Letra{synced ? ' · sincronizada' : ''}</span>
+          <span className="lyrics-kicker">
+            Letra{synced ? ' · sincronizada' : ''}
+            {/* Letra remota (fallback): badge sutil, en familia con el "vía
+                MusicBrainz" del panel de Info, para distinguirla de los .lrc curados. */}
+            {data?.source === 'lrclib' && !data?.instrumental && (
+              <span className="lyrics-via" title="Letra obtenida de LRCLIB (lrclib.net)">
+                <span className="lyrics-via-dot" aria-hidden="true">●</span>vía LRCLIB
+              </span>
+            )}
+          </span>
           {currentTrack && <span className="lyrics-song">{currentTrack.title ?? ''}</span>}
         </div>
         <div className="lyrics-head-actions">

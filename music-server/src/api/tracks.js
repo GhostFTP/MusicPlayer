@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { readFileSync, existsSync } from 'node:fs';
 import db from '../db/database.js';
 import { authMiddleware } from '../auth/jwt.js';
+import { lrclibLyrics } from '../lyrics/lrclib.js';
 
 // ¿El .lrc trae timestamps [mm:ss.xx]? → letra sincronizada.
 const SYNCED_RE = /\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/;
@@ -42,9 +43,12 @@ router.get('/:id', authMiddleware, (req, res) => {
 });
 
 // GET /api/tracks/:id/lyrics
-// Devuelve el .lrc sidecar (o null), marcando instrumental y si está sincronizado.
-router.get('/:id/lyrics', authMiddleware, (req, res) => {
-  const track = db.prepare('SELECT lrc_path, vocals FROM tracks WHERE id = ?').get(req.params.id);
+// Devuelve el .lrc sidecar (prioridad), o cae a LRCLIB (source: 'lrclib', con
+// caché 24h positiva y negativa). Si tampoco hay → sin letra, nunca error.
+router.get('/:id/lyrics', authMiddleware, async (req, res) => {
+  const track = db.prepare(
+    'SELECT id, lrc_path, vocals, title, artist, album, duration FROM tracks WHERE id = ?'
+  ).get(req.params.id);
   if (!track) return res.status(404).json({ error: 'Track not found' });
 
   const instrumental = (track.vocals || '').toLowerCase() === 'instrumental';
@@ -53,8 +57,12 @@ router.get('/:id/lyrics', authMiddleware, (req, res) => {
   if (track.lrc_path && existsSync(track.lrc_path)) {
     let lyrics = null;
     try { lyrics = readFileSync(track.lrc_path, 'utf8'); } catch { lyrics = null; }
-    return res.json({ instrumental: false, synced: lyrics ? SYNCED_RE.test(lyrics) : false, lyrics });
+    if (lyrics) return res.json({ instrumental: false, synced: SYNCED_RE.test(lyrics), lyrics });
   }
+
+  const remote = await lrclibLyrics(track);
+  if (remote) return res.json({ ...remote, source: 'lrclib' });
+
   return res.json({ instrumental: false, synced: false, lyrics: null });
 });
 
