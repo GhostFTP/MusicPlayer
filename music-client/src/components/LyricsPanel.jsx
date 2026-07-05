@@ -80,7 +80,12 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
     if (!currentTrack) { setData(null); return; }
     let cancelled = false;
     setLoading(true);
-    api.lyrics(currentTrack.id)
+    // Timeout client-side 7s: red de seguridad si el server o el túnel se pasman
+    // (el server ya corta LRCLIB a los 4s, así que una respuesta legítima SIEMPRE
+    // llega antes). Al vencer, el catch degrada EN SILENCIO a "Sin letra
+    // disponible" (regla 8: fallos externos sin error visible); el flag
+    // `cancelled` evita que un abort tardío pise data de la pista siguiente.
+    api.lyrics(currentTrack.id, { signal: AbortSignal.timeout(7000) })
       .then(d => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -222,7 +227,9 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
   if (!currentTrack) {
     body = <Empty icon="♪" title="Nada en reproducción" />;
   } else if (loading) {
-    body = <div className="lyrics-loading">Cargando letra…</div>;
+    // Una sola fase de copy: el .lrc local resuelve en ms (ni se llega a leer);
+    // la única espera visible es la búsqueda del fallback → "Buscando".
+    body = <div className="lyrics-loading">Buscando letra…</div>;
   } else if (data?.instrumental) {
     body = <Empty icon="🎹" title="Instrumental" sub="Esta pista no tiene voz." />;
   } else if (!lines.length) {
