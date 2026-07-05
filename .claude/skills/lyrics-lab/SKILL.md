@@ -43,13 +43,22 @@ los archivos reales** — este mapa dice dónde vive cada cosa y qué NO se pued
    empuja el panel (el header "se iba"). `.lyrics-synced` lleva 44vh de aire
    inferior para centrar las últimas líneas.
 6. **z-index canónico**: barra (sin z) < campanita 150 < expandido 200 <
-   **Letra 250** < Info 300 < toast 400.
+   **Letra 250** < popovers de barra **260** (`--z-bar-popover`: menú "+" y
+   tooltip del shuffle) < Info 300 < toast 400. Todo popover anclado a la barra
+   que deba verse con la Letra abierta usa `var(--z-bar-popover)`, nunca un
+   número a mano.
 7. **`prefers-reduced-motion` SIEMPRE**: el rAF ni arranca; la línea activa se
    muestra sólida (`clip-path: none` sobre `.lyrics-wipe`), scroll `auto`, sin
    animación de entrada del panel.
 8. **Datos reales**: nunca inventar letra. La remota lleva badge **"vía LRCLIB"**
    (`.lyrics-via`, familia del "vía MusicBrainz" de Info); los `.lrc` curados van
    sin badge. Fallos externos degradan en silencio.
+9. **El modo inmersivo vive en `Player.jsx`** (`lyricsImmersive`); `LyricsPanel`
+   es controlado (props `immersive` + `onToggleImmersive`), **sin estado local**.
+   Invariante: **nunca `expanded=true` con la Letra en modo panel** (producía la
+   "barra fantasma"): abrir el expandido con la Letra abierta la promueve a
+   inmersivo, y "Reducir" cierra el expandido. Navegar (links de la barra, Info)
+   cierra la Letra.
 
 ## Estados posibles del panel (del endpoint real)
 
@@ -93,7 +102,9 @@ es una decisión de producto + presentación digna, no un fix.
 7. **Móvil vs desktop**: en móvil el panel respeta `bottom` (mini barra + nav);
    el header con el ajuste ± nunca se escapa; últimas líneas centradas.
 8. **Inmersivo vs panel**: `inset: 0` (tapa la barra) vs `bottom: var(--player-h)`;
-   Esc cierra la Letra antes que el expandido; toggle expandir/reducir funciona.
+   Esc cierra la Letra antes que el expandido; "Reducir" con el expandido montado
+   detrás **lo cierra** (barra real visible, sin franja fantasma); clic en barra
+   o portada con la Letra en panel **la promueve a inmersivo**.
 9. **reduced-motion**: línea activa sólida de una (sin barrido), scroll
    instantáneo, sin animaciones — pero los estados y colores se conservan.
 10. **Offsets**: persisten por pista, el reset limpia la key, `[offset:]` del
