@@ -3,6 +3,38 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.0] - 2026-07-05
+
+### Nuevo
+- **Campanita de Novedades en móvil**: un botón flotante te lleva a esta vista de
+  Novedades, con un **puntito de aviso** cuando hay una versión nueva que aún no
+  viste (se apaga al abrirla).
+- **Letras automáticas vía LRCLIB**: cuando una canción no tiene letra propia
+  (.lrc curado), SonoraRev la busca en [LRCLIB](https://lrclib.net) y solo trae
+  **letras sincronizadas verificadas** — misma duración que tu pista (±5s) y
+  nunca para versiones instrumentales — con el karaoke completo. Se distingue
+  con un badge sutil **"vía LRCLIB"** y se recuerda 24h para no re-consultar.
+  Si no hay match confiable o el servicio no responde, todo sigue como siempre.
+
+### Mejorado
+- **Karaoke con sincronía exacta**: la línea activa ahora se enciende justo en su
+  marca de tiempo (reloj interpolado a 60fps) — se acabó el desfase "raro" que
+  variaba línea a línea. Al **cambiar de canción o saltar en la barra**, la letra
+  se reencuadra al instante, sin flashes de la canción anterior.
+- **El header del panel de Letra ya no se escapa** al final de la canción: el
+  auto-scroll queda contenido dentro del panel y las últimas líneas también se
+  centran como protagonistas.
+- **Líneas encimadas arregladas**: la línea activa grande respira con espacio
+  proporcional a su tamaño y su glow ya no pinta sobre las vecinas.
+- **Botones anterior/siguiente animados**: crecen con glow al pasar el mouse y
+  se hunden con un empujoncito hacia su dirección al pulsarlos (barra,
+  reproductor ampliado y mini barra móvil).
+- **Tocar cualquier zona libre de la barra en móvil abre el reproductor
+  ampliado** (antes había zonas que no respondían).
+- **Aviso de duplicado más visible**: si la canción ya estaba en la playlist, el
+  aviso ahora es ámbar con ⚠️, más grande y dura más — imposible confundirlo con
+  el "Añadida" verde.
+
 ## [1.3.1] - 2026-07-04
 
 ### Corregido
