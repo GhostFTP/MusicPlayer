@@ -3,6 +3,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
+import ChangelogBell from './ChangelogBell.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import InfoPanel from './InfoPanel.jsx';
 
@@ -66,7 +67,7 @@ function rubber(dx) {
 function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
 function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
-export default function Player({ navigate }) {
+export default function Player({ navigate, view }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
@@ -444,6 +445,9 @@ export default function Player({ navigate }) {
 
   return (
     <>
+      {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
+      <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
+
       {/* ── Panel de letra (overlay, desktop y móvil) ── */}
       {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} startImmersive={expanded} />}
 
