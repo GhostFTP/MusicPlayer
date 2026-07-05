@@ -27,6 +27,11 @@
   --bottom-nav-h:  60px;
   --sidebar-w:     220px;
   --radius:        8px;
+  /* Capa de los popovers que nacen en la barra del reproductor (menú "+",
+     tooltip del shuffle): sobre la Letra (250), bajo Info (300) y toast (400).
+     Escala completa: barra (sin z) < campanita 150 < expandido 200 < Letra 250
+     < popovers de barra 260 < Info 300 < toast 400. */
+  --z-bar-popover: 260;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -714,10 +719,9 @@ button, input, select, textarea { font-family: inherit; }
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  /* Menú emergente por encima de expandido (200) y letra (250), y por debajo de
-     info (300) y toast (400): el "+" de la barra sigue usable con la Letra abierta
-     en modo panel (antes quedaba cortado bajo el overlay con z-index 50). */
-  z-index: 260;
+  /* Popover de la barra: usable con la Letra abierta en modo panel (capa
+     documentada en --z-bar-popover). */
+  z-index: var(--z-bar-popover);
   width: 288px;
   background: rgba(24, 24, 24, .82);
   backdrop-filter: blur(16px) saturate(1.3);
@@ -1275,7 +1279,9 @@ button, input, select, textarea { font-family: inherit; }
   pointer-events: none;
   opacity: 0;
   transition: opacity .16s ease, transform .16s ease;
-  z-index: 60;
+  /* Popover de la barra: visible también con la Letra (250) abierta en modo
+     panel (capa documentada en --z-bar-popover; con 60 quedaba tapado). */
+  z-index: var(--z-bar-popover);
 }
 .shuffle-tip::after {                  /* flechita hacia el botón */
   content: '';
