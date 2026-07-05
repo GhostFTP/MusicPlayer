@@ -72,6 +72,12 @@ export default function Player({ navigate, view }) {
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
+  // Modo de la Letra: inmersivo (full-bleed, tapa la barra) vs panel (deja la barra
+  // visible). Vive acá y no en LyricsPanel para coordinarlo con `expanded`:
+  // INVARIANTE: nunca expandido montado + Letra en modo panel — el expandido (z 200,
+  // fixed inset 0) se colaría ENTRE la Letra (250) y la barra (sin z) y la franja
+  // inferior mostraría el expandido cortado en vez de la barra ("barra fantasma").
+  const [lyricsImmersive, setLyricsImmersive] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [shufflePhrase, setShufflePhrase] = useState('');
   const [shuffleSpin, setShuffleSpin] = useState(false);
@@ -117,8 +123,15 @@ export default function Player({ navigate, view }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
+  // Última vista distinta de Novedades: adónde vuelve Esc al "cerrar" la vista de
+  // la campanita (no hay historial de navegación; esto guarda el único "atrás"
+  // que Esc necesita). Ref y no estado: solo se lee dentro del handler de Esc.
+  const prevViewRef = useRef('library');
+  useEffect(() => { if (view !== 'changelog') prevViewRef.current = view; }, [view]);
+
   // Esc global del reproductor, por prioridad de lo más "encima": el InfoPanel
   // (modal, z 300) maneja su propio Esc; luego la Letra —esté o no en el expandido—;
+  // luego Novedades (la vista que abre la campanita) vuelve a la vista anterior;
   // por último, si no hay panel abierto, cierra el expandido. Antes este handler
   // vivía sólo mientras expanded=true, así que Esc no cerraba la Letra abierta desde
   // la barra (fuera del expandido); ahora escucha siempre.
@@ -127,11 +140,12 @@ export default function Player({ navigate, view }) {
       if (e.key !== 'Escape') return;
       if (showInfo)        return;                 // el InfoPanel maneja su propio Esc (cierre animado)
       else if (showLyrics) setShowLyrics(false);   // cierra la letra donde sea que esté abierta
+      else if (view === 'changelog') navigate(prevViewRef.current);  // "cierra" Novedades
       else if (expanded)   setExpanded(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expanded, showInfo, showLyrics]);
+  }, [expanded, showInfo, showLyrics, view, navigate]);
 
   // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
   // Pointer Events (touch + mouse). touch-action: pan-y (CSS) cede el scroll
@@ -371,13 +385,37 @@ export default function Player({ navigate, view }) {
     else { setVolume(preMuteVol.current > 0 ? preMuteVol.current : 0.7); }
   };
 
+  // Abrir "Ahora reproduciendo" (clic en zona libre de la barra o en la portada).
+  // Con la Letra abierta en modo panel, además se la promueve a inmersivo: queda el
+  // mismo estado canónico que al abrir la Letra desde el expandido (Letra full-bleed
+  // con el expandido detrás), y se preserva el invariante de arriba. Cerrar la Letra
+  // (X / Esc) revela entonces el expandido que el clic pidió.
+  const openNowPlaying = () => {
+    if (showLyrics) setLyricsImmersive(true);
+    setExpanded(true);
+  };
+
+  // Toggle de la Letra desde el EXPANDIDO: abre directo en inmersivo (full-bleed
+  // sobre el expandido, que queda montado detrás).
+  const toggleLyricsExpanded = () => {
+    if (!showLyrics) setLyricsImmersive(true);
+    setShowLyrics(v => !v);
+  };
+  // Toggle de la Letra desde la BARRA (desktop y mini móvil): abre en modo panel
+  // (la barra sigue visible). stopPropagation: no abrir el expandido de paso.
+  const toggleLyricsBar = (e) => {
+    e.stopPropagation();
+    if (!showLyrics) setLyricsImmersive(false);
+    setShowLyrics(v => !v);
+  };
+
   // La portada abre la vista "Ahora reproduciendo" (también en desktop). Lleva
   // stopPropagation porque .player-bar abre el expandido en cualquier zona libre:
   // el clic en la portada ya lo abre y no debe re-disparar. Inerte si no hay pista.
   const openExpanded = (e) => {
     if (!currentTrack) return;
     e.stopPropagation();
-    setExpanded(true);
+    openNowPlaying();
   };
 
   const art = currentTrack?.cover_path
@@ -394,12 +432,14 @@ export default function Player({ navigate, view }) {
   const album       = (quality ?? currentTrack)?.album ?? null;
 
   // Navegación desde la barra Y el expandido. stopPropagation (no disparar el
-  // onClick de .player-track en móvil) y cierre del expandido antes de cambiar de
-  // vista. Inertes si falta el dato.
+  // onClick de .player-track en móvil) y cierre del expandido Y de la Letra antes
+  // de cambiar de vista (la Letra —panel o inmersiva— cubre el área de contenido:
+  // sin cerrarla, la vista destino quedaba oculta detrás). Inertes si falta el dato.
   const goGenre = (e) => {
     e.stopPropagation();
     if (!genre) return;
     setExpanded(false);
+    setShowLyrics(false);
     navigate('genres', { genre });
   };
   const goArtist = async (e) => {
@@ -409,6 +449,7 @@ export default function Player({ navigate, view }) {
     if (!artist) { try { artist = (await api.track(currentTrack.id))?.album_artist ?? null; } catch { /* ignore */ } }
     if (!artist) return;
     setExpanded(false);
+    setShowLyrics(false);
     navigate('artists', { artist });
   };
   const goAlbum = async (e) => {
@@ -421,6 +462,7 @@ export default function Player({ navigate, view }) {
     }
     if (!alb) return;
     setExpanded(false);
+    setShowLyrics(false);
     navigate('albums', { album: alb, album_artist: aArtist });
   };
   // Calidad partida: códec para el badge + resto del detalle como texto gris.
@@ -448,15 +490,26 @@ export default function Player({ navigate, view }) {
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
       <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
 
-      {/* ── Panel de letra (overlay, desktop y móvil) ── */}
-      {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} startImmersive={expanded} />}
+      {/* ── Panel de letra (overlay, desktop y móvil). Modo controlado desde acá;
+          "Reducir" además cierra el expandido: modo panel ⇒ barra real visible
+          (si el expandido quedara montado detrás, su franja taparía la barra). ── */}
+      {showLyrics && (
+        <LyricsPanel
+          onClose={() => setShowLyrics(false)}
+          immersive={lyricsImmersive}
+          onToggleImmersive={next => {
+            setLyricsImmersive(next);
+            if (!next) setExpanded(false);
+          }}
+        />
+      )}
 
       {/* ── Panel de información de la pista (modal) ── */}
       {showInfo && (
         <InfoPanel
           track={quality ?? currentTrack}
           onClose={() => setShowInfo(false)}
-          navigate={(view, target) => { setShowInfo(false); setExpanded(false); navigate(view, target); }}
+          navigate={(view, target) => { setShowInfo(false); setExpanded(false); setShowLyrics(false); navigate(view, target); }}
         />
       )}
 
@@ -487,7 +540,7 @@ export default function Player({ navigate, view }) {
             <div className="exp-head-actions">
               <button
                 className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
-                onClick={() => setShowLyrics(v => !v)}
+                onClick={toggleLyricsExpanded}
                 title="Letra"
               >
                 <LyricsGlyph size={22} />
@@ -633,7 +686,7 @@ export default function Player({ navigate, view }) {
           <div className="exp-actions">
             <button
               className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
-              onClick={() => setShowLyrics(v => !v)}
+              onClick={toggleLyricsExpanded}
               title="Letra"
             >
               <LyricsGlyph size={22} />
@@ -659,7 +712,7 @@ export default function Player({ navigate, view }) {
       {/* Clic en CUALQUIER zona libre de la barra (huecos alrededor de controles,
           seek y volumen) abre el expandido. Cada control interactivo corta la
           propagación para no dispararlo. */}
-      <div className="player-bar" onClick={() => setExpanded(true)}>
+      <div className="player-bar" onClick={openNowPlaying}>
 
         {/* Track info (portada, links y "+" cortan la propagación) */}
         <div className="player-track">
@@ -769,7 +822,7 @@ export default function Player({ navigate, view }) {
         <div className="player-actions">
           <button
             className={`action-btn lyrics-btn${showLyrics ? ' active' : ''}`}
-            onClick={e => { e.stopPropagation(); setShowLyrics(v => !v); }}
+            onClick={toggleLyricsBar}
             aria-pressed={showLyrics}
             title="Letra"
           >
@@ -809,7 +862,7 @@ export default function Player({ navigate, view }) {
         <div className="player-mini-controls">
           <button
             className={`mini-btn lyrics-mini${showLyrics ? ' active' : ''}`}
-            onClick={e => { e.stopPropagation(); setShowLyrics(v => !v); }}
+            onClick={toggleLyricsBar}
             title="Letra"
           >
             <LyricsGlyph size={22} />

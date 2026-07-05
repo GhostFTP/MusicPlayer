@@ -35,7 +35,7 @@ export const api = {
   // Tracks
   tracks:   (params = {}) => request('/api/tracks?' + new URLSearchParams(params)),
   track:    (id)          => request(`/api/tracks/${id}`),
-  lyrics:   (id)          => request(`/api/tracks/${id}/lyrics`),
+  lyrics:   (id, options) => request(`/api/tracks/${id}/lyrics`, options),   // options.signal: timeout del panel
 
   // Albums
   albums:   (params = {}) => request('/api/albums?' + new URLSearchParams(params)),

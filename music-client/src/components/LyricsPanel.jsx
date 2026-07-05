@@ -40,16 +40,22 @@ function findActiveIdx(lines, t) {
   return idx;
 }
 
-export default function LyricsPanel({ onClose, startImmersive = false }) {
+// Inmersivo: full-bleed (tapa la barra) vs panel (deja la barra visible). El modo
+// es CONTROLADO por Player.jsx (`immersive` + `onToggleImmersive`): él coordina la
+// Letra con el expandido (invariante: nunca expandido montado + Letra en modo
+// panel — su franja inferior taparía la barra real → "barra fantasma").
+export default function LyricsPanel({ onClose, immersive = false, onToggleImmersive }) {
   const { currentTrack, currentTime, duration, isPlaying, seek } = usePlayer();
   const [data, setData]       = useState(null);   // { instrumental, synced, lyrics }
   const [loading, setLoading] = useState(false);
-  // Inmersivo: full-bleed (tapa la barra) vs panel (deja la barra visible). Arranca
-  // en inmersivo si la letra se abrió desde el reproductor expandido.
-  const [immersive, setImmersive] = useState(startImmersive);
   // Ajuste fino de sincronía por canción (segundos). Desplaza el tiempo efectivo
   // (línea activa + barrido); +: la letra va adelante. Se persiste en localStorage.
   const [offset, setOffset] = useState(0);
+  // Override manual "no es la letra": el matching estricto de LRCLIB no puede
+  // defenderse de data comunitaria incorrecta con duración compatible (caso
+  // "Burnin'"); esta marca por pista suprime la letra remota. Se persiste en
+  // localStorage (patrón lyricsOffset:<trackId>).
+  const [hidden, setHidden] = useState(false);
   const activeRef = useRef(null);
   const bodyRef   = useRef(null);   // .lyrics-body: contenedor de scroll de las líneas
 
@@ -74,7 +80,12 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
     if (!currentTrack) { setData(null); return; }
     let cancelled = false;
     setLoading(true);
-    api.lyrics(currentTrack.id)
+    // Timeout client-side 7s: red de seguridad si el server o el túnel se pasman
+    // (el server ya corta LRCLIB a los 4s, así que una respuesta legítima SIEMPRE
+    // llega antes). Al vencer, el catch degrada EN SILENCIO a "Sin letra
+    // disponible" (regla 8: fallos externos sin error visible); el flag
+    // `cancelled` evita que un abort tardío pise data de la pista siguiente.
+    api.lyrics(currentTrack.id, { signal: AbortSignal.timeout(7000) })
       .then(d => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -88,9 +99,21 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
     setOffset(Number.isFinite(saved) ? saved : 0);
   }, [currentTrack]);
 
+  // Cargar la marca "no es la letra" al cambiar de pista (mismo patrón que el offset).
+  useEffect(() => {
+    if (!currentTrack) { setHidden(false); return; }
+    setHidden(localStorage.getItem('lyricsHidden:' + currentTrack.id) === '1');
+  }, [currentTrack]);
+
+  // La marca SOLO suprime letra vía LRCLIB: un .lrc curado llega sin `source` y
+  // se muestra siempre, aunque la marca siga guardada. El fetch NO se evita
+  // (el source recién se conoce con la respuesta); se suprime en render, así el
+  // deshacer revela la letra ya en memoria sin round-trip.
+  const suppressed = hidden && data?.source === 'lrclib' && !data?.instrumental;
+
   const lines = useMemo(
-    () => (data && !data.instrumental && data.lyrics ? parseLrc(data.lyrics) : []),
-    [data],
+    () => (data && !suppressed && !data.instrumental && data.lyrics ? parseLrc(data.lyrics) : []),
+    [data, suppressed],
   );
   const synced = !!data?.synced && lines.some(l => l.time != null);
 
@@ -184,17 +207,48 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
     persistOffset(0);
   }
 
+  // Override "no es la letra": marca/desmarca la pista (persistido por trackId;
+  // deshacer borra la key, como el offset en 0). Deshacer muestra la letra ya en
+  // memoria — re-pedirla devolvería lo mismo por el caché 24h del server.
+  function hideLyrics() {
+    if (!currentTrack) return;
+    localStorage.setItem('lyricsHidden:' + currentTrack.id, '1');
+    setHidden(true);
+  }
+  function restoreLyrics() {
+    if (!currentTrack) return;
+    localStorage.removeItem('lyricsHidden:' + currentTrack.id);
+    setHidden(false);
+  }
+
   const hasCover = !!currentTrack?.cover_path;
 
   let body;
   if (!currentTrack) {
     body = <Empty icon="♪" title="Nada en reproducción" />;
   } else if (loading) {
-    body = <div className="lyrics-loading">Cargando letra…</div>;
+    // Una sola fase de copy: el .lrc local resuelve en ms (ni se llega a leer);
+    // la única espera visible es la búsqueda del fallback → "Buscando".
+    body = <div className="lyrics-loading">Buscando letra…</div>;
   } else if (data?.instrumental) {
     body = <Empty icon="🎹" title="Instrumental" sub="Esta pista no tiene voz." />;
   } else if (!lines.length) {
-    body = <Empty icon="🎙️" title="Sin letra disponible" sub="No hay un .lrc junto a esta canción." />;
+    // Pista suprimida por el usuario: mismo Empty "sin letra", con la vía de
+    // deshacer (borra la marca y revela la letra que quedó en memoria).
+    body = suppressed ? (
+      <Empty
+        icon="🎙️"
+        title="Sin letra disponible"
+        sub="Ocultaste la letra encontrada en LRCLIB."
+        action={
+          <button className="lyrics-empty-action" onClick={restoreLyrics}>
+            Buscar en LRCLIB de nuevo
+          </button>
+        }
+      />
+    ) : (
+      <Empty icon="🎙️" title="Sin letra disponible" sub="No hay un .lrc junto a esta canción." />
+    );
   } else if (!synced) {
     body = (
       <div className="lyrics-plain">
@@ -248,10 +302,22 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
           <span className="lyrics-kicker">
             Letra{synced ? ' · sincronizada' : ''}
             {/* Letra remota (fallback): badge sutil, en familia con el "vía
-                MusicBrainz" del panel de Info, para distinguirla de los .lrc curados. */}
-            {data?.source === 'lrclib' && !data?.instrumental && (
+                MusicBrainz" del panel de Info, para distinguirla de los .lrc curados.
+                La × es el override "no es la letra" (adosado a la procedencia).
+                Guard !loading: al cambiar de pista, `data` viejo sigue en estado
+                mientras carga — sin él, la × marcaría la pista NUEVA por data de
+                la VIEJA (y el badge mostraba procedencia stale). */}
+            {data?.source === 'lrclib' && !data?.instrumental && !suppressed && !loading && (
               <span className="lyrics-via" title="Letra obtenida de LRCLIB (lrclib.net)">
                 <span className="lyrics-via-dot" aria-hidden="true">●</span>vía LRCLIB
+                <button
+                  className="lyrics-via-x"
+                  onClick={hideLyrics}
+                  title="No es la letra correcta — ocultarla para esta pista"
+                  aria-label="No es la letra correcta — ocultarla para esta pista"
+                >
+                  ×
+                </button>
               </span>
             )}
           </span>
@@ -275,7 +341,7 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
           )}
           <button
             className="lyrics-toggle"
-            onClick={() => setImmersive(v => !v)}
+            onClick={() => onToggleImmersive?.(!immersive)}
             title={immersive ? 'Reducir' : 'Pantalla completa'}
             aria-label={immersive ? 'Reducir' : 'Pantalla completa'}
             aria-pressed={immersive}
@@ -294,12 +360,13 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
   );
 }
 
-function Empty({ icon, title, sub }) {
+function Empty({ icon, title, sub, action }) {
   return (
     <div className="lyrics-empty">
       <div className="lyrics-empty-icon">{icon}</div>
       <div className="lyrics-empty-title">{title}</div>
       {sub && <div className="lyrics-empty-sub">{sub}</div>}
+      {action}
     </div>
   );
 }

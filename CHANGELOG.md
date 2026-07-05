@@ -3,6 +3,43 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.1] - 2026-07-05
+
+### Nuevo
+- **"No es la letra": ocultá una letra equivocada de LRCLIB.** La data comunitaria
+  a veces trae la letra de otra canción (nos pasó con «Burnin'» de Daft Punk).
+  Una **×** discreta en el badge "vía LRCLIB" marca esa pista como sin letra (se
+  recuerda por dispositivo), y en el estado vacío queda **"Buscar en LRCLIB de
+  nuevo"** para deshacer al instante. Las letras propias (.lrc curadas) nunca se
+  ocultan.
+
+### Mejorado
+- **La búsqueda de letra ya no se cuelga**: el panel muestra "Buscando letra…" y
+  espera como mucho ~4 s a LRCLIB (7 s si el servidor no responde) antes de
+  rendirse en silencio con "Sin letra disponible". Antes podía quedarse
+  "Cargando…" indefinidamente.
+- **Esc también cierra Novedades**: te devuelve a la vista donde estabas
+  (prioridad: Info → Letra → Novedades → reproductor ampliado).
+
+### Corregido
+- **"Barra fantasma" bajo la Letra**: con el reproductor ampliado montado detrás,
+  la letra en modo panel mostraba una franja cortada del ampliado en vez de la
+  barra real. Ahora tocar la barra o la portada con la Letra abierta la lleva a
+  pantalla completa y "Reducir" cierra el ampliado: siempre ves la barra de
+  verdad.
+- **El tooltip del shuffle** quedaba tapado por el panel de Letra abierto; ahora
+  aparece por encima, igual que el menú "+".
+
+### Técnico
+- Capa `--z-bar-popover: 260` para popovers anclados a la barra (menú "+",
+  tooltip del shuffle): sobre la Letra (250), bajo Info (300).
+- El modo inmersivo de la Letra (`lyricsImmersive`) pasa a `Player.jsx` y
+  `LyricsPanel` es controlado; invariante: nunca expandido montado con la Letra
+  en modo panel.
+- Timeout LRCLIB del server 6 s → 4 s; el cliente aborta a los 7 s
+  (`AbortSignal.timeout`). Marca de ocultado en localStorage
+  `lyricsHidden:<trackId>`.
+
 ## [1.4.0] - 2026-07-05
 
 ### Nuevo

@@ -46,7 +46,11 @@ export async function lrclibLyrics(track) {
   try {
     const resp = await fetch(`https://lrclib.net/api/get?${params}`, {
       headers: { 'User-Agent': UA, Accept: 'application/json' },
-      signal: AbortSignal.timeout(6000),
+      // 4s (bajado de 6s): presupuesto de espera pedido para el fallback. Un
+      // LRCLIB sano responde en <1s; si tarda más, mejor "sin letra" ya (con
+      // TTL_ERR reintenta en 10 min). Debe quedar por DEBAJO del timeout del
+      // cliente en LyricsPanel (7s): el server siempre responde antes del abort.
+      signal: AbortSignal.timeout(4000),
     });
     if (resp.ok) {
       const d = await resp.json();
