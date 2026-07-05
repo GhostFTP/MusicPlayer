@@ -123,8 +123,15 @@ export default function Player({ navigate, view }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
+  // Última vista distinta de Novedades: adónde vuelve Esc al "cerrar" la vista de
+  // la campanita (no hay historial de navegación; esto guarda el único "atrás"
+  // que Esc necesita). Ref y no estado: solo se lee dentro del handler de Esc.
+  const prevViewRef = useRef('library');
+  useEffect(() => { if (view !== 'changelog') prevViewRef.current = view; }, [view]);
+
   // Esc global del reproductor, por prioridad de lo más "encima": el InfoPanel
   // (modal, z 300) maneja su propio Esc; luego la Letra —esté o no en el expandido—;
+  // luego Novedades (la vista que abre la campanita) vuelve a la vista anterior;
   // por último, si no hay panel abierto, cierra el expandido. Antes este handler
   // vivía sólo mientras expanded=true, así que Esc no cerraba la Letra abierta desde
   // la barra (fuera del expandido); ahora escucha siempre.
@@ -133,11 +140,12 @@ export default function Player({ navigate, view }) {
       if (e.key !== 'Escape') return;
       if (showInfo)        return;                 // el InfoPanel maneja su propio Esc (cierre animado)
       else if (showLyrics) setShowLyrics(false);   // cierra la letra donde sea que esté abierta
+      else if (view === 'changelog') navigate(prevViewRef.current);  // "cierra" Novedades
       else if (expanded)   setExpanded(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expanded, showInfo, showLyrics]);
+  }, [expanded, showInfo, showLyrics, view, navigate]);
 
   // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
   // Pointer Events (touch + mouse). touch-action: pan-y (CSS) cede el scroll
