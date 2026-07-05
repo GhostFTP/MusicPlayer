@@ -40,13 +40,14 @@ function findActiveIdx(lines, t) {
   return idx;
 }
 
-export default function LyricsPanel({ onClose, startImmersive = false }) {
+// Inmersivo: full-bleed (tapa la barra) vs panel (deja la barra visible). El modo
+// es CONTROLADO por Player.jsx (`immersive` + `onToggleImmersive`): él coordina la
+// Letra con el expandido (invariante: nunca expandido montado + Letra en modo
+// panel — su franja inferior taparía la barra real → "barra fantasma").
+export default function LyricsPanel({ onClose, immersive = false, onToggleImmersive }) {
   const { currentTrack, currentTime, duration, isPlaying, seek } = usePlayer();
   const [data, setData]       = useState(null);   // { instrumental, synced, lyrics }
   const [loading, setLoading] = useState(false);
-  // Inmersivo: full-bleed (tapa la barra) vs panel (deja la barra visible). Arranca
-  // en inmersivo si la letra se abrió desde el reproductor expandido.
-  const [immersive, setImmersive] = useState(startImmersive);
   // Ajuste fino de sincronía por canción (segundos). Desplaza el tiempo efectivo
   // (línea activa + barrido); +: la letra va adelante. Se persiste en localStorage.
   const [offset, setOffset] = useState(0);
@@ -275,7 +276,7 @@ export default function LyricsPanel({ onClose, startImmersive = false }) {
           )}
           <button
             className="lyrics-toggle"
-            onClick={() => setImmersive(v => !v)}
+            onClick={() => onToggleImmersive?.(!immersive)}
             title={immersive ? 'Reducir' : 'Pantalla completa'}
             aria-label={immersive ? 'Reducir' : 'Pantalla completa'}
             aria-pressed={immersive}
