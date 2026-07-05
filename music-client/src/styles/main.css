@@ -1304,6 +1304,19 @@ button, input, select, textarea { font-family: inherit; }
 .ctrl-btn.play:hover  { transform: scale(1.08); background: #fff; box-shadow: 0 0 16px rgba(167, 139, 250, .55); }
 .ctrl-btn.play:active { transform: scale(.92); }
 
+/* Prev/Next de la barra: tratamiento de familia (hover crece con glow morado,
+   press encoge con micro-nudge de 2px hacia su dirección; el spring lo da el easing). */
+.ctrl-btn.ctrl-prev, .ctrl-btn.ctrl-next {
+  transition: color .15s, transform .18s cubic-bezier(.34, 1.42, .5, 1), filter .15s;
+}
+.ctrl-btn.ctrl-prev:hover, .ctrl-btn.ctrl-next:hover {
+  color: var(--text);
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 6px rgba(167, 139, 250, .45));
+}
+.ctrl-btn.ctrl-prev:active { transform: scale(.88) translateX(-2px); }
+.ctrl-btn.ctrl-next:active { transform: scale(.88) translateX(2px); }
+
 /* Transición play↔pause en la barra: mismo patrón que el expandido (key + scale-in
    reusando @keyframes exp-icon-swap). */
 .ctrl-play-swap { display: inline-flex; animation: exp-icon-swap .18s ease; }
@@ -1312,6 +1325,9 @@ button, input, select, textarea { font-family: inherit; }
   .ctrl-play-swap { animation: none; }
   .shuffle-btn:hover { animation: none; }
   .ctrl-btn.play:hover, .ctrl-btn.play:active { transform: none; }
+  /* prev/next: sin movimiento ni glow; conserva el cambio de color al hover */
+  .ctrl-btn.ctrl-prev:hover, .ctrl-btn.ctrl-next:hover,
+  .ctrl-btn.ctrl-prev:active, .ctrl-btn.ctrl-next:active { transform: none; filter: none; }
 }
 
 .player-progress {
@@ -1880,6 +1896,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   box-shadow: 0 0 18px rgba(255, 255, 255, .12);
 }
 .exp-btn:active { background: rgba(255, 255, 255, .1); color: var(--text); transform: scale(.92); }
+/* Prev/Next del expandido: micro-nudge direccional al presionar (familia con la barra). */
+.exp-btn.exp-prev:active { transform: scale(.92) translateX(-2px); }
+.exp-btn.exp-next:active { transform: scale(.92) translateX(2px); }
 
 /* Shuffle/Repeat activos en el player expandido */
 .exp-btn.active { color: var(--accent); }
@@ -2063,6 +2082,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 
 .lyrics-synced, .lyrics-plain { width: 100%; max-width: 640px; text-align: center; }
+/* Aire inferior ≥ media pantalla SOLO en karaoke: deja que las últimas líneas
+   también se centren en el cuerpo (sin esto quedaban pegadas al borde y el
+   auto-scroll intentaba compensar hacia afuera). En letra plana no aplica. */
+.lyrics-synced { padding-bottom: 44vh; }
 
 .lyrics-line {
   font-size: 22px; font-weight: 600; line-height: 1.5;
@@ -2299,6 +2322,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   .exp-btn, .exp-btn:hover, .exp-btn:active,
+  .exp-btn.exp-prev:active, .exp-btn.exp-next:active,
   .exp-btn.play:hover, .exp-btn.play:active { transform: none; }
   .exp-play-swap { animation: none; }
   .repeat-icon.spin { animation: none; }
@@ -2428,9 +2452,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     height: 48px;
     border-radius: 50%;
     -webkit-tap-highlight-color: transparent;
-    transition: color .12s;
+    transition: color .12s, transform .15s cubic-bezier(.34, 1.42, .5, 1);
   }
-  .mini-btn:active { color: var(--text); }
+  /* Press con encogimiento (familia con la barra); el "siguiente" además se
+     desliza 2px hacia su dirección. */
+  .mini-btn:active { color: var(--text); transform: scale(.88); }
+  .mini-btn.mini-next:active { transform: scale(.88) translateX(2px); }
   .mini-btn.play-mini {
     color: var(--text);
     background: none;
@@ -2590,4 +2617,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .changelog-bell:active { transform: none; }
   .changelog-bell-dot { animation: none; }
+}
+
+/* Mini-botones de la barra móvil: sin encogimiento ni nudge (va al final para
+   ganar en cascada al bloque móvil; conserva el cambio de color al presionar). */
+@media (prefers-reduced-motion: reduce) {
+  .mini-btn:active, .mini-btn.mini-next:active { transform: none; }
 }
