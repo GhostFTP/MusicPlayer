@@ -714,7 +714,10 @@ button, input, select, textarea { font-family: inherit; }
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 50;
+  /* Menú emergente por encima de expandido (200) y letra (250), y por debajo de
+     info (300) y toast (400): el "+" de la barra sigue usable con la Letra abierta
+     en modo panel (antes quedaba cortado bajo el overlay con z-index 50). */
+  z-index: 260;
   width: 288px;
   background: rgba(24, 24, 24, .82);
   backdrop-filter: blur(16px) saturate(1.3);
