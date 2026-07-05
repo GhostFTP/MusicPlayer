@@ -59,6 +59,14 @@ los archivos reales** — este mapa dice dónde vive cada cosa y qué NO se pued
    "barra fantasma"): abrir el expandido con la Letra abierta la promueve a
    inmersivo, y "Reducir" cierra el expandido. Navegar (links de la barra, Info)
    cierra la Letra.
+10. **Override «no es la letra» por pista**: localStorage `lyricsHidden:<trackId>`
+    (patrón del offset; deshacer borra la key). SOLO suprime letra con
+    `source: 'lrclib'` — un `.lrc` curado llega sin `source` y se muestra
+    siempre, aunque la marca siga guardada. El fetch **no se evita**: se suprime
+    en render (el `source` recién se conoce con la respuesta; el deshacer revela
+    la letra que quedó en memoria, sin round-trip). La × vive dentro del chip del
+    badge; badge y × llevan guard `!loading` — sin él, un clic durante la carga
+    marcaría la pista nueva con data de la vieja.
 
 ## Estados posibles del panel (del endpoint real)
 
@@ -67,7 +75,8 @@ los archivos reales** — este mapa dice dónde vive cada cosa y qué NO se pued
 | Instrumental local | `vocals = 'instrumental'` en DB | Empty 🎹 "Instrumental" |
 | Synced local | `.lrc` con marcas (`SYNCED_RE`) | Karaoke completo, sin badge |
 | Plano local | `.lrc` sin marcas | `.lyrics-plain` (texto aireado) |
-| Synced vía LRCLIB | `source: 'lrclib'` (siempre synced) | Karaoke + badge "vía LRCLIB" |
+| Synced vía LRCLIB | `source: 'lrclib'` (siempre synced) | Karaoke + badge "vía LRCLIB" con la × del override |
+| Suprimida por el usuario | marca `lyricsHidden:<trackId>` + `source: 'lrclib'` | Empty 🎙️ "Sin letra disponible" + pastilla "Buscar en LRCLIB de nuevo" (deshacer) |
 | Sin letra | nada de lo anterior | Empty 🎙️ "Sin letra disponible" |
 
 **No existe "plano vía LRCLIB"**: el backend descarta `plainLyrics` remota
@@ -83,7 +92,11 @@ es una decisión de producto + presentación digna, no un fix.
 - **Guard instrumental**: título con `/instrumental/i` ⇒ ni se consulta;
   resultado con `instrumental: true` ⇒ descartado.
 - **Caché en memoria**: 24 h positiva Y negativa (todo descarte incluido);
-  fallos de red/5xx solo 10 min; timeout 6 s. Se pierde al reiniciar el server.
+  fallos de red/5xx solo 10 min; timeout 4 s. Se pierde al reiniciar el server.
+- **Presupuesto de espera en dos capas**: server → LRCLIB **4 s** (`lrclib.js`);
+  cliente → server **7 s** (`AbortSignal.timeout` en el fetch del panel, cubre
+  server/túnel colgados). El del cliente SIEMPRE por encima del del server: una
+  respuesta legítima nunca se aborta. Copy de espera: "Buscando letra…".
 
 ## Checklist QA del karaoke
 
@@ -98,7 +111,9 @@ es una decisión de producto + presentación digna, no un fix.
    resiembra por `isPlaying`).
 5. **Instrumentales**: `vocals='instrumental'` → estado Instrumental; título con
    "instrumental" → jamás letra de LRCLIB (ni la de la versión cantada).
-6. **Sin letra**: Empty sin error visible, también con LRCLIB caído o sin red.
+6. **Sin letra**: Empty sin error visible, también con LRCLIB caído o sin red;
+   la espera muestra "Buscando letra…" y nunca pasa de ~4 s (LRCLIB colgado)
+   ni de 7 s (server/túnel colgado).
 7. **Móvil vs desktop**: en móvil el panel respeta `bottom` (mini barra + nav);
    el header con el ajuste ± nunca se escapa; últimas líneas centradas.
 8. **Inmersivo vs panel**: `inset: 0` (tapa la barra) vs `bottom: var(--player-h)`;
@@ -109,3 +124,6 @@ es una decisión de producto + presentación digna, no un fix.
    instantáneo, sin animaciones — pero los estados y colores se conservan.
 10. **Offsets**: persisten por pista, el reset limpia la key, `[offset:]` del
     archivo se aplica además del ajuste manual.
+11. **Override por pista**: la × solo aparece con letra LRCLIB (jamás con `.lrc`
+    local ni durante la carga); ocultar → Empty con deshacer; persiste al
+    recargar; deshacer revela la letra al instante.
