@@ -199,10 +199,11 @@ export default function Player({ navigate, view }) {
   }, [expanded, showInfo, showLyrics, view, navigate]);
 
   // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
-  // Pointer Events (touch + mouse). touch-action: pan-y (CSS) cede el scroll
-  // vertical al navegador y nos deja el gesto horizontal. Un solo elemento: la
-  // carátula vieja SALE hacia el lado del swipe, se cambia la fuente ya fuera de
-  // pantalla y la nueva ENTRA desde el lado opuesto.
+  // Pointer Events (touch + mouse). touch-action: none (CSS): el navegador no
+  // panea nada sobre la carátula — el gesto entero es del JS, incluida la
+  // vertical hacia abajo (rama dir='close' → cerrar el expandido). Un solo
+  // elemento: la carátula vieja SALE hacia el lado del swipe, se cambia la
+  // fuente ya fuera de pantalla y la nueva ENTRA desde el lado opuesto.
 
   // currentTrack más reciente, legible dentro de los timeouts de la animación.
   useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
