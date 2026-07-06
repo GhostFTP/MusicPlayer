@@ -1803,7 +1803,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   z-index: -1;
   background-size: cover;
   background-position: center;
-  filter: blur(28px) saturate(1.3);
+  /* Blur moderado (14px, antes 28): que la carátula se aprecie; la legibilidad
+     de título y controles la garantiza el overlay .7 del ::after, que queda igual. */
+  filter: blur(14px) saturate(1.3);
   transform: scale(1.2);
   animation: exp-bg-in .4s ease;   /* refade al cambiar de canción (via key) */
   pointer-events: none;
@@ -1815,6 +1817,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   background: rgba(0, 0, 0, .7);
 }
 @keyframes exp-bg-in { from { opacity: 0; } to { opacity: 1; } }
+/* Móvil: blur más liviano aún (misma lógica que .info-bg: alivia GPU y la
+   portada full-screen se aprecia más). */
+@media (max-width: 700px) {
+  .exp-bg { filter: blur(10px) saturate(1.3); }
+}
 @media (prefers-reduced-motion: reduce) {
   .exp-bg { animation: none; }
 }
@@ -2303,14 +2310,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @keyframes info-pop-out  { to { opacity: 0; transform: translateY(6px) scale(.93); } }
 
 /* Carátula viva: la portada de la pista difuminada como fondo del modal (recortada
-   por overflow:hidden + radio). Capa base bajo header/body; estática (no anima). */
+   por overflow:hidden + radio). Capa base bajo header/body; estática (no anima).
+   Blur suave (10px; fue 32 → 16 → 10 por feedback): la portada se reconoce de un
+   vistazo; la legibilidad la garantiza el doble oscurecido del ::after, que queda
+   igual (el sólido .72 domina el contraste incluso con portadas claras). */
 .info-bg {
   position: absolute;
   inset: 0;
   z-index: 0;
   background-size: cover;
   background-position: center;
-  filter: blur(32px) saturate(1.2);
+  filter: blur(10px) saturate(1.2);
   transform: scale(1.15);
   pointer-events: none;
 }
@@ -2324,7 +2334,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 /* Móvil: aliviamos GPU (doble blur: .info-bg + backdrop-filter del modal). */
 @media (max-width: 700px) {
-  .info-bg { filter: blur(20px) saturate(1.2); }
+  .info-bg { filter: blur(8px) saturate(1.2); }
 }
 
 .info-header {
