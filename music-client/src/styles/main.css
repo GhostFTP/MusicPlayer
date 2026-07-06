@@ -1830,6 +1830,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex;
   align-items: center;
   margin-bottom: 28px;
+  /* Asa de arrastre (cerrar deslizando hacia abajo): sin selección de texto —
+     acá no hay texto valioso que seleccionar, solo el label del botón. */
+  user-select: none;
 }
 
 .exp-back {
@@ -2039,6 +2042,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @media (min-width: 701px) {
   .player-expanded { align-items: center; }
   .exp-header { width: 100%; max-width: 1040px; justify-content: space-between; }
+
+  /* Asas de cierre con mouse: header y carátula se arrastran hacia abajo para
+     cerrar (mismo gesto y umbrales que el swipe móvil). El cursor lo anuncia;
+     los botones internos conservan su pointer propio. */
+  .exp-header, .exp-art-wrap { cursor: grab; }
+  .exp-header:active, .exp-art-wrap:active { cursor: grabbing; }
 
   /* Dos columnas simétricas (1fr/1fr): la carátula se pega al centro por la
      derecha y la info por la izquierda; columnas iguales → márgenes externos

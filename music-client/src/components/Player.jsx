@@ -69,7 +69,7 @@ const RUBBER_LIMIT = 120;   // px de seguimiento 1:1 antes de la resistencia
 const DUR_OUT      = 250;   // ms de la salida (carta que sale volando)
 const DUR_IN       = 320;   // ms de la entrada (desliza desde abajo + rebote), coincide con el CSS
 
-// ── Cerrar el expandido deslizando hacia abajo (móvil) ──
+// ── Cerrar el expandido deslizando hacia abajo (táctil y mouse) ──
 const CLOSE_DIST = 120;   // px de arrastre hacia abajo para cerrar
 const CLOSE_VEL  = 0.55;  // px/ms (flick hacia abajo): a esta velocidad basta poca distancia
 const CLOSE_MIN  = 24;    // px mínimos recorridos para aceptar un flick
@@ -116,7 +116,7 @@ export default function Player({ navigate, view }) {
   const artRef    = useRef(null);          // nodo de la carátula (ancho para las animaciones)
   const currentTrackRef = useRef(currentTrack); // último currentTrack (para leerlo dentro de timeouts)
 
-  // ── Estado del gesto "deslizar hacia abajo para cerrar" (móvil) ──
+  // ── Estado del gesto "deslizar hacia abajo para cerrar" (táctil y mouse) ──
   const [dragY, setDragY] = useState(0);              // desplazamiento vertical del overlay durante el arrastre
   const [sheet, setSheet] = useState('idle');         // idle | drag | return | closing
   const vGesture = useRef(null);                      // { x0, y0, dir, lastY, lastT, vy } | null
@@ -245,8 +245,8 @@ export default function Player({ navigate, view }) {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
   // Un solo gesto sobre la carátula, con el eje fijado en el primer movimiento:
-  //   horizontal → cambiar de pista · vertical hacia ABAJO (táctil) → cerrar el
-  //   expandido (mismo cierre que el header) · vertical hacia arriba → soltar.
+  //   horizontal → cambiar de pista · vertical hacia ABAJO (táctil o mouse) →
+  //   cerrar el expandido (mismo cierre que el header) · hacia arriba → soltar.
   const onArtPointerMove = (e) => {
     const g = gesture.current;
     if (!g || g.dir === 'v') return;
@@ -257,11 +257,11 @@ export default function Player({ navigate, view }) {
       if (Math.abs(dx) > Math.abs(dy)) {
         g.dir = 'h';                                       // horizontal → cambiar de pista
         setMotion({ mode: 'drag' });
-      } else if (dy > 0 && e.pointerType !== 'mouse') {
-        g.dir = 'close';                                   // vertical hacia abajo → cerrar (solo táctil)
+      } else if (dy > 0) {
+        g.dir = 'close';                                   // vertical hacia abajo → cerrar
         setSheet('drag');
       } else {
-        g.dir = 'v';                                       // vertical hacia arriba (o mouse) → soltar
+        g.dir = 'v';                                       // vertical hacia arriba → soltar
         return;
       }
     }
@@ -323,10 +323,11 @@ export default function Player({ navigate, view }) {
     return undefined;   // in → keyframe exp-card-in; idle → neutral
   };
 
-  // ── Cerrar el expandido deslizando hacia abajo (móvil) ──
+  // ── Cerrar el expandido deslizando hacia abajo (táctil y mouse) ──
   // Mismos patrones que el swipe de carátula (Pointer Events, eje fijado por el
-  // primer movimiento, velocidad suavizada, cancelación limpia). Sólo táctil:
-  // en desktop el cierre sigue siendo Esc / botón "Ahora reproduciendo".
+  // primer movimiento, velocidad suavizada, cancelación limpia). En desktop el
+  // mouse arrastra desde el header o la carátula (cursor grab lo anuncia);
+  // Esc / botón "Ahora reproduciendo" siguen funcionando igual.
   // Vuelta con spring si no se alcanza el umbral.
   const sheetBack = () => {
     if (reduced) { setSheet('idle'); setDragY(0); return; }
@@ -342,7 +343,6 @@ export default function Player({ navigate, view }) {
     timers.current.push(setTimeout(() => setExpanded(false), DUR_CLOSE));
   };
   const onSheetPointerDown = (e) => {
-    if (e.pointerType === 'mouse') return;   // sólo táctil (móvil)
     if (busy.current || sheet === 'closing') return;
     if (e.target.closest?.('button, a, input, [role="button"]')) return;   // no sobre los botones del header
     vGesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastY: e.clientY, lastT: e.timeStamp, vy: 0 };

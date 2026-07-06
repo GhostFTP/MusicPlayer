@@ -3,6 +3,43 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.2] - 2026-07-05
+
+### Nuevo
+- **Tooltips "vidrio con firma" en la barra**: todos los controles (aleatorio,
+  anterior/reproducir/siguiente, repetir, letra, info, volumen y el "+" de
+  playlist) comparten un mismo tooltip glass con la firma de color de cada
+  acción — morado, ámbar en info, morado→rosa en letra, teal en el "+", y el
+  color por nivel en el volumen (**"Volumen · 72%"**, o "Silenciado"). También
+  aparecen al navegar con teclado (Tab).
+- **Cerrá el reproductor ampliado arrastrándolo hacia abajo con el mouse**
+  (desktop): el mismo gesto que ya existía en móvil, desde el encabezado o la
+  carátula (el cursor de "agarrar" lo anuncia). Esc y el botón de siempre
+  siguen funcionando igual.
+
+### Mejorado
+- **Slider de volumen "riel que respira"** (desktop): al pasar el mouse el riel
+  se engrosa con un glow del color del nivel y el punto entra con un rebote
+  sutil; al arrastrar crece, hermanado con el del reproductor ampliado.
+- **La portada se aprecia más de fondo**: menos difuminado en el reproductor
+  ampliado (28→14 px; 10 en móvil) y en el panel de Info (32→10 px; 8 en
+  móvil). La legibilidad del texto la sigue garantizando el oscurecido, que no
+  cambió.
+- **En móvil, el control de volumen desaparece del reproductor ampliado**: el
+  volumen lo mandan los botones físicos del teléfono (iOS ignora el volumen
+  web), así que un slider que a veces no responde es peor que ninguno.
+
+### Técnico
+- Sistema `.bar-tip` reemplaza los `title=` nativos de la barra manteniendo (y
+  agregando donde faltaba) `aria-label` en todos los botones; visible con
+  `:has(:focus-visible)`; oculto con `visibility` para no pagar el blur en
+  reposo; con `prefers-reduced-motion` queda solo el fade.
+- `volumeFillStyle()` → `volumeVars()`: el color por nivel viaja en CSS vars
+  (`--vol-pct` / `--vol-color`) y alimenta relleno, glow y tooltip sin duplicar
+  la interpolación teal→ámbar→rojo.
+- El cierre por arrastre comparte una sola maquinaria táctil/mouse (se quitó el
+  gate por `pointerType`); mismos umbrales (120 px, o flick a 0.55 px/ms).
+
 ## [1.4.1] - 2026-07-05
 
 ### Nuevo
