@@ -1793,6 +1793,21 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   overflow-x: hidden;   /* la carta que sale volando se recorta en el borde, sin scroll horizontal */
 }
 
+/* Scrim del gesto de cierre (swipe-down): hermano inmediatamente ANTERIOR al
+   sheet en el DOM (mismo z-index 200 → el orden del DOM lo deja debajo).
+   Mientras el sheet baja, la app revelada detrás se ve a través de este
+   oscurecido, que el JS aclara según el progreso del drag (affordance de sheet
+   nativo). En reposo es invisible (opacity 0): no ensombrece la entrada
+   slide-up ni la app. pointer-events: none — jamás intercepta clicks/gestos. */
+.exp-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, .55);
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* Fondo del expandido (móvil y desktop): carátula actual difuminada, ampliada
    para tapar los bordes del blur, con overlay oscuro para que el texto quede
    legible. Capa fija DEBAJO del contenido del expandido (z-index -1 dentro de su
@@ -2041,11 +2056,30 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    centradas en pantalla. No afecta el layout móvil (por los wrappers de arriba). */
 @media (min-width: 701px) {
   .player-expanded { align-items: center; }
-  .exp-header { width: 100%; max-width: 1040px; justify-content: space-between; }
 
-  /* Asas de cierre con mouse: header y carátula se arrastran hacia abajo para
-     cerrar (mismo gesto y umbrales que el swipe móvil). El cursor lo anuncia;
-     los botones internos conservan su pointer propio. */
+  /* Franja de agarre REAL para cerrar con drag (equivalente desktop de la franja
+     móvil de 100px): el header se estira full-bleed — los márgenes negativos
+     absorben el padding del overlay (el superior de 20px y las esquinas fuera de
+     los 1040px eran zonas muertas) — y gana alto (min-height 96px). El contenido
+     queda EXACTAMENTE donde estaba: el padding lateral repone los 28px y centra
+     a la columna de 1040 (984px = 1040 − 56 del padding lateral del overlay; en
+     % y no vw para que un scrollbar no lo desalinee); el superior replica el del
+     overlay, así el botón ⌄ no se mueve ni un píxel. Los botones internos
+     conservan sus clicks (el gesto los excluye en el pointerdown). touch-action:
+     none: pantalla táctil en viewport desktop, el gesto es del JS. */
+  .exp-header {
+    align-self: stretch;
+    justify-content: space-between;
+    align-items: flex-start;
+    min-height: 96px;
+    margin: calc(-1 * max(env(safe-area-inset-top), 20px)) -28px 0;
+    padding: max(env(safe-area-inset-top), 20px) max(28px, calc((100% - 984px) / 2)) 12px;
+    touch-action: none;
+  }
+
+  /* Asas de cierre con mouse: header (franja completa) y carátula se arrastran
+     hacia abajo para cerrar (mismo gesto y umbrales que el swipe móvil). El
+     cursor lo anuncia; los botones internos conservan su pointer propio. */
   .exp-header, .exp-art-wrap { cursor: grab; }
   .exp-header:active, .exp-art-wrap:active { cursor: grabbing; }
 

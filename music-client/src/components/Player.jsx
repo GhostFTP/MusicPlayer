@@ -73,7 +73,30 @@ const DUR_IN       = 320;   // ms de la entrada (desliza desde abajo + rebote), 
 const CLOSE_DIST = 120;   // px de arrastre hacia abajo para cerrar
 const CLOSE_VEL  = 0.55;  // px/ms (flick hacia abajo): a esta velocidad basta poca distancia
 const CLOSE_MIN  = 24;    // px mínimos recorridos para aceptar un flick
-const DUR_CLOSE  = 300;   // ms de la animación de cierre (coincide con la transición del estilo)
+// Cierre con momentum: la duración continúa la velocidad del gesto (distancia
+// restante / velocidad, con clamps) — tras un flick el sheet no "frena y re-acelera".
+const DUR_CLOSE     = 300;  // ms máximos del cierre (y fallback si no hay velocidad)
+const DUR_CLOSE_MIN = 160;  // ms mínimos (que un flick violento no sea un parpadeo)
+// Snap-back proporcional a la distancia recorrida (un rebote corto no se arrastra).
+const DUR_BACK_MIN = 180;   // ms
+const DUR_BACK_MAX = 360;   // ms (la duración fija de antes)
+
+// ── Fijado de eje (compartido carátula/sheet) ──
+// Mientras el eje no está decidido se re-evalúa en CADA move (sin candados
+// terminales): gana el primer eje que alcanza AXIS_DIST px con dominancia
+// AXIS_DOM sobre el perpendicular. El jerk lateral del click del mouse es
+// transitorio y pierde la re-evaluación; un swipe real la gana enseguida.
+const AXIS_DIST = 12;   // px mínimos para fijar un eje (antes: 8 y terminal)
+const AXIS_DOM  = 1.3;  // dominancia requerida sobre el otro eje
+
+// ── Affordance de sheet nativo durante el drag de cierre ──
+// Radio progresivo en las esquinas superiores (llega al máximo a ~48px de
+// arrastre) + hairline y sombra hacia arriba. El sheet se mantiene OPACO: el
+// oscurecido honesto lo pone el scrim de atrás (.exp-scrim), que se aclara a
+// medida que el sheet baja.
+const SHEET_RADIUS = 24;  // px máximos del radio
+const sheetRadius = (y) => Math.min(SHEET_RADIUS, y * 0.5);
+const SHEET_EDGE = 'inset 0 1px 0 rgba(255, 255, 255, .1), 0 -18px 48px rgba(0, 0, 0, .45)';
 
 // Resistencia progresiva más allá de RUBBER_LIMIT (no un clamp seco).
 function rubber(dx) {
@@ -110,7 +133,7 @@ export default function Player({ navigate, view }) {
   const [motion, setMotion]   = useState({ mode: 'idle' }); // idle | drag | out | in | return
   const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
   const [coverTrack, setCoverTrack] = useState(currentTrack); // carátula visible (difiere de currentTrack durante la animación)
-  const gesture   = useRef(null);          // gesto en curso: { x0, y0, dir, lastX, lastT, vx } | null
+  const gesture   = useRef(null);          // gesto en curso: { x0, y0, dir, bx, by, lastX, lastY, lastT, vx, vy } | null
   const busy      = useRef(false);         // animación de salida/entrada en curso → ignora gestos nuevos
   const timers    = useRef([]);            // timeouts de la animación (para limpiarlos)
   const artRef    = useRef(null);          // nodo de la carátula (ancho para las animaciones)
@@ -119,7 +142,16 @@ export default function Player({ navigate, view }) {
   // ── Estado del gesto "deslizar hacia abajo para cerrar" (táctil y mouse) ──
   const [dragY, setDragY] = useState(0);              // desplazamiento vertical del overlay durante el arrastre
   const [sheet, setSheet] = useState('idle');         // idle | drag | return | closing
-  const vGesture = useRef(null);                      // { x0, y0, dir, lastY, lastT, vy } | null
+  const vGesture = useRef(null);                      // { x0, y0, dir, by, lastY, lastT, vy } | null
+  // Timers de vuelta (snap-back) IDENTIFICABLES, fuera de la bolsa `timers`: un
+  // pointerdown nuevo los cancela — si dispararan 'idle' a mitad del drag
+  // siguiente, lo congelarían (reintento rápido tras un rebote).
+  const sheetReturnTimer = useRef(null);              // snap-back del sheet
+  const artReturnTimer   = useRef(null);              // spring-back de la carátula
+  // Duraciones del cierre/rebote EN CURSO (momentum): las escriben closeSheet()/
+  // sheetBack() justo antes del setState y las leen sheetStyle()/scrimStyle().
+  const closeDurRef = useRef(DUR_CLOSE);
+  const backDurRef  = useRef(DUR_BACK_MAX);
 
   const repeatState = repeat === 'one' ? 'una canción'
     : repeat === 'all' ? 'toda la cola'
@@ -186,22 +218,39 @@ export default function Player({ navigate, view }) {
   }, []);
 
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
+  const clearReturnTimers = () => {
+    clearTimeout(sheetReturnTimer.current); sheetReturnTimer.current = null;
+    clearTimeout(artReturnTimer.current);   artReturnTimer.current = null;
+  };
   // Al cerrar el expandido (o desmontar): corta la animación y resetea, para no
   // dejar la carátula colgada ni disparar setState de más.
   useEffect(() => {
     if (expanded) return;
-    clearTimers(); busy.current = false; gesture.current = null;
+    clearTimers(); clearReturnTimers(); busy.current = false; gesture.current = null;
     setMotion({ mode: 'idle' }); setDragX(0);
     vGesture.current = null; setSheet('idle'); setDragY(0);   // gesto de cierre por swipe-down
   }, [expanded]);
-  useEffect(() => clearTimers, []);
+  useEffect(() => () => { clearTimers(); clearReturnTimers(); }, []);
+
+  // Cancela la vuelta pendiente de cada gesto (timer + estado 'return' → 'idle').
+  // Se llama en los pointerdown: sin esto, el timer del rebote anterior dispararía
+  // 'idle' a mitad del drag nuevo y lo dejaría congelado.
+  const cancelSheetReturn = () => {
+    if (sheetReturnTimer.current) { clearTimeout(sheetReturnTimer.current); sheetReturnTimer.current = null; }
+    setSheet(s => (s === 'return' ? 'idle' : s));
+  };
+  const cancelArtReturn = () => {
+    if (artReturnTimer.current) { clearTimeout(artReturnTimer.current); artReturnTimer.current = null; }
+    setMotion(m => (m.mode === 'return' ? { mode: 'idle' } : m));
+  };
 
   // Vuelta con spring (bajo el umbral).
   const springBack = () => {
     if (reduced) { setMotion({ mode: 'idle' }); setDragX(0); return; }
     setMotion({ mode: 'return' });
     setDragX(0);
-    timers.current.push(setTimeout(() => setMotion({ mode: 'idle' }), 520));
+    clearTimeout(artReturnTimer.current);
+    artReturnTimer.current = setTimeout(() => { artReturnTimer.current = null; setMotion({ mode: 'idle' }); }, 520);
   };
   // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
   const cancelGesture = () => {
@@ -239,54 +288,65 @@ export default function Player({ navigate, view }) {
   };
 
   const onArtPointerDown = (e) => {
-    if (busy.current || !currentTrack) return;                             // ignora gestos durante la animación
+    if (busy.current || sheet === 'closing' || !currentTrack) return;      // ignora gestos durante la animación
     if (e.target.closest?.('button, a, input, [role="button"]')) return;  // no arrancar sobre un control
-    gesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastX: e.clientX, lastY: e.clientY, lastT: e.timeStamp, vx: 0, vy: 0 };
+    // Reintento rápido tras un rebote: cancela AMBAS vueltas pendientes (la de la
+    // carátula y la del sheet — este gesto puede terminar en dir='close').
+    cancelArtReturn();
+    cancelSheetReturn();
+    gesture.current = { x0: e.clientX, y0: e.clientY, dir: null, bx: e.clientX, by: e.clientY, lastX: e.clientX, lastY: e.clientY, lastT: e.timeStamp, vx: 0, vy: 0 };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
-  // Un solo gesto sobre la carátula, con el eje fijado en el primer movimiento:
-  //   horizontal → cambiar de pista · vertical hacia ABAJO (táctil o mouse) →
-  //   cerrar el expandido (mismo cierre que el header) · hacia arriba → soltar.
+  // Un solo gesto sobre la carátula: horizontal → cambiar de pista · vertical
+  // hacia ABAJO (táctil o mouse) → cerrar el expandido (mismo cierre que el
+  // header). El eje se decide por distancia + dominancia, re-evaluando en cada
+  // move mientras siga indeciso (ver AXIS_DIST/AXIS_DOM); una vez fijado es
+  // definitivo, como siempre. Al fijarlo se RE-BASA el offset renderizado (bx/by
+  // = punto del fijado) para que el drag arranque en 0 sin salto; los UMBRALES
+  // del up se siguen midiendo desde x0/y0 → mismos 80/120px físicos de siempre.
   const onArtPointerMove = (e) => {
     const g = gesture.current;
-    if (!g || g.dir === 'v') return;
+    if (!g) return;
     const dx = e.clientX - g.x0;
     const dy = e.clientY - g.y0;
     if (g.dir === null) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;   // aún indeciso
-      if (Math.abs(dx) > Math.abs(dy)) {
+      const ax = Math.abs(dx);
+      if (ax >= AXIS_DIST && ax >= Math.abs(dy) * AXIS_DOM) {
         g.dir = 'h';                                       // horizontal → cambiar de pista
+        g.bx = e.clientX;                                  // re-base del offset renderizado
+        g.lastX = e.clientX; g.lastT = e.timeStamp;        // velocidad medida desde el fijado
         setMotion({ mode: 'drag' });
-      } else if (dy > 0) {
+      } else if (dy >= AXIS_DIST && dy >= ax * AXIS_DOM) {
         g.dir = 'close';                                   // vertical hacia abajo → cerrar
+        g.by = e.clientY;
+        g.lastY = e.clientY; g.lastT = e.timeStamp;
         setSheet('drag');
       } else {
-        g.dir = 'v';                                       // vertical hacia arriba → soltar
-        return;
+        return;                                            // aún indeciso (o hacia arriba): se sigue esperando
       }
     }
     if (g.dir === 'close') {                               // arrastre de cierre desde la carátula
       const dt = e.timeStamp - g.lastT;
       if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
-      setDragY(Math.max(0, dy));
+      setDragY(Math.max(0, e.clientY - g.by));
       return;
     }
     const dt = e.timeStamp - g.lastT;                     // velocidad instantánea suavizada (px/ms)
     if (dt > 0) { g.vx = g.vx * 0.7 + ((e.clientX - g.lastX) / dt) * 0.3; g.lastX = e.clientX; g.lastT = e.timeStamp; }
-    setDragX(dx);                                         // crudo; el rubber se aplica en el estilo
+    setDragX(e.clientX - g.bx);                           // re-basado; el rubber se aplica en el estilo
   };
   const onArtPointerUp = (e) => {
     const g = gesture.current;
     gesture.current = null;
     if (!g) return;
     if (g.dir === 'close') {                               // swipe-down desde la carátula → cerrar o volver
-      const dy = Math.max(0, e.clientY - g.y0);
+      const dy = Math.max(0, e.clientY - g.y0);            // umbral desde el down (feel intacto)
       const flick = g.vy > CLOSE_VEL && dy > CLOSE_MIN;
-      if (dy >= CLOSE_DIST || flick) closeSheet(); else sheetBack();
+      if (dy >= CLOSE_DIST || flick) closeSheet(g.vy); else sheetBack();
       return;
     }
     if (g.dir !== 'h') { setMotion({ mode: 'idle' }); setDragX(0); return; }
-    const dx = e.clientX - g.x0;
+    const dx = e.clientX - g.x0;                           // umbral desde el down (feel intacto)
     const flick = Math.abs(g.vx) > VEL_THRESH && Math.abs(dx) > MIN_FLICK && Math.sign(g.vx) === Math.sign(dx);
     if (Math.abs(dx) >= DIST_THRESH || flick) triggerChange(dx < 0 ? 'next' : 'prev');
     else springBack();
@@ -331,46 +391,63 @@ export default function Player({ navigate, view }) {
   // Vuelta con spring si no se alcanza el umbral.
   const sheetBack = () => {
     if (reduced) { setSheet('idle'); setDragY(0); return; }
+    // Duración proporcional a lo recorrido (un rebote corto vuelve rápido).
+    const dur = Math.round(Math.min(DUR_BACK_MAX, Math.max(DUR_BACK_MIN, dragY * 2)));
+    backDurRef.current = dur;
     setSheet('return');
     setDragY(0);
-    timers.current.push(setTimeout(() => setSheet('idle'), 360));
+    clearTimeout(sheetReturnTimer.current);
+    sheetReturnTimer.current = setTimeout(() => { sheetReturnTimer.current = null; setSheet('idle'); }, dur + 40);
   };
-  // Cierre: el overlay baja fuera de pantalla y recién ahí se desmonta.
-  const closeSheet = () => {
+  // Cierre: el overlay baja fuera de pantalla y recién ahí se desmonta. Con
+  // momentum: la duración continúa la velocidad del flick (distancia restante /
+  // vy, clamp DUR_CLOSE_MIN..DUR_CLOSE) y la curva es ease-out — arranca a la
+  // velocidad del gesto en vez de frenar y re-acelerar.
+  const closeSheet = (vy = 0) => {
     if (reduced) { setExpanded(false); return; }
+    const h = window.innerHeight || 800;
+    const remaining = Math.max(0, h - dragY);
+    const dur = Math.round(Math.min(DUR_CLOSE, Math.max(DUR_CLOSE_MIN, vy > 0 ? remaining / vy : DUR_CLOSE)));
+    closeDurRef.current = dur;
     setSheet('closing');
-    setDragY(window.innerHeight || 800);
-    timers.current.push(setTimeout(() => setExpanded(false), DUR_CLOSE));
+    setDragY(h);
+    timers.current.push(setTimeout(() => setExpanded(false), dur));
   };
   const onSheetPointerDown = (e) => {
     if (busy.current || sheet === 'closing') return;
     if (e.target.closest?.('button, a, input, [role="button"]')) return;   // no sobre los botones del header
-    vGesture.current = { x0: e.clientX, y0: e.clientY, dir: null, lastY: e.clientY, lastT: e.timeStamp, vy: 0 };
+    cancelSheetReturn();          // reintento rápido tras un rebote: no congelar el drag nuevo
+    vGesture.current = { x0: e.clientX, y0: e.clientY, dir: null, by: e.clientY, lastY: e.clientY, lastT: e.timeStamp, vy: 0 };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
+  // Eje por distancia + dominancia, re-evaluado en cada move mientras siga
+  // indeciso (nada de candados terminales 'x'/'up': acá no compiten con ningún
+  // otro gesto y solo congelaban el drag — p.ej. el jerk lateral del click).
+  // Al fijar 'y' se re-basa el offset renderizado (by) → sin salto de arranque;
+  // el umbral del up se sigue midiendo desde y0 (mismos 120px físicos).
   const onSheetPointerMove = (e) => {
     const g = vGesture.current;
-    if (!g || g.dir === 'x' || g.dir === 'up') return;
+    if (!g) return;
     const dx = e.clientX - g.x0;
     const dy = e.clientY - g.y0;
     if (g.dir === null) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;          // aún indeciso
-      if (Math.abs(dx) > Math.abs(dy)) { g.dir = 'x'; return; }  // horizontal → no es cierre
-      if (dy < 0) { g.dir = 'up'; return; }                      // hacia arriba → ignorar (deja el scroll)
+      if (dy < AXIS_DIST || dy < Math.abs(dx) * AXIS_DOM) return;  // aún indeciso (o no es un cierre)
       g.dir = 'y';
+      g.by = e.clientY;                                            // re-base del offset renderizado
+      g.lastY = e.clientY; g.lastT = e.timeStamp;                  // velocidad medida desde el fijado
       setSheet('drag');
     }
     const dt = e.timeStamp - g.lastT;                            // velocidad vertical suavizada (px/ms)
     if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
-    setDragY(Math.max(0, dy));                                   // sólo hacia abajo
+    setDragY(Math.max(0, e.clientY - g.by));                     // sólo hacia abajo
   };
   const onSheetPointerUp = (e) => {
     const g = vGesture.current;
     vGesture.current = null;
     if (!g || g.dir !== 'y') return;
-    const dy = Math.max(0, e.clientY - g.y0);
+    const dy = Math.max(0, e.clientY - g.y0);                    // umbral desde el down (feel intacto)
     const flick = g.vy > CLOSE_VEL && dy > CLOSE_MIN;
-    if (dy >= CLOSE_DIST || flick) closeSheet();
+    if (dy >= CLOSE_DIST || flick) closeSheet(g.vy);
     else sheetBack();
   };
   // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
@@ -382,18 +459,52 @@ export default function Player({ navigate, view }) {
     if (wasY) sheetBack();
   };
 
-  // Estilo del overlay según la fase del gesto de cierre (translateY + fade sutil).
+  // Estilo del overlay según la fase del gesto de cierre. Affordance de sheet
+  // nativo: el overlay se mantiene OPACO (nada de ghosting del contenido) y se
+  // "despega" con radio progresivo en las esquinas superiores + hairline y
+  // sombra hacia arriba; el oscurecido honesto lo comunica el scrim de atrás.
+  // El cierre usa la duración con momentum (closeDurRef) y curva ease-out
+  // (.22,1,.36,1 — la "salida suave" de la casa); el radio ya presente durante
+  // el drag/cierre desaparece solo al desmontar (offscreen, no se nota).
   const sheetStyle = () => {
     if (sheet === 'drag') {
-      return { transform: `translateY(${dragY}px)`, opacity: 1 - Math.min(0.5, dragY / 900), transition: 'none', willChange: 'transform' };
+      const r = sheetRadius(dragY);
+      return {
+        transform: `translateY(${dragY}px)`,
+        borderRadius: `${r}px ${r}px 0 0`,
+        boxShadow: SHEET_EDGE,
+        transition: 'none',
+        willChange: 'transform',
+      };
     }
     if (sheet === 'closing') {
-      return { transform: `translateY(${dragY}px)`, opacity: 0, transition: `transform ${DUR_CLOSE}ms cubic-bezier(.4,0,.6,1), opacity ${DUR_CLOSE}ms ease` };
+      return {
+        transform: `translateY(${dragY}px)`,
+        borderRadius: `${SHEET_RADIUS}px ${SHEET_RADIUS}px 0 0`,
+        boxShadow: SHEET_EDGE,
+        transition: `transform ${closeDurRef.current}ms cubic-bezier(.22,1,.36,1), border-radius ${closeDurRef.current}ms ease`,
+      };
     }
     if (sheet === 'return') {
-      return { transform: 'translateY(0)', opacity: 1, transition: 'transform .36s cubic-bezier(.34,1.42,.6,1), opacity .2s ease' };
+      return {
+        transform: 'translateY(0)',
+        borderRadius: '0px 0px 0 0',
+        boxShadow: SHEET_EDGE,
+        transition: `transform ${backDurRef.current}ms cubic-bezier(.34,1.42,.6,1), border-radius ${backDurRef.current}ms ease`,
+      };
     }
     return undefined;   // idle → deja la animación de entrada del CSS (slide-up)
+  };
+  // Scrim detrás del sheet (hermano previo en el DOM, .exp-scrim): mientras el
+  // sheet baja, lo que se revela detrás (app + barra) se ve a través de un
+  // oscurecido que se ACLARA con el progreso — el fade honesto del cierre. En
+  // idle queda en su opacity 0 del CSS (no ensombrece la entrada slide-up).
+  const scrimStyle = () => {
+    const h = window.innerHeight || 800;
+    if (sheet === 'drag')    return { opacity: Math.max(0, 1 - dragY / (h * 0.9)), transition: 'none' };
+    if (sheet === 'closing') return { opacity: 0, transition: `opacity ${closeDurRef.current}ms ease` };
+    if (sheet === 'return')  return { opacity: 1, transition: `opacity ${backDurRef.current}ms ease` };
+    return undefined;
   };
 
   // Mute: clic en la bocina silencia (guardando el volumen previo) y otro clic lo
@@ -533,6 +644,11 @@ export default function Player({ navigate, view }) {
       )}
 
       {/* ── Full-screen expanded player (mobile) ── */}
+      {/* Scrim del gesto de cierre: mismo z (200) que el sheet, pero hermano
+          ANTERIOR en el DOM → pinta debajo. Comparte el {expanded && …}: se
+          desmonta junto con el sheet (Esc, reduced-motion, fin del cierre),
+          nunca queda huérfano. pointer-events: none en CSS. */}
+      {expanded && <div className="exp-scrim" style={scrimStyle()} aria-hidden="true" />}
       {expanded && (
         <div className="player-expanded" style={sheetStyle()}>
           {/* Fondo: carátula actual difuminada + overlay oscuro. key → refade al

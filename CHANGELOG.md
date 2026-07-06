@@ -18,6 +18,13 @@ Novedades destacables de **SonoraRev**. El formato sigue
   siguen funcionando igual.
 
 ### Mejorado
+- **Cerrar deslizando ahora se siente como un sheet nativo** (celular y
+  desktop): el panel sigue al dedo o al mouse sin el saltito del arranque, al
+  soltar con impulso continúa la velocidad del gesto, y mientras baja se
+  "despega" con esquinas redondeadas, sombra y un oscurecido detrás que se va
+  aclarando. En desktop toda la franja superior es ahora zona real de agarre
+  (antes el arrastre casi no tenía de dónde agarrarse), y reintentar el gesto
+  justo después de un rebote ya no lo congela.
 - **Slider de volumen "riel que respira"** (desktop): al pasar el mouse el riel
   se engrosa con un glow del color del nivel y el punto entra con un rebote
   sutil; al arrastrar crece, hermanado con el del reproductor ampliado.
