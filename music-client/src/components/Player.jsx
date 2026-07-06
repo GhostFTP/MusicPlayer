@@ -29,9 +29,27 @@ function volumeColor(v) {
   else                c = lerpColor(VOL_AMBER, VOL_RED,   (v - 0.9) / 0.10);
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
-function volumeFillStyle(v) {
-  const pct = v * 100;
-  return { background: `linear-gradient(to right, ${volumeColor(v)} ${pct}%, var(--border) ${pct}%)` };
+// El gradiente del relleno lo pinta el CSS (.player-volume / .exp-volume) a
+// partir de estas vars; así el mismo color por nivel alimenta relleno, glow
+// del riel y tooltip sin duplicar la interpolación.
+function volumeVars(v) {
+  return { '--vol-pct': `${v * 100}%`, '--vol-color': volumeColor(v) };
+}
+
+// Tooltip "vidrio con firma" de la barra (estilos .bar-tip): envuelve un control
+// y muestra el tip glass al hover / focus-visible. `accent` tiñe el hairline y
+// la palabra de estado; `line` permite un hairline propio (letra: morado→rosa).
+// No reemplaza accesibilidad: cada botón conserva su aria-label.
+function BarTip({ tip, accent, line, className, children }) {
+  const style = {};
+  if (accent) style['--tip-accent'] = accent;
+  if (line) style['--tip-line'] = line;
+  return (
+    <span className={`bar-tip-wrap${className ? ` ${className}` : ''}`} style={style}>
+      {children}
+      <span className="bar-tip" aria-hidden="true">{tip}</span>
+    </span>
+  );
 }
 
 // Frases coquetas para el botón de aleatorio (una al azar en cada hover).
@@ -103,9 +121,10 @@ export default function Player({ navigate, view }) {
   const [sheet, setSheet] = useState('idle');         // idle | drag | return | closing
   const vGesture = useRef(null);                      // { x0, y0, dir, lastY, lastT, vy } | null
 
-  const repeatTitle = repeat === 'one' ? 'Repetir: una canción'
-    : repeat === 'all' ? 'Repetir: toda la cola'
-    : 'Repetir: desactivado';
+  const repeatState = repeat === 'one' ? 'una canción'
+    : repeat === 'all' ? 'toda la cola'
+    : 'desactivado';
+  const repeatTitle = `Repetir: ${repeatState}`;
 
   // Calidad de la pista que suena. Si la cola ya la trae (reproducción desde la
   // Biblioteca) la usamos directo; si no (p.ej. un álbum), pedimos el detalle.
@@ -677,7 +696,7 @@ export default function Player({ navigate, view }) {
               min={0} max={1} step={0.02}
               value={volume}
               onChange={e => setVolume(Number(e.target.value))}
-              style={volumeFillStyle(volume)}
+              style={volumeVars(volume)}
             />
           </div>
 
@@ -759,7 +778,11 @@ export default function Player({ navigate, view }) {
                   </div>
                 )}
               </div>
-              <AddToPlaylistMenu trackId={currentTrack.id} placement="up" className="ptp-player" />
+              {/* El "+" entra al sistema de tooltips con su firma teal; el CSS
+                  oculta el tip mientras el menú está abierto (.ptp.active). */}
+              <BarTip tip={<>Añadir a <span className="bar-tip-state">playlist</span></>} accent="var(--teal)">
+                <AddToPlaylistMenu trackId={currentTrack.id} placement="up" className="ptp-player" nativeTitle={false} />
+              </BarTip>
             </>
           ) : (
             <div className="player-meta">
@@ -771,7 +794,7 @@ export default function Player({ navigate, view }) {
         {/* Desktop: center controls + progress */}
         <div className="player-controls">
           <div className="player-buttons">
-            <div className="shuffle-wrap">
+            <BarTip tip={shufflePhrase || SHUFFLE_PHRASES[0]}>
               <button
                 className={`ctrl-btn shuffle-btn${shuffle ? ' active' : ''}`}
                 onClick={e => { e.stopPropagation(); toggleShuffle(); setShuffleSpin(true); }}
@@ -786,28 +809,39 @@ export default function Player({ navigate, view }) {
                   <ShuffleIcon />
                 </span>
               </button>
-              <span className="shuffle-tip" aria-hidden="true">{shufflePhrase || SHUFFLE_PHRASES[0]}</span>
-            </div>
-            <button className="ctrl-btn ctrl-prev" onClick={e => { e.stopPropagation(); prev(); }} title="Anterior (←)"><PrevIcon /></button>
-            <button className="ctrl-btn play" onClick={e => { e.stopPropagation(); togglePlay(); }} title="Play/Pause (Espacio)">
-              <span key={isPlaying ? 'pause' : 'play'} className="ctrl-play-swap">
-                {isPlaying ? <PauseIcon /> : <PlayIcon />}
-              </span>
-            </button>
-            <button className="ctrl-btn ctrl-next" onClick={e => { e.stopPropagation(); next(); }} title="Siguiente (→)"><NextIcon /></button>
-            <button
-              className={`ctrl-btn${repeat !== 'off' ? ' active' : ''}`}
-              onClick={e => { e.stopPropagation(); cycleRepeat(); setRepeatSpin(true); }}
-              aria-pressed={repeat !== 'off'}
-              title={repeatTitle}
-            >
-              <span
-                className={`repeat-icon${repeatSpin ? ' spin' : ''}`}
-                onAnimationEnd={() => setRepeatSpin(false)}
+            </BarTip>
+            <BarTip tip={<>Anterior <span className="bar-tip-kbd">←</span></>}>
+              <button className="ctrl-btn ctrl-prev" onClick={e => { e.stopPropagation(); prev(); }} aria-label="Anterior (←)"><PrevIcon /></button>
+            </BarTip>
+            <BarTip tip={<>{isPlaying ? 'Pausa' : 'Reproducir'} <span className="bar-tip-kbd">espacio</span></>}>
+              <button
+                className="ctrl-btn play"
+                onClick={e => { e.stopPropagation(); togglePlay(); }}
+                aria-label={`${isPlaying ? 'Pausa' : 'Reproducir'} (espacio)`}
               >
-                {repeat === 'one' ? <RepeatOneIcon /> : <RepeatIcon />}
-              </span>
-            </button>
+                <span key={isPlaying ? 'pause' : 'play'} className="ctrl-play-swap">
+                  {isPlaying ? <PauseIcon /> : <PlayIcon />}
+                </span>
+              </button>
+            </BarTip>
+            <BarTip tip={<>Siguiente <span className="bar-tip-kbd">→</span></>}>
+              <button className="ctrl-btn ctrl-next" onClick={e => { e.stopPropagation(); next(); }} aria-label="Siguiente (→)"><NextIcon /></button>
+            </BarTip>
+            <BarTip tip={<>Repetir: <span className={`bar-tip-state${repeat === 'off' ? ' dim' : ''}`}>{repeatState}</span></>}>
+              <button
+                className={`ctrl-btn${repeat !== 'off' ? ' active' : ''}`}
+                onClick={e => { e.stopPropagation(); cycleRepeat(); setRepeatSpin(true); }}
+                aria-pressed={repeat !== 'off'}
+                aria-label={repeatTitle}
+              >
+                <span
+                  className={`repeat-icon${repeatSpin ? ' spin' : ''}`}
+                  onAnimationEnd={() => setRepeatSpin(false)}
+                >
+                  {repeat === 'one' ? <RepeatOneIcon /> : <RepeatIcon />}
+                </span>
+              </button>
+            </BarTip>
           </div>
           <div className="player-progress">
             <span className={`time-label time-elapsed${timeClass}`}>
@@ -820,28 +854,36 @@ export default function Player({ navigate, view }) {
 
         {/* Desktop: acciones (letra, info) + volumen */}
         <div className="player-actions">
-          <button
-            className={`action-btn lyrics-btn${showLyrics ? ' active' : ''}`}
-            onClick={toggleLyricsBar}
-            aria-pressed={showLyrics}
-            title="Letra"
+          <BarTip tip="Letra" accent="var(--lyric-pink)" line="linear-gradient(90deg, var(--accent), var(--lyric-pink))">
+            <button
+              className={`action-btn lyrics-btn${showLyrics ? ' active' : ''}`}
+              onClick={toggleLyricsBar}
+              aria-pressed={showLyrics}
+              aria-label="Letra"
+            >
+              <LyricsGlyph />
+            </button>
+          </BarTip>
+          <BarTip tip="Información de la pista" accent="var(--amber)">
+            <button
+              className={`action-btn info-btn${showInfo ? ' active' : ''}`}
+              onClick={e => { e.stopPropagation(); setShowInfo(v => !v); }}
+              aria-pressed={showInfo}
+              disabled={!currentTrack}
+              aria-label="Información de la pista"
+            >
+              <InfoIcon />
+            </button>
+          </BarTip>
+          {/* El grupo entero (bocina + slider) comparte un tooltip con readout
+              del nivel, teñido por volumeColor; gris cuando está silenciado. */}
+          <div
+            className="player-volume bar-tip-wrap"
+            style={{ '--tip-accent': volume === 0 ? 'var(--text-muted)' : volumeColor(volume) }}
           >
-            <LyricsGlyph />
-          </button>
-          <button
-            className={`action-btn info-btn${showInfo ? ' active' : ''}`}
-            onClick={e => { e.stopPropagation(); setShowInfo(v => !v); }}
-            aria-pressed={showInfo}
-            disabled={!currentTrack}
-            title="Información de la pista"
-          >
-            <InfoIcon />
-          </button>
-          <div className="player-volume">
             <button
               className="volume-btn"
               onClick={toggleMute}
-              title={volume === 0 ? 'Activar sonido' : 'Silenciar'}
               aria-label={volume === 0 ? 'Activar sonido' : 'Silenciar'}
             >
               <VolumeIcon muted={volume === 0} color={volumeColor(volume)} />
@@ -853,8 +895,13 @@ export default function Player({ navigate, view }) {
               onChange={e => setVolume(Number(e.target.value))}
               onClick={e => e.stopPropagation()}
               onMouseDown={e => e.stopPropagation()}
-              style={volumeFillStyle(volume)}
+              style={volumeVars(volume)}
             />
+            <span className="bar-tip" aria-hidden="true">
+              {volume === 0
+                ? <span className="bar-tip-state dim">Silenciado</span>
+                : <>Volumen · <span className="bar-tip-state">{Math.round(volume * 100)}%</span></>}
+            </span>
           </div>
         </div>
 

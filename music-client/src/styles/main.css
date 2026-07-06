@@ -1223,7 +1223,6 @@ button, input, select, textarea { font-family: inherit; }
 .ctrl-btn.active:hover { color: var(--accent); }
 
 /* ── Shuffle con personalidad (item 5) ── */
-.shuffle-wrap { position: relative; display: inline-flex; }
 .shuffle-icon { display: inline-flex; transition: filter .2s; }
 /* Hover: "saludo" con wiggle (en el botón, para no chocar con el spin del ícono). */
 .shuffle-btn:hover { animation: shuffle-wiggle .45s ease; }
@@ -1262,41 +1261,85 @@ button, input, select, textarea { font-family: inherit; }
   100% { transform: scale(1);    opacity: 1; }
 }
 
-/* Mini-tooltip coqueto: aparece al hover encima del botón. */
-.shuffle-tip {
+/* ── Tooltips de la barra (.bar-tip): "vidrio con firma" ──
+   Un solo lenguaje para shuffle, prev/play/next, repetir, letra, info, volumen
+   y el "+" de playlist: mini glass (receta del proyecto) + hairline superior y
+   palabra de estado en el color de identidad del control (--tip-accent: morado
+   por defecto, ámbar en info, morado→rosa en letra vía --tip-line, teal en el
+   "+", color por nivel en volumen). Reemplazan a los title= nativos; la
+   accesibilidad la siguen dando los aria-label de los botones. */
+.bar-tip-wrap { position: relative; display: inline-flex; }
+
+.bar-tip {
   position: absolute;
   bottom: calc(100% + 9px);
   left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  padding: 4px 9px;
-  background: var(--surface-2);
+  transform: translateX(-50%) translateY(3px) scale(.98);
+  padding: 4px 9px 3px;
+  background: rgba(24, 24, 24, .82);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .16s ease, transform .16s ease;
+  /* visibility oculta de verdad (sin paint) → no se paga el blur en reposo. */
+  visibility: hidden;
+  transition: opacity .12s ease, transform .14s cubic-bezier(.34, 1.42, .5, 1),
+              visibility 0s linear .14s;
   /* Popover de la barra: visible también con la Letra (250) abierta en modo
      panel (capa documentada en --z-bar-popover; con 60 quedaba tapado). */
   z-index: var(--z-bar-popover);
 }
-.shuffle-tip::after {                  /* flechita hacia el botón */
+/* Hairline superior de 2px: la "firma" de color del control (con muescas
+   laterales para respetar el radio; opacidad .7: acompaña sin gritar). */
+.bar-tip::before {
   content: '';
   position: absolute;
-  top: 100%; left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: var(--surface-2);
+  top: 0; left: 9px; right: 9px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--tip-line, var(--tip-accent, var(--accent)));
+  opacity: .7;
 }
-.shuffle-wrap:hover .shuffle-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* Palabra de estado teñida con la identidad del control; .dim para estados
+   apagados ("desactivado", "Silenciado"). tabular-nums: el % no baila. */
+.bar-tip-state { color: var(--tip-accent, var(--accent)); font-variant-numeric: tabular-nums; }
+.bar-tip-state.dim { color: var(--text-muted); }
+/* Atajo de teclado, discreto. */
+.bar-tip-kbd { color: var(--text-muted); font-weight: 500; }
+
+.bar-tip-wrap:hover > .bar-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%);
+  transition-delay: 0s;
+}
+/* También por teclado (regla aparte: no arrastrar el :hover si :has fallara). */
+.bar-tip-wrap:has(:focus-visible) > .bar-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%);
+  transition-delay: 0s;
+}
+/* Con el menú "+" abierto, el tooltip sobra (y chocaría con el menú, que nace
+   en el mismo lugar). Especificidad (.ptp.active) le gana al :hover. */
+.bar-tip-wrap:has(.ptp.active) > .bar-tip { opacity: 0; visibility: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   .shuffle-icon.spin { animation: none; }
-  .shuffle-tip { transition: opacity .16s ease; transform: translateX(-50%); }
-  .shuffle-wrap:hover .shuffle-tip { transform: translateX(-50%); }
+  /* Tooltip: solo fade — color sí, movimiento no. */
+  .bar-tip {
+    transform: translateX(-50%);
+    transition: opacity .14s ease, visibility 0s linear .14s;
+  }
+  .bar-tip-wrap:hover > .bar-tip,
+  .bar-tip-wrap:has(:focus-visible) > .bar-tip { transform: translateX(-50%); }
 }
 
 .ctrl-btn.play {
@@ -1475,6 +1518,52 @@ input[type="range"]::-webkit-slider-thumb {
 
 input[type="range"]:hover::-webkit-slider-thumb,
 input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
+
+/* ── VOLUMEN — "riel que respira" ─────────── */
+/* El relleno por nivel (teal→ámbar→rojo) lo calcula el JS (volumeColor) y lo
+   entrega en CSS vars (--vol-pct / --vol-color, volumeVars en Player.jsx); el
+   gradiente se pinta acá. Compartido por la barra y el expandido. */
+.player-volume input[type="range"],
+.exp-volume input[type="range"] {
+  background: linear-gradient(to right,
+    var(--vol-color, var(--accent)) var(--vol-pct, 0%),
+    var(--border) var(--vol-pct, 0%));
+}
+
+.player-volume input[type="range"] {
+  transition: height .18s ease, border-radius .18s ease, box-shadow .18s ease;
+}
+/* Hover/drag: el riel respira (4→6px; centrado vertical, no empuja layout) y
+   el color del nivel irradia un glow tenue sobre el riel. */
+.player-volume:hover input[type="range"],
+.player-volume input[type="range"]:active {
+  height: 6px;
+  border-radius: 3px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--vol-color, var(--accent)) 40%, transparent);
+}
+/* Thumb: entra con spring (scale .6→1) en vez del fade seco; al arrastrar crece
+   a 1.3 con halo blanco (hermanado con el thumb de .exp-volume). */
+.player-volume input[type="range"]::-webkit-slider-thumb {
+  transform: scale(.6);
+  transition: opacity .15s ease, transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .15s ease;
+}
+.player-volume:hover input[type="range"]::-webkit-slider-thumb,
+.player-volume input[type="range"]:active::-webkit-slider-thumb { opacity: 1; transform: scale(1); }
+.player-volume input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Color sí, movimiento no: sin cambio de altura ni scale. El glow por nivel y
+     el halo del thumb quedan (son color estático, no movimiento). */
+  .player-volume input[type="range"] { transition: box-shadow .15s ease; }
+  .player-volume:hover input[type="range"],
+  .player-volume input[type="range"]:active { height: 4px; border-radius: 2px; }
+  .player-volume input[type="range"]::-webkit-slider-thumb { transform: none; transition: opacity .15s; }
+  .player-volume:hover input[type="range"]::-webkit-slider-thumb,
+  .player-volume input[type="range"]:active::-webkit-slider-thumb { transform: none; }
+}
 
 /* ── SEEK BAR (progreso animado) ──────────── */
 .seek {
@@ -2466,14 +2555,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   /* ── Player expandido en móvil: aprovechar el alto ──
      Carátula más grande, centrada en el espacio libre; header arriba y el bloque de
-     info (meta → volumen) abajo con aire. Las dos auto-margins reparten el espacio
+     info (meta → controles) abajo con aire. Las dos auto-margins reparten el espacio
      sobrante a partes iguales (arriba de la carátula y arriba del bloque de info);
      si el contenido no cabe, colapsan y .player-expanded hace scroll normal. */
   .exp-art, .exp-art-placeholder { width: min(80vw, 400px); }
   .exp-art-wrap { margin-top: auto; margin-bottom: 0; }
   .exp-meta     { margin-top: auto; margin-bottom: 28px; }
   .exp-controls { margin-bottom: 28px; }
-  .exp-volume   { margin-bottom: 4px; }
+  /* Volumen fuera en móvil: el volumen del sistema lo mandan los botones físicos
+     del teléfono (iOS ignora audio.volume desde el navegador); un slider que a
+     veces no responde es peor que ninguno. */
+  .exp-volume   { display: none; }
 
   /* La letra nunca desaparece: se mantiene encima de la barra mini y el bottom-nav. */
   .lyrics-panel { bottom: calc(var(--mini-player-h) + var(--bottom-nav-h)); }

@@ -10,7 +10,9 @@ import { emojiHue } from '../utils/emojiHue.js';
 // `placement`: 'down' (por defecto) o 'up' para abrir el menú hacia arriba
 // (útil en el Player, pegado al fondo de la pantalla). `className`: extra para
 // adaptar el botón a su contexto (biblioteca, barra, player expandido).
-export default function AddToPlaylistMenu({ trackId, placement = 'down', className = '' }) {
+// `nativeTitle={false}`: suprime el title= del botón cuando el contexto ya pone
+// su propio tooltip (el .bar-tip de la barra); el aria-label queda siempre.
+export default function AddToPlaylistMenu({ trackId, placement = 'down', className = '', nativeTitle = true }) {
   const [open, setOpen]           = useState(false);
   const [playlists, setPlaylists] = useState([]);
   const [newName, setNewName]     = useState('');
@@ -114,7 +116,8 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
     <div className={cls} ref={ref} onClick={e => e.stopPropagation()}>
       <button
         className="ptp-btn"
-        title="Añadir a playlist"
+        title={nativeTitle ? 'Añadir a playlist' : undefined}
+        aria-label="Añadir a playlist"
         onClick={() => setOpen(o => !o)}
       >
         <PlusIcon />
