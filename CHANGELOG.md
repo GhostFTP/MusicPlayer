@@ -25,6 +25,14 @@ Novedades destacables de **SonoraRev**. El formato sigue
   aclarando. En desktop toda la franja superior es ahora zona real de agarre
   (antes el arrastre casi no tenía de dónde agarrarse), y reintentar el gesto
   justo después de un rebote ya no lo congela.
+- **Cerrar deslizando es aún más fácil de agarrar**: se ampliaron las zonas con
+  las que arrastrás el reproductor ampliado hacia abajo para cerrarlo — la
+  franja superior y un contorno alrededor de la carátula en el celular, y
+  también la columna de información en la computadora — así ya no hay que
+  "apuntar". Además, los botones de Letra, Información y ＋ del ampliado y los de
+  la Letra tienen un área táctil más cómoda, y en el celular la app aprovecha
+  todo el alto de la pantalla (la barra inferior ya no queda tapada por la del
+  navegador).
 - **Slider de volumen "riel que respira"** (desktop): al pasar el mouse el riel
   se engrosa con un glow del color del nivel y el punto entra con un rebote
   sutil; al arrastrar crece, hermanado con el del reproductor ampliado.

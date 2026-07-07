@@ -416,7 +416,12 @@ export default function Player({ navigate, view }) {
   };
   const onSheetPointerDown = (e) => {
     if (busy.current || sheet === 'closing') return;
-    if (e.target.closest?.('button, a, input, [role="button"]')) return;   // no sobre los botones del header
+    // No arrancar el cierre sobre controles ni sobre texto: el header no tiene
+    // .exp-meta/.exp-times, pero esta misma función la reutiliza la columna de
+    // info en desktop (onInfoPointerDown) → ahí el guard protege enlaces
+    // (título/artista/género), sliders (seek/volumen), botones y el bloque de
+    // texto (meta y tiempos), dejando agarrable sólo el ambiente de la columna.
+    if (e.target.closest?.('button, a, input, [role="button"], .exp-meta, .exp-times')) return;
     cancelSheetReturn();          // reintento rápido tras un rebote: no congelar el drag nuevo
     vGesture.current = { x0: e.clientX, y0: e.clientY, dir: null, by: e.clientY, lastY: e.clientY, lastT: e.timeStamp, vy: 0 };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
@@ -458,6 +463,17 @@ export default function Player({ navigate, view }) {
     const wasY = g.dir === 'y';
     vGesture.current = null;
     if (wasY) sheetBack();
+  };
+  // Zona de agarre EXTRA sólo en desktop: la columna de info ambiente (los huecos
+  // entre bloques y el espacio vacío arriba/abajo) arrastra hacia abajo para
+  // CERRAR — misma física que el header (reusa los sheet handlers), sin cambiar
+  // de pista (eso sigue siendo exclusivo de la carátula). Se gatea a desktop:
+  // en móvil .exp-col-info es display:contents (no genera caja) y sus hijos son
+  // controles/texto, así que ahí no debe activarse; el gate lo evita en el down y
+  // los move/up/cancel del sheet ya son inertes si no hay gesto (if (!g) return).
+  const onInfoPointerDown = (e) => {
+    if (!window.matchMedia('(min-width: 701px)').matches) return;   // sólo desktop
+    onSheetPointerDown(e);
   };
 
   // Estilo del overlay según la fase del gesto de cierre. Affordance de sheet
@@ -728,7 +744,14 @@ export default function Player({ navigate, view }) {
               </div>
             </div>
 
-            <div className="exp-col-info">
+            <div
+              className="exp-col-info"
+              onPointerDown={onInfoPointerDown}
+              onPointerMove={onSheetPointerMove}
+              onPointerUp={onSheetPointerUp}
+              onPointerCancel={cancelSheet}
+              onLostPointerCapture={cancelSheet}
+            >
 
           <div className="exp-meta">
             <div

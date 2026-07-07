@@ -52,7 +52,12 @@ button, input, select, textarea { font-family: inherit; }
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
   grid-template-rows: 1fr var(--player-h);
+  /* dvh = viewport dinámico: en navegadores con toolbar (Safari iOS, Chrome
+     Android, HiBy R4) el 100vh mide el viewport GRANDE y la última fila del grid
+     (bottom-nav) queda tapada por la barra del navegador al cargar. El 100vh
+     previo es el fallback (navegadores viejos); el dvh lo pisa donde existe. */
   height: 100vh;
+  height: 100dvh;
 }
 
 .sidebar {
@@ -992,6 +997,16 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--teal);
   transition: color .15s, background .15s, transform .15s, box-shadow .15s;
 }
+/* "+" del expandido (header móvil y fila de acciones desktop): área táctil a 44px
+   sin inflar el círculo visual (30px) — sólo .ptp-exp (el "+" de la barra y el de
+   las filas quedan intactos). Hit-area transparente vía ::before; el menú sigue
+   anclado a .ptp (no a .ptp-btn), así que position:relative aquí no lo mueve. */
+.ptp-exp .ptp-btn { position: relative; }
+.ptp-exp .ptp-btn::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
 .ptp-player .ptp-btn:hover,
 .ptp-exp .ptp-btn:hover {
   color: #0c1512;
@@ -1629,7 +1644,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex;
   align-items: center;
   justify-content: center;
+  /* dvh con fallback (ver .layout): con toolbar del navegador, 100vh dejaría la
+     tarjeta de login descentrada / con contenido bajo la barra. */
   height: 100vh;
+  height: 100dvh;
   background: var(--bg);
   padding: 20px;
 }
@@ -2030,11 +2048,22 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    header). Oculta por defecto. */
 .exp-actions { display: none; }
 .exp-icon-btn {
+  position: relative;   /* ancla del ::before que amplía el área táctil */
   background: none; border: none; color: var(--text-muted); cursor: pointer;
   width: 40px; height: 40px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   transition: color .15s, background .15s, transform .15s, box-shadow .15s;
   -webkit-tap-highlight-color: transparent;
+}
+/* Área táctil ≥44px (piso HIG) sin inflar el glifo (22px) ni el footprint visual
+   del botón: el círculo sigue en 40px, pero el hit-area transparente llega a 44
+   (en desktop, donde el botón ya es 44, queda en 48 → tan táctil como el mouse
+   necesita). El pointerdown sobre esta zona tiene target=botón → el guard
+   closest('button') del gesto de cierre lo excluye igual (no arranca el swipe). */
+.exp-icon-btn::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
 }
 /* Hover: scale + glow del color de identidad (letra = morado/rosa); press = scale-down. */
 .exp-icon-btn:hover  { color: var(--text); background: var(--accent-dim); transform: scale(1.12); box-shadow: 0 0 14px rgba(167, 139, 250, .4); }
@@ -2107,7 +2136,23 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     width: 100%;
     max-width: 460px;
     min-width: 0;
+    /* Zona de agarre EXTRA (cerrar con drag): la columna se estira a todo el alto
+       de la fila y centra su contenido (misma posición visual que antes), de modo
+       que el espacio vacío arriba/abajo y los huecos entre bloques quedan
+       agarrables. Sólo CIERRA (no cambia pista). El pointerdown se gatea a desktop
+       en JS (onInfoPointerDown) y el guard excluye botones, sliders, enlaces y el
+       texto (.exp-meta/.exp-times) → sólo el ambiente arrastra. touch-action:none
+       como en el header (pantalla táctil en viewport desktop). */
+    align-self: stretch;
+    justify-content: center;
+    touch-action: none;
+    cursor: grab;
   }
+  .exp-col-info:active { cursor: grabbing; }
+  /* El texto y los tiempos no son asas: cursor normal (además el guard los excluye
+     del gesto, dejándolos seleccionables/clickeables como siempre). */
+  .exp-col-info .exp-meta,
+  .exp-col-info .exp-times { cursor: auto; }
 
   .exp-art, .exp-art-placeholder { width: min(42vw, 460px); }
 
@@ -2234,7 +2279,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .lyrics-song { font-size: 15px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lyrics-close, .lyrics-toggle {
   background: none; border: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0;
-  width: 36px; height: 36px; border-radius: 50%;
+  /* 44×44 (piso HIG): hay aire de sobra en el header de la Letra (el título
+     trunca con min-width:0); los glifos siguen a 20px, sólo crece el área. */
+  width: 44px; height: 44px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   transition: color .15s, background .15s;
 }
@@ -2594,10 +2641,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-expanded { animation: exp-slide-up .28s ease; }
 
   /* El header actúa como "asa" para cerrar con swipe-down: le cedemos el gesto al JS
-     (touch-action: none) y ampliamos la zona de agarre a ~100px (franja superior del
-     overlay), con los botones arriba (align-items: flex-start). Los botones siguen
-     funcionando; el drag arranca en el espacio libre de esa franja. */
-  .exp-header { touch-action: none; min-height: 100px; align-items: flex-start; }
+     (touch-action: none) y ampliamos la zona de agarre a ~140px (franja superior del
+     overlay), con los botones arriba (align-items: flex-start). Los botones (⌄, Letra,
+     Info, +) siguen funcionando y ocupan sólo la fila superior (~44px); el resto de la
+     franja queda libre para arrancar el drag. Se subió de 100 a 140 para que no haya
+     que "apuntar" y para compensar el área táctil ampliada de los botones (O2b). */
+  .exp-header { touch-action: none; min-height: 140px; align-items: flex-start; }
 
   .player-bar .player-track { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .player-bar .player-art   { width: 40px; height: 40px; border-radius: 4px; }
@@ -2617,7 +2666,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      sobrante a partes iguales (arriba de la carátula y arriba del bloque de info);
      si el contenido no cabe, colapsan y .player-expanded hace scroll normal. */
   .exp-art, .exp-art-placeholder { width: min(80vw, 400px); }
-  .exp-art-wrap { margin-top: auto; margin-bottom: 0; }
+  /* Halo agarrable ALREDEDOR de la carátula: padding vertical dentro de .exp-art-wrap
+     (que ya lleva touch-action:none y los handlers de la carátula). Suma una banda de
+     ~24px arriba y abajo de la imagen a la zona de gesto — horizontal = cambiar pista
+     (consistente con la carátula), abajo = cerrar. La imagen no cambia de tamaño
+     (ancho fijo, centrada); sólo crece la superficie tocable. */
+  .exp-art-wrap { margin-top: auto; margin-bottom: 0; padding: 24px 0; }
   .exp-meta     { margin-top: auto; margin-bottom: 28px; }
   .exp-controls { margin-bottom: 28px; }
   /* Volumen fuera en móvil: el volumen del sistema lo mandan los botones físicos
@@ -2732,7 +2786,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
 /* Very short screens — compact expanded player */
 @media (max-width: 700px) and (max-height: 680px) {
-  .exp-art-wrap    { margin-bottom: 16px; }
+  /* Menos aire vertical: halo y franja del header reducidos para que el layout no
+     se ahogue en pantallas bajas (la carátula ya baja a 200px). */
+  .exp-art-wrap    { margin-bottom: 16px; padding: 8px 0; }
   .exp-art,
   .exp-art-placeholder { width: min(100%, 200px); }
   .exp-meta        { margin-bottom: 14px; }
@@ -2742,7 +2798,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-controls    { margin-bottom: 20px; gap: 12px; }
   .exp-btn         { width: 48px; height: 48px; }
   .exp-btn.play    { width: 60px; height: 60px; }
-  .exp-header      { margin-bottom: 16px; }
+  .exp-header      { margin-bottom: 16px; min-height: 92px; }
 }
 
 /* Tablets (701–1024px) */
