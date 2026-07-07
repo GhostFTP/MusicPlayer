@@ -1035,19 +1035,27 @@ button, input, select, textarea { font-family: inherit; }
 /* ── PLAYLIST DETAIL · HERO / TITLE / RENAME ───── */
 
 /* Hero de la playlist abierta: reusa .detail-hero con un banner en degradado por
-   hue (OSCURO, alpha .6 → transparent) y un medallón del emoji como "cover". */
+   hue (OSCURO) y un medallón del emoji como "cover". El fondo va con alpha bajo y
+   se apaga ANTES del borde inferior para no apilar un segundo wash --h sobre el
+   Riel Prisma (.pl-sortbar) que va justo debajo: el hue fuerte vive en el medallón
+   y en los botones (piezas chicas saturadas), no en un lavado plano de fondo. */
 .pl-hero {
   align-items: center;
   padding: 20px 22px;
   border-radius: 16px;
-  background: linear-gradient(180deg, hsl(var(--h, 265) 45% 20% / .6), transparent);
+  background: linear-gradient(180deg, hsl(var(--h, 265) 45% 20% / .45), transparent 78%);
 }
 .pl-hero-cover {
-  background: hsl(var(--h, 265) 50% 22% / .5);
+  background: hsl(var(--h, 265) 52% 24% / .55);
   box-shadow:
-    inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .4),
-    0 16px 40px rgba(0, 0, 0, .45);
+    inset 0 0 0 1px hsl(var(--h, 265) 62% 62% / .45),
+    0 12px 36px hsl(var(--h, 265) 50% 22% / .35),
+    0 16px 40px rgba(0, 0, 0, .4);
 }
+
+/* Kicker "PLAYLIST" teñido con el hue (mini-etiqueta de color, ata el hero al
+   Mosaico Prisma). Hereda el uppercase/tracking de .detail-kicker. */
+.pl-kicker { color: hsl(var(--h, 265) 60% 72%); }
 
 .pl-detail-title {
   display: inline-flex;
@@ -1092,6 +1100,79 @@ button, input, select, textarea { font-family: inherit; }
   gap: 8px;
 }
 .detail-hero-info .pl-detail-actions { margin-top: 16px; }
+
+/* ── Acciones "Prisma Sólido" ────────────────────────────────
+   Reproducir + Mix pasan a pills HERMANADOS (misma forma/altura) y llevan el hue
+   --h de la playlist. Overrides CONTEXTUALES de .btn-primary / .mix-btn (clases
+   GLOBALES usadas por Albums/Artists/Genres/AlbumDetail): solo aplican dentro del
+   hero de playlist (.pl-detail-actions), el resto de la app queda intacto. */
+
+/* Reproducir = pill primario TEÑIDO y relleno → acción dominante. */
+.pl-detail-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 0 22px;
+  min-height: 44px;
+  background: hsl(var(--h, 265) 55% 42%);
+  color: #fff;
+  box-shadow: 0 6px 20px hsl(var(--h, 265) 55% 35% / .5);
+  transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.pl-detail-actions .btn-primary:hover {
+  opacity: 1;                                   /* neutraliza el hover global (opacity:.85) */
+  background: hsl(var(--h, 265) 60% 48%);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 26px hsl(var(--h, 265) 55% 35% / .6);
+}
+.pl-detail-actions .btn-primary:active { transform: scale(.98); }
+.pl-detail-actions .btn-primary:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+
+/* Mix = pill secundario GHOST, mismo hue y forma → subordinado (mismo lenguaje
+   que el segmento activo del Riel Prisma, .pl-sort-seg.active). */
+.pl-detail-actions .mix-btn {
+  gap: 8px;
+  padding: 0 20px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  background: hsl(var(--h, 265) 40% 30% / .22);
+  color: var(--text);
+  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
+  box-shadow: none;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.pl-detail-actions .mix-btn:hover {
+  background: hsl(var(--h, 265) 45% 35% / .32);
+  border-color: hsl(var(--h, 265) 60% 60% / .45);
+  transform: translateY(-1px);
+  box-shadow: none;
+}
+.pl-detail-actions .mix-btn:active { transform: scale(.98); }
+.pl-detail-actions .mix-btn:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+
+/* Papelera: lejos de la principal (flota a la derecha), hover rojo destructivo. */
+.pl-detail-actions .pl-del-action { margin-left: auto; }
+.pl-detail-actions .pl-del-action:hover { color: var(--q-lossy-low); }
+
+/* reduced-motion: sin lift/press (movimiento); se conservan relleno, borde y glow
+   (cambios de color). Cubre el .mix-btn scopeado, que en global no tiene guard. */
+@media (prefers-reduced-motion: reduce) {
+  .pl-detail-actions .btn-primary,
+  .pl-detail-actions .btn-primary:hover,
+  .pl-detail-actions .btn-primary:active,
+  .pl-detail-actions .mix-btn,
+  .pl-detail-actions .mix-btn:hover,
+  .pl-detail-actions .mix-btn:active { transform: none; }
+}
 
 /* ── RIEL PRISMA · orden de pistas de la playlist ───────────
    Segmented control que se apoya como toolbar entre el hero y la tabla. El
@@ -2873,6 +2954,14 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .playlist-medallion { width: 52px; height: 52px; font-size: 26px; }
   .pl-hero { padding: 16px; }
   .pl-hero-cover { font-size: 46px; }
+
+  /* Acciones: los dos pills comparten renglón y crecen; si no entran, envuelven.
+     La papelera (margin-left:auto) cae a su propia línea. Todo ≥44px, sin
+     desbordar a 360px (los labels ya no truncan, envuelven). */
+  .pl-detail-actions { flex-wrap: wrap; }
+  .pl-detail-actions .btn-primary,
+  .pl-detail-actions .mix-btn { flex: 1 1 auto; }
+  .pl-detail-actions .pl-del-action { flex: 0 0 auto; }
 
   /* Riel Prisma: full-width, targets ≥44px, labels con ellipsis antes de
      desbordar a 360px (el orden aplica igual con columnas ocultas). */

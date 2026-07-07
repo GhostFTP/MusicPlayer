@@ -12,6 +12,13 @@ Novedades destacables de **SonoraRev**. El formato sigue
   invierte la dirección (↑/↓). Abre en "Añadido ↓" (las últimas agregadas
   arriba, estilo Spotify), y las pistas sin artista o álbum quedan al final.
 
+### Mejorado
+- **Hero del detalle de playlist rediseñado ("Prisma Sólido")**: Reproducir y
+  Mezcla aleatoria pasan a ser pastillas teñidas con el color propio de la
+  playlist (Reproducir relleno como acción principal, Mezcla en versión suave),
+  la cabecera suma la **duración total** junto al número de canciones, y el botón
+  de eliminar se reubicó lejos de la acción principal.
+
 ## [1.4.2] - 2026-07-05
 
 ### Nuevo

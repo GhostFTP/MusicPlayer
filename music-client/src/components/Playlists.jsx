@@ -103,6 +103,10 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
   // ── Detalle de una playlist ──────────────────────────────
   if (selected) {
     const { playlist, tracks } = selected;
+    // Duración total: derivada 100% en cliente sumando track.duration (dato ya
+    // cargado, el mismo que usa fmt() en la tabla). Tolera null/0. Si el total
+    // da 0 → null y el segmento de duración no se muestra (evita "0 min").
+    const totalLabel = fmtTotal(tracks.reduce((s, t) => s + (t.duration || 0), 0));
     return (
       <div>
         <button className="back-btn" onClick={() => setSelected(null)}>
@@ -128,7 +132,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
               </form>
             ) : (
               <>
-                <div className="detail-kicker">Playlist</div>
+                <div className="detail-kicker pl-kicker">Playlist</div>
                 <h1 className="detail-title pl-detail-title">
                   {playlist.name}
                   <button className="btn-icon pl-edit" title="Renombrar" onClick={startRename}>
@@ -137,6 +141,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
                 </h1>
                 <div className="detail-meta">
                   {tracks.length} {tracks.length === 1 ? 'canción' : 'canciones'}
+                  {totalLabel && <> · {totalLabel}</>}
                 </div>
                 <div className="pl-detail-actions">
                   {tracks.length > 0 && (
@@ -145,7 +150,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
                       <ShuffleButton tracks={tracks} />
                     </>
                   )}
-                  <button className="btn-icon" title="Eliminar playlist" onClick={() => remove(playlist.id)}>
+                  <button className="btn-icon pl-del-action" title="Eliminar playlist" onClick={() => remove(playlist.id)}>
                     <TrashIcon />
                   </button>
                 </div>
@@ -353,6 +358,18 @@ function sortTracks(tracks, mode, dir) {
 function fmt(s) {
   if (!s) return '—';
   return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
+}
+
+// Duración total de la playlist, formato limpio ("48 min" / "1 h 12 min").
+// Devuelve null si el total es 0 (o no hay datos) → el hero oculta el segmento
+// en vez de mostrar "0 min". Piso de 1 min para playlists muy cortas.
+function fmtTotal(secs) {
+  const total = Math.round(secs || 0);
+  if (total <= 0) return null;
+  const h = Math.floor(total / 3600);
+  const m = Math.round((total % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h} h ${m} min` : `${h} h`;
+  return `${Math.max(1, m)} min`;
 }
 
 function TrashIcon() {
