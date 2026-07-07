@@ -18,6 +18,12 @@ Novedades destacables de **SonoraRev**. El formato sigue
   siguen funcionando igual.
 
 ### Mejorado
+- **El karaoke fluye con la música**: la letra sincronizada ahora se desplaza de
+  forma continua al ritmo de la canción en vez de saltar línea por línea, y la
+  línea que canta crece con suavidad mientras las demás se escalonan en capas de
+  profundidad. En el celular el desplazamiento es más liviano (para no exigir la
+  GPU de gama baja) y con "movimiento reducido" todo queda quieto: solo el color
+  marca la línea activa.
 - **Cerrar deslizando ahora se siente como un sheet nativo** (celular y
   desktop): el panel sigue al dedo o al mouse sin el saltito del arranque, al
   soltar con impulso continúa la velocidad del gesto, y mientras baja se
