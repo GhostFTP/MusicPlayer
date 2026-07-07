@@ -3,6 +3,15 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.3] - 2026-07-05
+
+### Nuevo
+- **Ordená las pistas de una playlist**: un riel de vidrio en el detalle de la
+  playlist —teñido con el color propio de la playlist— te deja ordenar por
+  **Añadido**, **Título**, **Artista** o **Álbum**; tocar el modo ya activo
+  invierte la dirección (↑/↓). Abre en "Añadido ↓" (las últimas agregadas
+  arriba, estilo Spotify), y las pistas sin artista o álbum quedan al final.
+
 ## [1.4.2] - 2026-07-05
 
 ### Nuevo

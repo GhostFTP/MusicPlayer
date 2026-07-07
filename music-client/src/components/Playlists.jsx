@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
@@ -14,6 +14,8 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
   const [renaming,  setRenaming]  = useState(false);
   const [renameVal, setRenameVal] = useState('');
   const [renameEmoji, setRenameEmoji] = useState('🎵');
+  const [sortMode,  setSortMode]  = useState('added'); // 'added' | 'title' | 'artist' | 'album'
+  const [sortDir,   setSortDir]   = useState('desc');  // 'asc' | 'desc'
   const { play, currentTrack, isPlaying } = usePlayer();
 
   useEffect(() => { api.playlists().then(setPlaylists); }, []);
@@ -51,6 +53,8 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     const tracks = await api.playlistTracks(playlist.id);
     setSelected({ playlist, tracks });
     setRenaming(false);
+    setSortMode('added');   // cada playlist abre en el default: Añadido ↓
+    setSortDir('desc');
   }
 
   function startRename() {
@@ -77,6 +81,24 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
       p.id === selected.playlist.id ? { ...p, track_count: Math.max(0, (p.track_count ?? 1) - 1) } : p
     ));
   }
+
+  // Cambiar de modo arranca en su dirección natural (texto A-Z asc, Añadido desc);
+  // tocar el modo YA activo voltea la dirección (toggle asc/desc fusionado).
+  function cycleSort(key) {
+    if (sortMode === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortMode(key);
+      setSortDir(key === 'added' ? 'desc' : 'asc');
+    }
+  }
+
+  // Array ordenado UNA vez: lo usa tanto el .map() como el índice de play(),
+  // para que la pista que suena coincida con la fila visible. No muta el original.
+  const sortedTracks = useMemo(
+    () => (selected ? sortTracks(selected.tracks, sortMode, sortDir) : []),
+    [selected, sortMode, sortDir]
+  );
 
   // ── Detalle de una playlist ──────────────────────────────
   if (selected) {
@@ -119,7 +141,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
                 <div className="pl-detail-actions">
                   {tracks.length > 0 && (
                     <>
-                      <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
+                      <button className="btn-primary" onClick={() => play(sortedTracks, 0)}>▶ Reproducir</button>
                       <ShuffleButton tracks={tracks} />
                     </>
                   )}
@@ -139,6 +161,36 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
             <div className="empty-sub">Busca canciones en la Biblioteca y añádelas con el botón “+”.</div>
           </div>
         ) : (
+          <>
+          <div
+            className="pl-sortbar"
+            role="group"
+            aria-label="Ordenar pistas"
+            style={{ '--h': emojiHue(playlist.emoji) }}
+          >
+            {SORT_MODES.map(m => {
+              const isActive = sortMode === m.key;
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  className={`pl-sort-seg${isActive ? ' active' : ''}`}
+                  aria-pressed={isActive}
+                  aria-label={isActive
+                    ? `${m.label}, ${sortDir === 'asc' ? 'ascendente' : 'descendente'} (tocar para invertir)`
+                    : `Ordenar por ${m.label}`}
+                  onClick={() => cycleSort(m.key)}
+                >
+                  <span className="pl-sort-label">{m.label}</span>
+                  {isActive && (
+                    <span className="pl-sort-arrow" key={sortDir} aria-hidden="true">
+                      {sortDir === 'asc' ? '↑' : '↓'}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
           <table className="track-table">
             <thead>
               <tr>
@@ -152,13 +204,13 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
               </tr>
             </thead>
             <tbody>
-              {tracks.map((track, i) => {
+              {sortedTracks.map((track, i) => {
                 const active = currentTrack?.id === track.id;
                 return (
                   <tr
                     key={track.id}
                     className={`track-row${active ? ' playing' : ''}`}
-                    onClick={() => play(tracks, i)}
+                    onClick={() => play(sortedTracks, i)}
                   >
                     <td className="col-num">
                       <span className={`track-num${active ? ' active' : ''}`}>
@@ -201,6 +253,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
               })}
             </tbody>
           </table>
+          </>
         )}
       </div>
     );
@@ -260,6 +313,41 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
       )}
     </div>
   );
+}
+
+// Modos del "Riel Prisma". 'added' usa pt.position (proxy real de fecha de agregado,
+// ya viene en cada track); el resto son campos de texto nullable.
+const SORT_MODES = [
+  { key: 'added',  label: 'Añadido', field: 'position' },
+  { key: 'title',  label: 'Título',  field: 'title' },
+  { key: 'artist', label: 'Artista', field: 'artist' },
+  { key: 'album',  label: 'Álbum',   field: 'album' },
+];
+
+// Ordena una COPIA (nunca muta el original). Comparadores tolerantes a null:
+// title/artist/album vacíos van SIEMPRE al final, en ambas direcciones (no se
+// invierten con el toggle). localeCompare con acentos/ñ y orden numérico natural.
+function sortTracks(tracks, mode, dir) {
+  const arr = [...tracks];
+  const sign = dir === 'asc' ? 1 : -1;
+
+  if (mode === 'added') {
+    arr.sort((a, b) => sign * ((a.position ?? 0) - (b.position ?? 0)));
+    return arr;
+  }
+
+  const field = mode === 'artist' ? 'artist' : mode === 'album' ? 'album' : 'title';
+  arr.sort((a, b) => {
+    const av = a[field];
+    const bv = b[field];
+    const aEmpty = av == null || av === '';
+    const bEmpty = bv == null || bv === '';
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;   // null/vacío al fondo, sin importar la dirección
+    if (bEmpty) return -1;
+    return sign * av.localeCompare(bv, undefined, { sensitivity: 'base', numeric: true });
+  });
+  return arr;
 }
 
 function fmt(s) {
