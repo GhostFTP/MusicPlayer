@@ -29,7 +29,7 @@ Novedades destacables de **SonoraRev**. El formato sigue
   se engrosa con un glow del color del nivel y el punto entra con un rebote
   sutil; al arrastrar crece, hermanado con el del reproductor ampliado.
 - **La portada se aprecia más de fondo**: menos difuminado en el reproductor
-  ampliado (28→14 px; 10 en móvil) y en el panel de Info (32→10 px; 8 en
+  ampliado (28→8 px; 6 en móvil) y en el panel de Info (32→6 px; 5 en
   móvil). La legibilidad del texto la sigue garantizando el oscurecido, que no
   cambió.
 - **En móvil, el control de volumen desaparece del reproductor ampliado**: el
