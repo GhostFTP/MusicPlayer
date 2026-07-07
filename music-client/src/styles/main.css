@@ -52,7 +52,12 @@ button, input, select, textarea { font-family: inherit; }
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
   grid-template-rows: 1fr var(--player-h);
+  /* dvh = viewport dinámico: en navegadores con toolbar (Safari iOS, Chrome
+     Android, HiBy R4) el 100vh mide el viewport GRANDE y la última fila del grid
+     (bottom-nav) queda tapada por la barra del navegador al cargar. El 100vh
+     previo es el fallback (navegadores viejos); el dvh lo pisa donde existe. */
   height: 100vh;
+  height: 100dvh;
 }
 
 .sidebar {
@@ -970,7 +975,12 @@ button, input, select, textarea { font-family: inherit; }
   /* Tiempos y letra: sin micro-animaciones ni glow animado. */
   .time-tick, .time-ending .time-tick { animation: none; }   /* cuenta regresiva: solo color, sin pulso */
   .lyrics-panel { animation: none; }
+  /* "Movimiento no, color sí": sin crecer (transition off en las líneas) ni río
+     (el rAF ni arranca; el reencuadre del track cae a instantáneo por JS). Los
+     escalones de scale/opacidad/tint son estados de REPOSO → se conservan; el blur
+     de las lejanas queda apagado por el media query de arriba. */
   .lyrics-line { transition: none; }
+  .lyrics-synced { transition: none; }
   /* Sin barrido: la copia brillante se muestra entera → la activa queda --accent
      sólida de una (el rAF ni siquiera arranca). */
   .lyrics-line.active > .lyrics-wipe { clip-path: none; }
@@ -991,6 +1001,16 @@ button, input, select, textarea { font-family: inherit; }
 .ptp-exp .ptp-btn {
   color: var(--teal);
   transition: color .15s, background .15s, transform .15s, box-shadow .15s;
+}
+/* "+" del expandido (header móvil y fila de acciones desktop): área táctil a 44px
+   sin inflar el círculo visual (30px) — sólo .ptp-exp (el "+" de la barra y el de
+   las filas quedan intactos). Hit-area transparente vía ::before; el menú sigue
+   anclado a .ptp (no a .ptp-btn), así que position:relative aquí no lo mueve. */
+.ptp-exp .ptp-btn { position: relative; }
+.ptp-exp .ptp-btn::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
 }
 .ptp-player .ptp-btn:hover,
 .ptp-exp .ptp-btn:hover {
@@ -1223,7 +1243,6 @@ button, input, select, textarea { font-family: inherit; }
 .ctrl-btn.active:hover { color: var(--accent); }
 
 /* ── Shuffle con personalidad (item 5) ── */
-.shuffle-wrap { position: relative; display: inline-flex; }
 .shuffle-icon { display: inline-flex; transition: filter .2s; }
 /* Hover: "saludo" con wiggle (en el botón, para no chocar con el spin del ícono). */
 .shuffle-btn:hover { animation: shuffle-wiggle .45s ease; }
@@ -1262,41 +1281,85 @@ button, input, select, textarea { font-family: inherit; }
   100% { transform: scale(1);    opacity: 1; }
 }
 
-/* Mini-tooltip coqueto: aparece al hover encima del botón. */
-.shuffle-tip {
+/* ── Tooltips de la barra (.bar-tip): "vidrio con firma" ──
+   Un solo lenguaje para shuffle, prev/play/next, repetir, letra, info, volumen
+   y el "+" de playlist: mini glass (receta del proyecto) + hairline superior y
+   palabra de estado en el color de identidad del control (--tip-accent: morado
+   por defecto, ámbar en info, morado→rosa en letra vía --tip-line, teal en el
+   "+", color por nivel en volumen). Reemplazan a los title= nativos; la
+   accesibilidad la siguen dando los aria-label de los botones. */
+.bar-tip-wrap { position: relative; display: inline-flex; }
+
+.bar-tip {
   position: absolute;
   bottom: calc(100% + 9px);
   left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  padding: 4px 9px;
-  background: var(--surface-2);
+  transform: translateX(-50%) translateY(3px) scale(.98);
+  padding: 4px 9px 3px;
+  background: rgba(24, 24, 24, .82);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .16s ease, transform .16s ease;
+  /* visibility oculta de verdad (sin paint) → no se paga el blur en reposo. */
+  visibility: hidden;
+  transition: opacity .12s ease, transform .14s cubic-bezier(.34, 1.42, .5, 1),
+              visibility 0s linear .14s;
   /* Popover de la barra: visible también con la Letra (250) abierta en modo
      panel (capa documentada en --z-bar-popover; con 60 quedaba tapado). */
   z-index: var(--z-bar-popover);
 }
-.shuffle-tip::after {                  /* flechita hacia el botón */
+/* Hairline superior de 2px: la "firma" de color del control (con muescas
+   laterales para respetar el radio; opacidad .7: acompaña sin gritar). */
+.bar-tip::before {
   content: '';
   position: absolute;
-  top: 100%; left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: var(--surface-2);
+  top: 0; left: 9px; right: 9px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--tip-line, var(--tip-accent, var(--accent)));
+  opacity: .7;
 }
-.shuffle-wrap:hover .shuffle-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* Palabra de estado teñida con la identidad del control; .dim para estados
+   apagados ("desactivado", "Silenciado"). tabular-nums: el % no baila. */
+.bar-tip-state { color: var(--tip-accent, var(--accent)); font-variant-numeric: tabular-nums; }
+.bar-tip-state.dim { color: var(--text-muted); }
+/* Atajo de teclado, discreto. */
+.bar-tip-kbd { color: var(--text-muted); font-weight: 500; }
+
+.bar-tip-wrap:hover > .bar-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%);
+  transition-delay: 0s;
+}
+/* También por teclado (regla aparte: no arrastrar el :hover si :has fallara). */
+.bar-tip-wrap:has(:focus-visible) > .bar-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%);
+  transition-delay: 0s;
+}
+/* Con el menú "+" abierto, el tooltip sobra (y chocaría con el menú, que nace
+   en el mismo lugar). Especificidad (.ptp.active) le gana al :hover. */
+.bar-tip-wrap:has(.ptp.active) > .bar-tip { opacity: 0; visibility: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   .shuffle-icon.spin { animation: none; }
-  .shuffle-tip { transition: opacity .16s ease; transform: translateX(-50%); }
-  .shuffle-wrap:hover .shuffle-tip { transform: translateX(-50%); }
+  /* Tooltip: solo fade — color sí, movimiento no. */
+  .bar-tip {
+    transform: translateX(-50%);
+    transition: opacity .14s ease, visibility 0s linear .14s;
+  }
+  .bar-tip-wrap:hover > .bar-tip,
+  .bar-tip-wrap:has(:focus-visible) > .bar-tip { transform: translateX(-50%); }
 }
 
 .ctrl-btn.play {
@@ -1476,6 +1539,52 @@ input[type="range"]::-webkit-slider-thumb {
 input[type="range"]:hover::-webkit-slider-thumb,
 input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
+/* ── VOLUMEN — "riel que respira" ─────────── */
+/* El relleno por nivel (teal→ámbar→rojo) lo calcula el JS (volumeColor) y lo
+   entrega en CSS vars (--vol-pct / --vol-color, volumeVars en Player.jsx); el
+   gradiente se pinta acá. Compartido por la barra y el expandido. */
+.player-volume input[type="range"],
+.exp-volume input[type="range"] {
+  background: linear-gradient(to right,
+    var(--vol-color, var(--accent)) var(--vol-pct, 0%),
+    var(--border) var(--vol-pct, 0%));
+}
+
+.player-volume input[type="range"] {
+  transition: height .18s ease, border-radius .18s ease, box-shadow .18s ease;
+}
+/* Hover/drag: el riel respira (4→6px; centrado vertical, no empuja layout) y
+   el color del nivel irradia un glow tenue sobre el riel. */
+.player-volume:hover input[type="range"],
+.player-volume input[type="range"]:active {
+  height: 6px;
+  border-radius: 3px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--vol-color, var(--accent)) 40%, transparent);
+}
+/* Thumb: entra con spring (scale .6→1) en vez del fade seco; al arrastrar crece
+   a 1.3 con halo blanco (hermanado con el thumb de .exp-volume). */
+.player-volume input[type="range"]::-webkit-slider-thumb {
+  transform: scale(.6);
+  transition: opacity .15s ease, transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .15s ease;
+}
+.player-volume:hover input[type="range"]::-webkit-slider-thumb,
+.player-volume input[type="range"]:active::-webkit-slider-thumb { opacity: 1; transform: scale(1); }
+.player-volume input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Color sí, movimiento no: sin cambio de altura ni scale. El glow por nivel y
+     el halo del thumb quedan (son color estático, no movimiento). */
+  .player-volume input[type="range"] { transition: box-shadow .15s ease; }
+  .player-volume:hover input[type="range"],
+  .player-volume input[type="range"]:active { height: 4px; border-radius: 2px; }
+  .player-volume input[type="range"]::-webkit-slider-thumb { transform: none; transition: opacity .15s; }
+  .player-volume:hover input[type="range"]::-webkit-slider-thumb,
+  .player-volume input[type="range"]:active::-webkit-slider-thumb { transform: none; }
+}
+
 /* ── SEEK BAR (progreso animado) ──────────── */
 .seek {
   position: relative;
@@ -1540,7 +1649,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex;
   align-items: center;
   justify-content: center;
+  /* dvh con fallback (ver .layout): con toolbar del navegador, 100vh dejaría la
+     tarjeta de login descentrada / con contenido bajo la barra. */
   height: 100vh;
+  height: 100dvh;
   background: var(--bg);
   padding: 20px;
 }
@@ -1704,6 +1816,21 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   overflow-x: hidden;   /* la carta que sale volando se recorta en el borde, sin scroll horizontal */
 }
 
+/* Scrim del gesto de cierre (swipe-down): hermano inmediatamente ANTERIOR al
+   sheet en el DOM (mismo z-index 200 → el orden del DOM lo deja debajo).
+   Mientras el sheet baja, la app revelada detrás se ve a través de este
+   oscurecido, que el JS aclara según el progreso del drag (affordance de sheet
+   nativo). En reposo es invisible (opacity 0): no ensombrece la entrada
+   slide-up ni la app. pointer-events: none — jamás intercepta clicks/gestos. */
+.exp-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, .55);
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* Fondo del expandido (móvil y desktop): carátula actual difuminada, ampliada
    para tapar los bordes del blur, con overlay oscuro para que el texto quede
    legible. Capa fija DEBAJO del contenido del expandido (z-index -1 dentro de su
@@ -1714,7 +1841,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   z-index: -1;
   background-size: cover;
   background-position: center;
-  filter: blur(28px) saturate(1.3);
+  /* Blur suave (8px; fue 28 → 14 → 8): que la carátula se aprecie bien; la
+     legibilidad de título y controles la garantiza el overlay .7 del ::after,
+     que queda IGUAL (bajamos el difuminado, no el contraste). */
+  filter: blur(8px) saturate(1.3);
   transform: scale(1.2);
   animation: exp-bg-in .4s ease;   /* refade al cambiar de canción (via key) */
   pointer-events: none;
@@ -1726,6 +1856,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   background: rgba(0, 0, 0, .7);
 }
 @keyframes exp-bg-in { from { opacity: 0; } to { opacity: 1; } }
+/* Móvil: blur más liviano aún (misma lógica que .info-bg: alivia GPU y la
+   portada full-screen se aprecia más). */
+@media (max-width: 700px) {
+  .exp-bg { filter: blur(6px) saturate(1.3); }
+}
 @media (prefers-reduced-motion: reduce) {
   .exp-bg { animation: none; }
 }
@@ -1734,6 +1869,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex;
   align-items: center;
   margin-bottom: 28px;
+  /* Asa de arrastre (cerrar deslizando hacia abajo): sin selección de texto —
+     acá no hay texto valioso que seleccionar, solo el label del botón. */
+  user-select: none;
 }
 
 .exp-back {
@@ -1915,11 +2053,22 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    header). Oculta por defecto. */
 .exp-actions { display: none; }
 .exp-icon-btn {
+  position: relative;   /* ancla del ::before que amplía el área táctil */
   background: none; border: none; color: var(--text-muted); cursor: pointer;
   width: 40px; height: 40px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   transition: color .15s, background .15s, transform .15s, box-shadow .15s;
   -webkit-tap-highlight-color: transparent;
+}
+/* Área táctil ≥44px (piso HIG) sin inflar el glifo (22px) ni el footprint visual
+   del botón: el círculo sigue en 40px, pero el hit-area transparente llega a 44
+   (en desktop, donde el botón ya es 44, queda en 48 → tan táctil como el mouse
+   necesita). El pointerdown sobre esta zona tiene target=botón → el guard
+   closest('button') del gesto de cierre lo excluye igual (no arranca el swipe). */
+.exp-icon-btn::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
 }
 /* Hover: scale + glow del color de identidad (letra = morado/rosa); press = scale-down. */
 .exp-icon-btn:hover  { color: var(--text); background: var(--accent-dim); transform: scale(1.12); box-shadow: 0 0 14px rgba(167, 139, 250, .4); }
@@ -1942,7 +2091,32 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    centradas en pantalla. No afecta el layout móvil (por los wrappers de arriba). */
 @media (min-width: 701px) {
   .player-expanded { align-items: center; }
-  .exp-header { width: 100%; max-width: 1040px; justify-content: space-between; }
+
+  /* Franja de agarre REAL para cerrar con drag (equivalente desktop de la franja
+     móvil de 100px): el header se estira full-bleed — los márgenes negativos
+     absorben el padding del overlay (el superior de 20px y las esquinas fuera de
+     los 1040px eran zonas muertas) — y gana alto (min-height 96px). El contenido
+     queda EXACTAMENTE donde estaba: el padding lateral repone los 28px y centra
+     a la columna de 1040 (984px = 1040 − 56 del padding lateral del overlay; en
+     % y no vw para que un scrollbar no lo desalinee); el superior replica el del
+     overlay, así el botón ⌄ no se mueve ni un píxel. Los botones internos
+     conservan sus clicks (el gesto los excluye en el pointerdown). touch-action:
+     none: pantalla táctil en viewport desktop, el gesto es del JS. */
+  .exp-header {
+    align-self: stretch;
+    justify-content: space-between;
+    align-items: flex-start;
+    min-height: 96px;
+    margin: calc(-1 * max(env(safe-area-inset-top), 20px)) -28px 0;
+    padding: max(env(safe-area-inset-top), 20px) max(28px, calc((100% - 984px) / 2)) 12px;
+    touch-action: none;
+  }
+
+  /* Asas de cierre con mouse: header (franja completa) y carátula se arrastran
+     hacia abajo para cerrar (mismo gesto y umbrales que el swipe móvil). El
+     cursor lo anuncia; los botones internos conservan su pointer propio. */
+  .exp-header, .exp-art-wrap { cursor: grab; }
+  .exp-header:active, .exp-art-wrap:active { cursor: grabbing; }
 
   /* Dos columnas simétricas (1fr/1fr): la carátula se pega al centro por la
      derecha y la info por la izquierda; columnas iguales → márgenes externos
@@ -1967,7 +2141,23 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     width: 100%;
     max-width: 460px;
     min-width: 0;
+    /* Zona de agarre EXTRA (cerrar con drag): la columna se estira a todo el alto
+       de la fila y centra su contenido (misma posición visual que antes), de modo
+       que el espacio vacío arriba/abajo y los huecos entre bloques quedan
+       agarrables. Sólo CIERRA (no cambia pista). El pointerdown se gatea a desktop
+       en JS (onInfoPointerDown) y el guard excluye botones, sliders, enlaces y el
+       texto (.exp-meta/.exp-times) → sólo el ambiente arrastra. touch-action:none
+       como en el header (pantalla táctil en viewport desktop). */
+    align-self: stretch;
+    justify-content: center;
+    touch-action: none;
+    cursor: grab;
   }
+  .exp-col-info:active { cursor: grabbing; }
+  /* El texto y los tiempos no son asas: cursor normal (además el guard los excluye
+     del gesto, dejándolos seleccionables/clickeables como siempre). */
+  .exp-col-info .exp-meta,
+  .exp-col-info .exp-times { cursor: auto; }
 
   .exp-art, .exp-art-placeholder { width: min(42vw, 460px); }
 
@@ -2094,7 +2284,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .lyrics-song { font-size: 15px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lyrics-close, .lyrics-toggle {
   background: none; border: none; color: var(--text-muted); cursor: pointer; flex-shrink: 0;
-  width: 36px; height: 36px; border-radius: 50%;
+  /* 44×44 (piso HIG): hay aire de sobra en el header de la Letra (el título
+     trunca con min-width:0); los glifos siguen a 20px, sólo crece el área. */
+  width: 44px; height: 44px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   transition: color .15s, background .15s;
 }
@@ -2110,35 +2302,53 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 82%, transparent 100%);
           mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 82%, transparent 100%);
 }
+/* Karaoke: el cuerpo NO scrollea nativo — el track (.lyrics-synced) se mueve por
+   transform (río continuo en desktop, reencuadre suave en móvil). overflow hidden
+   recorta el track desplazado; touch-action none deja que el arrastre táctil lo
+   maneje el JS (y no pelee con el auto-follow). La letra PLANA conserva overflow:auto. */
+.lyrics-body.karaoke { overflow: hidden; touch-action: none; }
 
 .lyrics-synced, .lyrics-plain { width: 100%; max-width: 640px; text-align: center; }
-/* Aire inferior ≥ media pantalla SOLO en karaoke: deja que las últimas líneas
-   también se centren en el cuerpo (sin esto quedaban pegadas al borde y el
-   auto-scroll intentaba compensar hacia afuera). En letra plana no aplica. */
-.lyrics-synced { padding-bottom: 44vh; }
+/* Track de karaoke: compositado y movido por transform (Dirección B). position
+   relative → las líneas miden su offset contra el track (encuadre estable). El aire
+   inferior ≥ media pantalla deja centrar también las últimas líneas. */
+.lyrics-synced {
+  position: relative;
+  padding-bottom: 44vh;
+  flex-shrink: 0;                       /* no comprimir: el encuadre lee offsets reales */
+  will-change: transform;              /* el río lo mueve en GPU */
+  transform: translate3d(0, 0, 0);
+}
 
+/* Tamaño UNIFORME para todas las líneas: la jerarquía la da transform:scale, NO
+   font-size (animar font-size = reflow por frame y pelearía con el track de B). La
+   activa queda a scale(1) → nítida; el resto se ACHICA (downscale = siempre nítido).
+   Box idéntico entre capas (mismo font-size/line-height/padding em) → offsetHeight
+   estable → el encuadre por transform no salta. Profundidad por defecto = capa más
+   lejana; los escalones near/far/far2 la suben por distancia real a la activa. */
 .lyrics-line {
-  font-size: 22px; font-weight: 600; line-height: 1.5;
-  color: var(--text-muted); opacity: .38;
-  margin: 0; padding: 8px 6px; cursor: pointer;
-  transition: color .28s ease, opacity .28s ease,
-              transform .28s cubic-bezier(.22, 1, .36, 1), text-shadow .28s ease;
+  font-size: clamp(26px, 4.4vw, 36px); font-weight: 700; line-height: 1.3;
+  color: var(--text-muted); opacity: .16;
+  margin: 0; padding: .3em .14em; cursor: pointer;
+  transform: scale(.7); transform-origin: center;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, .5);         /* legibilidad de las lejanas sobre la carátula */
+  /* Crecimiento con el spring de la casa (overshoot) en transform; el resto lineal. */
+  transition: opacity .34s ease, color .34s ease,
+              transform .46s cubic-bezier(.34, 1.42, .5, 1),
+              text-shadow .34s ease, filter .34s ease;
 }
 .lyrics-line:hover { opacity: .8; }
-.lyrics-line.near  { opacity: .68; }                 /* vecinas inmediatas: un punto más vivas */
-/* Línea activa protagonista: grande y con sombra de contraste + glow morado para
-   legibilidad sobre la carátula. El color base va atenuado; el barrido (.lyrics-wipe)
-   la lleva a --accent de izquierda a derecha. */
+.lyrics-line.far2 { opacity: .24; transform: scale(.76); }   /* dist 3 */
+.lyrics-line.far  { opacity: .38; transform: scale(.82); }   /* dist 2 */
+.lyrics-line.near { opacity: .64; transform: scale(.9); }    /* dist 1: vecinas inmediatas */
+/* Línea activa protagonista: crece a scale(1) (nítida), a full opacidad y con sombra
+   de contraste + glow morado para legibilidad sobre la carátula. El color base va
+   atenuado; el barrido (.lyrics-wipe) la lleva a --accent de izquierda a derecha. */
 .lyrics-line.active {
   display: grid;                                     /* apila base + wipe en la misma celda */
   color: var(--text-muted); opacity: 1;
-  font-size: clamp(28px, 5vw, 40px); font-weight: 800; line-height: 1.25;
-  /* Aire vertical en EM: escala con el tamaño REAL renderizado (clamp + nº de
-     renglones). Con los 8px fijos heredados, la protagonista quedaba pegada a
-     las vecinas y su glow pintaba encima → "líneas encimadas". */
-  padding: .38em .15em;
-  /* Glow contenido (24/22 → 18/12px): legible sobre la carátula sin sangrar
-     sobre las líneas vecinas. */
+  transform: scale(1);
+  /* Glow contenido: legible sobre la carátula sin sangrar sobre las vecinas. */
   text-shadow: 0 2px 18px rgba(0, 0, 0, .6), 0 0 12px rgba(167, 139, 250, .45);
 }
 .lyrics-line.active > .lyrics-base,
@@ -2149,6 +2359,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   color: var(--accent);
   /* Relleno izq→der con --p (0→1). Compositor-friendly: recorta, no repinta texto. */
   clip-path: inset(0 calc(100% - var(--p, 0) * 100%) 0 0);
+}
+/* Blur de profundidad MUY leve en las lejanas. Solo desktop (una capa de filtro por
+   línea = memoria/compositing extra: se omite en móvil/Adreno 610) y solo con
+   movimiento permitido (se apaga en reduced-motion). Estático: no repinta por frame. */
+@media (min-width: 701px) and (prefers-reduced-motion: no-preference) {
+  .lyrics-line.far  { filter: blur(.5px); }
+  .lyrics-line.far2 { filter: blur(1px); }
 }
 
 /* Estado NO sincronizado: mismo fondo de carátula, tipografía cuidada y aireada. */
@@ -2214,14 +2431,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @keyframes info-pop-out  { to { opacity: 0; transform: translateY(6px) scale(.93); } }
 
 /* Carátula viva: la portada de la pista difuminada como fondo del modal (recortada
-   por overflow:hidden + radio). Capa base bajo header/body; estática (no anima). */
+   por overflow:hidden + radio). Capa base bajo header/body; estática (no anima).
+   Blur suave (6px; fue 32 → 16 → 10 → 6 por feedback): la portada se reconoce de un
+   vistazo; la legibilidad la garantiza el doble oscurecido del ::after, que queda
+   IGUAL (el sólido .72 + gradiente dominan el contraste incluso con portadas claras). */
 .info-bg {
   position: absolute;
   inset: 0;
   z-index: 0;
   background-size: cover;
   background-position: center;
-  filter: blur(32px) saturate(1.2);
+  filter: blur(6px) saturate(1.2);
   transform: scale(1.15);
   pointer-events: none;
 }
@@ -2235,7 +2455,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 /* Móvil: aliviamos GPU (doble blur: .info-bg + backdrop-filter del modal). */
 @media (max-width: 700px) {
-  .info-bg { filter: blur(20px) saturate(1.2); }
+  .info-bg { filter: blur(5px) saturate(1.2); }
 }
 
 .info-header {
@@ -2428,6 +2648,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     grid-column: 1;
     grid-row: 1;
     padding: 20px 16px;
+    /* Red de seguridad: sin overflow-x explícito, el eje-Y auto vuelve el eje-X
+       visible en 'auto' → el panel se convierte en un scroll lateral de facto.
+       Recorta lo que se pase; el reflow real lo aportan las reglas de tabla/hero. */
+    overflow-x: hidden;
   }
 
   /* Mini player bar */
@@ -2447,10 +2671,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-expanded { animation: exp-slide-up .28s ease; }
 
   /* El header actúa como "asa" para cerrar con swipe-down: le cedemos el gesto al JS
-     (touch-action: none) y ampliamos la zona de agarre a ~100px (franja superior del
-     overlay), con los botones arriba (align-items: flex-start). Los botones siguen
-     funcionando; el drag arranca en el espacio libre de esa franja. */
-  .exp-header { touch-action: none; min-height: 100px; align-items: flex-start; }
+     (touch-action: none) y ampliamos la zona de agarre a ~140px (franja superior del
+     overlay), con los botones arriba (align-items: flex-start). Los botones (⌄, Letra,
+     Info, +) siguen funcionando y ocupan sólo la fila superior (~44px); el resto de la
+     franja queda libre para arrancar el drag. Se subió de 100 a 140 para que no haya
+     que "apuntar" y para compensar el área táctil ampliada de los botones (O2b). */
+  .exp-header { touch-action: none; min-height: 140px; align-items: flex-start; }
 
   .player-bar .player-track { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .player-bar .player-art   { width: 40px; height: 40px; border-radius: 4px; }
@@ -2466,14 +2692,22 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   /* ── Player expandido en móvil: aprovechar el alto ──
      Carátula más grande, centrada en el espacio libre; header arriba y el bloque de
-     info (meta → volumen) abajo con aire. Las dos auto-margins reparten el espacio
+     info (meta → controles) abajo con aire. Las dos auto-margins reparten el espacio
      sobrante a partes iguales (arriba de la carátula y arriba del bloque de info);
      si el contenido no cabe, colapsan y .player-expanded hace scroll normal. */
   .exp-art, .exp-art-placeholder { width: min(80vw, 400px); }
-  .exp-art-wrap { margin-top: auto; margin-bottom: 0; }
+  /* Halo agarrable ALREDEDOR de la carátula: padding vertical dentro de .exp-art-wrap
+     (que ya lleva touch-action:none y los handlers de la carátula). Suma una banda de
+     ~24px arriba y abajo de la imagen a la zona de gesto — horizontal = cambiar pista
+     (consistente con la carátula), abajo = cerrar. La imagen no cambia de tamaño
+     (ancho fijo, centrada); sólo crece la superficie tocable. */
+  .exp-art-wrap { margin-top: auto; margin-bottom: 0; padding: 24px 0; }
   .exp-meta     { margin-top: auto; margin-bottom: 28px; }
   .exp-controls { margin-bottom: 28px; }
-  .exp-volume   { margin-bottom: 4px; }
+  /* Volumen fuera en móvil: el volumen del sistema lo mandan los botones físicos
+     del teléfono (iOS ignora audio.volume desde el navegador); un slider que a
+     veces no responde es peor que ninguno. */
+  .exp-volume   { display: none; }
 
   /* La letra nunca desaparece: se mantiene encima de la barra mini y el bottom-nav. */
   .lyrics-panel { bottom: calc(var(--mini-player-h) + var(--bottom-nav-h)); }
@@ -2541,6 +2775,15 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .col-artist, .col-album, .col-quality { display: none; }
   .quality-chip.chip-inline { display: inline-flex; }
 
+  /* Título de pista: truncar en móvil (un título de una sola palabra larga
+     ensanchaba la celda y desbordaba la tabla). Misma receta que .track-artist;
+     la cadena min-width:0 ya la aporta .track-text. Sólo móvil → desktop intacto. */
+  .track-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   /* Sin hover en táctil: las acciones de fila siempre visibles */
   .ptp-btn { opacity: 1; }
 
@@ -2573,7 +2816,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
 /* Very short screens — compact expanded player */
 @media (max-width: 700px) and (max-height: 680px) {
-  .exp-art-wrap    { margin-bottom: 16px; }
+  /* Menos aire vertical: halo y franja del header reducidos para que el layout no
+     se ahogue en pantallas bajas (la carátula ya baja a 200px). */
+  .exp-art-wrap    { margin-bottom: 16px; padding: 8px 0; }
   .exp-art,
   .exp-art-placeholder { width: min(100%, 200px); }
   .exp-meta        { margin-bottom: 14px; }
@@ -2583,7 +2828,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-controls    { margin-bottom: 20px; gap: 12px; }
   .exp-btn         { width: 48px; height: 48px; }
   .exp-btn.play    { width: 60px; height: 60px; }
-  .exp-header      { margin-bottom: 16px; }
+  .exp-header      { margin-bottom: 16px; min-height: 92px; }
 }
 
 /* Tablets (701–1024px) */

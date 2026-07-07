@@ -3,6 +3,81 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.2] - 2026-07-05
+
+### Nuevo
+- **Tooltips "vidrio con firma" en la barra**: todos los controles (aleatorio,
+  anterior/reproducir/siguiente, repetir, letra, info, volumen y el "+" de
+  playlist) comparten un mismo tooltip glass con la firma de color de cada
+  acción — morado, ámbar en info, morado→rosa en letra, teal en el "+", y el
+  color por nivel en el volumen (**"Volumen · 72%"**, o "Silenciado"). También
+  aparecen al navegar con teclado (Tab).
+- **Cerrá el reproductor ampliado arrastrándolo hacia abajo con el mouse**
+  (desktop): el mismo gesto que ya existía en móvil, desde el encabezado o la
+  carátula (el cursor de "agarrar" lo anuncia). Esc y el botón de siempre
+  siguen funcionando igual.
+
+### Mejorado
+- **El karaoke fluye con la música**: la letra sincronizada ahora se desplaza de
+  forma continua al ritmo de la canción en vez de saltar línea por línea, y la
+  línea que canta crece con suavidad mientras las demás se escalonan en capas de
+  profundidad. En el celular el desplazamiento es más liviano (para no exigir la
+  GPU de gama baja) y con "movimiento reducido" todo queda quieto: solo el color
+  marca la línea activa.
+- **Cerrar deslizando ahora se siente como un sheet nativo** (celular y
+  desktop): el panel sigue al dedo o al mouse sin el saltito del arranque, al
+  soltar con impulso continúa la velocidad del gesto, y mientras baja se
+  "despega" con esquinas redondeadas, sombra y un oscurecido detrás que se va
+  aclarando. En desktop toda la franja superior es ahora zona real de agarre
+  (antes el arrastre casi no tenía de dónde agarrarse), y reintentar el gesto
+  justo después de un rebote ya no lo congela.
+- **Cerrar deslizando es aún más fácil de agarrar**: se ampliaron las zonas con
+  las que arrastrás el reproductor ampliado hacia abajo para cerrarlo — la
+  franja superior y un contorno alrededor de la carátula en el celular, y
+  también la columna de información en la computadora — así ya no hay que
+  "apuntar". Además, los botones de Letra, Información y ＋ del ampliado y los de
+  la Letra tienen un área táctil más cómoda, y en el celular la app aprovecha
+  todo el alto de la pantalla (la barra inferior ya no queda tapada por la del
+  navegador).
+- **Slider de volumen "riel que respira"** (desktop): al pasar el mouse el riel
+  se engrosa con un glow del color del nivel y el punto entra con un rebote
+  sutil; al arrastrar crece, hermanado con el del reproductor ampliado.
+- **La portada se aprecia más de fondo**: menos difuminado en el reproductor
+  ampliado (28→8 px; 6 en móvil) y en el panel de Info (32→6 px; 5 en
+  móvil). La legibilidad del texto la sigue garantizando el oscurecido, que no
+  cambió.
+- **En móvil, el control de volumen desaparece del reproductor ampliado**: el
+  volumen lo mandan los botones físicos del teléfono (iOS ignora el volumen
+  web), así que un slider que a veces no responde es peor que ninguno.
+- **Esc también sale del detalle**: estando dentro de un álbum, artista, género,
+  playlist o año (sin ningún panel abierto), Esc te devuelve a la lista donde
+  estabas — lo mismo que volver a tocar la pestaña activa. Si tenés el
+  reproductor ampliado abierto encima, Esc lo cierra primero.
+
+### Corregido
+- **En escritorio, usar la barra con la Letra abierta ya no la manda a pantalla
+  completa.** Antes, con la Letra abierta, un clic en la barra o en la portada
+  (para reproducir/pausar o navegar) saltaba a pantalla completa aunque solo
+  quisieras usar la barra. Ahora en escritorio la barra se usa sin sobresaltos;
+  en el celular la Letra sigue pasando a pantalla completa como siempre.
+- **Se acabó el desplazamiento horizontal en la biblioteca (celular).** Las
+  listas y el detalle de álbum ya no piden "arrastrar de lado" para ver toda la
+  info. El detalle de un álbum abierto desde la pestaña Álbumes ahora es idéntico
+  al del resto de la app (misma carátula, badge de calidad, botón de mezcla), y
+  los títulos largos se recortan con puntos suspensivos en vez de ensanchar la
+  fila.
+
+### Técnico
+- Sistema `.bar-tip` reemplaza los `title=` nativos de la barra manteniendo (y
+  agregando donde faltaba) `aria-label` en todos los botones; visible con
+  `:has(:focus-visible)`; oculto con `visibility` para no pagar el blur en
+  reposo; con `prefers-reduced-motion` queda solo el fade.
+- `volumeFillStyle()` → `volumeVars()`: el color por nivel viaja en CSS vars
+  (`--vol-pct` / `--vol-color`) y alimenta relleno, glow y tooltip sin duplicar
+  la interpolación teal→ámbar→rojo.
+- El cierre por arrastre comparte una sola maquinaria táctil/mouse (se quitó el
+  gate por `pointerType`); mismos umbrales (120 px, o flick a 0.55 px/ms).
+
 ## [1.4.1] - 2026-07-05
 
 ### Nuevo

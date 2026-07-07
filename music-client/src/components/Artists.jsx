@@ -4,13 +4,19 @@ import AlbumGrid from './AlbumGrid.jsx';
 import AlbumDetail from './AlbumDetail.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
-export default function Artists({ target, clearTarget }) {
+export default function Artists({ target, clearTarget, setDetailOpen }) {
   const [artists,  setArtists]  = useState(null);
   const [sel,      setSel]      = useState(null);   // artista seleccionado
   const [albums,   setAlbums]   = useState(null);
   const [selAlbum, setSelAlbum] = useState(null);
 
   useEffect(() => { api.artists().then(setArtists); }, []);
+
+  // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Detalle
+  // anidado: álbumes del artista (`sel`) o un AlbumDetail (`selAlbum`). El cleanup
+  // de desmontaje evita que el flag quede colgado en true al cambiar de pestaña.
+  useEffect(() => { setDetailOpen(!!(sel || selAlbum)); }, [sel, selAlbum, setDetailOpen]);
+  useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
 
   async function open(a) {
     setSel(a);

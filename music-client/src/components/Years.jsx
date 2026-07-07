@@ -4,7 +4,7 @@ import AlbumGrid from './AlbumGrid.jsx';
 import AlbumDetail from './AlbumDetail.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
-export default function Years({ target, clearTarget }) {
+export default function Years({ target, clearTarget, setDetailOpen }) {
   const [years,    setYears]    = useState(null);
   const [sel,      setSel]      = useState(null);   // año seleccionado
   const [albums,   setAlbums]   = useState(null);
@@ -19,6 +19,12 @@ export default function Years({ target, clearTarget }) {
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
+
+  // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Detalle
+  // anidado: álbumes del año (`sel`) o un AlbumDetail (`selAlbum`). El cleanup de
+  // desmontaje evita que el flag quede colgado en true al cambiar de pestaña.
+  useEffect(() => { setDetailOpen(!!(sel || selAlbum)); }, [sel, selAlbum, setDetailOpen]);
+  useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
 
   async function open(y) {
     setSel(y);

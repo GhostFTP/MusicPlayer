@@ -1,6 +1,15 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
+
+// ── Río continuo (Dirección B) ─────────────────────────────────────────────
+// El cuerpo de karaoke NO scrollea nativo: el track (.lyrics-synced) se mueve por
+// transform (translate3d) para que el desplazamiento vaya en el compositor (GPU) y
+// no por scrollTop (repaint de layout). Estos números afinan ese movimiento.
+const SCROLL_K     = 0.22;   // suavizado del río: fracción de acercamiento al target por frame
+const RESUME_MS    = 2800;   // reanudar el auto-follow tras un scroll/touch manual
+const DRAG_SLOP    = 6;      // px de arrastre antes de tratar un touch como scroll (no como tap→seek)
+const REFRAME_EASE = 'transform .55s cubic-bezier(.22, 1, .36, 1)';   // reencuadre discreto suavizado
 
 // Parsea .lrc → [{time:number|null, text}]. Soporta varias marcas por línea
 // (líneas repetidas) y descarta metadatos [ar:][ti:][offset:]…
@@ -57,7 +66,21 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
   // localStorage (patrón lyricsOffset:<trackId>).
   const [hidden, setHidden] = useState(false);
   const activeRef = useRef(null);
-  const bodyRef   = useRef(null);   // .lyrics-body: contenedor de scroll de las líneas
+  const bodyRef   = useRef(null);   // .lyrics-body: viewport (recorta el track)
+  const trackRef  = useRef(null);   // .lyrics-synced: track de líneas que se mueve por transform
+
+  // ── Río continuo / auto-follow (Dirección B) ─────────────────────────────
+  const renderYRef     = useRef(0);      // translateY actual aplicado al track
+  const followRef      = useRef(true);   // ¿el auto-follow manda? (false mientras el usuario hojea)
+  const resumeTimerRef = useRef(0);      // timer para retomar el auto-follow tras scroll manual
+  const framedIdxRef   = useRef(-1);     // línea para la que ya se computaron las anclas de encuadre
+  const y0Ref          = useRef(0);      // encuadre (translateY) de la línea activa
+  const y1Ref          = useRef(0);      // encuadre de la siguiente (se interpola con --p)
+  const padTopRef      = useRef(44);     // padding-top del cuerpo (cacheado; recalculado en resize)
+  const movedRecentlyRef = useRef(false);// último touch fue arrastre → no dispares el seek de la línea
+  const isPlayingRef   = useRef(false);  // leídos dentro de closures (resume/resize) sin recrearlos
+  const syncedRef      = useRef(false);
+  const currentTimeRef = useRef(0);
 
   // ── Reloj interpolado (línea activa + wipe) ──────────────────────────────
   // El PlayerContext NO expone el <audio>; currentTime llega por 'timeupdate' a
@@ -74,7 +97,76 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
   const durationRef  = useRef(0);
   const offsetRef    = useRef(0);   // ajuste de sync leído dentro del rAF
 
-  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  // Media queries REACTIVAS (estado + listener 'change'): sin esto, cruzar 701px o
+  // togglear reduced-motion con la Letra abierta no reconfiguraba el gate hasta el
+  // próximo re-render de React (que solo llegaba al conmutar de línea).
+  const [reduced, setReduced] = useState(
+    () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  // Río continuo (transform por frame) SOLO en pantallas amplias. En móvil / GPU
+  // floja (Adreno 610) recomponer una capa por frame bajo mask + backdrop-filter
+  // tironea: ahí el track se reencuadra DISCRETO y suavizado por CSS (más barato).
+  const [continuous, setContinuous] = useState(
+    () => window.matchMedia?.('(min-width: 701px)').matches ?? true);
+  useEffect(() => {
+    const mqR = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    const mqC = window.matchMedia?.('(min-width: 701px)');
+    const onR = () => setReduced(!!mqR?.matches);
+    const onC = () => setContinuous(!!mqC?.matches);
+    mqR?.addEventListener?.('change', onR);
+    mqC?.addEventListener?.('change', onC);
+    return () => {
+      mqR?.removeEventListener?.('change', onR);
+      mqC?.removeEventListener?.('change', onC);
+    };
+  }, []);
+
+  // ── Helpers de encuadre por transform (Dirección B) ──────────────────────
+  // translateY que centra `node` en el viewport del cuerpo. offsetTop/offsetHeight
+  // son de LAYOUT → invariantes al transform actual y a la scale por línea (que es
+  // sobre el centro): puedo leerlos con el track ya movido sin realimentación.
+  function centerYOf(node) {
+    const cont = bodyRef.current;
+    if (!cont || !node) return 0;
+    return cont.clientHeight / 2 - padTopRef.current - node.offsetTop - node.offsetHeight / 2;
+  }
+  // Acota el desplazamiento entre "primera línea centrada" y "última centrada".
+  function clampY(y) {
+    const kids = trackRef.current?.children;
+    if (!kids || !kids.length) return y;
+    const min = centerYOf(kids[kids.length - 1]);   // última centrada → tope arriba (más negativo)
+    const max = Math.max(0, centerYOf(kids[0]));     // primera centrada → tope abajo
+    return Math.min(max, Math.max(min, y));
+  }
+  function applyY(y, transition) {
+    const track = trackRef.current;
+    if (!track) return;
+    track.style.transition = transition;
+    track.style.transform  = `translate3d(0, ${y}px, 0)`;
+    renderYRef.current = y;
+  }
+  // Reencuadre discreto: centra la línea activa (o el tope si aún no hay activa).
+  function reframe(transition) {
+    const track = trackRef.current;
+    if (!track) return;
+    const idx  = activeIdxRef.current;
+    const node = idx >= 0 ? track.children[idx] : null;
+    applyY(clampY(node ? centerYOf(node) : 0), transition);
+    framedIdxRef.current = -1;   // que el río recompute sus anclas al reanudar
+  }
+  function pauseFollow() {
+    followRef.current = false;
+    clearTimeout(resumeTimerRef.current);
+  }
+  function scheduleResume() {
+    clearTimeout(resumeTimerRef.current);
+    resumeTimerRef.current = setTimeout(() => {
+      followRef.current = true;
+      // Si el río está manejando el transform (desktop reproduciendo), retoma solo
+      // (lerp desde la posición manual). Si no (móvil/pausa/reduced), reencuadro acá.
+      const riverDriving = continuous && isPlayingRef.current && !reduced && syncedRef.current;
+      if (!riverDriving) reframe(reduced ? 'none' : REFRAME_EASE);
+    }, RESUME_MS);
+  }
 
   useEffect(() => {
     if (!currentTrack) { setData(null); return; }
@@ -128,24 +220,41 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
   }, [synced, lines, currentTime, offset]);
 
   // Valores frescos para el rAF sin recrear el loop en cada tick.
-  linesRef.current     = lines;
-  activeIdxRef.current = activeIdx;
-  durationRef.current  = duration;
-  offsetRef.current    = offset;
+  linesRef.current       = lines;
+  activeIdxRef.current   = activeIdx;
+  durationRef.current    = duration;
+  offsetRef.current      = offset;
+  isPlayingRef.current   = isPlaying;
+  syncedRef.current      = synced;
+  currentTimeRef.current = currentTime;
 
+  // Reencuadre DISCRETO del track (por transform, NUNCA scrollIntoView). Corre
+  // cuando el río continuo NO maneja el transform: móvil (continuous=false), pausa,
+  // seek con la reproducción parada, y reduced-motion (instantáneo). En desktop
+  // reproduciendo, este efecto se abstiene y manda el rAF de abajo. No tironea si
+  // el usuario está hojeando (followRef=false).
   useEffect(() => {
-    // Centra la línea activa SOLO dentro de .lyrics-body. scrollIntoView({block:'center'})
-    // desplazaba también los scrollers exteriores (documento / visual viewport):
-    // en las últimas líneas, cuando el cuerpo ya no puede centrarla, escalaba
-    // hacia afuera y en móvil empujaba el panel → el header "se iba".
-    // scrollTo sobre el contenedor queda contenido y clampa solo.
-    const node = activeRef.current;
-    const cont = bodyRef.current;
-    if (!node || !cont) return;
-    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const top = node.offsetTop - (cont.clientHeight - node.offsetHeight) / 2;
-    cont.scrollTo({ top: Math.max(0, top), behavior: reduce ? 'auto' : 'smooth' });
-  }, [activeIdx]);
+    if (!synced) return;
+    if (continuous && isPlaying && !reduced) return;   // el río lo mueve
+    if (!followRef.current) return;                     // el usuario está leyendo
+    reframe(reduced ? 'none' : REFRAME_EASE);
+  }, [activeIdx, synced, isPlaying, reduced, continuous]);
+
+  // Al abrir el panel o cambiar de canción: encuadrar la línea activa AL INSTANTE,
+  // pre-paint (useLayoutEffect), para que no haya un flash con la posición de la
+  // canción anterior ni un scroll de reacomodo. Resetea el auto-follow.
+  useLayoutEffect(() => {
+    const track = trackRef.current, cont = bodyRef.current;
+    if (!synced || !track || !cont) { renderYRef.current = 0; return; }
+    followRef.current = true;
+    clearTimeout(resumeTimerRef.current);
+    framedIdxRef.current = -1;
+    padTopRef.current = parseFloat(getComputedStyle(cont).paddingTop) || 44;
+    // Índice activo real AHORA (el estado activeIdx puede no haberse recomputado aún).
+    const idx  = findActiveIdx(lines, currentTimeRef.current + offsetRef.current);
+    const node = idx >= 0 ? track.children[idx] : null;
+    applyY(clampY(node ? centerYOf(node) : 0), 'none');
+  }, [lines, synced]);
 
   // Siembra del reloj: en cada tick de currentTime (~4Hz) y al pausar/reanudar.
   // Incluir isPlaying evita el salto al reanudar: sin él, perf0 quedaría viejo
@@ -170,24 +279,103 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
       if (idx !== activeIdxRef.current) {
         setActiveIdx(idx);               // re-render; el ref se actualiza al pintar
       } else {
-        const node = activeRef.current;
-        const cur  = ls[idx];
-        if (node && cur && cur.time != null) {
+        const cur = ls[idx];
+        let p = 0;
+        if (cur && cur.time != null) {
           const nextT = ls[idx + 1]?.time;
           // Duración de la línea: hasta la próxima marca, o un tope de 4s (acotado por
           // la duración de la pista) si es la última.
           const cap = Math.min(cur.time + 4, durationRef.current || cur.time + 4);
           const end = nextT != null ? nextT : cap;
           const den = end - cur.time;
-          const p   = den > 0 ? Math.min(1, Math.max(0, (live - cur.time) / den)) : 1;
-          node.style.setProperty('--p', p.toFixed(4));   // una sola CSS var por frame
+          p = den > 0 ? Math.min(1, Math.max(0, (live - cur.time) / den)) : 1;
+          const node = activeRef.current;
+          if (node) node.style.setProperty('--p', p.toFixed(4));   // una sola CSS var por frame
+        }
+        // Río continuo (Dirección B, solo desktop): interpola el encuadre de la línea
+        // activa → siguiente con --p y lo aplica por TRANSFORM (compositor, no scrollTop).
+        // Las anclas (y0/y1) se leen una sola vez por línea; el lerp da el suavizado y
+        // absorbe el retorno tras un scroll manual. Pausado mientras el usuario hojea.
+        const track = trackRef.current;
+        if (continuous && followRef.current && track) {
+          if (framedIdxRef.current !== idx) {
+            const a = track.children[idx];
+            const n = track.children[idx + 1];
+            y0Ref.current = a ? centerYOf(a) : renderYRef.current;
+            y1Ref.current = n ? centerYOf(n) : y0Ref.current;
+            framedIdxRef.current = idx;
+          }
+          const target = y0Ref.current + (y1Ref.current - y0Ref.current) * p;
+          let rY = renderYRef.current + (target - renderYRef.current) * SCROLL_K;
+          if (Math.abs(target - rY) < 0.5) rY = target;   // snap: sin lerp infinitesimal
+          renderYRef.current = rY;
+          track.style.transition = 'none';
+          track.style.transform  = `translate3d(0, ${rY}px, 0)`;
         }
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [synced, isPlaying, reduced]);
+  }, [synced, isPlaying, reduced, continuous]);
+
+  // Scroll manual (rueda / arrastre táctil) → mueve el track por transform y pausa
+  // el auto-follow unos segundos (sin esto el follow pelearía con el dedo). Listeners
+  // NO pasivos: preventDefault evita que scrollee la página de atrás y que un
+  // arrastre dispare el seek de la línea. Solo activo en karaoke (synced).
+  useEffect(() => {
+    const cont = bodyRef.current;
+    if (!cont || !synced) return;
+
+    let startTouchY = 0, startY = 0, moved = false;
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      pauseFollow();
+      applyY(clampY(renderYRef.current - e.deltaY), 'none');
+      scheduleResume();
+    };
+    const onTouchStart = (e) => {
+      if (e.touches.length !== 1) return;
+      startTouchY = e.touches[0].clientY;
+      startY = renderYRef.current;
+      moved = false;
+      pauseFollow();
+    };
+    const onTouchMove = (e) => {
+      if (e.touches.length !== 1) return;
+      const dy = e.touches[0].clientY - startTouchY;
+      if (!moved && Math.abs(dy) > DRAG_SLOP) { moved = true; movedRecentlyRef.current = true; }
+      if (moved) {
+        e.preventDefault();
+        applyY(clampY(startY + dy), 'none');
+      }
+    };
+    const onTouchEnd = () => {
+      if (moved) scheduleResume();
+      else followRef.current = true;   // fue un tap (seek de línea): retomar ya
+      setTimeout(() => { movedRecentlyRef.current = false; }, 60);
+    };
+    const onResize = () => {
+      padTopRef.current = parseFloat(getComputedStyle(cont).paddingTop) || 44;
+      framedIdxRef.current = -1;
+      if (followRef.current) reframe(reduced ? 'none' : REFRAME_EASE);
+    };
+
+    cont.addEventListener('wheel', onWheel, { passive: false });
+    cont.addEventListener('touchstart', onTouchStart, { passive: false });
+    cont.addEventListener('touchmove', onTouchMove, { passive: false });
+    cont.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('resize', onResize);
+    return () => {
+      cont.removeEventListener('wheel', onWheel);
+      cont.removeEventListener('touchstart', onTouchStart);
+      cont.removeEventListener('touchmove', onTouchMove);
+      cont.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('resize', onResize);
+      clearTimeout(resumeTimerRef.current);
+    };
+  }, [synced, reduced, continuous]);
 
   // Ajuste fino de sync (persistido por trackId). +0.5: adelanta; −0.5: atrasa.
   function persistOffset(v) {
@@ -257,18 +445,28 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
     );
   } else {
     body = (
-      <div className="lyrics-synced">
+      <div className="lyrics-synced" ref={trackRef}>
         {lines.map((l, i) => {
           const dist = activeIdx >= 0 ? Math.abs(i - activeIdx) : null;   // distancia a la línea activa
           const isActive = i === activeIdx;
-          const state = isActive ? ' active' : dist === 1 ? ' near' : '';
+          // Capas de profundidad por distancia real a la activa: opacidad + scale
+          // (+ blur leve en desktop) decrecientes. Los estados los pinta el CSS.
+          const state = isActive ? ' active'
+            : dist === 1 ? ' near'
+            : dist === 2 ? ' far'
+            : dist === 3 ? ' far2'
+            : '';
           const text = l.text || '♪';
           return (
             <p
               key={i}
               ref={isActive ? activeRef : null}
               className={`lyrics-line${state}`}
-              onClick={() => l.time != null && seek(l.time - offset)}
+              onClick={() => {
+                // Un arrastre táctil recién terminado NO debe saltar de línea.
+                if (movedRecentlyRef.current) return;
+                if (l.time != null) seek(l.time - offset);
+              }}
               title={l.time != null ? 'Saltar a esta línea' : undefined}
             >
               {isActive ? (
@@ -355,7 +553,7 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
           </button>
         </div>
       </div>
-      <div className="lyrics-body" ref={bodyRef}>{body}</div>
+      <div className={`lyrics-body${synced ? ' karaoke' : ''}`} ref={bodyRef}>{body}</div>
     </div>
   );
 }

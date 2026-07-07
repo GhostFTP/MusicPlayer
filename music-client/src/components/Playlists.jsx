@@ -6,7 +6,7 @@ import ShuffleButton from './ShuffleButton.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 
-export default function Playlists({ target, clearTarget }) {
+export default function Playlists({ target, clearTarget, setDetailOpen }) {
   const [playlists, setPlaylists] = useState([]);
   const [newName,   setNewName]   = useState('');
   const [emoji,     setEmoji]     = useState('🎵');
@@ -25,6 +25,11 @@ export default function Playlists({ target, clearTarget }) {
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
+
+  // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Reactivo a
+  // `selected`; el cleanup de desmontaje evita que el flag quede colgado en true.
+  useEffect(() => { setDetailOpen(!!selected); }, [selected, setDetailOpen]);
+  useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
 
   async function create(e) {
     e.preventDefault();
