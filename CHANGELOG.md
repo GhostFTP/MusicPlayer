@@ -36,6 +36,13 @@ Novedades destacables de **SonoraRev**. El formato sigue
   volumen lo mandan los botones físicos del teléfono (iOS ignora el volumen
   web), así que un slider que a veces no responde es peor que ninguno.
 
+### Corregido
+- **En escritorio, usar la barra con la Letra abierta ya no la manda a pantalla
+  completa.** Antes, con la Letra abierta, un clic en la barra o en la portada
+  (para reproducir/pausar o navegar) saltaba a pantalla completa aunque solo
+  quisieras usar la barra. Ahora en escritorio la barra se usa sin sobresaltos;
+  en el celular la Letra sigue pasando a pantalla completa como siempre.
+
 ### Técnico
 - Sistema `.bar-tip` reemplaza los `title=` nativos de la barra manteniendo (y
   agregando donde faltaba) `aria-label` en todos los botones; visible con

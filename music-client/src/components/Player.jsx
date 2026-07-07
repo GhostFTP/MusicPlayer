@@ -517,12 +517,24 @@ export default function Player({ navigate, view }) {
   };
 
   // Abrir "Ahora reproduciendo" (clic en zona libre de la barra o en la portada).
-  // Con la Letra abierta en modo panel, además se la promueve a inmersivo: queda el
-  // mismo estado canónico que al abrir la Letra desde el expandido (Letra full-bleed
-  // con el expandido detrás), y se preserva el invariante de arriba. Cerrar la Letra
-  // (X / Esc) revela entonces el expandido que el clic pidió.
+  // Con la Letra abierta en modo panel, el comportamiento depende del viewport
+  // (lectura PUNTUAL del ancho, sin estado ni listener; el 700 espeja el bloque CSS
+  // móvil maestro ~main.css:2559 @media (max-width: 700px)):
+  //  · MÓVIL (≤700px): se promueve la Letra a inmersivo y se expande — mismo estado
+  //    canónico que abrir la Letra desde el expandido (Letra full-bleed con el
+  //    expandido detrás); cerrar la Letra (X / Esc) revela el expandido que el clic pidió.
+  //  · DESKTOP (>700px): la Letra en panel manda (el clic en la barra era sólo para
+  //    usar la barra, no para tapar la vista). NO se monta el expandido: early-return
+  //    con setExpanded(false) defensivo — quitar sólo la promoción no basta, el
+  //    setExpanded(true) de abajo reintroduciría la "barra fantasma" (expandido montado
+  //    bajo la Letra en panel).
+  // Sin Letra abierta (cualquier viewport): se expande como siempre.
   const openNowPlaying = () => {
-    if (showLyrics) setLyricsImmersive(true);
+    const isMobile = window.matchMedia('(max-width: 700px)').matches;
+    if (showLyrics) {
+      if (!isMobile) { setExpanded(false); return; }   // desktop: no montar el expandido bajo la Letra en panel
+      setLyricsImmersive(true);                          // móvil: Letra → inmersivo + expandir
+    }
     setExpanded(true);
   };
 
