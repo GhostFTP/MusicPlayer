@@ -1,21 +1,26 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import TrackTable from './TrackTable.jsx';
 
 export default function Albums({ target, clearTarget }) {
   const [albums,   setAlbums]   = useState([]);
   const [selected, setSelected] = useState(null); // { album, tracks }
   const [loading,  setLoading]  = useState(true);
-  const { play, currentTrack } = usePlayer();
-  const activeRowRef = useRef(null);
+  const { play } = usePlayer();
 
   useEffect(() => {
     api.albums().then(setAlbums).finally(() => setLoading(false));
   }, []);
 
   async function openAlbum(album) {
-    const tracks = await api.albumTracks(album.album);
+    // Mismas pistas que AlbumDetail: /api/tracks trae los campos de calidad (para el
+    // QualityChip de TrackTable) y filtra por album + album_artist — /albums/:album/tracks
+    // no traía la calidad y mezclaba álbumes homónimos de distinto artista.
+    const params = { album: album.album, limit: 500 };
+    if (album.album_artist) params.album_artist = album.album_artist;
+    const tracks = await api.tracks(params);
     setSelected({ ...album, tracks });
   }
 
@@ -35,79 +40,41 @@ export default function Albums({ target, clearTarget }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, loading, albums]);
 
-  // Al abrir un álbum, desplaza la pista que suena a la vista (si está en él).
-  useEffect(() => {
-    if (selected) activeRowRef.current?.scrollIntoView({ block: 'center' });
-  }, [selected]);
-
   if (loading) return <div className="spinner">Cargando álbumes…</div>;
 
   if (selected) {
+    // Detalle unificado con AlbumDetail: hero .detail-* + TrackTable (misma estructura
+    // de clases → hereda el tratamiento móvil: carátula 116px, título 22px, columnas
+    // Artista/Álbum/Calidad ocultas, chip de calidad inline). La pista que suena se
+    // desplaza a la vista dentro de TrackTable.
     return (
       <div>
         <button className="back-btn" onClick={() => setSelected(null)}>
           ← Todos los álbumes
         </button>
 
-        <div style={{ display: 'flex', gap: 28, marginBottom: 28, alignItems: 'flex-end' }}>
+        <div className="detail-hero">
           {selected.sample_track_id
-            ? <img className="album-cover" style={{ width: 160, marginBottom: 0 }} src={coverUrl(selected.sample_track_id)} alt="" />
-            : <div className="album-cover-placeholder" style={{ width: 160, fontSize: 56 }}>♫</div>
+            ? <img className="detail-hero-cover" src={coverUrl(selected.sample_track_id)} alt="" />
+            : <div className="detail-hero-cover placeholder">♫</div>
           }
-          <div>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', marginBottom: 6 }}>Álbum</div>
-            <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4 }}>{selected.album}</h1>
-            <div style={{ color: 'var(--text-muted)', fontSize: 15 }}>{selected.album_artist ?? selected.tracks[0]?.artist}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
-              {selected.year && `${selected.year} · `}{selected.tracks.length} canciones
+          <div className="detail-hero-info">
+            <div className="detail-kicker">Álbum</div>
+            <h1 className="detail-title">{selected.album}</h1>
+            <div className="detail-sub">{selected.album_artist ?? selected.tracks[0]?.artist ?? '—'}</div>
+            <div className="detail-meta">
+              {selected.year ? `${selected.year} · ` : ''}{selected.track_count ?? selected.tracks.length} canciones
             </div>
-            <button
-              className="btn-primary"
-              style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              onClick={() => play(selected.tracks, 0)}
-            >
-              ▶ Reproducir
-            </button>
+            {selected.tracks.length > 0 && (
+              <div className="detail-actions">
+                <button className="btn-primary" onClick={() => play(selected.tracks, 0)}>▶ Reproducir</button>
+                <ShuffleButton tracks={selected.tracks} />
+              </div>
+            )}
           </div>
         </div>
 
-        <table className="track-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Título</th>
-              <th>Artista</th>
-              <th>⏱</th>
-            </tr>
-          </thead>
-          <tbody>
-            {selected.tracks.map((track, i) => {
-              const active = currentTrack?.id === track.id;
-              return (
-                <tr
-                  key={track.id}
-                  ref={active ? activeRowRef : null}
-                  className={`track-row${active ? ' playing' : ''}`}
-                  onClick={() => play(selected.tracks, i)}
-                >
-                  <td>
-                    <span className={`track-num${active ? ' active' : ''}`}>
-                      {active ? '▶' : (track.track_number ?? i + 1)}
-                    </span>
-                    <span className="track-play-icon">▶</span>
-                  </td>
-                  <td>
-                    <div className={`track-title${active ? ' active' : ''}`}>
-                      {track.title ?? 'Sin título'}
-                    </div>
-                  </td>
-                  <td className="track-artist">{track.artist ?? '—'}</td>
-                  <td>{fmt(track.duration)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <TrackTable tracks={selected.tracks} showAlbum={false} />
       </div>
     );
   }
@@ -147,9 +114,4 @@ export default function Albums({ target, clearTarget }) {
       </div>
     </div>
   );
-}
-
-function fmt(s) {
-  if (!s) return '—';
-  return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 }

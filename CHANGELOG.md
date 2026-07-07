@@ -42,6 +42,12 @@ Novedades destacables de **SonoraRev**. El formato sigue
   (para reproducir/pausar o navegar) saltaba a pantalla completa aunque solo
   quisieras usar la barra. Ahora en escritorio la barra se usa sin sobresaltos;
   en el celular la Letra sigue pasando a pantalla completa como siempre.
+- **Se acabó el desplazamiento horizontal en la biblioteca (celular).** Las
+  listas y el detalle de álbum ya no piden "arrastrar de lado" para ver toda la
+  info. El detalle de un álbum abierto desde la pestaña Álbumes ahora es idéntico
+  al del resto de la app (misma carátula, badge de calidad, botón de mezcla), y
+  los títulos largos se recortan con puntos suspensivos en vez de ensanchar la
+  fila.
 
 ### Técnico
 - Sistema `.bar-tip` reemplaza los `title=` nativos de la barra manteniendo (y

@@ -2570,6 +2570,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     grid-column: 1;
     grid-row: 1;
     padding: 20px 16px;
+    /* Red de seguridad: sin overflow-x explícito, el eje-Y auto vuelve el eje-X
+       visible en 'auto' → el panel se convierte en un scroll lateral de facto.
+       Recorta lo que se pase; el reflow real lo aportan las reglas de tabla/hero. */
+    overflow-x: hidden;
   }
 
   /* Mini player bar */
@@ -2685,6 +2689,15 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      el chip de calidad viaja inline junto al título */
   .col-artist, .col-album, .col-quality { display: none; }
   .quality-chip.chip-inline { display: inline-flex; }
+
+  /* Título de pista: truncar en móvil (un título de una sola palabra larga
+     ensanchaba la celda y desbordaba la tabla). Misma receta que .track-artist;
+     la cadena min-width:0 ya la aporta .track-text. Sólo móvil → desktop intacto. */
+  .track-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   /* Sin hover en táctil: las acciones de fila siempre visibles */
   .ptp-btn { opacity: 1; }
