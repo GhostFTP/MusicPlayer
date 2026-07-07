@@ -43,6 +43,10 @@ Novedades destacables de **SonoraRev**. El formato sigue
 - **En móvil, el control de volumen desaparece del reproductor ampliado**: el
   volumen lo mandan los botones físicos del teléfono (iOS ignora el volumen
   web), así que un slider que a veces no responde es peor que ninguno.
+- **Esc también sale del detalle**: estando dentro de un álbum, artista, género,
+  playlist o año (sin ningún panel abierto), Esc te devuelve a la lista donde
+  estabas — lo mismo que volver a tocar la pestaña activa. Si tenés el
+  reproductor ampliado abierto encima, Esc lo cierra primero.
 
 ### Corregido
 - **En escritorio, usar la barra con la Letra abierta ya no la manda a pantalla

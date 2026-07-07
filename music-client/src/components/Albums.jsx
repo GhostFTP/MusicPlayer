@@ -4,7 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import TrackTable from './TrackTable.jsx';
 
-export default function Albums({ target, clearTarget }) {
+export default function Albums({ target, clearTarget, setDetailOpen }) {
   const [albums,   setAlbums]   = useState([]);
   const [selected, setSelected] = useState(null); // { album, tracks }
   const [loading,  setLoading]  = useState(true);
@@ -13,6 +13,12 @@ export default function Albums({ target, clearTarget }) {
   useEffect(() => {
     api.albums().then(setAlbums).finally(() => setLoading(false));
   }, []);
+
+  // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Reactivo a
+  // `selected` (el {reset:true} que ya lo pone en null baja el flag solo). El cleanup
+  // de desmontaje evita que el flag quede colgado en true al cambiar de pestaña.
+  useEffect(() => { setDetailOpen(!!selected); }, [selected, setDetailOpen]);
+  useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
 
   async function openAlbum(album) {
     // Mismas pistas que AlbumDetail: /api/tracks trae los campos de calidad (para el

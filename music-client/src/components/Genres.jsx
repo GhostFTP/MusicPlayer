@@ -4,13 +4,18 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
-export default function Genres({ target, clearTarget }) {
+export default function Genres({ target, clearTarget, setDetailOpen }) {
   const [genres, setGenres] = useState(null);
   const [sel,    setSel]    = useState(null);   // género seleccionado
   const [tracks, setTracks] = useState(null);
   const { play } = usePlayer();
 
   useEffect(() => { api.genres().then(setGenres); }, []);
+
+  // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Reactivo a
+  // `sel`; el cleanup de desmontaje evita que el flag quede colgado en true.
+  useEffect(() => { setDetailOpen(!!sel); }, [sel, setDetailOpen]);
+  useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
 
   async function open(g) {
     setSel(g);

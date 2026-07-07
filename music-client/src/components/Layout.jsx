@@ -12,6 +12,10 @@ import Player    from './Player.jsx';
 export default function Layout() {
   const [view, setView] = useState('library');
   const [navTarget, setNavTarget] = useState(null);
+  // ¿Hay un DETALLE abierto en la vista actual? Cada vista con detalle lo reporta
+  // vía setDetailOpen (y lo limpia al desmontar). Player lo usa para que Esc, sin
+  // overlays ni expandido, salga del detalle y vuelva a la lista.
+  const [detailOpen, setDetailOpen] = useState(false);
 
   // Navegación central: cambia de vista y (opcionalmente) fija un target para
   // que la vista destino lo consuma. El menú y el bottom-nav navegan siempre
@@ -28,7 +32,7 @@ export default function Layout() {
   // (album/artist/genre para ir al detalle, o { reset:true } para volver a la lista)
   // y llama a clearTarget → consumo único. Al cambiar de `view` la vista destino se
   // monta de cero (reset natural de su estado).
-  const viewProps = { target: navTarget, clearTarget };
+  const viewProps = { target: navTarget, clearTarget, setDetailOpen };
   const VIEWS = {
     library:   <Library   {...viewProps} />,
     albums:    <Albums    {...viewProps} />,
@@ -47,7 +51,7 @@ export default function Layout() {
         {VIEWS[view]}
       </main>
 
-      <Player navigate={navigate} view={view} />
+      <Player navigate={navigate} view={view} detailOpen={detailOpen} />
 
       <BottomNav view={view} navigate={navigate} />
     </div>

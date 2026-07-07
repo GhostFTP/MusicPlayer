@@ -108,7 +108,7 @@ function rubber(dx) {
 function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
 function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
-export default function Player({ navigate, view }) {
+export default function Player({ navigate, view, detailOpen }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
@@ -193,10 +193,16 @@ export default function Player({ navigate, view }) {
       else if (showLyrics) setShowLyrics(false);   // cierra la letra donde sea que esté abierta
       else if (view === 'changelog') navigate(prevViewRef.current);  // "cierra" Novedades
       else if (expanded)   setExpanded(false);
+      // Detalle de navegación (álbum/artista/género/playlist/año) → vuelve a la lista
+      // reusando { reset:true } (navigate(view) con un solo arg). VA AL FINAL a
+      // propósito: si el expandido está montado ENCIMA de un detalle (z 200, tapa la
+      // pantalla), Esc debe cerrar primero lo VISIBLE (el expandido); el detalle solo
+      // se cierra cuando no hay overlay ni expandido abiertos.
+      else if (detailOpen) navigate(view);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expanded, showInfo, showLyrics, view, navigate]);
+  }, [expanded, showInfo, showLyrics, view, navigate, detailOpen]);
 
   // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
   // Pointer Events (touch + mouse). touch-action: none (CSS): el navegador no
