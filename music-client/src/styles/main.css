@@ -2970,6 +2970,35 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
        visible en 'auto' → el panel se convierte en un scroll lateral de facto.
        Recorta lo que se pase; el reflow real lo aportan las reglas de tabla/hero. */
     overflow-x: hidden;
+    /* Gesto "atrás" (Layout.jsx, onContentPointer*): el scroll vertical nativo
+       queda del navegador (pan-y); al no haber overflow horizontal real, un
+       arrastre horizontal no lo reclama nadie más y llega entero al JS. */
+    touch-action: pan-y;
+  }
+
+  /* Chevron flotante del gesto "atrás": única señal visual del arrastre
+     (Layout.jsx controla su opacidad/escala por JS, frame a frame — no
+     animación). Mismo lenguaje glass que .exp-icon-btn/.bar-tip. pointer-events:
+     none: es puramente informativo, nunca roba el toque de lo que hay debajo. */
+  .nav-back-chevron {
+    position: fixed;
+    top: 50%;
+    left: max(env(safe-area-inset-left), 14px);
+    z-index: 150;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(24, 24, 24, .82);
+    backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    border: 1px solid rgba(255, 255, 255, .1);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+    color: var(--text);
+    pointer-events: none;
+    will-change: transform, opacity;
   }
 
   /* Mini player bar */
@@ -3161,6 +3190,14 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   /* Login */
   .login-card { padding: 32px 24px; }
+}
+
+/* Movimiento reducido: el fundido de asentamiento del chevron del gesto "atrás"
+   (Layout.jsx, navChevronStyle) se anula — ya lo calcula JS via `navReduced`,
+   esta regla es la red de seguridad (gana por !important sobre el inline). El
+   seguimiento del dedo durante el drag no pasa por acá (interacción directa). */
+@media (prefers-reduced-motion: reduce) {
+  .nav-back-chevron { transition: none !important; }
 }
 
 /* Very short screens — compact expanded player */

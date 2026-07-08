@@ -5,6 +5,14 @@ Novedades destacables de **SonoraRev**. El formato sigue
 
 ## [1.4.5]
 
+### Nuevo
+- **Gesto de navegación hacia atrás en móvil**: deslizando hacia la derecha en
+  cualquier punto del contenido (mismo lenguaje que el "atrás" de iOS, pero
+  dentro de la app) se sale del detalle actual (álbum, artista, género,
+  playlist o año) y se vuelve a su lista, con un chevron flotante como guía
+  visual. No interfiere con el cambio de canción por swipe en la carátula ni
+  con el cierre por swipe-down del reproductor expandido, y no afecta desktop.
+
 ### Cambiado
 - **Rebranding a SonoraRev**: el nombre visible de la app pasa de "Music Player" a
   **SonoraRev** (pestaña del navegador, pantalla de login, sidebar) y el favicon
