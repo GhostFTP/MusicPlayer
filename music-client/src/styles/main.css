@@ -2989,6 +2989,14 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .search-box { width: 100%; }
 
+  /* Track table en móvil: table-layout FIXED. Con `auto`, el min-content de un <td>
+     con flex min-width:0 + texto nowrap adentro es inconsistente en WebKit/Chromium
+     reales → la columna del título tomaba el ancho del texto completo, la tabla
+     desbordaba y .main-content{overflow-x:hidden} la clippeaba SIN ellipsis. Con
+     `fixed` los anchos los fijan los th (num 44 · título=resto · time 64 · actions 46)
+     → el título trunca garantizado. Desktop sigue `auto`. Aplica a las 3 vistas. */
+  .track-table { table-layout: fixed; }
+
   /* Track table: hide artist, album & quality columns;
      el chip de calidad viaja inline junto al título */
   .col-artist, .col-album, .col-quality { display: none; }

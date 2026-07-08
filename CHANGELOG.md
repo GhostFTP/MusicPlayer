@@ -23,6 +23,11 @@ Novedades destacables de **SonoraRev**. El formato sigue
   la cabecera suma la **duración total** junto al número de canciones, y el botón
   de eliminar se reubicó lejos de la acción principal.
 
+### Corregido
+- **Títulos largos de canción en móvil**: en el detalle de playlist (y también en
+  álbum y género) un título largo se cortaba pegado al borde derecho sin puntos
+  suspensivos; ahora se trunca limpio con "…".
+
 ## [1.4.2] - 2026-07-05
 
 ### Nuevo
