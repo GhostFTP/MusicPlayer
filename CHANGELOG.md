@@ -3,6 +3,31 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.3] - 2026-07-07
+
+### Nuevo
+- **Ordená las pistas de una playlist**: un riel de vidrio en el detalle de la
+  playlist —teñido con el color propio de la playlist— te deja ordenar por
+  **Añadido**, **Título**, **Artista** o **Álbum**; tocar el modo ya activo
+  invierte la dirección (↑/↓). Abre en "Añadido ↓" (las últimas agregadas
+  arriba, estilo Spotify), y las pistas sin artista o álbum quedan al final.
+- **Buscá dentro de una playlist**: un campo con lupa en el detalle filtra las
+  canciones por **título o artista** mientras escribís (ignora mayúsculas y
+  acentos). Convive con el orden del riel, y Reproducir/Mezcla operan sobre lo que
+  ves filtrado.
+
+### Mejorado
+- **Hero del detalle de playlist rediseñado ("Prisma Sólido")**: Reproducir y
+  Mezcla aleatoria pasan a ser pastillas teñidas con el color propio de la
+  playlist (Reproducir relleno como acción principal, Mezcla en versión suave),
+  la cabecera suma la **duración total** junto al número de canciones, y el botón
+  de eliminar se reubicó lejos de la acción principal.
+
+### Corregido
+- **Títulos largos de canción en móvil**: en el detalle de playlist (y también en
+  álbum y género) un título largo se cortaba pegado al borde derecho sin puntos
+  suspensivos; ahora se trunca limpio con "…".
+
 ## [1.4.2] - 2026-07-05
 
 ### Nuevo

@@ -1035,19 +1035,27 @@ button, input, select, textarea { font-family: inherit; }
 /* ── PLAYLIST DETAIL · HERO / TITLE / RENAME ───── */
 
 /* Hero de la playlist abierta: reusa .detail-hero con un banner en degradado por
-   hue (OSCURO, alpha .6 → transparent) y un medallón del emoji como "cover". */
+   hue (OSCURO) y un medallón del emoji como "cover". El fondo va con alpha bajo y
+   se apaga ANTES del borde inferior para no apilar un segundo wash --h sobre el
+   Riel Prisma (.pl-sortbar) que va justo debajo: el hue fuerte vive en el medallón
+   y en los botones (piezas chicas saturadas), no en un lavado plano de fondo. */
 .pl-hero {
   align-items: center;
   padding: 20px 22px;
   border-radius: 16px;
-  background: linear-gradient(180deg, hsl(var(--h, 265) 45% 20% / .6), transparent);
+  background: linear-gradient(180deg, hsl(var(--h, 265) 45% 20% / .45), transparent 78%);
 }
 .pl-hero-cover {
-  background: hsl(var(--h, 265) 50% 22% / .5);
+  background: hsl(var(--h, 265) 52% 24% / .55);
   box-shadow:
-    inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .4),
-    0 16px 40px rgba(0, 0, 0, .45);
+    inset 0 0 0 1px hsl(var(--h, 265) 62% 62% / .45),
+    0 12px 36px hsl(var(--h, 265) 50% 22% / .35),
+    0 16px 40px rgba(0, 0, 0, .4);
 }
+
+/* Kicker "PLAYLIST" teñido con el hue (mini-etiqueta de color, ata el hero al
+   Mosaico Prisma). Hereda el uppercase/tracking de .detail-kicker. */
+.pl-kicker { color: hsl(var(--h, 265) 60% 72%); }
 
 .pl-detail-title {
   display: inline-flex;
@@ -1092,6 +1100,217 @@ button, input, select, textarea { font-family: inherit; }
   gap: 8px;
 }
 .detail-hero-info .pl-detail-actions { margin-top: 16px; }
+
+/* ── Acciones "Prisma Sólido" ────────────────────────────────
+   Reproducir + Mix pasan a pills HERMANADOS (misma forma/altura) y llevan el hue
+   --h de la playlist. Overrides CONTEXTUALES de .btn-primary / .mix-btn (clases
+   GLOBALES usadas por Albums/Artists/Genres/AlbumDetail): solo aplican dentro del
+   hero de playlist (.pl-detail-actions), el resto de la app queda intacto. */
+
+/* Reproducir = pill primario TEÑIDO y relleno → acción dominante. */
+.pl-detail-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 0 22px;
+  min-height: 44px;
+  background: hsl(var(--h, 265) 55% 42%);
+  color: #fff;
+  box-shadow: 0 6px 20px hsl(var(--h, 265) 55% 35% / .5);
+  transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.pl-detail-actions .btn-primary:hover {
+  opacity: 1;                                   /* neutraliza el hover global (opacity:.85) */
+  background: hsl(var(--h, 265) 60% 48%);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 26px hsl(var(--h, 265) 55% 35% / .6);
+}
+.pl-detail-actions .btn-primary:active { transform: scale(.98); }
+.pl-detail-actions .btn-primary:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+/* Reproducir deshabilitado (filtro sin coincidencias): atenuado y "muerto", mismo
+   lenguaje que .mix-btn:disabled → los dos pills se leen coherentes sin match. */
+.pl-detail-actions .btn-primary:disabled,
+.pl-detail-actions .btn-primary:disabled:hover {
+  opacity: .45;
+  cursor: default;
+  background: hsl(var(--h, 265) 55% 42%);
+  transform: none;
+  box-shadow: none;
+}
+
+/* Mix = pill secundario GHOST, mismo hue y forma → subordinado (mismo lenguaje
+   que el segmento activo del Riel Prisma, .pl-sort-seg.active). */
+.pl-detail-actions .mix-btn {
+  gap: 8px;
+  padding: 0 20px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  background: hsl(var(--h, 265) 40% 30% / .22);
+  color: var(--text);
+  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
+  box-shadow: none;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.pl-detail-actions .mix-btn:hover {
+  background: hsl(var(--h, 265) 45% 35% / .32);
+  border-color: hsl(var(--h, 265) 60% 60% / .45);
+  transform: translateY(-1px);
+  box-shadow: none;
+}
+.pl-detail-actions .mix-btn:active { transform: scale(.98); }
+.pl-detail-actions .mix-btn:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+
+/* Papelera: lejos de la principal (flota a la derecha), hover rojo destructivo. */
+.pl-detail-actions .pl-del-action { margin-left: auto; }
+.pl-detail-actions .pl-del-action:hover { color: var(--q-lossy-low); }
+
+/* reduced-motion: sin lift/press (movimiento); se conservan relleno, borde y glow
+   (cambios de color). Cubre el .mix-btn scopeado, que en global no tiene guard. */
+@media (prefers-reduced-motion: reduce) {
+  .pl-detail-actions .btn-primary,
+  .pl-detail-actions .btn-primary:hover,
+  .pl-detail-actions .btn-primary:active,
+  .pl-detail-actions .mix-btn,
+  .pl-detail-actions .mix-btn:hover,
+  .pl-detail-actions .mix-btn:active { transform: none; }
+}
+
+/* ── BUSCADOR DEL DETALLE (.pl-search) ──────────────────────
+   Campo siempre visible en su propio renglón, JUSTO ARRIBA del Riel Prisma. Filtra
+   las filas por título/artista (acento/case-insensible); el Riel las ordena. Replica
+   el lenguaje del .search-box global (Biblioteca) pero SCOPEADO a .pl-* → el global
+   queda intacto. Foco teñido con el hue --h de la playlist (cambio de color, no de
+   posición) → coherente con hero/medallón/Riel. */
+.pl-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 8px;
+  padding: 0 12px;
+  min-height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgba(255, 255, 255, .06);
+  color: var(--text-muted);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.pl-search:focus-within {
+  border-color: hsl(var(--h, 265) 60% 60% / .55);
+  box-shadow: 0 0 0 3px hsl(var(--h, 265) 55% 55% / .16);
+  color: hsl(var(--h, 265) 70% 72%);
+}
+.pl-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 14px;
+}
+.pl-search input::placeholder { color: var(--text-muted); }
+
+/* ✕ limpiar: solo con texto. Área táctil ≥44px aunque el glifo sea chico; el
+   margin negativo la reancla al borde compensando el padding del contenedor. */
+.pl-search-clear {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin-right: -8px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.pl-search-clear:hover { color: var(--text); }
+.pl-search-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Estado vacío del FILTRO (distinto de "Playlist vacía"): el Riel queda visible
+   arriba para ajustar/limpiar sin perder los controles. */
+.pl-search-empty { padding: 32px 16px; }
+
+/* reduced-motion: el foco tiñe/glow al instante (color/estado sí, transición no). */
+@media (prefers-reduced-motion: reduce) {
+  .pl-search { transition: none; }
+}
+
+/* ── RIEL PRISMA · orden de pistas de la playlist ───────────
+   Segmented control que se apoya como toolbar entre el hero y la tabla. El
+   segmento activo se tiñe con el hue --h de la playlist (mismo lenguaje que
+   .pl-hero / el medallón); el toggle asc/desc vive fusionado (flecha ↑/↓). */
+.pl-sortbar {
+  display: flex;
+  gap: 4px;
+  margin: 2px 0 16px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid rgba(255, 255, 255, .06);
+}
+
+.pl-sort-seg {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.pl-sort-seg:hover { color: var(--text); background: var(--surface-hover); }
+.pl-sort-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Activo: wash + arito tintados por el hue (idénticos al medallón/.pl-hero). */
+.pl-sort-seg.active {
+  color: var(--text);
+  background: hsl(var(--h, 265) 55% 55% / .16);
+  border-color: hsl(var(--h, 265) 60% 60% / .35);
+}
+
+.pl-sort-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pl-sort-arrow {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: hsl(var(--h, 265) 70% 70%);
+  /* Flip al invertir dirección (el span se re-monta vía key={sortDir}). */
+  animation: pl-sort-flip .22s cubic-bezier(.34, 1.42, .5, 1);
+}
+@keyframes pl-sort-flip {
+  from { transform: rotateX(80deg) scale(.7); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
+/* reduced-motion: sin flip de la flecha ni transición del wash → el cambio de
+   glifo (↑/↓) y de color se aplica al instante (estado/color se conservan). */
+@media (prefers-reduced-motion: reduce) {
+  .pl-sort-seg   { transition: none; }
+  .pl-sort-arrow { animation: none; }
+}
 
 /* ── PLAYER BAR ─────────────────────────── */
 
@@ -2770,6 +2989,14 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .search-box { width: 100%; }
 
+  /* Track table en móvil: table-layout FIXED. Con `auto`, el min-content de un <td>
+     con flex min-width:0 + texto nowrap adentro es inconsistente en WebKit/Chromium
+     reales → la columna del título tomaba el ancho del texto completo, la tabla
+     desbordaba y .main-content{overflow-x:hidden} la clippeaba SIN ellipsis. Con
+     `fixed` los anchos los fijan los th (num 44 · título=resto · time 64 · actions 46)
+     → el título trunca garantizado. Desktop sigue `auto`. Aplica a las 3 vistas. */
+  .track-table { table-layout: fixed; }
+
   /* Track table: hide artist, album & quality columns;
      el chip de calidad viaja inline junto al título */
   .col-artist, .col-album, .col-quality { display: none; }
@@ -2809,6 +3036,19 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .playlist-medallion { width: 52px; height: 52px; font-size: 26px; }
   .pl-hero { padding: 16px; }
   .pl-hero-cover { font-size: 46px; }
+
+  /* Acciones: los dos pills comparten renglón y crecen; si no entran, envuelven.
+     La papelera (margin-left:auto) cae a su propia línea. Todo ≥44px, sin
+     desbordar a 360px (los labels ya no truncan, envuelven). */
+  .pl-detail-actions { flex-wrap: wrap; }
+  .pl-detail-actions .btn-primary,
+  .pl-detail-actions .mix-btn { flex: 1 1 auto; }
+  .pl-detail-actions .pl-del-action { flex: 0 0 auto; }
+
+  /* Riel Prisma: full-width, targets ≥44px, labels con ellipsis antes de
+     desbordar a 360px (el orden aplica igual con columnas ocultas). */
+  .pl-sortbar  { gap: 3px; }
+  .pl-sort-seg { min-height: 44px; padding: 0 8px; font-size: 12.5px; gap: 4px; }
 
   /* Login */
   .login-card { padding: 32px 24px; }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
@@ -14,6 +14,9 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
   const [renaming,  setRenaming]  = useState(false);
   const [renameVal, setRenameVal] = useState('');
   const [renameEmoji, setRenameEmoji] = useState('🎵');
+  const [sortMode,  setSortMode]  = useState('added'); // 'added' | 'title' | 'artist' | 'album'
+  const [sortDir,   setSortDir]   = useState('desc');  // 'asc' | 'desc'
+  const [query,     setQuery]     = useState('');      // filtro del detalle (título/artista)
   const { play, currentTrack, isPlaying } = usePlayer();
 
   useEffect(() => { api.playlists().then(setPlaylists); }, []);
@@ -51,6 +54,9 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     const tracks = await api.playlistTracks(playlist.id);
     setSelected({ playlist, tracks });
     setRenaming(false);
+    setSortMode('added');   // cada playlist abre en el default: Añadido ↓
+    setSortDir('desc');
+    setQuery('');           // y sin filtro (el buscador arranca vacío por playlist)
   }
 
   function startRename() {
@@ -78,9 +84,38 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     ));
   }
 
+  // Cambiar de modo arranca en su dirección natural (texto A-Z asc, Añadido desc);
+  // tocar el modo YA activo voltea la dirección (toggle asc/desc fusionado).
+  function cycleSort(key) {
+    if (sortMode === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortMode(key);
+      setSortDir(key === 'added' ? 'desc' : 'asc');
+    }
+  }
+
+  // Array FILTRADO + ORDENADO derivado UNA vez: lo usa tanto el .map() como el
+  // índice de play(), para que la pista que suena coincida con la fila visible.
+  // El buscador reduce (filtro sobre título/artista, acento/case-insensible), el
+  // Riel ordena. .filter() devuelve array nuevo y sortTracks copia con [...tracks]
+  // → selected.tracks NUNCA se muta.
+  const sortedTracks = useMemo(() => {
+    if (!selected) return [];
+    const q = norm(query.trim());
+    const base = q
+      ? selected.tracks.filter(t => norm(t.title).includes(q) || norm(t.artist).includes(q))
+      : selected.tracks;
+    return sortTracks(base, sortMode, sortDir);
+  }, [selected, sortMode, sortDir, query]);
+
   // ── Detalle de una playlist ──────────────────────────────
   if (selected) {
     const { playlist, tracks } = selected;
+    // Duración total: derivada 100% en cliente sumando track.duration (dato ya
+    // cargado, el mismo que usa fmt() en la tabla). Tolera null/0. Si el total
+    // da 0 → null y el segmento de duración no se muestra (evita "0 min").
+    const totalLabel = fmtTotal(tracks.reduce((s, t) => s + (t.duration || 0), 0));
     return (
       <div>
         <button className="back-btn" onClick={() => setSelected(null)}>
@@ -106,7 +141,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
               </form>
             ) : (
               <>
-                <div className="detail-kicker">Playlist</div>
+                <div className="detail-kicker pl-kicker">Playlist</div>
                 <h1 className="detail-title pl-detail-title">
                   {playlist.name}
                   <button className="btn-icon pl-edit" title="Renombrar" onClick={startRename}>
@@ -115,15 +150,22 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
                 </h1>
                 <div className="detail-meta">
                   {tracks.length} {tracks.length === 1 ? 'canción' : 'canciones'}
+                  {totalLabel && <> · {totalLabel}</>}
                 </div>
                 <div className="pl-detail-actions">
                   {tracks.length > 0 && (
                     <>
-                      <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
-                      <ShuffleButton tracks={tracks} />
+                      <button
+                        className="btn-primary"
+                        onClick={() => play(sortedTracks, 0)}
+                        disabled={sortedTracks.length === 0}
+                      >
+                        ▶ Reproducir
+                      </button>
+                      <ShuffleButton tracks={query.trim() ? sortedTracks : tracks} />
                     </>
                   )}
-                  <button className="btn-icon" title="Eliminar playlist" onClick={() => remove(playlist.id)}>
+                  <button className="btn-icon pl-del-action" title="Eliminar playlist" onClick={() => remove(playlist.id)}>
                     <TrashIcon />
                   </button>
                 </div>
@@ -139,6 +181,67 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
             <div className="empty-sub">Busca canciones en la Biblioteca y añádelas con el botón “+”.</div>
           </div>
         ) : (
+          <>
+          <div
+            className="pl-search"
+            role="search"
+            style={{ '--h': emojiHue(playlist.emoji) }}
+          >
+            <SearchIcon />
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') setQuery(''); }}
+              placeholder="Filtrar en esta playlist…"
+              aria-label="Filtrar canciones de la playlist"
+            />
+            {query && (
+              <button
+                type="button"
+                className="pl-search-clear"
+                aria-label="Limpiar filtro"
+                onClick={() => setQuery('')}
+              >
+                <XIcon />
+              </button>
+            )}
+          </div>
+          <div
+            className="pl-sortbar"
+            role="group"
+            aria-label="Ordenar pistas"
+            style={{ '--h': emojiHue(playlist.emoji) }}
+          >
+            {SORT_MODES.map(m => {
+              const isActive = sortMode === m.key;
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  className={`pl-sort-seg${isActive ? ' active' : ''}`}
+                  aria-pressed={isActive}
+                  aria-label={isActive
+                    ? `${m.label}, ${sortDir === 'asc' ? 'ascendente' : 'descendente'} (tocar para invertir)`
+                    : `Ordenar por ${m.label}`}
+                  onClick={() => cycleSort(m.key)}
+                >
+                  <span className="pl-sort-label">{m.label}</span>
+                  {isActive && (
+                    <span className="pl-sort-arrow" key={sortDir} aria-hidden="true">
+                      {sortDir === 'asc' ? '↑' : '↓'}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {sortedTracks.length === 0 ? (
+            <div className="empty-state pl-search-empty">
+              <div className="empty-icon">🔎</div>
+              <div className="empty-title">Sin coincidencias</div>
+              <div className="empty-sub">Ninguna canción coincide con «{query.trim()}».</div>
+            </div>
+          ) : (
           <table className="track-table">
             <thead>
               <tr>
@@ -152,13 +255,13 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
               </tr>
             </thead>
             <tbody>
-              {tracks.map((track, i) => {
+              {sortedTracks.map((track, i) => {
                 const active = currentTrack?.id === track.id;
                 return (
                   <tr
                     key={track.id}
                     className={`track-row${active ? ' playing' : ''}`}
-                    onClick={() => play(tracks, i)}
+                    onClick={() => play(sortedTracks, i)}
                   >
                     <td className="col-num">
                       <span className={`track-num${active ? ' active' : ''}`}>
@@ -201,6 +304,8 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
               })}
             </tbody>
           </table>
+          )}
+          </>
         )}
       </div>
     );
@@ -262,9 +367,63 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
   );
 }
 
+// Modos del "Riel Prisma". 'added' usa pt.position (proxy real de fecha de agregado,
+// ya viene en cada track); el resto son campos de texto nullable.
+const SORT_MODES = [
+  { key: 'added',  label: 'Añadido', field: 'position' },
+  { key: 'title',  label: 'Título',  field: 'title' },
+  { key: 'artist', label: 'Artista', field: 'artist' },
+  { key: 'album',  label: 'Álbum',   field: 'album' },
+];
+
+// Normaliza para el filtro del buscador: minúsculas + sin diacríticos (NFD +
+// quitar el bloque de combining marks). Conserva espacios/dígitos → "nujabes" ==
+// "Nujabes", "daft" matchea "Daft Punk". Puro, cero backend.
+function norm(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+// Ordena una COPIA (nunca muta el original). Comparadores tolerantes a null:
+// title/artist/album vacíos van SIEMPRE al final, en ambas direcciones (no se
+// invierten con el toggle). localeCompare con acentos/ñ y orden numérico natural.
+function sortTracks(tracks, mode, dir) {
+  const arr = [...tracks];
+  const sign = dir === 'asc' ? 1 : -1;
+
+  if (mode === 'added') {
+    arr.sort((a, b) => sign * ((a.position ?? 0) - (b.position ?? 0)));
+    return arr;
+  }
+
+  const field = mode === 'artist' ? 'artist' : mode === 'album' ? 'album' : 'title';
+  arr.sort((a, b) => {
+    const av = a[field];
+    const bv = b[field];
+    const aEmpty = av == null || av === '';
+    const bEmpty = bv == null || bv === '';
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;   // null/vacío al fondo, sin importar la dirección
+    if (bEmpty) return -1;
+    return sign * av.localeCompare(bv, undefined, { sensitivity: 'base', numeric: true });
+  });
+  return arr;
+}
+
 function fmt(s) {
   if (!s) return '—';
   return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
+}
+
+// Duración total de la playlist, formato limpio ("48 min" / "1 h 12 min").
+// Devuelve null si el total es 0 (o no hay datos) → el hero oculta el segmento
+// en vez de mostrar "0 min". Piso de 1 min para playlists muy cortas.
+function fmtTotal(secs) {
+  const total = Math.round(secs || 0);
+  if (total <= 0) return null;
+  const h = Math.floor(total / 3600);
+  const m = Math.round((total % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h} h ${m} min` : `${h} h`;
+  return `${Math.max(1, m)} min`;
 }
 
 function TrashIcon() {
@@ -287,6 +446,14 @@ function XIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
     </svg>
   );
 }
