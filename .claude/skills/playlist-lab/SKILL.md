@@ -17,8 +17,9 @@ selectores, nombres de función y campos son el ancla.
 | Archivo | Rol |
 |---|---|
 | `music-client/src/components/Playlists.jsx` | TODA la vista. Componente `Playlists` (estados ~10-19), Mosaico/lista (~268-320), detalle (~104-265: hero ~116-160, Riel Prisma ~170-198, tabla bespoke ~199-260). Helpers a nivel módulo: `SORT_MODES` (~325), `sortTracks()` (~335), `fmt()` (~358), `fmtTotal()` (~366). Acciones: `create/remove/open/startRename/saveRename/removeTrack/cycleSort` (~36-94). `sortedTracks` memo (~98) |
+| `music-client/src/components/PlaylistCover.jsx` | Portada "collage" reutilizable: recibe `ids` (0..4 track-ids con carátula) + `emoji` de fallback + `lazy`; decide el layout por cantidad (5 casos). Se monta en el medallón del Mosaico y en `.pl-hero-cover`. **NO calcula `--h`** (lo hereda del contenedor) |
 | `music-client/src/utils/emojiHue.js` | Deriva `--h` (0-359) del emoji, puro y determinista |
-| `music-client/src/styles/main.css` | Estilos `.pl-*`: Mosaico (`.playlist-list`/`.playlist-item`/`.playlist-medallion`), hero (`.pl-hero`/`.pl-hero-cover`/`.pl-kicker`), botones Prisma Sólido (`.pl-detail-actions .btn-primary`/`.mix-btn`/`.pl-del-action` ~1104-1176), Riel (`.pl-sortbar`/`.pl-sort-seg`/`.pl-sort-arrow` ~1180+), tabla compartida `.track-table` |
+| `music-client/src/styles/main.css` | Estilos `.pl-*`: Mosaico (`.playlist-list`/`.playlist-item`/`.playlist-medallion`), hero (`.pl-hero`/`.pl-hero-cover`/`.pl-kicker`), botones Prisma Sólido (`.pl-detail-actions .btn-primary`/`.mix-btn`/`.pl-del-action` ~1104-1176), Riel (`.pl-sortbar`/`.pl-sort-seg`/`.pl-sort-arrow` ~1180+), portada collage (`.pl-cover*` ~620), tabla compartida `.track-table` (`table-layout:fixed` en móvil) |
 | `music-client/src/api/client.js` | Wrappers fetch: `api.playlists()`, `createPlaylist(name, emoji)`, `playlistTracks(id)`, `updatePlaylist(id,{name,emoji})`, `deletePlaylist(id)`, `removeFromPlaylist(plId, trackId)`, `addToPlaylist(...)` (el "+" vive en la Biblioteca) |
 | `music-server/src/api/playlists.js` | Endpoints REST (**backend — NO tocar salvo decisión explícita del usuario**) |
 | `music-server/src/db/database.js` | Schema `playlists` (~47) y `playlist_tracks` (~55) |
@@ -33,7 +34,7 @@ solo sus playlists). Los que devuelven pistas mandan **solo datos reales de la D
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| GET | `/api/playlists` | Lista del usuario con `track_count` (LEFT JOIN + COUNT). Campos: `id, name, emoji, user_id, created_at, track_count`. `ORDER BY created_at, id` |
+| GET | `/api/playlists` | Lista del usuario con `track_count` (LEFT JOIN + COUNT) y `sample_covers` (para la portada collage: **string JSON** con array de hasta 4 `track_id` **con carátula**, por `position` — subquery `json_group_array` + `LIMIT 4`, filtra `cover_path IS NOT NULL`; 0 filas → `"[]"`). Campos: `id, name, emoji, user_id, created_at, track_count, sample_covers`. `ORDER BY created_at, id` |
 | POST | `/api/playlists` | Crea. `name` obligatorio (400 si falta), `emoji` opcional |
 | GET | `/api/playlists/:id/tracks` | Pistas de la playlist. Campos: `id, title, artist, album, duration, cover_path, codec, bits_per_sample, sample_rate, bitrate, lossless, position`. **`ORDER BY pt.position`** |
 | POST | `/api/playlists/:id/tracks` | Agrega `track_id`. `position = MAX(position)+1`. `INSERT OR IGNORE` (PK compuesta): si ya estaba → `{ already: true }`, si no → `{ position }` |
@@ -77,6 +78,30 @@ no apilar dos washes planos del mismo hue. Por eso `.pl-hero` va con alpha bajo
 (`.45`) y se apaga al 78% antes de que empiece el `.pl-sortbar` de abajo. Lenguaje
 compartido con el segmento activo del Riel: wash `hsl(var(--h) 55% 55% / .16)` +
 aro `inset … hsl(var(--h) 60% 60% / .35)`.
+
+## Portada de la playlist — collage 2×2 (`PlaylistCover`)
+
+La portada (medallón del Mosaico y `.pl-hero-cover` del detalle) ya **no es
+solo-emoji**: se arma como **collage 2×2** con las carátulas de las primeras 4
+pistas, vía `PlaylistCover.jsx`. El **emoji sigue guardado** y cumple dos roles:
+**fuente del `--h`** (sin cambios) y **fallback** de portada.
+
+- **De dónde salen las 4 covers**:
+  - **Mosaico**: del campo `sample_covers` de `GET /api/playlists` (string JSON de
+    hasta 4 `track_id` con carátula) → `parseCovers()` en `Playlists.jsx`
+    (`JSON.parse` con try/catch → `[]`). Cada id se sirve con `coverUrl(id)`.
+  - **Hero**: derivado en cliente de **`selected.tracks`** (las primeras 4 con
+    `cover_path != null`), **NUNCA de `sortedTracks`** → la portada es **estable**
+    ante el Riel y el buscador (regla dura: la portada no cambia al reordenar/filtrar).
+    Derivación por lectura (`.filter().slice().map()`), sin mutar `selected.tracks`.
+- **5 casos** (los decide `PlaylistCover` por cantidad de ids): 4 → grid 2×2 ·
+  3 → 2×2 con la 4ª celda wash `--h` · 2 → split · 1 → full-bleed ·
+  **0 → emoji** sobre el wash `--h` (idéntico a antes, cero regresión).
+- **`--h` intacto**: `PlaylistCover` **no** calcula el hue; lo hereda del contenedor
+  (`.playlist-item`/`.pl-hero`). El wash/aro `--h` queda como marco del collage y
+  relleno de las celdas vacías → el sistema Prisma no se rompe.
+- **Degradación**: si el server no manda `sample_covers` (build viejo), el Mosaico
+  cae al caso 0 (emoji), como antes. Imgs del Mosaico con `loading="lazy"`.
 
 ## Orden de pistas — el Riel Prisma (`sortTracks`)
 
