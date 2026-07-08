@@ -5,6 +5,11 @@ Novedades destacables de **SonoraRev**. El formato sigue
 
 ## [1.4.4]
 
+### Nuevo
+- **Confirmación al borrar una playlist**: la papelera del detalle ahora pide
+  confirmación (Cancelar / Borrar) antes de eliminar, para no borrar una playlist
+  sin querer.
+
 ### Corregido
 - **Texto de los campos de escritura en móvil**: en algunos teléfonos (iOS/Android
   con el sistema en modo oscuro) el texto que escribías —por ejemplo al renombrar

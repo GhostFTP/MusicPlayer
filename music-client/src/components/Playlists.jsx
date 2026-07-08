@@ -12,6 +12,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
   const [emoji,     setEmoji]     = useState('🎵');
   const [selected,  setSelected]  = useState(null); // { playlist, tracks }
   const [renaming,  setRenaming]  = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false); // paso extra antes de borrar la playlist
   const [renameVal, setRenameVal] = useState('');
   const [renameEmoji, setRenameEmoji] = useState('🎵');
   const [sortMode,  setSortMode]  = useState('added'); // 'added' | 'title' | 'artist' | 'album'
@@ -54,12 +55,14 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     const tracks = await api.playlistTracks(playlist.id);
     setSelected({ playlist, tracks });
     setRenaming(false);
+    setConfirmDelete(false); // sin confirmación de borrado a medias al abrir otra playlist
     setSortMode('added');   // cada playlist abre en el default: Añadido ↓
     setSortDir('desc');
     setQuery('');           // y sin filtro (el buscador arranca vacío por playlist)
   }
 
   function startRename() {
+    setConfirmDelete(false); // renombrar y confirmar-borrado son excluyentes
     setRenameVal(selected.playlist.name);
     setRenameEmoji(selected.playlist.emoji || '🎵');
     setRenaming(true);
@@ -153,21 +156,47 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
                   {totalLabel && <> · {totalLabel}</>}
                 </div>
                 <div className="pl-detail-actions">
-                  {tracks.length > 0 && (
-                    <>
+                  {confirmDelete ? (
+                    <div className="pl-del-confirm" role="alertdialog" aria-label="Confirmar borrado de la playlist">
+                      <span className="pl-del-confirm-text">¿Seguro que quieres borrar esta playlist?</span>
                       <button
-                        className="btn-primary"
-                        onClick={() => play(sortedTracks, 0)}
-                        disabled={sortedTracks.length === 0}
+                        type="button"
+                        className="pl-del-cancel"
+                        onClick={() => setConfirmDelete(false)}
                       >
-                        ▶ Reproducir
+                        Cancelar
                       </button>
-                      <ShuffleButton tracks={query.trim() ? sortedTracks : tracks} />
+                      <button
+                        type="button"
+                        className="pl-del-confirm-btn"
+                        onClick={() => remove(playlist.id)}
+                      >
+                        Borrar
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {tracks.length > 0 && (
+                        <>
+                          <button
+                            className="btn-primary"
+                            onClick={() => play(sortedTracks, 0)}
+                            disabled={sortedTracks.length === 0}
+                          >
+                            ▶ Reproducir
+                          </button>
+                          <ShuffleButton tracks={query.trim() ? sortedTracks : tracks} />
+                        </>
+                      )}
+                      <button
+                        className="btn-icon pl-del-action"
+                        title="Eliminar playlist"
+                        onClick={() => setConfirmDelete(true)}
+                      >
+                        <TrashIcon />
+                      </button>
                     </>
                   )}
-                  <button className="btn-icon pl-del-action" title="Eliminar playlist" onClick={() => remove(playlist.id)}>
-                    <TrashIcon />
-                  </button>
                 </div>
               </>
             )}
