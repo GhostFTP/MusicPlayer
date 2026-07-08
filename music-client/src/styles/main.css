@@ -3144,6 +3144,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .pl-detail-actions .mix-btn { flex: 1 1 auto; }
   .pl-detail-actions .pl-del-action { flex: 0 0 auto; }
 
+  /* Formulario de renombrar: mismo problema que las acciones de arriba — el
+     input con width:340px fijo era el único hijo sin piso mínimo (EmojiPicker
+     ~34px + Guardar ~97px min-content + ✕ 44px ya suman ~197px de los ~164px
+     disponibles a 360px), así que absorbía TODO el achique y colapsaba a ~0px.
+     Wrap + flex-basis:100% lo manda a su propia línea con el ancho completo
+     disponible (164-194px según 360/390px), nunca ilegible. Solo móvil:
+     desktop sigue en una sola fila con los 340px fijos. */
+  .pl-rename { flex-wrap: wrap; }
+  .pl-rename input { flex: 1 1 100%; width: auto; }
+
   /* Riel Prisma: full-width, targets ≥44px, labels con ellipsis antes de
      desbordar a 360px (el orden aplica igual con columnas ocultas). */
   .pl-sortbar  { gap: 3px; }

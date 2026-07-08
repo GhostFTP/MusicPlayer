@@ -3,6 +3,14 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.5]
+
+### Corregido
+- **Renombrar playlist en móvil**: el campo de texto para renombrar una playlist
+  podía colapsar a un ancho casi invisible en pantallas chicas (≤360px), donde el
+  emoji y los botones "Guardar"/"✕" le dejaban casi nada de espacio; ahora pasa a
+  su propia línea con ancho completo y el texto siempre se ve mientras se escribe.
+
 ## [1.4.4] - 2026-07-08
 
 ### Nuevo
