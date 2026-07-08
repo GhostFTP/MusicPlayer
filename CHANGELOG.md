@@ -11,6 +11,10 @@ Novedades destacables de **SonoraRev**. El formato sigue
   **Añadido**, **Título**, **Artista** o **Álbum**; tocar el modo ya activo
   invierte la dirección (↑/↓). Abre en "Añadido ↓" (las últimas agregadas
   arriba, estilo Spotify), y las pistas sin artista o álbum quedan al final.
+- **Buscá dentro de una playlist**: un campo con lupa en el detalle filtra las
+  canciones por **título o artista** mientras escribís (ignora mayúsculas y
+  acentos). Convive con el orden del riel, y Reproducir/Mezcla operan sobre lo que
+  ves filtrado.
 
 ### Mejorado
 - **Hero del detalle de playlist rediseñado ("Prisma Sólido")**: Reproducir y
