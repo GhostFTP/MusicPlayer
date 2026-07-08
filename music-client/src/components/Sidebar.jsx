@@ -36,7 +36,7 @@ export default function Sidebar({ view, navigate }) {
     <aside className="sidebar">
       <div className="sidebar-logo">
         <MusicIcon />
-        Music Player
+        SonoraRev
       </div>
 
       <p className="sidebar-section-title">Menú</p>

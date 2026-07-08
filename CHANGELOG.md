@@ -5,6 +5,11 @@ Novedades destacables de **SonoraRev**. El formato sigue
 
 ## [1.4.5]
 
+### Cambiado
+- **Rebranding a SonoraRev**: el nombre visible de la app pasa de "Music Player" a
+  **SonoraRev** (pestaña del navegador, pantalla de login, sidebar) y el favicon
+  ahora es un ecualizador con degradado morado→rosa en vez del emoji genérico.
+
 ### Corregido
 - **Renombrar playlist en móvil**: el campo de texto para renombrar una playlist
   podía colapsar a un ancho casi invisible en pantallas chicas (≤360px), donde el
