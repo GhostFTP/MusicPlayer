@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.4.4]
+## [1.4.4] - 2026-07-08
 
 ### Nuevo
 - **Confirmación al borrar una playlist**: la papelera del detalle ahora pide
