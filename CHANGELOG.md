@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.4.3] - 2026-07-07
+## [1.4.3] - 2026-07-05
 
 ### Nuevo
 - **Ordená las pistas de una playlist**: un riel de vidrio en el detalle de la
