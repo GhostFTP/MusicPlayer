@@ -33,6 +33,12 @@
      < popovers de barra 260 < Info 300 < toast 400. */
   --z-bar-popover: 260;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* App dark-only: que el motor pinte TODOS los controles de formulario en apariencia
+     oscura. Sin esto, iOS Safari / Android Chrome (SO en oscuro) pintan el texto de los
+     <input> con la apariencia UA "clara" (-webkit-text-fill-color de sistema) → el texto
+     tipeado sale ilegible sobre el fondo oscuro del campo (p. ej. el rename de playlist).
+     Fix canónico y global, análogo al table-layout:fixed del truncado. */
+  color-scheme: dark;
 }
 
 body {

@@ -3,6 +3,13 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.4]
+
+### Corregido
+- **Texto de los campos de escritura en móvil**: en algunos teléfonos (iOS/Android
+  con el sistema en modo oscuro) el texto que escribías —por ejemplo al renombrar
+  una playlist— podía verse casi invisible; ahora se lee siempre.
+
 ## [1.4.3] - 2026-07-05
 
 ### Nuevo
