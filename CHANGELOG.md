@@ -11,6 +11,14 @@ Novedades destacables de **SonoraRev**. El formato sigue
   ahora es un ecualizador con degradado morado→rosa en vez del emoji genérico.
 
 ### Corregido
+- **Sesión que se quedaba pegada tras horas de uso**: si el token de sesión
+  vencía (7 días) mientras la pestaña seguía abierta, la biblioteca y el resto
+  de las secciones se veían vacías sin ningún aviso, y la única forma de
+  recuperarse era abrir una ventana de incógnito. Ahora la app se reautentica
+  sola (vía Cloudflare Access) al detectar un token vencido o al recibir un
+  error de sesión a mitad de uso; si de verdad falla una carga por otro motivo
+  (red, servidor), se avisa en pantalla con un botón para reintentar en vez de
+  mostrar una sección vacía engañosa.
 - **Renombrar playlist en móvil**: el campo de texto para renombrar una playlist
   podía colapsar a un ancho casi invisible en pantallas chicas (≤360px), donde el
   emoji y los botones "Guardar"/"✕" le dejaban casi nada de espacio; ahora pasa a

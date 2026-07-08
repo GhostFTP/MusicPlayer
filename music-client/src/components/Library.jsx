@@ -23,6 +23,7 @@ export default function Library({ target, clearTarget }) {
   const [tracks,  setTracks]  = useState([]);
   const [search,  setSearch]  = useState('');
   const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
   const { play, currentTrack, isPlaying } = usePlayer();
 
   const fetchTracks = useCallback(async (q) => {
@@ -33,6 +34,12 @@ export default function Library({ target, clearTarget }) {
       if (q) params.search = q;
       const data = await api.tracks(params);
       setTracks([...data].sort(byArtistAlbumTrack));
+      setError(null);
+    } catch (e) {
+      // No tragar el error: sin esto, un 401 dejaba `tracks` en su valor previo
+      // y se veía "Biblioteca vacía" — indistinguible de una biblioteca real
+      // vacía. Un 401 además dispara la reautenticación automática (client.js).
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -78,6 +85,13 @@ export default function Library({ target, clearTarget }) {
 
       {loading ? (
         <div className="spinner">Cargando…</div>
+      ) : error ? (
+        <div className="empty-state">
+          <div className="empty-icon">⚠️</div>
+          <div className="empty-title">No se pudo cargar la biblioteca</div>
+          <div className="empty-sub">Intenta de nuevo en un momento.</div>
+          <button className="btn-primary" onClick={() => fetchTracks(search)}>Reintentar</button>
+        </div>
       ) : tracks.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">🎵</div>

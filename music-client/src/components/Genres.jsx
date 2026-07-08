@@ -8,9 +8,20 @@ export default function Genres({ target, clearTarget, setDetailOpen }) {
   const [genres, setGenres] = useState(null);
   const [sel,    setSel]    = useState(null);   // género seleccionado
   const [tracks, setTracks] = useState(null);
+  const [error,  setError]  = useState(null);
   const { play } = usePlayer();
 
-  useEffect(() => { api.genres().then(setGenres); }, []);
+  // Función nombrada (no solo inline en el efecto) para poder reusarla desde
+  // el botón "Reintentar" del estado de error.
+  function loadGenres() {
+    setError(null);
+    api.genres().then(setGenres).catch(setError);
+  }
+
+  useEffect(() => {
+    loadGenres();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Reactivo a
   // `sel`; el cleanup de desmontaje evita que el flag quede colgado en true.
@@ -54,6 +65,17 @@ export default function Genres({ target, clearTarget, setDetailOpen }) {
           )}
         </div>
         {tracks ? <TrackTable tracks={tracks} /> : <div className="spinner">Cargando…</div>}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="empty-state">
+        <div className="empty-icon">⚠️</div>
+        <div className="empty-title">No se pudieron cargar los géneros</div>
+        <div className="empty-sub">Intenta de nuevo en un momento.</div>
+        <button className="btn-primary" onClick={loadGenres}>Reintentar</button>
       </div>
     );
   }

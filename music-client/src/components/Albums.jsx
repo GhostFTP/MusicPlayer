@@ -8,10 +8,20 @@ export default function Albums({ target, clearTarget, setDetailOpen }) {
   const [albums,   setAlbums]   = useState([]);
   const [selected, setSelected] = useState(null); // { album, tracks }
   const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
   const { play } = usePlayer();
 
+  // Función nombrada (no solo inline en el efecto) para poder reusarla desde
+  // el botón "Reintentar" del estado de error.
+  function loadAlbums() {
+    setLoading(true);
+    setError(null);
+    api.albums().then(setAlbums).catch(setError).finally(() => setLoading(false));
+  }
+
   useEffect(() => {
-    api.albums().then(setAlbums).finally(() => setLoading(false));
+    loadAlbums();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Reactivo a
@@ -47,6 +57,17 @@ export default function Albums({ target, clearTarget, setDetailOpen }) {
   }, [target, loading, albums]);
 
   if (loading) return <div className="spinner">Cargando álbumes…</div>;
+
+  if (error) {
+    return (
+      <div className="empty-state">
+        <div className="empty-icon">⚠️</div>
+        <div className="empty-title">No se pudieron cargar los álbumes</div>
+        <div className="empty-sub">Intenta de nuevo en un momento.</div>
+        <button className="btn-primary" onClick={loadAlbums}>Reintentar</button>
+      </div>
+    );
+  }
 
   if (selected) {
     // Detalle unificado con AlbumDetail: hero .detail-* + TrackTable (misma estructura
