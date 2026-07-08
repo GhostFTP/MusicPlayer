@@ -3,6 +3,22 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.4] - 2026-07-08
+
+### Nuevo
+- **Confirmación al borrar una playlist**: la papelera del detalle ahora pide
+  confirmación (Cancelar / Borrar) antes de eliminar, para no borrar una playlist
+  sin querer.
+- **Portada automática de playlist**: la carátula de cada playlist se arma sola con
+  las primeras 4 canciones con carátula, en mosaico 2×2 — tanto en la grilla de
+  playlists como en la cabecera del detalle. Si hay menos de 4 (o ninguna), se
+  completa con el color y el emoji de la playlist.
+
+### Corregido
+- **Texto de los campos de escritura en móvil**: en algunos teléfonos (iOS/Android
+  con el sistema en modo oscuro) el texto que escribías —por ejemplo al renombrar
+  una playlist— podía verse casi invisible; ahora se lee siempre.
+
 ## [1.4.3] - 2026-07-05
 
 ### Nuevo

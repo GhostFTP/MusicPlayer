@@ -33,6 +33,12 @@
      < popovers de barra 260 < Info 300 < toast 400. */
   --z-bar-popover: 260;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* App dark-only: que el motor pinte TODOS los controles de formulario en apariencia
+     oscura. Sin esto, iOS Safari / Android Chrome (SO en oscuro) pintan el texto de los
+     <input> con la apariencia UA "clara" (-webkit-text-fill-color de sistema) → el texto
+     tipeado sale ilegible sobre el fondo oscuro del campo (p. ej. el rename de playlist).
+     Fix canónico y global, análogo al table-layout:fixed del truncado. */
+  color-scheme: dark;
 }
 
 body {
@@ -611,6 +617,42 @@ button, input, select, textarea { font-family: inherit; }
   box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .35);
 }
 
+/* Portada "collage" (PlaylistCover): rellena el medallón / el hero-cover y hereda
+   su border-radius + aro --h. El emoji (caso 0) NO monta .pl-cover → el wash y el
+   glifo quedan idénticos a hoy. El aro del contenedor se re-dibuja con ::after por
+   encima de las imgs para conservarse como marco del collage. */
+.pl-cover {
+  position: relative;
+  width: 100%; height: 100%;
+  display: grid;
+  gap: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+.pl-cover-1 { grid-template-columns: 1fr; }
+.pl-cover-2 { grid-template-columns: 1fr 1fr; }
+.pl-cover-3,
+.pl-cover-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+.pl-cover-cell {
+  width: 100%; height: 100%;
+  min-width: 0; min-height: 0;   /* grid: permite que object-fit recorte sin desbordar */
+  object-fit: cover;
+  display: block;
+}
+/* Celda vacía del caso 3: wash --h coherente con el medallón (el mismo valor). */
+.pl-cover-empty { background: hsl(var(--h, 265) 55% 55% / .16); }
+
+/* Aro --h como marco, redibujado sobre el collage (el inset del contenedor queda
+   tapado por las imgs). Alpha del medallón; el hero lo sube en su override. */
+.pl-cover::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .35);
+  pointer-events: none;
+}
+
 .playlist-card-text { min-width: 0; margin-top: auto; }
 .playlist-name {
   font-size: 15px; font-weight: 600;
@@ -1052,6 +1094,10 @@ button, input, select, textarea { font-family: inherit; }
     0 12px 36px hsl(var(--h, 265) 50% 22% / .35),
     0 16px 40px rgba(0, 0, 0, .4);
 }
+/* Collage en el hero: aro más marcado (mismo valor que el ring del contenedor). */
+.pl-hero-cover .pl-cover::after {
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 62% 62% / .45);
+}
 
 /* Kicker "PLAYLIST" teñido con el hue (mini-etiqueta de color, ata el hero al
    Mosaico Prisma). Hereda el uppercase/tracking de .detail-kicker. */
@@ -1173,6 +1219,53 @@ button, input, select, textarea { font-family: inherit; }
 .pl-detail-actions .pl-del-action { margin-left: auto; }
 .pl-detail-actions .pl-del-action:hover { color: var(--q-lossy-low); }
 
+/* Confirmación inline de borrado: reemplaza la fila de acciones (Reproducir/Mix/
+   papelera) con la pregunta + Cancelar/Borrar. Reusa el lenguaje danger del menú "+"
+   (.ptp-mini-btn.danger: texto var(--q-lossy-low) + tint rgba(251,113,133,·)), sizing
+   acorde al hero. La acción destructiva (Borrar) queda en rojo; Cancelar es neutro. */
+.pl-del-confirm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  animation: pl-del-confirm-in .16s ease;
+}
+.pl-del-confirm-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.pl-del-cancel,
+.pl-del-confirm-btn {
+  min-height: 44px;              /* piso táctil del proyecto + coherencia con los pills del hero */
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.pl-del-cancel {
+  background: rgba(255, 255, 255, .06);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.pl-del-cancel:hover { background: rgba(255, 255, 255, .1); }
+.pl-del-confirm-btn {
+  background: rgba(251, 113, 133, .12);
+  color: var(--q-lossy-low);
+  border: 1px solid rgba(251, 113, 133, .5);
+}
+.pl-del-confirm-btn:hover {
+  background: rgba(251, 113, 133, .2);
+  transform: translateY(-1px);
+}
+.pl-del-cancel:active,
+.pl-del-confirm-btn:active { transform: scale(.98); }
+.pl-del-cancel:focus-visible,
+.pl-del-confirm-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes pl-del-confirm-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+
 /* reduced-motion: sin lift/press (movimiento); se conservan relleno, borde y glow
    (cambios de color). Cubre el .mix-btn scopeado, que en global no tiene guard. */
 @media (prefers-reduced-motion: reduce) {
@@ -1182,6 +1275,12 @@ button, input, select, textarea { font-family: inherit; }
   .pl-detail-actions .mix-btn,
   .pl-detail-actions .mix-btn:hover,
   .pl-detail-actions .mix-btn:active { transform: none; }
+  /* Confirmación de borrado: sin entrada ni lift/press (movimiento); se conservan
+     relleno, borde y tint rojo (color/estado). */
+  .pl-del-confirm { animation: none; }
+  .pl-del-confirm-btn:hover,
+  .pl-del-cancel:active,
+  .pl-del-confirm-btn:active { transform: none; }
 }
 
 /* ── BUSCADOR DEL DETALLE (.pl-search) ──────────────────────

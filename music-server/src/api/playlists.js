@@ -9,7 +9,21 @@ router.use(authMiddleware);
 router.get('/', (req, res) => {
   res.json(db.prepare(`
     SELECT p.id, p.name, p.emoji, p.user_id, p.created_at,
-           COUNT(pt.track_id) AS track_count
+           COUNT(pt.track_id) AS track_count,
+           -- Portada collage: los primeros 4 track_id CON carátula, por orden de
+           -- agregado (position). json_group_array → string JSON "[id,id,…]"; el
+           -- front lo parsea y sirve cada uno con coverUrl(id). Devolvemos ids (no
+           -- cover_path) para no exponer rutas del filesystem. Mismo patrón que
+           -- sample_track_id de albums.js. ADITIVO: no cambia los campos previos.
+           (SELECT json_group_array(id) FROM (
+              SELECT t.id
+              FROM playlist_tracks pt2
+              JOIN tracks t ON t.id = pt2.track_id
+              WHERE pt2.playlist_id = p.id
+                AND t.cover_path IS NOT NULL
+              ORDER BY pt2.position
+              LIMIT 4
+           )) AS sample_covers
     FROM playlists p
     LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
     WHERE p.user_id = ?

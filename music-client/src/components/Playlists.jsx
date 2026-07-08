@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
+import PlaylistCover from './PlaylistCover.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 
 export default function Playlists({ target, clearTarget, setDetailOpen }) {
@@ -12,6 +13,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
   const [emoji,     setEmoji]     = useState('🎵');
   const [selected,  setSelected]  = useState(null); // { playlist, tracks }
   const [renaming,  setRenaming]  = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false); // paso extra antes de borrar la playlist
   const [renameVal, setRenameVal] = useState('');
   const [renameEmoji, setRenameEmoji] = useState('🎵');
   const [sortMode,  setSortMode]  = useState('added'); // 'added' | 'title' | 'artist' | 'album'
@@ -54,12 +56,14 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     const tracks = await api.playlistTracks(playlist.id);
     setSelected({ playlist, tracks });
     setRenaming(false);
+    setConfirmDelete(false); // sin confirmación de borrado a medias al abrir otra playlist
     setSortMode('added');   // cada playlist abre en el default: Añadido ↓
     setSortDir('desc');
     setQuery('');           // y sin filtro (el buscador arranca vacío por playlist)
   }
 
   function startRename() {
+    setConfirmDelete(false); // renombrar y confirmar-borrado son excluyentes
     setRenameVal(selected.playlist.name);
     setRenameEmoji(selected.playlist.emoji || '🎵');
     setRenaming(true);
@@ -116,6 +120,10 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     // cargado, el mismo que usa fmt() en la tabla). Tolera null/0. Si el total
     // da 0 → null y el segmento de duración no se muestra (evita "0 min").
     const totalLabel = fmtTotal(tracks.reduce((s, t) => s + (t.duration || 0), 0));
+    // Portada del hero: primeras 4 pistas CON carátula, en orden de `selected.tracks`
+    // (NO `sortedTracks`, que reordena por el Riel y filtra por el buscador → la
+    // portada debe ser ESTABLE). .filter().slice().map() son lecturas: no mutan.
+    const heroCoverIds = tracks.filter(t => t.cover_path != null).slice(0, 4).map(t => t.id);
     return (
       <div>
         <button className="back-btn" onClick={() => setSelected(null)}>
@@ -123,7 +131,9 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
         </button>
 
         <div className="detail-hero pl-hero" style={{ '--h': emojiHue(playlist.emoji) }}>
-          <div className="detail-hero-cover placeholder pl-hero-cover">{playlist.emoji || '🎵'}</div>
+          <div className="detail-hero-cover placeholder pl-hero-cover">
+            <PlaylistCover ids={heroCoverIds} emoji={playlist.emoji} />
+          </div>
           <div className="detail-hero-info">
             {renaming ? (
               <form className="pl-rename" onSubmit={saveRename}>
@@ -153,21 +163,47 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
                   {totalLabel && <> · {totalLabel}</>}
                 </div>
                 <div className="pl-detail-actions">
-                  {tracks.length > 0 && (
-                    <>
+                  {confirmDelete ? (
+                    <div className="pl-del-confirm" role="alertdialog" aria-label="Confirmar borrado de la playlist">
+                      <span className="pl-del-confirm-text">¿Seguro que quieres borrar esta playlist?</span>
                       <button
-                        className="btn-primary"
-                        onClick={() => play(sortedTracks, 0)}
-                        disabled={sortedTracks.length === 0}
+                        type="button"
+                        className="pl-del-cancel"
+                        onClick={() => setConfirmDelete(false)}
                       >
-                        ▶ Reproducir
+                        Cancelar
                       </button>
-                      <ShuffleButton tracks={query.trim() ? sortedTracks : tracks} />
+                      <button
+                        type="button"
+                        className="pl-del-confirm-btn"
+                        onClick={() => remove(playlist.id)}
+                      >
+                        Borrar
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {tracks.length > 0 && (
+                        <>
+                          <button
+                            className="btn-primary"
+                            onClick={() => play(sortedTracks, 0)}
+                            disabled={sortedTracks.length === 0}
+                          >
+                            ▶ Reproducir
+                          </button>
+                          <ShuffleButton tracks={query.trim() ? sortedTracks : tracks} />
+                        </>
+                      )}
+                      <button
+                        className="btn-icon pl-del-action"
+                        title="Eliminar playlist"
+                        onClick={() => setConfirmDelete(true)}
+                      >
+                        <TrashIcon />
+                      </button>
                     </>
                   )}
-                  <button className="btn-icon pl-del-action" title="Eliminar playlist" onClick={() => remove(playlist.id)}>
-                    <TrashIcon />
-                  </button>
                 </div>
               </>
             )}
@@ -345,7 +381,9 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
                 style={{ '--h': emojiHue(pl.emoji), '--i': idx }}
                 onClick={() => open(pl)}
               >
-                <span className="playlist-medallion">{pl.emoji || '🎵'}</span>
+                <span className="playlist-medallion">
+                  <PlaylistCover ids={parseCovers(pl.sample_covers)} emoji={pl.emoji} lazy />
+                </span>
                 <div className="playlist-card-text">
                   <div className="playlist-name">{pl.name}</div>
                   <div className="playlist-meta">{n} {n === 1 ? 'canción' : 'canciones'}</div>
@@ -375,6 +413,15 @@ const SORT_MODES = [
   { key: 'artist', label: 'Artista', field: 'artist' },
   { key: 'album',  label: 'Álbum',   field: 'album' },
 ];
+
+// Parsea `pl.sample_covers` del backend: array de track-ids de las primeras 4
+// pistas CON carátula (por `position`). Llega como string JSON ("[12,45,78]"),
+// puede venir null/ausente. Guarda con try/catch → [] si falla (el collage cae
+// al fallback del emoji). Tolera un array ya parseado por si acaso.
+function parseCovers(raw) {
+  if (Array.isArray(raw)) return raw;
+  try { return JSON.parse(raw || '[]'); } catch { return []; }
+}
 
 // Normaliza para el filtro del buscador: minúsculas + sin diacríticos (NFD +
 // quitar el bloque de combining marks). Conserva espacios/dígitos → "nujabes" ==
