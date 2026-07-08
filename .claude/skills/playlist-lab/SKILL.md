@@ -134,13 +134,24 @@ aro `inset … hsl(var(--h) 60% 60% / .35)`.
 ## Quirks / notas conocidas
 
 1. **La tabla del detalle es BESPOKE** (no usa `TrackTable.jsx`): `<table
-   className="track-table">` escrita a mano en Playlists.jsx (~199-260). Replica la
+   className="track-table">` escrita a mano en Playlists.jsx (~245+). Replica la
    estructura de celda de TrackTable (`.track-info-cell` → `.track-text` con
-   `min-width:0` → `.track-title` + `.track-sub`) para **heredar** el truncado móvil
-   de `.track-title`. Si se simplifica esa celda, se rompe el ellipsis: mantener la
-   envoltura `.track-text`. (Un reporte de "título sin ellipsis en móvil" contra
-   este árbol suele ser **caché/build viejo**, no el código — verificar con build
-   fresco antes de tocar.)
+   `min-width:0` → `.track-title` + `.track-sub`); si se simplifica esa celda,
+   mantené la envoltura `.track-text`. **Truncado del título en móvil: lo garantiza
+   `table-layout: fixed`, NO solo el `min-width:0`.** Bug real ya resuelto (commit
+   `106042a`): un título largo se cortaba pegado al borde derecho SIN "…" porque con
+   `table-layout: auto` (el default de `.track-table`) el min-content de un `<td>`
+   con un flex `min-width:0` + texto `nowrap` adentro es **inconsistente en motores
+   reales** (WebKit/Chromium del device) — el motor le da a la columna del título el
+   ancho del texto completo, la tabla desborda el viewport y
+   `.main-content { overflow-x: hidden }` la **clippea sin ellipsis**. El análisis
+   estático NO lo reproduce (no modela ese cálculo del motor) → **no diagnostiques
+   "sin ellipsis" como caché/build viejo**. Fix vigente:
+   `.track-table { table-layout: fixed }` dentro de `@media (max-width: 700px)` (el
+   bloque móvil de main.css) → los anchos los fijan los `th` (num 44 · título=resto ·
+   time 64 · actions 46), el título trunca garantizado, desktop sigue `auto`. Es
+   GLOBAL (las 3 vistas montan la misma `.track-table`): el defecto y el fix son del
+   layout compartido, no de playlist.
 2. **`emoji` es opcional** (nullable en DB): siempre hay fallback `'🎵'` en el
    render y en `emojiHue()`.
 3. **`ON DELETE CASCADE`**: no hace falta limpiar `playlist_tracks` a mano al
