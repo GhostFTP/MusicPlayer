@@ -2957,7 +2957,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .layout {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr var(--mini-player-h) var(--bottom-nav-h);
+    /* La fila del bottom-nav crece lo que mida el home indicator (0 si no hay,
+       requiere viewport-fit=cover en el viewport meta) — el padding-bottom de
+       .bottom-nav (más abajo) absorbe ese extra para que los botones sigan
+       midiendo los mismos 60px de siempre, sin achicar el touch target. */
+    grid-template-rows: 1fr var(--mini-player-h) calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
   }
 
   .sidebar { display: none; }
@@ -3056,8 +3060,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      veces no responde es peor que ninguno. */
   .exp-volume   { display: none; }
 
-  /* La letra nunca desaparece: se mantiene encima de la barra mini y el bottom-nav. */
-  .lyrics-panel { bottom: calc(var(--mini-player-h) + var(--bottom-nav-h)); }
+  /* La letra nunca desaparece: se mantiene encima de la barra mini y el bottom-nav.
+     Suma el mismo env() que creció la fila del bottom-nav (arriba): si no, con
+     home indicator el panel quedaría flush con el --bottom-nav-h VIEJO y se
+     metería por debajo de la barra mini, que ahora arranca más arriba. */
+  .lyrics-panel { bottom: calc(var(--mini-player-h) + var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px)); }
 
   /* Show mini controls */
   .player-mini-controls {
@@ -3097,6 +3104,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     display: flex;
     grid-column: 1;
     grid-row: 3;
+    /* Reserva el home indicator como zona muerta debajo de los botones (la fila
+       ya creció lo mismo en grid-template-rows de .layout): con box-sizing:
+       border-box los .bottom-nav-btn (align-items:stretch) siguen midiendo
+       exactamente los 60px de --bottom-nav-h de siempre. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .bottom-nav-btn { font-size: 9px; padding: 8px 2px; gap: 3px; }
   .bottom-nav-btn svg { width: 19px; height: 19px; }
