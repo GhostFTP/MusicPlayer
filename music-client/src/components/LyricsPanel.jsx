@@ -11,6 +11,58 @@ const RESUME_MS    = 2800;   // reanudar el auto-follow tras un scroll/touch man
 const DRAG_SLOP    = 6;      // px de arrastre antes de tratar un touch como scroll (no como tap→seek)
 const REFRAME_EASE = 'transform .55s cubic-bezier(.22, 1, .36, 1)';   // reencuadre discreto suavizado
 
+// ── Seek grande dentro del río continuo (glide aislado del avance normal) ───────────────
+// El avance línea a línea sigue 100% con SCROLL_K de arriba (el lerp por FRACCIÓN de la
+// distancia restante, por frame): para saltos chicos (una línea) es imperceptible y a Oscar
+// ya le gusta. Para un SEEK GRANDE (varias líneas de un salto, DENTRO de la misma canción — un
+// cambio de canción NUNCA es esto, ver el guard de trackId más abajo) ese mismo lerp tiene un
+// defecto estructural: la velocidad del primer frame es `SCROLL_K × distancia`, SIN TOPE —
+// cuanto más grande el salto, más brusco el arranque ("salta") y más tarda en asentarse la
+// desaceleración ("se frena"). Este glide usa en cambio una duración PROPORCIONAL a cuántas
+// líneas saltó (260–420 ms, ver seekGlideDuration) con la curva "ease-standard" de Material
+// Design (cubic-bezier(.4, 0, .2, 1)) evaluada en JS — a diferencia del ease-out cúbico puro
+// (1-(1-t)^3) no hay forma cerrada para un cubic-bezier arbitrario, así que se resuelve con
+// Newton-Raphson (mismo método que usan los navegadores para <easing-function>).
+const SEEK_GLIDE_MIN_MS   = 260;   // saltos "grandes" apenas por encima del avance normal (delta=2)
+const SEEK_GLIDE_MAX_MS   = 420;   // saltos de muchas líneas (satura en SEEK_LINES_SATURATE)
+const SEEK_LINES_SATURATE = 20;    // delta de líneas a partir del cual la duración ya no crece
+function seekGlideDuration(deltaLines) {
+  const t = Math.min(1, Math.max(0, (deltaLines - 2) / (SEEK_LINES_SATURATE - 2)));
+  return SEEK_GLIDE_MIN_MS + (SEEK_GLIDE_MAX_MS - SEEK_GLIDE_MIN_MS) * t;
+}
+
+// Evalúa un cubic-bezier(x1,y1,x2,y2) arbitrario en tiempo real x∈[0,1] (fracción de la
+// duración, NO el parámetro interno de la curva — para eso hay que invertir x(t)=x). Newton-
+// Raphson con fallback a bisección si no converge (mismo algoritmo que UnitBezier de WebKit):
+// preciso, ~20 líneas, sin sumar una dependencia nueva.
+function makeBezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sampleX  = (t) => ((ax * t + bx) * t + cx) * t;
+  const sampleY  = (t) => ((ay * t + by) * t + cy) * t;
+  const sampleDX = (t) => (3 * ax * t + 2 * bx) * t + cx;
+  function solveX(x) {
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const dx = sampleDX(t);
+      if (Math.abs(dx) < 1e-6) break;
+      t -= (sampleX(t) - x) / dx;
+    }
+    if (t < 0 || t > 1) {                    // Newton se fue de [0,1]: bisección (siempre converge)
+      let lo = 0, hi = 1; t = x;
+      for (let i = 0; i < 20; i++) {
+        const xt = sampleX(t);
+        if (Math.abs(xt - x) < 1e-6) break;
+        if (xt < x) lo = t; else hi = t;
+        t = (lo + hi) / 2;
+      }
+    }
+    return t;
+  }
+  return (x) => (x <= 0 ? 0 : x >= 1 ? 1 : sampleY(solveX(x)));
+}
+const SEEK_GLIDE_EASE = makeBezier(.4, 0, .2, 1);   // "ease-standard" (Material Design)
+
 // Parsea .lrc → [{time:number|null, text}]. Soporta varias marcas por línea
 // (líneas repetidas) y descarta metadatos [ar:][ti:][offset:]…
 function parseLrc(lrc) {
@@ -81,6 +133,14 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
   const isPlayingRef   = useRef(false);  // leídos dentro de closures (resume/resize) sin recrearlos
   const syncedRef      = useRef(false);
   const currentTimeRef = useRef(0);
+  // Glide de seek grande (ver SEEK_GLIDE_MIN_MS/MAX_MS arriba): { fromY, start, dur } mientras
+  // está en curso, o null. prevIdxForGlideRef es el "anterior" propio para detectar el salto —
+  // activeIdxRef ya quedó pisado con el valor nuevo en el render, así que no sirve para comparar
+  // viejo vs nuevo. prevTrackIdRef es el guard clave para no confundir un cambio de canción
+  // (activeIdx también "salta" ahí) con un seek grande dentro de la misma canción.
+  const seekGlideRef       = useRef(null);
+  const prevIdxForGlideRef = useRef(-1);
+  const prevTrackIdRef     = useRef(undefined);
 
   // ── Reloj interpolado (línea activa + wipe) ──────────────────────────────
   // El PlayerContext NO expone el <audio>; currentTime llega por 'timeupdate' a
@@ -155,6 +215,7 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
   }
   function pauseFollow() {
     followRef.current = false;
+    seekGlideRef.current = null;   // un scroll/arrastre manual cancela cualquier glide de seek en curso
     clearTimeout(resumeTimerRef.current);
   }
   function scheduleResume() {
@@ -219,6 +280,30 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
     setActiveIdx(synced ? findActiveIdx(lines, currentTime + offset) : -1);
   }, [synced, lines, currentTime, offset]);
 
+  // Detecta un SEEK GRANDE (delta de varias líneas DENTRO de la misma canción, no el avance
+  // normal de a una) para dispararle el glide. Solo aplica al río continuo (desktop
+  // reproduciendo): en móvil/pausa/reduced-motion el reencuadre ya lo cubre REFRAME_EASE (otro
+  // efecto, sin tocar). GUARD DE TRACKID: un cambio de canción también hace "saltar" activeIdx
+  // (de la línea vieja a donde sea que arranque la nueva) pero eso NUNCA debe glidear — tiene
+  // que verse instantáneo (lo resuelve el useLayoutEffect de abajo, con applyY(..., 'none')).
+  useEffect(() => {
+    const prevIdx     = prevIdxForGlideRef.current;
+    const prevTrackId = prevTrackIdRef.current;
+    prevIdxForGlideRef.current = activeIdx;
+    prevTrackIdRef.current     = currentTrack?.id;
+    if (!synced || !continuous || !isPlaying || reduced) return;
+    if (!followRef.current) return;                      // el usuario está hojeando
+    if (currentTrack?.id !== prevTrackId) return;         // ← cambio de canción: JAMÁS es un seek
+    if (prevIdx < 0 || activeIdx < 0) return;             // arranque de pista / sin línea activa
+    const delta = Math.abs(activeIdx - prevIdx);
+    if (delta <= 1) return;                               // avance normal (o línea repetida)
+    seekGlideRef.current = {
+      fromY: renderYRef.current,
+      start: performance.now(),
+      dur:   seekGlideDuration(delta),   // 260–420 ms según cuántas líneas saltó
+    };
+  }, [activeIdx, synced, continuous, isPlaying, reduced, currentTrack]);
+
   // Valores frescos para el rAF sin recrear el loop en cada tick.
   linesRef.current       = lines;
   activeIdxRef.current   = activeIdx;
@@ -247,6 +332,9 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
     const track = trackRef.current, cont = bodyRef.current;
     if (!synced || !track || !cont) { renderYRef.current = 0; return; }
     followRef.current = true;
+    seekGlideRef.current = null;             // cambio de pista: ningún glide de seek de la anterior sigue vivo
+    prevIdxForGlideRef.current = -1;         // defensa extra (el guard real es prevTrackIdRef, ver abajo)
+    prevTrackIdRef.current = currentTrack?.id;
     clearTimeout(resumeTimerRef.current);
     framedIdxRef.current = -1;
     padTopRef.current = parseFloat(getComputedStyle(cont).paddingTop) || 44;
@@ -306,8 +394,21 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
             framedIdxRef.current = idx;
           }
           const target = y0Ref.current + (y1Ref.current - y0Ref.current) * p;
-          let rY = renderYRef.current + (target - renderYRef.current) * SCROLL_K;
-          if (Math.abs(target - rY) < 0.5) rY = target;   // snap: sin lerp infinitesimal
+          let rY;
+          const glide = seekGlideRef.current;
+          if (glide) {
+            // Seek grande en curso: blend por TIEMPO real (no fracción/frame), con la duración
+            // propia del glide (proporcional a cuántas líneas saltó) y la curva ease-standard,
+            // desde el punto de arranque hasta el target actual (que igual se mueve un poco con
+            // --p; el recorrido del seek domina esa distancia chica, no hace falta re-anclar
+            // "fromY" cada frame).
+            const frac = Math.min(1, (performance.now() - glide.start) / glide.dur);
+            rY = glide.fromY + (target - glide.fromY) * SEEK_GLIDE_EASE(frac);
+            if (frac >= 1) seekGlideRef.current = null;   // resuelto: el lerp normal retoma desde acá
+          } else {
+            rY = renderYRef.current + (target - renderYRef.current) * SCROLL_K;
+            if (Math.abs(target - rY) < 0.5) rY = target;   // snap: sin lerp infinitesimal
+          }
           renderYRef.current = rY;
           track.style.transition = 'none';
           track.style.transform  = `translate3d(0, ${rY}px, 0)`;

@@ -3,6 +3,16 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.7]
+
+### Mejorado
+- **Glide del karaoke más suave al hacer un seek grande**: al saltar varias
+  líneas de golpe (arrastrar la barra de progreso, tocar una línea lejana), el
+  desplazamiento de la letra ahora usa una curva más pareja y una duración que
+  se ajusta a la distancia del salto, en vez de sentirse "brusco". Cambiar de
+  canción sigue siendo instantáneo — la letra arranca limpia en la posición
+  correcta, sin viajar desde donde quedó la canción anterior.
+
 ## [1.4.6] - 2026-07-08
 
 ### Nuevo
