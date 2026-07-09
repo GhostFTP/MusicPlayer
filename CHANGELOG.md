@@ -3,6 +3,40 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.7] - 2026-07-08
+
+### Mejorado
+- **Emoji por género en la vista Géneros**: cada género ahora se identifica con
+  un emoji propio en una ficha con color derivado (ej. 🎤 Hip Hop, 🎧
+  Electronic, 🎬 Soundtrack), en vez de solo texto plano. Los géneros
+  duplicados por inconsistencias de etiquetado ("R&B" / "R&B/General",
+  "Soundtrack" / "Soundtracks" / "Soundtracks/General", etc.) muestran el
+  mismo emoji entre sí — sin fusionar ni tocar los datos, solo normaliza qué
+  ícono corresponde a cada uno.
+- **Sistema de botones "Reproducir"/"Mix aleatorio" unificado**: los pares de
+  acción de Géneros, Álbum, Artistas, Años y el Mix de la Biblioteca ahora
+  comparten un mismo lenguaje visual — Reproducir como pill relleno
+  protagonista, Mix como pill sutil secundario — igual al que ya tenía el
+  detalle de playlist. En Géneros el color se deriva del emoji del género; en
+  el resto usa el acento morado de siempre. Suma micro-interacciones al pasar
+  el mouse y al presionar (elevación, brillo, el ícono de mezcla gira), todo
+  desactivado con "movimiento reducido" (solo cambia el color).
+- **Glide del karaoke más suave al hacer un seek grande**: al saltar varias
+  líneas de golpe (arrastrar la barra de progreso, tocar una línea lejana), el
+  desplazamiento de la letra ahora usa una curva más pareja y una duración que
+  se ajusta a la distancia del salto, en vez de sentirse "brusco". Cambiar de
+  canción sigue siendo instantáneo — la letra arranca limpia en la posición
+  correcta, sin viajar desde donde quedó la canción anterior.
+
+### Corregido
+- **Filas de la tabla de pistas demasiado altas en escritorio**: títulos o
+  álbumes largos ("Call of Duty: Black Ops – Zombies (Original Game
+  Soundtrack)") hacían que la fila envolviera en varias líneas, dejando huecos
+  enormes y solo unas 6 canciones visibles en pantalla. Ahora el título y el
+  álbum truncan con "…" en una sola línea (como ya pasaba en móvil) y el
+  espaciado se ajustó a una densidad más compacta, mostrando muchas más
+  canciones de una vez sin romper el truncado ya arreglado en móvil.
+
 ## [1.4.6] - 2026-07-08
 
 ### Nuevo

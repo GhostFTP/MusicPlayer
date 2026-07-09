@@ -3,6 +3,8 @@ import { api } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { genreEmoji } from '../utils/genreEmoji.js';
+import { emojiHue } from '../utils/emojiHue.js';
 
 export default function Genres({ target, clearTarget, setDetailOpen }) {
   const [genres, setGenres] = useState(null);
@@ -55,7 +57,7 @@ export default function Genres({ target, clearTarget, setDetailOpen }) {
         <button className="back-btn" onClick={() => { setSel(null); setTracks(null); }}>
           ← Todos los géneros
         </button>
-        <div className="section-header">
+        <div className="section-header" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
           <h1 className="section-title">{sel.genre}</h1>
           {tracks && tracks.length > 0 && (
             <div className="detail-actions">
@@ -102,9 +104,17 @@ export default function Genres({ target, clearTarget, setDetailOpen }) {
         </div>
       </div>
       <ul className="browse-list">
-        {genres.map(g => (
-          <li key={g.genre} className="browse-item" onClick={() => open(g)}>
-            <span className="browse-item-name">{g.genre}</span>
+        {genres.map((g, idx) => (
+          <li
+            key={g.genre}
+            className="browse-item genre-item"
+            style={{ '--h': emojiHue(genreEmoji(g.genre)), '--i': idx }}
+            onClick={() => open(g)}
+          >
+            <span className="genre-item-main">
+              <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>
+              <span className="browse-item-name">{g.genre}</span>
+            </span>
             <span className="browse-item-meta">{g.track_count} pistas · {g.album_count} álbumes</span>
           </li>
         ))}

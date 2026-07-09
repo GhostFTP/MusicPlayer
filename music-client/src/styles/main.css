@@ -253,6 +253,15 @@ button, input, select, textarea { font-family: inherit; }
 .track-table {
   width: 100%;
   border-collapse: collapse;
+  /* fixed en TODOS los tamaños (no solo móvil): con `auto` el min-content de
+     un <td> con un flex `min-width:0` + texto nowrap adentro (la celda de
+     título, ver .track-info-cell) es inconsistente en motores reales — el
+     motor le da a la columna el ancho del texto completo y el título wrappea
+     o desborda en vez de truncar. `fixed` fija los anchos por los `th` (num/
+     artista/álbum/calidad/tiempo/acciones explícitos, título = el resto) y
+     el truncado con ellipsis de abajo funciona garantizado. Ver detalle
+     histórico del bug (commit 106042a) en el bloque móvil más abajo. */
+  table-layout: fixed;
 }
 
 .track-table thead th {
@@ -283,7 +292,7 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 .track-row td {
-  padding: 9px 10px;
+  padding: 6px 10px;
   font-size: 14px;
   border-bottom: 1px solid transparent;
   vertical-align: middle;
@@ -324,6 +333,12 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text);
   letter-spacing: -.1px;
   transition: color .15s ease;
+  /* Una línea, trunca con "…" (antes solo pasaba en móvil; con .track-table
+     ahora en table-layout:fixed en todo tamaño, la celda tiene un ancho real
+     y este truncado funciona igual en desktop). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .track-title.active { color: var(--accent); }
 
@@ -342,7 +357,16 @@ button, input, select, textarea { font-family: inherit; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.track-album { font-size: 13px; color: var(--text-muted); }
+.track-album {
+  font-size: 13px;
+  color: var(--text-muted);
+  /* Misma receta que .track-artist: el nombre de álbum real puede ser largo
+     ("Call of Duty: Black Ops – Zombies (Original Game Soundtrack)") y sin
+     esto wrappeaba a 2-3 líneas y estiraba toda la fila. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .track-row td.col-album { color: var(--text-muted); }
 
 /* Chip de calidad — variantes según el contexto donde se use */
@@ -537,6 +561,131 @@ button, input, select, textarea { font-family: inherit; }
 .detail-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .detail-hero-info .detail-actions { margin-top: 16px; }
 
+/* ── Acciones "Prisma Extendido" (Géneros/Álbum/Artistas/Años) ────────────────
+   Mismo lenguaje que Playlists (Prisma Sólido, .pl-detail-actions más abajo):
+   Reproducir = pill relleno dominante, Mix = pill ghost subordinado, MISMA
+   forma/altura. Cuelga de .detail-actions — el contenedor YA compartido por
+   Genres/Artists/Albums/Years/AlbumDetail — en vez de una clase nueva por vista.
+   Sin --h seteado, hsl(var(--h, 265) …) cae al morado de --accent de siempre
+   (mismo aspecto que antes de este bloque, cero color nuevo para Álbum/Años/
+   Artistas). Géneros SÍ setea --h (emojiHue del emoji de género, la misma
+   fórmula que ya tiñe .genre-tile en la lista) → el detalle hereda un tono
+   propio. El Mix "solo" (headers de Artistas/Años/listas, sin Reproducir al
+   lado) recibe el MISMO ghost: no hace falta un caso aparte, se lee coherente
+   como acción secundaria de navegación aunque sea la única del header.
+   .pl-detail-actions (Playlists) y las clases GLOBALES .btn-primary/.mix-btn
+   (Reintentar, Login, formularios de playlist) NO se tocan: overrides
+   puramente contextuales, mismo patrón documentado en playlist-lab. */
+
+.detail-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 0 22px;
+  min-height: 44px;
+  background: hsl(var(--h, 265) 55% 42%);
+  color: #fff;
+  box-shadow: 0 6px 20px hsl(var(--h, 265) 55% 35% / .5);
+  /* "Vivo": elevación con salida suave (.22,1,.36,1, la del panel de Letra) —
+     misma easing para entrar en hover y volver al soltar. El press (:active)
+     pisa SOLO transform con su propio spring-back (ver más abajo). */
+  transition: background .15s ease,
+              transform .18s cubic-bezier(.22, 1, .36, 1),
+              box-shadow .18s cubic-bezier(.22, 1, .36, 1);
+}
+.detail-actions .btn-primary:hover {
+  opacity: 1;                                   /* neutraliza el hover global (opacity:.85) */
+  background: hsl(var(--h, 265) 60% 48%);
+  transform: translateY(-1.5px);
+  box-shadow: 0 10px 28px hsl(var(--h, 265) 55% 35% / .55);
+}
+/* Press: spring-back (.34,1.42,.6,1, el de los gestos) SOLO en transform — se
+   nota al hundir, y al soltar vuelve a hover/reposo con la easing de arriba. */
+.detail-actions .btn-primary:active {
+  transform: scale(.97);
+  transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
+}
+.detail-actions .btn-primary:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+
+/* Mix = pill secundario GHOST, mismo hue y forma → subordinado (o único, en los
+   headers de lista/artista/año que no tienen Reproducir al lado). .library-actions
+   (banner de Mix + contador de la Biblioteca, Library.jsx) comparte selector: es
+   el ÚNICO contenedor de ShuffleButton que NO es .detail-actions ni .pl-detail-actions
+   (confirmado por grep de <ShuffleButton en toda music-client/src), y tampoco tiene
+   hue propio (no hay emoji/color de "biblioteca") → mismo fallback --accent que
+   Álbum/Años. Un solo bloque de reglas para los dos selectores, sin duplicar CSS. */
+.detail-actions .mix-btn,
+.library-actions .mix-btn {
+  gap: 8px;
+  padding: 0 20px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  background: hsl(var(--h, 265) 40% 30% / .22);
+  color: var(--text);
+  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
+  box-shadow: none;
+  transition: background .15s ease,
+              border-color .15s ease,
+              transform .18s cubic-bezier(.22, 1, .36, 1),
+              box-shadow .18s cubic-bezier(.22, 1, .36, 1);
+}
+.detail-actions .mix-btn:hover,
+.library-actions .mix-btn:hover {
+  background: hsl(var(--h, 265) 45% 35% / .32);
+  border-color: hsl(var(--h, 265) 60% 60% / .45);
+  transform: translateY(-1.5px);
+  /* Glow tenue — el ghost pasa de "sin sombra" a un halo sutil del hue, mismo
+     lenguaje de "brillo al activarse" que el resto de botones con identidad. */
+  box-shadow: 0 4px 14px hsl(var(--h, 265) 55% 40% / .25);
+}
+.detail-actions .mix-btn:active,
+.library-actions .mix-btn:active {
+  transform: scale(.97);
+  transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
+}
+.detail-actions .mix-btn:focus-visible,
+.library-actions .mix-btn:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+/* :disabled (busy/sin pistas del ShuffleButton) sigue cayendo en el .mix-btn:disabled
+   GLOBAL (opacity/cursor/transform) — no lo repetimos acá, igual que en .pl-detail-actions. */
+
+/* Ícono de Mix: un solo giro de 180° al entrar el hover (NO loop) — sugiere
+   "barajar" sin ser literal. Selector por descendiente puro (el SVG de
+   ShuffleIcon no lleva clase propia); no toca ShuffleButton.jsx. Corre una vez
+   por entrada de hover (la animación se retira al salir del :hover). */
+@keyframes shuffle-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(180deg); }
+}
+.detail-actions .mix-btn:hover svg,
+.library-actions .mix-btn:hover svg {
+  animation: shuffle-spin .3s cubic-bezier(.34, 1.42, .5, 1);
+}
+
+/* reduced-motion: sin lift/press/giro (movimiento); se conservan relleno,
+   borde y glow (cambios de color) de ambos pills. */
+@media (prefers-reduced-motion: reduce) {
+  .detail-actions .btn-primary,
+  .detail-actions .btn-primary:hover,
+  .detail-actions .btn-primary:active,
+  .detail-actions .mix-btn,
+  .detail-actions .mix-btn:hover,
+  .detail-actions .mix-btn:active,
+  .library-actions .mix-btn,
+  .library-actions .mix-btn:hover,
+  .library-actions .mix-btn:active { transform: none; }
+  .detail-actions .mix-btn:hover svg,
+  .library-actions .mix-btn:hover svg { animation: none; }
+}
+
 /* ── BROWSE · GÉNEROS / AÑOS (listas) ───── */
 
 .browse-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
@@ -559,6 +708,36 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
+}
+
+/* ── BROWSE · GÉNEROS (ficha mini por fila) ──
+   Tile de emoji tintado por el hue derivado (emojiHue), misma fórmula que
+   .ptp-item-emoji pero a escala de fila (36px en vez de 38px). Clases NUEVAS
+   y específicas de Genres.jsx (.genre-item / .genre-item-main / .genre-tile):
+   .browse-item / .browse-item-name / .browse-item-meta quedan intactas →
+   Years.jsx (misma .browse-list) no se ve afectado. .genre-item-main agrupa
+   tile+nombre en un solo hijo flex para que .browse-item (justify-content:
+   space-between) siga alineando ese grupo a la izquierda y la meta a la
+   derecha, igual que hoy. */
+.genre-item-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.genre-tile {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 18px; line-height: 1; flex-shrink: 0;
+  background: hsl(var(--h, 265) 55% 55% / .16);
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .35);
+  transition: transform .16s cubic-bezier(.34, 1.5, .6, 1);
+  animation: emoji-pop .3s cubic-bezier(.34, 1.42, .5, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 20ms);   /* entrada escalonada al montar la lista */
+}
+.genre-item:hover .genre-tile { transform: scale(1.08); }
+
+/* reduced-motion: sin entrada escalonada ni escala en hover; el wash/aro por
+   hue se conservan (cambio de color, no de movimiento). */
+@media (prefers-reduced-motion: reduce) {
+  .genre-tile { animation: none; transition: none; }
+  .genre-item:hover .genre-tile { transform: none; }
 }
 
 /* ── BROWSE · ARTISTAS (avatar circular) ── */
@@ -3129,27 +3308,18 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .search-box { width: 100%; }
 
-  /* Track table en móvil: table-layout FIXED. Con `auto`, el min-content de un <td>
-     con flex min-width:0 + texto nowrap adentro es inconsistente en WebKit/Chromium
-     reales → la columna del título tomaba el ancho del texto completo, la tabla
-     desbordaba y .main-content{overflow-x:hidden} la clippeaba SIN ellipsis. Con
-     `fixed` los anchos los fijan los th (num 44 · título=resto · time 64 · actions 46)
-     → el título trunca garantizado. Desktop sigue `auto`. Aplica a las 3 vistas. */
-  .track-table { table-layout: fixed; }
+  /* Track table en móvil: table-layout FIXED (el motivo completo del bug de
+     ellipsis-truncation está documentado junto a `.track-table` en el bloque
+     desktop de arriba, donde `fixed` ahora vive para las 3 vistas). Acá solo
+     quedan los ajustes que SÍ son propios de móvil: ocultar columnas y
+     agrandar el área táctil de la fila. El título ya trunca con ellipsis
+     via la regla base de `.track-title` (arriba, ya no hace falta repetirla
+     acá — mismo mecanismo, ancho de columna angosto en vez de desktop). */
 
   /* Track table: hide artist, album & quality columns;
      el chip de calidad viaja inline junto al título */
   .col-artist, .col-album, .col-quality { display: none; }
   .quality-chip.chip-inline { display: inline-flex; }
-
-  /* Título de pista: truncar en móvil (un título de una sola palabra larga
-     ensanchaba la celda y desbordaba la tabla). Misma receta que .track-artist;
-     la cadena min-width:0 ya la aporta .track-text. Sólo móvil → desktop intacto. */
-  .track-title {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 
   /* Sin hover en táctil: las acciones de fila siempre visibles */
   .ptp-btn { opacity: 1; }
