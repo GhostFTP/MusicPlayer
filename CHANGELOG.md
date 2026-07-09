@@ -3,6 +3,16 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.6]
+
+### Nuevo
+- **SonoraRev instalable como app**: desde el navegador móvil (Safari en iPhone,
+  Chrome en Android) ahora se puede agregar SonoraRev a la pantalla de inicio y
+  abrirla como una app real, sin la barra del navegador — con su propio ícono
+  (el ecualizador morado→rosa) y sin la franja del status bar. Los botones de
+  la barra inferior ya no quedan pegados al borde en los iPhone con home
+  indicator. Todavía sin uso sin conexión (queda para más adelante).
+
 ## [1.4.5] - 2026-07-08
 
 ### Nuevo
