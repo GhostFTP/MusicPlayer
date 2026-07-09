@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.4.7]
+## [1.4.7] - 2026-07-08
 
 ### Mejorado
 - **Emoji por género en la vista Géneros**: cada género ahora se identifica con
