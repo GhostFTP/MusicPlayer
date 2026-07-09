@@ -28,6 +28,15 @@ Novedades destacables de **SonoraRev**. El formato sigue
   canción sigue siendo instantáneo — la letra arranca limpia en la posición
   correcta, sin viajar desde donde quedó la canción anterior.
 
+### Corregido
+- **Filas de la tabla de pistas demasiado altas en escritorio**: títulos o
+  álbumes largos ("Call of Duty: Black Ops – Zombies (Original Game
+  Soundtrack)") hacían que la fila envolviera en varias líneas, dejando huecos
+  enormes y solo unas 6 canciones visibles en pantalla. Ahora el título y el
+  álbum truncan con "…" en una sola línea (como ya pasaba en móvil) y el
+  espaciado se ajustó a una densidad más compacta, mostrando muchas más
+  canciones de una vez sin romper el truncado ya arreglado en móvil.
+
 ## [1.4.6] - 2026-07-08
 
 ### Nuevo

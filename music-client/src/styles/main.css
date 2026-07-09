@@ -253,6 +253,15 @@ button, input, select, textarea { font-family: inherit; }
 .track-table {
   width: 100%;
   border-collapse: collapse;
+  /* fixed en TODOS los tamaños (no solo móvil): con `auto` el min-content de
+     un <td> con un flex `min-width:0` + texto nowrap adentro (la celda de
+     título, ver .track-info-cell) es inconsistente en motores reales — el
+     motor le da a la columna el ancho del texto completo y el título wrappea
+     o desborda en vez de truncar. `fixed` fija los anchos por los `th` (num/
+     artista/álbum/calidad/tiempo/acciones explícitos, título = el resto) y
+     el truncado con ellipsis de abajo funciona garantizado. Ver detalle
+     histórico del bug (commit 106042a) en el bloque móvil más abajo. */
+  table-layout: fixed;
 }
 
 .track-table thead th {
@@ -283,7 +292,7 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 .track-row td {
-  padding: 9px 10px;
+  padding: 6px 10px;
   font-size: 14px;
   border-bottom: 1px solid transparent;
   vertical-align: middle;
@@ -324,6 +333,12 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text);
   letter-spacing: -.1px;
   transition: color .15s ease;
+  /* Una línea, trunca con "…" (antes solo pasaba en móvil; con .track-table
+     ahora en table-layout:fixed en todo tamaño, la celda tiene un ancho real
+     y este truncado funciona igual en desktop). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .track-title.active { color: var(--accent); }
 
@@ -342,7 +357,16 @@ button, input, select, textarea { font-family: inherit; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.track-album { font-size: 13px; color: var(--text-muted); }
+.track-album {
+  font-size: 13px;
+  color: var(--text-muted);
+  /* Misma receta que .track-artist: el nombre de álbum real puede ser largo
+     ("Call of Duty: Black Ops – Zombies (Original Game Soundtrack)") y sin
+     esto wrappeaba a 2-3 líneas y estiraba toda la fila. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .track-row td.col-album { color: var(--text-muted); }
 
 /* Chip de calidad — variantes según el contexto donde se use */
@@ -3284,27 +3308,18 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .search-box { width: 100%; }
 
-  /* Track table en móvil: table-layout FIXED. Con `auto`, el min-content de un <td>
-     con flex min-width:0 + texto nowrap adentro es inconsistente en WebKit/Chromium
-     reales → la columna del título tomaba el ancho del texto completo, la tabla
-     desbordaba y .main-content{overflow-x:hidden} la clippeaba SIN ellipsis. Con
-     `fixed` los anchos los fijan los th (num 44 · título=resto · time 64 · actions 46)
-     → el título trunca garantizado. Desktop sigue `auto`. Aplica a las 3 vistas. */
-  .track-table { table-layout: fixed; }
+  /* Track table en móvil: table-layout FIXED (el motivo completo del bug de
+     ellipsis-truncation está documentado junto a `.track-table` en el bloque
+     desktop de arriba, donde `fixed` ahora vive para las 3 vistas). Acá solo
+     quedan los ajustes que SÍ son propios de móvil: ocultar columnas y
+     agrandar el área táctil de la fila. El título ya trunca con ellipsis
+     via la regla base de `.track-title` (arriba, ya no hace falta repetirla
+     acá — mismo mecanismo, ancho de columna angosto en vez de desktop). */
 
   /* Track table: hide artist, album & quality columns;
      el chip de calidad viaja inline junto al título */
   .col-artist, .col-album, .col-quality { display: none; }
   .quality-chip.chip-inline { display: inline-flex; }
-
-  /* Título de pista: truncar en móvil (un título de una sola palabra larga
-     ensanchaba la celda y desbordaba la tabla). Misma receta que .track-artist;
-     la cadena min-width:0 ya la aporta .track-text. Sólo móvil → desktop intacto. */
-  .track-title {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 
   /* Sin hover en táctil: las acciones de fila siempre visibles */
   .ptp-btn { opacity: 1; }

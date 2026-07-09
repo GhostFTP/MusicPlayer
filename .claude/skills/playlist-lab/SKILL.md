@@ -162,21 +162,30 @@ pistas, vía `PlaylistCover.jsx`. El **emoji sigue guardado** y cumple dos roles
    className="track-table">` escrita a mano en Playlists.jsx (~245+). Replica la
    estructura de celda de TrackTable (`.track-info-cell` → `.track-text` con
    `min-width:0` → `.track-title` + `.track-sub`); si se simplifica esa celda,
-   mantené la envoltura `.track-text`. **Truncado del título en móvil: lo garantiza
+   mantené la envoltura `.track-text`. **Truncado del título: lo garantiza
    `table-layout: fixed`, NO solo el `min-width:0`.** Bug real ya resuelto (commit
-   `106042a`): un título largo se cortaba pegado al borde derecho SIN "…" porque con
-   `table-layout: auto` (el default de `.track-table`) el min-content de un `<td>`
-   con un flex `min-width:0` + texto `nowrap` adentro es **inconsistente en motores
-   reales** (WebKit/Chromium del device) — el motor le da a la columna del título el
-   ancho del texto completo, la tabla desborda el viewport y
+   `106042a`, móvil): un título largo se cortaba pegado al borde derecho SIN "…"
+   porque con `table-layout: auto` el min-content de un `<td>` con un flex
+   `min-width:0` + texto `nowrap` adentro es **inconsistente en motores reales**
+   (WebKit/Chromium del device) — el motor le da a la columna del título el ancho
+   del texto completo, la tabla desborda el viewport y
    `.main-content { overflow-x: hidden }` la **clippea sin ellipsis**. El análisis
    estático NO lo reproduce (no modela ese cálculo del motor) → **no diagnostiques
-   "sin ellipsis" como caché/build viejo**. Fix vigente:
-   `.track-table { table-layout: fixed }` dentro de `@media (max-width: 700px)` (el
-   bloque móvil de main.css) → los anchos los fijan los `th` (num 44 · título=resto ·
-   time 64 · actions 46), el título trunca garantizado, desktop sigue `auto`. Es
-   GLOBAL (las 3 vistas montan la misma `.track-table`): el defecto y el fix son del
-   layout compartido, no de playlist.
+   "sin ellipsis" como caché/build viejo**. Fix vigente (actualizado — pulido de
+   densidad en desktop): `.track-table { table-layout: fixed }` es ahora **la
+   regla base**, fuera de cualquier `@media` (antes vivía solo dentro de
+   `@media max-width:700px`; ya NO hay `auto` en desktop) → los anchos los fijan los
+   `th` (num 44 · artista/álbum 22%/22% · calidad 124 · time 64 · actions 46,
+   título = el resto), y `.track-title`/`.track-album` truncan con ellipsis en
+   **todos los tamaños** (antes el título solo truncaba en el `@media` móvil, y
+   álbum no truncaba nunca en desktop → álbumes largos, ej. "Call of Duty: Black
+   Ops – Zombies (Original Game Soundtrack)", wrappeaban y estiraban la fila). El
+   bloque móvil ya no redeclara `table-layout`/`.track-title`; solo conserva lo que
+   sigue siendo propio de móvil (ocultar columnas artista/álbum/calidad, área
+   táctil de fila más alta). También bajó el padding vertical de `.track-row td`
+   (9px → 6px) para una densidad tipo Spotify desktop. Es GLOBAL (las 3 vistas
+   montan la misma `.track-table`): el defecto y el fix son del layout compartido,
+   no de playlist.
 2. **`emoji` es opcional** (nullable en DB): siempre hay fallback `'🎵'` en el
    render y en `emojiHue()`.
 3. **`ON DELETE CASCADE`**: no hace falta limpiar `playlist_tracks` a mano al
