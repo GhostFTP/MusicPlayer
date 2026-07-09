@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.4.6]
+## [1.4.6] - 2026-07-08
 
 ### Nuevo
 - **SonoraRev instalable como app**: desde el navegador móvil (Safari en iPhone,
