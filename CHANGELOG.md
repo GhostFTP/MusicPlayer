@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.4.5]
+## [1.4.5] - 2026-07-08
 
 ### Nuevo
 - **Gesto de navegación hacia atrás en móvil**: deslizando hacia la derecha en
