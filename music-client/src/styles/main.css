@@ -561,6 +561,36 @@ button, input, select, textarea { font-family: inherit; }
   flex-shrink: 0;
 }
 
+/* ── BROWSE · GÉNEROS (ficha mini por fila) ──
+   Tile de emoji tintado por el hue derivado (emojiHue), misma fórmula que
+   .ptp-item-emoji pero a escala de fila (36px en vez de 38px). Clases NUEVAS
+   y específicas de Genres.jsx (.genre-item / .genre-item-main / .genre-tile):
+   .browse-item / .browse-item-name / .browse-item-meta quedan intactas →
+   Years.jsx (misma .browse-list) no se ve afectado. .genre-item-main agrupa
+   tile+nombre en un solo hijo flex para que .browse-item (justify-content:
+   space-between) siga alineando ese grupo a la izquierda y la meta a la
+   derecha, igual que hoy. */
+.genre-item-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.genre-tile {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 18px; line-height: 1; flex-shrink: 0;
+  background: hsl(var(--h, 265) 55% 55% / .16);
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 60% 60% / .35);
+  transition: transform .16s cubic-bezier(.34, 1.5, .6, 1);
+  animation: emoji-pop .3s cubic-bezier(.34, 1.42, .5, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 20ms);   /* entrada escalonada al montar la lista */
+}
+.genre-item:hover .genre-tile { transform: scale(1.08); }
+
+/* reduced-motion: sin entrada escalonada ni escala en hover; el wash/aro por
+   hue se conservan (cambio de color, no de movimiento). */
+@media (prefers-reduced-motion: reduce) {
+  .genre-tile { animation: none; transition: none; }
+  .genre-item:hover .genre-tile { transform: none; }
+}
+
 /* ── BROWSE · ARTISTAS (avatar circular) ── */
 
 .artist-card { text-align: center; }

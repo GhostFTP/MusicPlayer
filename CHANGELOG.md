@@ -6,6 +6,13 @@ Novedades destacables de **SonoraRev**. El formato sigue
 ## [1.4.7]
 
 ### Mejorado
+- **Emoji por género en la vista Géneros**: cada género ahora se identifica con
+  un emoji propio en una ficha con color derivado (ej. 🎤 Hip Hop, 🎧
+  Electronic, 🎬 Soundtrack), en vez de solo texto plano. Los géneros
+  duplicados por inconsistencias de etiquetado ("R&B" / "R&B/General",
+  "Soundtrack" / "Soundtracks" / "Soundtracks/General", etc.) muestran el
+  mismo emoji entre sí — sin fusionar ni tocar los datos, solo normaliza qué
+  ícono corresponde a cada uno.
 - **Glide del karaoke más suave al hacer un seek grande**: al saltar varias
   líneas de golpe (arrastrar la barra de progreso, tocar una línea lejana), el
   desplazamiento de la letra ahora usa una curva más pareja y una duración que
