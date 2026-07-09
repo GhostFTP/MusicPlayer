@@ -31,7 +31,7 @@ export default function Login() {
       <div className="login-card">
         <div className="login-logo">
           <MusicIcon size={28} />
-          Music Player
+          SonoraRev
         </div>
 
         <h2 className="login-title">{mode === 'login' ? 'Bienvenido' : 'Crear cuenta'}</h2>

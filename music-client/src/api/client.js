@@ -4,6 +4,14 @@ function getToken() {
   return localStorage.getItem('token');
 }
 
+// Registrado por AuthContext: se invoca cuando cualquier request recibe un 401
+// a mitad de sesión, para reintentar la reautenticación vía Cloudflare Access
+// sin que el usuario tenga que recargar ni usar incógnito.
+let onUnauthorized = null;
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn;
+}
+
 async function request(path, options = {}) {
   const token = getToken();
   const res = await fetch(BASE + path, {
@@ -17,6 +25,12 @@ async function request(path, options = {}) {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    // Se excluyen los endpoints de auth (cfLogin/login pueden responder 401
+    // como parte de su flujo normal, ver el comentario de cfLogin abajo) para
+    // no generar un loop de reintentos.
+    if (res.status === 401 && !path.startsWith('/api/auth/')) {
+      onUnauthorized?.();
+    }
     throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status });
   }
   if (res.status === 204) return null;

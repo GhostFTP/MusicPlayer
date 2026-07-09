@@ -9,6 +9,7 @@ import { emojiHue } from '../utils/emojiHue.js';
 
 export default function Playlists({ target, clearTarget, setDetailOpen }) {
   const [playlists, setPlaylists] = useState([]);
+  const [loadError, setLoadError] = useState(null);
   const [newName,   setNewName]   = useState('');
   const [emoji,     setEmoji]     = useState('🎵');
   const [selected,  setSelected]  = useState(null); // { playlist, tracks }
@@ -21,7 +22,17 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
   const [query,     setQuery]     = useState('');      // filtro del detalle (título/artista)
   const { play, currentTrack, isPlaying } = usePlayer();
 
-  useEffect(() => { api.playlists().then(setPlaylists); }, []);
+  // Función nombrada (no solo inline en el efecto) para poder reusarla desde
+  // el botón "Reintentar" del estado de error.
+  function loadPlaylists() {
+    setLoadError(null);
+    api.playlists().then(setPlaylists).catch(setLoadError);
+  }
+
+  useEffect(() => {
+    loadPlaylists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tap en la pestaña ya activa → salir del detalle (volver a la lista).
   useEffect(() => {
@@ -364,7 +375,14 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
         <button className="btn-primary" type="submit">Crear</button>
       </form>
 
-      {playlists.length === 0 ? (
+      {loadError ? (
+        <div className="empty-state">
+          <div className="empty-icon">⚠️</div>
+          <div className="empty-title">No se pudieron cargar las playlists</div>
+          <div className="empty-sub">Intenta de nuevo en un momento.</div>
+          <button className="btn-primary" onClick={loadPlaylists}>Reintentar</button>
+        </div>
+      ) : playlists.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">🎶</div>
           <div className="empty-title">Sin playlists</div>

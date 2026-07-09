@@ -9,8 +9,19 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
   const [sel,      setSel]      = useState(null);   // artista seleccionado
   const [albums,   setAlbums]   = useState(null);
   const [selAlbum, setSelAlbum] = useState(null);
+  const [error,    setError]    = useState(null);
 
-  useEffect(() => { api.artists().then(setArtists); }, []);
+  // Función nombrada (no solo inline en el efecto) para poder reusarla desde
+  // el botón "Reintentar" del estado de error.
+  function loadArtists() {
+    setError(null);
+    api.artists().then(setArtists).catch(setError);
+  }
+
+  useEffect(() => {
+    loadArtists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Detalle
   // anidado: álbumes del artista (`sel`) o un AlbumDetail (`selAlbum`). El cleanup
@@ -57,6 +68,17 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
           </div>
         </div>
         {albums ? <AlbumGrid albums={albums} onOpen={setSelAlbum} /> : <div className="spinner">Cargando…</div>}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="empty-state">
+        <div className="empty-icon">⚠️</div>
+        <div className="empty-title">No se pudieron cargar los artistas</div>
+        <div className="empty-sub">Intenta de nuevo en un momento.</div>
+        <button className="btn-primary" onClick={loadArtists}>Reintentar</button>
       </div>
     );
   }

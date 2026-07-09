@@ -3,6 +3,35 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.5] - 2026-07-08
+
+### Nuevo
+- **Gesto de navegación hacia atrás en móvil**: deslizando hacia la derecha en
+  cualquier punto del contenido (mismo lenguaje que el "atrás" de iOS, pero
+  dentro de la app) se sale del detalle actual (álbum, artista, género,
+  playlist o año) y se vuelve a su lista, con un chevron flotante como guía
+  visual. No interfiere con el cambio de canción por swipe en la carátula ni
+  con el cierre por swipe-down del reproductor expandido, y no afecta desktop.
+
+### Cambiado
+- **Rebranding a SonoraRev**: el nombre visible de la app pasa de "Music Player" a
+  **SonoraRev** (pestaña del navegador, pantalla de login, sidebar) y el favicon
+  ahora es un ecualizador con degradado morado→rosa en vez del emoji genérico.
+
+### Corregido
+- **Sesión que se quedaba pegada tras horas de uso**: si el token de sesión
+  vencía (7 días) mientras la pestaña seguía abierta, la biblioteca y el resto
+  de las secciones se veían vacías sin ningún aviso, y la única forma de
+  recuperarse era abrir una ventana de incógnito. Ahora la app se reautentica
+  sola (vía Cloudflare Access) al detectar un token vencido o al recibir un
+  error de sesión a mitad de uso; si de verdad falla una carga por otro motivo
+  (red, servidor), se avisa en pantalla con un botón para reintentar en vez de
+  mostrar una sección vacía engañosa.
+- **Renombrar playlist en móvil**: el campo de texto para renombrar una playlist
+  podía colapsar a un ancho casi invisible en pantallas chicas (≤360px), donde el
+  emoji y los botones "Guardar"/"✕" le dejaban casi nada de espacio; ahora pasa a
+  su propia línea con ancho completo y el texto siempre se ve mientras se escribe.
+
 ## [1.4.4] - 2026-07-08
 
 ### Nuevo
