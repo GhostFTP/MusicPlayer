@@ -3,6 +3,17 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.8] - 2026-07-09
+
+### Corregido
+- **Orden de las canciones dentro de un álbum**: las pistas con artista invitado
+  (feat.) saltaban al final de la lista en vez de respetar su número de pista
+  (por ejemplo, en Orquídeas de Kali Uchis, "Igual Que Un Ángel" aparecía muy
+  abajo pese a ser la pista 3). Ahora el detalle de álbum siempre ordena por el
+  número de pista del disco, sin importar los invitados. La vista de Géneros,
+  que sí agrupa por artista a propósito, no cambia.
+
+
 ## [1.4.7] - 2026-07-08
 
 ### Mejorado
