@@ -537,6 +537,131 @@ button, input, select, textarea { font-family: inherit; }
 .detail-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .detail-hero-info .detail-actions { margin-top: 16px; }
 
+/* ── Acciones "Prisma Extendido" (Géneros/Álbum/Artistas/Años) ────────────────
+   Mismo lenguaje que Playlists (Prisma Sólido, .pl-detail-actions más abajo):
+   Reproducir = pill relleno dominante, Mix = pill ghost subordinado, MISMA
+   forma/altura. Cuelga de .detail-actions — el contenedor YA compartido por
+   Genres/Artists/Albums/Years/AlbumDetail — en vez de una clase nueva por vista.
+   Sin --h seteado, hsl(var(--h, 265) …) cae al morado de --accent de siempre
+   (mismo aspecto que antes de este bloque, cero color nuevo para Álbum/Años/
+   Artistas). Géneros SÍ setea --h (emojiHue del emoji de género, la misma
+   fórmula que ya tiñe .genre-tile en la lista) → el detalle hereda un tono
+   propio. El Mix "solo" (headers de Artistas/Años/listas, sin Reproducir al
+   lado) recibe el MISMO ghost: no hace falta un caso aparte, se lee coherente
+   como acción secundaria de navegación aunque sea la única del header.
+   .pl-detail-actions (Playlists) y las clases GLOBALES .btn-primary/.mix-btn
+   (Reintentar, Login, formularios de playlist) NO se tocan: overrides
+   puramente contextuales, mismo patrón documentado en playlist-lab. */
+
+.detail-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 0 22px;
+  min-height: 44px;
+  background: hsl(var(--h, 265) 55% 42%);
+  color: #fff;
+  box-shadow: 0 6px 20px hsl(var(--h, 265) 55% 35% / .5);
+  /* "Vivo": elevación con salida suave (.22,1,.36,1, la del panel de Letra) —
+     misma easing para entrar en hover y volver al soltar. El press (:active)
+     pisa SOLO transform con su propio spring-back (ver más abajo). */
+  transition: background .15s ease,
+              transform .18s cubic-bezier(.22, 1, .36, 1),
+              box-shadow .18s cubic-bezier(.22, 1, .36, 1);
+}
+.detail-actions .btn-primary:hover {
+  opacity: 1;                                   /* neutraliza el hover global (opacity:.85) */
+  background: hsl(var(--h, 265) 60% 48%);
+  transform: translateY(-1.5px);
+  box-shadow: 0 10px 28px hsl(var(--h, 265) 55% 35% / .55);
+}
+/* Press: spring-back (.34,1.42,.6,1, el de los gestos) SOLO en transform — se
+   nota al hundir, y al soltar vuelve a hover/reposo con la easing de arriba. */
+.detail-actions .btn-primary:active {
+  transform: scale(.97);
+  transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
+}
+.detail-actions .btn-primary:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+
+/* Mix = pill secundario GHOST, mismo hue y forma → subordinado (o único, en los
+   headers de lista/artista/año que no tienen Reproducir al lado). .library-actions
+   (banner de Mix + contador de la Biblioteca, Library.jsx) comparte selector: es
+   el ÚNICO contenedor de ShuffleButton que NO es .detail-actions ni .pl-detail-actions
+   (confirmado por grep de <ShuffleButton en toda music-client/src), y tampoco tiene
+   hue propio (no hay emoji/color de "biblioteca") → mismo fallback --accent que
+   Álbum/Años. Un solo bloque de reglas para los dos selectores, sin duplicar CSS. */
+.detail-actions .mix-btn,
+.library-actions .mix-btn {
+  gap: 8px;
+  padding: 0 20px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  background: hsl(var(--h, 265) 40% 30% / .22);
+  color: var(--text);
+  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
+  box-shadow: none;
+  transition: background .15s ease,
+              border-color .15s ease,
+              transform .18s cubic-bezier(.22, 1, .36, 1),
+              box-shadow .18s cubic-bezier(.22, 1, .36, 1);
+}
+.detail-actions .mix-btn:hover,
+.library-actions .mix-btn:hover {
+  background: hsl(var(--h, 265) 45% 35% / .32);
+  border-color: hsl(var(--h, 265) 60% 60% / .45);
+  transform: translateY(-1.5px);
+  /* Glow tenue — el ghost pasa de "sin sombra" a un halo sutil del hue, mismo
+     lenguaje de "brillo al activarse" que el resto de botones con identidad. */
+  box-shadow: 0 4px 14px hsl(var(--h, 265) 55% 40% / .25);
+}
+.detail-actions .mix-btn:active,
+.library-actions .mix-btn:active {
+  transform: scale(.97);
+  transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
+}
+.detail-actions .mix-btn:focus-visible,
+.library-actions .mix-btn:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+/* :disabled (busy/sin pistas del ShuffleButton) sigue cayendo en el .mix-btn:disabled
+   GLOBAL (opacity/cursor/transform) — no lo repetimos acá, igual que en .pl-detail-actions. */
+
+/* Ícono de Mix: un solo giro de 180° al entrar el hover (NO loop) — sugiere
+   "barajar" sin ser literal. Selector por descendiente puro (el SVG de
+   ShuffleIcon no lleva clase propia); no toca ShuffleButton.jsx. Corre una vez
+   por entrada de hover (la animación se retira al salir del :hover). */
+@keyframes shuffle-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(180deg); }
+}
+.detail-actions .mix-btn:hover svg,
+.library-actions .mix-btn:hover svg {
+  animation: shuffle-spin .3s cubic-bezier(.34, 1.42, .5, 1);
+}
+
+/* reduced-motion: sin lift/press/giro (movimiento); se conservan relleno,
+   borde y glow (cambios de color) de ambos pills. */
+@media (prefers-reduced-motion: reduce) {
+  .detail-actions .btn-primary,
+  .detail-actions .btn-primary:hover,
+  .detail-actions .btn-primary:active,
+  .detail-actions .mix-btn,
+  .detail-actions .mix-btn:hover,
+  .detail-actions .mix-btn:active,
+  .library-actions .mix-btn,
+  .library-actions .mix-btn:hover,
+  .library-actions .mix-btn:active { transform: none; }
+  .detail-actions .mix-btn:hover svg,
+  .library-actions .mix-btn:hover svg { animation: none; }
+}
+
 /* ── BROWSE · GÉNEROS / AÑOS (listas) ───── */
 
 .browse-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }

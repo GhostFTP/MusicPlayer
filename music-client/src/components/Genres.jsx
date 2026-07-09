@@ -57,7 +57,7 @@ export default function Genres({ target, clearTarget, setDetailOpen }) {
         <button className="back-btn" onClick={() => { setSel(null); setTracks(null); }}>
           ← Todos los géneros
         </button>
-        <div className="section-header">
+        <div className="section-header" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
           <h1 className="section-title">{sel.genre}</h1>
           {tracks && tracks.length > 0 && (
             <div className="detail-actions">

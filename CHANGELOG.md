@@ -13,6 +13,14 @@ Novedades destacables de **SonoraRev**. El formato sigue
   "Soundtrack" / "Soundtracks" / "Soundtracks/General", etc.) muestran el
   mismo emoji entre sí — sin fusionar ni tocar los datos, solo normaliza qué
   ícono corresponde a cada uno.
+- **Sistema de botones "Reproducir"/"Mix aleatorio" unificado**: los pares de
+  acción de Géneros, Álbum, Artistas, Años y el Mix de la Biblioteca ahora
+  comparten un mismo lenguaje visual — Reproducir como pill relleno
+  protagonista, Mix como pill sutil secundario — igual al que ya tenía el
+  detalle de playlist. En Géneros el color se deriva del emoji del género; en
+  el resto usa el acento morado de siempre. Suma micro-interacciones al pasar
+  el mouse y al presionar (elevación, brillo, el ícono de mezcla gira), todo
+  desactivado con "movimiento reducido" (solo cambia el color).
 - **Glide del karaoke más suave al hacer un seek grande**: al saltar varias
   líneas de golpe (arrastrar la barra de progreso, tocar una línea lejana), el
   desplazamiento de la letra ahora usa una curva más pareja y una duración que
