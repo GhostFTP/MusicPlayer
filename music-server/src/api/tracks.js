@@ -29,7 +29,13 @@ router.get('/', authMiddleware, (req, res) => {
   if (genre)        { sql += ' AND genre = ?';        params.push(genre); }
   if (year)         { sql += ' AND year = ?';         params.push(Number(year)); }
 
-  sql += ' ORDER BY artist, album, track_number, title LIMIT ? OFFSET ?';
+  // Con filtro de álbum: orden natural del disco (track_number decide, no el
+  // artist de la pista — evita que las pistas feat. salten al final).
+  // Sin filtro (Biblioteca, Géneros): igual que hoy — agrupar por artista/álbum.
+  sql += album
+    ? ' ORDER BY track_number, title'
+    : ' ORDER BY artist, album, track_number, title';
+  sql += ' LIMIT ? OFFSET ?';
   params.push(Number(limit), Number(offset));
 
   res.json(db.prepare(sql).all(...params));
