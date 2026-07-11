@@ -527,6 +527,34 @@ button, input, select, textarea { font-family: inherit; }
   gap: 12px;
 }
 
+/* ── BIBLIOTECA: tabla SCOPEADA (.library-tracks) ─────────────
+   Fix del solapamiento a 150% zoom / anchos 701–1024 SIN tocar la base
+   compartida .track-table (que usan Álbum/Playlist/Género/Año vía TrackTable):
+   TODO cuelga de .library-tracks, ninguna regla compartida se modifica. */
+
+/* Insurance: los rótulos del thead de Biblioteca nunca desbordan a la columna
+   vecina (por si una columna queda angosta). Scopeado — el thead global no cambia. */
+.library-tracks thead th {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Por debajo de ~1024px (incluye 150% zoom en laptops) las columnas fijas
+   (num/calidad/tiempo/acciones = 278px) + Artista/Álbum (22%+22%) aplastan la
+   columna Título+carátula hacia cero → la carátula (40px, flex-shrink:0) y los
+   <th> (sin ellipsis) desbordan sobre Artista y se solapan. Reusamos la MISMA
+   receta compacta que la base ya aplica a ≤700px, pero SCOPEADA a Biblioteca:
+   ocultamos Artista/Álbum/Calidad y movemos la calidad al chip inline bajo el
+   título. El artista sigue visible en .track-sub → no se pierde dato; el Título
+   se lleva el ancho y trunca limpio con "…". */
+@media (max-width: 1024px) {
+  .library-tracks .col-artist,
+  .library-tracks .col-album,
+  .library-tracks .col-quality { display: none; }
+  .library-tracks .quality-chip.chip-inline { display: inline-flex; }
+}
+
 /* ── ALBUM GRID ─────────────────────────── */
 
 .album-grid {

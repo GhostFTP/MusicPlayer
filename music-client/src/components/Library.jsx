@@ -200,7 +200,7 @@ export default function Library({ target, clearTarget }) {
             );
           })}
         </div>
-        <table className="track-table">
+        <table className="track-table library-tracks">
           <thead>
             <tr>
               <th className="col-num">#</th>
