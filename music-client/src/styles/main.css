@@ -181,6 +181,46 @@ button, input, select, textarea { font-family: inherit; }
   letter-spacing: -0.4px;
 }
 
+/* ── HEADER DE BIBLIOTECA (barrita de acento + subtítulo) ──────
+   El título se queda en .section-title (escala de los otros roots); la identidad
+   la dan una barrita --accent (mismo morado del pill/riel) y un subtítulo derivado
+   con stats de la biblioteca completa. */
+.lib-heading {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+.lib-accent {
+  flex: 0 0 auto;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-dim);
+}
+.lib-headtext {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+.lib-subtitle {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  /* Fade-up sutil al aparecer (tras el primer load). */
+  animation: lib-sub-in .3s cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes lib-sub-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+/* reduced-motion: subtítulo directo, sin fade-up; barrita/texto igual. */
+@media (prefers-reduced-motion: reduce) {
+  .lib-subtitle { animation: none; }
+}
+
 /* ── BIBLIOTECA: banner Mix aleatorio + contador ─────────── */
 .library-actions {
   display: flex;

@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { fmtTotal } from '../utils/formatTotal.js';
 
 // Orden AGRUPADO de la biblioteca (modo "Artista", DEFAULT): ALBUMARTIST → álbum
 // → nº de pista → título. Así queda agrupada por artista/álbum y navegable;
@@ -29,6 +30,7 @@ export default function Library({ target, clearTarget }) {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
   const [hasLoaded, setHasLoaded] = useState(false); // hubo al menos un load OK → el pill del contador queda montado
+  const [libStats, setLibStats] = useState(null);    // stats de la biblioteca COMPLETA (se congelan; ver fetch)
   const [sortMode, setSortMode] = useState('artist'); // 'title'|'artist'|'album'|'year'|'duration'
   const [sortDir,  setSortDir]  = useState('asc');    // 'asc' | 'desc'
   const { play, currentTrack, isPlaying } = usePlayer();
@@ -44,6 +46,10 @@ export default function Library({ target, clearTarget }) {
       // según el Riel, para que el índice de play() coincida con la fila visible.
       setTracks(data);
       setHasLoaded(true);
+      // Stats del subtítulo: SOLO en fetch sin búsqueda (`data` = biblioteca
+      // completa). Con búsqueda no se tocan → el subtítulo queda estable mientras
+      // el pill refleja el conteo filtrado.
+      if (!q) setLibStats(computeLibStats(data));
       setError(null);
     } catch (e) {
       // No tragar el error: sin esto, un 401 dejaba `tracks` en su valor previo
@@ -98,10 +104,26 @@ export default function Library({ target, clearTarget }) {
   const finalLabel = `${total} ${noun}`;   // texto FINAL (aria) — número real
   const shownText  = `${shown} ${noun}`;   // texto VISIBLE (aria-hidden) — número animado
 
+  // Subtítulo del header: identidad ESTABLE de la biblioteca completa (no repite
+  // el conteo de pistas, que es del pill). Duración vía el util compartido.
+  const subtitle = libStats
+    ? [
+        `${libStats.artists} ${plural(libStats.artists, 'artista', 'artistas')}`,
+        `${libStats.albums} ${plural(libStats.albums, 'álbum', 'álbumes')}`,
+        fmtTotal(libStats.duration),
+      ].filter(Boolean).join(' · ')
+    : null;
+
   return (
     <div>
       <div className="section-header">
-        <h1 className="section-title">Biblioteca</h1>
+        <div className="lib-heading">
+          <span className="lib-accent" aria-hidden="true"></span>
+          <div className="lib-headtext">
+            <h1 className="section-title">Biblioteca</h1>
+            {subtitle && <div className="lib-subtitle">{subtitle}</div>}
+          </div>
+        </div>
         <div className="search-box">
           <SearchIcon />
           <input
@@ -360,6 +382,24 @@ function countWord(n, searching) {
   if (searching) return n === 1 ? 'resultado' : 'resultados';
   return n === 1 ? 'canción' : 'canciones';
 }
+
+// Stats agregadas de la biblioteca COMPLETA, derivadas del array de /api/tracks.
+// Artistas = distinct album_artist||artist; álbumes = distinct (artista+álbum);
+// duración = suma de duration. Puro cliente, cero backend.
+function computeLibStats(tracks) {
+  const artists = new Set();
+  const albums  = new Set();
+  let duration = 0;
+  for (const t of tracks) {
+    const a = (t.album_artist || t.artist || '').trim();
+    if (a)       artists.add(a);
+    if (t.album) albums.add(a + '|' + t.album);
+    duration += t.duration || 0;
+  }
+  return { artists: artists.size, albums: albums.size, duration };
+}
+
+function plural(n, one, many) { return n === 1 ? one : many; }
 
 function fmt(s) {
   if (!s) return '—';
