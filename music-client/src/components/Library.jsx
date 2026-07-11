@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
@@ -28,6 +28,7 @@ export default function Library({ target, clearTarget }) {
   const [search,  setSearch]  = useState('');
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
+  const [hasLoaded, setHasLoaded] = useState(false); // hubo al menos un load OK → el pill del contador queda montado
   const [sortMode, setSortMode] = useState('artist'); // 'title'|'artist'|'album'|'year'|'duration'
   const [sortDir,  setSortDir]  = useState('asc');    // 'asc' | 'desc'
   const { play, currentTrack, isPlaying } = usePlayer();
@@ -42,6 +43,7 @@ export default function Library({ target, clearTarget }) {
       // Guardamos el array crudo; el orden visible se deriva en cliente (useMemo)
       // según el Riel, para que el índice de play() coincida con la fila visible.
       setTracks(data);
+      setHasLoaded(true);
       setError(null);
     } catch (e) {
       // No tragar el error: sin esto, un 401 dejaba `tracks` en su valor previo
@@ -87,9 +89,14 @@ export default function Library({ target, clearTarget }) {
     [tracks, sortMode, sortDir]
   );
 
-  const countLabel = search
-    ? `${displayTracks.length} resultado${displayTracks.length === 1 ? '' : 's'}`
-    : `${displayTracks.length} canción${displayTracks.length === 1 ? '' : 'es'}`;
+  // Contador animado: el número sube 0→N SOLO en la carga inicial; en búsqueda
+  // snapea + tick (ver useCountUp). El pill queda montado desde el primer load
+  // (hasLoaded) para que el snap+tick se vea (no parpadea al re-buscar).
+  const total = displayTracks.length;
+  const { shown, seq } = useCountUp(total, !loading);
+  const noun = countWord(total, !!search);
+  const finalLabel = `${total} ${noun}`;   // texto FINAL (aria) — número real
+  const shownText  = `${shown} ${noun}`;   // texto VISIBLE (aria-hidden) — número animado
 
   return (
     <div>
@@ -108,7 +115,21 @@ export default function Library({ target, clearTarget }) {
       {/* Banner de acción: Mix aleatorio + contador */}
       <div className="library-actions">
         <ShuffleButton tracks={displayTracks} />
-        {!loading && <span className="library-count">{countLabel}</span>}
+        {hasLoaded && !error && (
+          // Pill accent-ghost (hermano muteado de Mezclar). aria-label lleva el
+          // texto FINAL; los dígitos animados van aria-hidden → el lector no lee
+          // los intermedios del count-up. key={seq} remonta el span en cada
+          // búsqueda para replay del tick (seq>0 = ya hubo un cambio posterior).
+          <span className="library-count" aria-label={finalLabel}>
+            <span
+              key={seq}
+              aria-hidden="true"
+              className={seq > 0 ? 'lc-tick' : undefined}
+            >
+              {shownText}
+            </span>
+          </span>
+        )}
       </div>
 
       {loading ? (
@@ -291,6 +312,53 @@ function numOrNull(v) {
 function tieBreak(a, b, mode) {
   if (mode === 'year') return groupedCompare(a, b, 1);
   return (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' });
+}
+
+// Cuenta 0→N con requestAnimationFrame SOLO en la carga inicial (primer load, sin
+// búsqueda). Salta el count-up si N<15 o si el usuario pide reduced-motion → muestra
+// el número directo. En cambios posteriores (búsqueda) snapea al valor y bumpea `seq`
+// para disparar el tick. Cancela el rAF si el target/estado cambia a mitad o al
+// desmontar. `active` = !loading (no animamos mientras carga).
+function useCountUp(target, active) {
+  const [shown, setShown] = useState(0);
+  const [seq,   setSeq]   = useState(0);   // 0 = aún sin cambio posterior; >0 = búsqueda → tick
+  const didInit = useRef(false);
+  const raf     = useRef(0);
+
+  useEffect(() => {
+    cancelAnimationFrame(raf.current);       // corta un count-up en curso si cambia target/active
+    if (!active) return;                     // durante loading no animamos
+
+    const reduce = typeof window !== 'undefined'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (!didInit.current) {
+      didInit.current = true;
+      if (reduce || target < 15) { setShown(target); return; }  // salta el count-up
+      setShown(0);
+      const dur = 500, t0 = performance.now();
+      const step = now => {
+        const p = Math.min(1, (now - t0) / dur);
+        const eased = 1 - Math.pow(1 - p, 3);                   // easeOutCubic
+        setShown(Math.round(eased * target));
+        if (p < 1) raf.current = requestAnimationFrame(step);
+      };
+      raf.current = requestAnimationFrame(step);
+      return () => cancelAnimationFrame(raf.current);
+    }
+
+    setShown(target);          // ya inicializado → snap directo
+    setSeq(s => s + 1);        // → tick (el key remonta el span y replaya time-tick)
+  }, [active, target]);
+
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);   // cleanup al desmontar
+  return { shown, seq };
+}
+
+// Palabra del contador, pluralizada por el número FINAL: canciones / resultados.
+function countWord(n, searching) {
+  if (searching) return n === 1 ? 'resultado' : 'resultados';
+  return n === 1 ? 'canción' : 'canciones';
 }
 
 function fmt(s) {

@@ -218,10 +218,39 @@ button, input, select, textarea { font-family: inherit; }
   box-shadow: none;
 }
 
+/* Contador de la Biblioteca: pill accent-ghost SECUNDARIO — hermano MUTEADO del
+   botón Mezclar de al lado (misma familia --accent; --h cae al 265 morado), pero
+   más chico y sin protagonismo. Translúcido teñido, SIN backdrop-filter (no hay
+   fondo real que desenfocar). tabular-nums para que el count-up no baile. */
 .library-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  min-height: 30px;
+  border-radius: 999px;
+  background: hsl(265 40% 30% / .16);
+  border: 1px solid hsl(265 55% 55% / .28);
   color: var(--text-muted);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Pop-in una vez, al montar tras el primer load. El pill queda montado luego
+     (hasLoaded) → NO re-anima en cada búsqueda. */
+  animation: lc-pop-in .3s cubic-bezier(.34, 1.42, .5, 1);
+}
+@keyframes lc-pop-in {
+  from { opacity: 0; transform: scale(.9); }
+  to   { opacity: 1; transform: none; }
+}
+/* Tick sutil del número al cambiar por búsqueda (reusa el keyframe time-tick). */
+.library-count .lc-tick { display: inline-block; animation: time-tick .22s ease; }
+
+/* reduced-motion: sin pop ni tick — el número final aparece directo; color/estado
+   del pill se conservan. (El count-up JS también se salta en reduced-motion.) */
+@media (prefers-reduced-motion: reduce) {
+  .library-count { animation: none; }
+  .library-count .lc-tick { animation: none; }
 }
 
 /* ── SEARCH ─────────────────────────────── */
