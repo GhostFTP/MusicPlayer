@@ -102,16 +102,16 @@ export default function Library({ target, clearTarget }) {
   const { shown, seq } = useCountUp(total, !loading);
   const noun = countWord(total, !!search);
   const finalLabel = `${total} ${noun}`;   // texto FINAL (aria) — número real
-  const shownText  = `${shown} ${noun}`;   // texto VISIBLE (aria-hidden) — número animado
 
-  // Subtítulo del header: identidad ESTABLE de la biblioteca completa (no repite
-  // el conteo de pistas, que es del pill). Duración vía el util compartido.
-  const subtitle = libStats
+  // Stats del header: identidad ESTABLE de la biblioteca completa (no repite el
+  // conteo de pistas, que es del pill). Cada dato es un chip; la duración se omite
+  // si fmtTotal devuelve null. Duración vía el util compartido.
+  const stats = libStats
     ? [
         `${libStats.artists} ${plural(libStats.artists, 'artista', 'artistas')}`,
         `${libStats.albums} ${plural(libStats.albums, 'álbum', 'álbumes')}`,
         fmtTotal(libStats.duration),
-      ].filter(Boolean).join(' · ')
+      ].filter(Boolean)
     : null;
 
   return (
@@ -121,7 +121,11 @@ export default function Library({ target, clearTarget }) {
           <span className="lib-accent" aria-hidden="true"></span>
           <div className="lib-headtext">
             <h1 className="section-title">Biblioteca</h1>
-            {subtitle && <div className="lib-subtitle">{subtitle}</div>}
+            {stats && (
+              <div className="lib-stats">
+                {stats.map(s => <span key={s} className="lib-stat">{s}</span>)}
+              </div>
+            )}
           </div>
         </div>
         <div className="search-box">
@@ -143,13 +147,16 @@ export default function Library({ target, clearTarget }) {
           // los intermedios del count-up. key={seq} remonta el span en cada
           // búsqueda para replay del tick (seq>0 = ya hubo un cambio posterior).
           <span className="library-count" aria-label={finalLabel}>
+            {/* Número (odómetro, mono): es lo que anima el count-up. key={seq}
+                remonta el span en cada búsqueda para replay del tick. */}
             <span
               key={seq}
               aria-hidden="true"
-              className={seq > 0 ? 'lc-tick' : undefined}
+              className={`lc-num${seq > 0 ? ' lc-tick' : ''}`}
             >
-              {shownText}
+              {shown}
             </span>
+            <span className="lc-word" aria-hidden="true">{noun}</span>
           </span>
         )}
       </div>
@@ -358,7 +365,7 @@ function useCountUp(target, active) {
       didInit.current = true;
       if (reduce || target < 15) { setShown(target); return; }  // salta el count-up
       setShown(0);
-      const dur = 500, t0 = performance.now();
+      const dur = 900, t0 = performance.now();
       const step = now => {
         const p = Math.min(1, (now - t0) / dur);
         const eased = 1 - Math.pow(1 - p, 3);                   // easeOutCubic
