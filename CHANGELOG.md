@@ -3,6 +3,39 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.4.9] - 2026-07-11
+
+### Nuevo
+- **Ordená toda la Biblioteca a tu gusto**: un riel de orden arriba de la lista
+  (mismo lenguaje visual que el de las playlists) te deja ordenar las canciones
+  por **Título**, **Artista**, **Álbum**, **Año** o **Duración**; tocar el modo
+  que ya está activo invierte la dirección (↑/↓). "Artista" no es un orden plano:
+  mantiene la agrupación por artista y álbum de siempre —los discos se siguen
+  leyendo de la pista 1 a la N, sin que los invitados (feat.) ni los "Various
+  Artists" se desarmen— por eso sigue siendo el orden por defecto. Las canciones
+  sin año, sin álbum o sin duración quedan siempre al final.
+
+### Mejorado
+- **Header de Biblioteca con identidad propia**: el título "Biblioteca" ahora
+  lleva una barrita de acento morada al costado y, debajo, un resumen en chips de
+  tu colección completa: cuántos **artistas**, cuántos **álbumes** y la
+  **duración total**. El resumen se calcula sobre la biblioteca entera y se
+  mantiene estable aunque estés filtrando con la búsqueda.
+- **Contador de canciones renovado**: el contador de canciones pasó a ser un pill
+  destacado, con el número en tipografía monoespaciada grande que **cuenta desde
+  0 hasta el total** (animación de ~0,9 s) la primera vez que carga la lista; al
+  buscar, el número salta directo al resultado filtrado con un tick sutil. Todo
+  respeta "movimiento reducido".
+
+### Corregido
+- **Columnas de la tabla que se pisaban a zoom alto**: en pantallas medianas o
+  con el zoom al 150% (típico en laptops), las columnas Artista y Álbum
+  aplastaban la de Título hasta que la carátula y los encabezados se montaban
+  unos sobre otros. Ahora, por debajo de ese ancho, la tabla se compacta igual
+  que ya lo hacía en móvil (el artista pasa a mostrarse bajo el título y la
+  insignia de calidad se mueve a un chip en línea) y los textos truncan con "…"
+  en una sola línea.
+
 ## [1.4.8] - 2026-07-09
 
 ### Corregido

@@ -181,6 +181,58 @@ button, input, select, textarea { font-family: inherit; }
   letter-spacing: -0.4px;
 }
 
+/* ── HEADER DE BIBLIOTECA (barrita de acento + subtítulo) ──────
+   El título se queda en .section-title (escala de los otros roots); la identidad
+   la dan una barrita --accent (mismo morado del pill/riel) y un subtítulo derivado
+   con stats de la biblioteca completa. */
+.lib-heading {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+.lib-accent {
+  flex: 0 0 auto;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-dim);
+}
+.lib-headtext {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+/* Stats del header en CHIPS GRIS NEUTRO (cada dato su caja). Neutros a propósito:
+   el morado se reserva para el contador + Mezclar; acá no saturamos de accent. */
+.lib-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  /* Fade-up sutil al aparecer (tras el primer load). */
+  animation: lib-sub-in .3s cubic-bezier(.22, 1, .36, 1);
+}
+.lib-stat {
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@keyframes lib-sub-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+/* reduced-motion: chips directos, sin fade-up; barrita/texto igual. */
+@media (prefers-reduced-motion: reduce) {
+  .lib-stats { animation: none; }
+}
+
 /* ── BIBLIOTECA: banner Mix aleatorio + contador ─────────── */
 .library-actions {
   display: flex;
@@ -218,10 +270,55 @@ button, input, select, textarea { font-family: inherit; }
   box-shadow: none;
 }
 
+/* Contador de la Biblioteca: pill accent-ghost SECUNDARIO — hermano MUTEADO del
+   botón Mezclar de al lado (misma familia --accent; --h cae al 265 morado), pero
+   más chico y sin protagonismo. Translúcido teñido, SIN backdrop-filter (no hay
+   fondo real que desenfocar). tabular-nums para que el count-up no baile. */
 .library-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  min-height: 40px;
+  border-radius: 999px;
+  background: hsl(265 40% 30% / .16);
+  border: 1px solid hsl(265 55% 55% / .28);
   color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Pop-in una vez, al montar tras el primer load. El pill queda montado luego
+     (hasLoaded) → NO re-anima en cada búsqueda. */
+  animation: lc-pop-in .3s cubic-bezier(.34, 1.42, .5, 1);
+}
+/* Número tipo "odómetro": mono del sistema (stack ya usado en el proyecto, sin
+   cargar fuente externa), grande y brillante → presencia por tipografía, no por
+   más color (el fill sigue por debajo de Mezclar). Es lo que anima el count-up. */
+.lc-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.5px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+/* Sustantivo ("canciones"/"resultados"): sans muteado, caption al lado del número. */
+.lc-word {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+@keyframes lc-pop-in {
+  from { opacity: 0; transform: scale(.9); }
+  to   { opacity: 1; transform: none; }
+}
+/* Tick sutil del número al cambiar por búsqueda (reusa el keyframe time-tick). */
+.library-count .lc-tick { display: inline-block; animation: time-tick .22s ease; }
+
+/* reduced-motion: sin pop ni tick — el número final aparece directo; color/estado
+   del pill se conservan. (El count-up JS también se salta en reduced-motion.) */
+@media (prefers-reduced-motion: reduce) {
+  .library-count { animation: none; }
+  .library-count .lc-tick { animation: none; }
 }
 
 /* ── SEARCH ─────────────────────────────── */
@@ -456,6 +553,34 @@ button, input, select, textarea { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* ── BIBLIOTECA: tabla SCOPEADA (.library-tracks) ─────────────
+   Fix del solapamiento a 150% zoom / anchos 701–1024 SIN tocar la base
+   compartida .track-table (que usan Álbum/Playlist/Género/Año vía TrackTable):
+   TODO cuelga de .library-tracks, ninguna regla compartida se modifica. */
+
+/* Insurance: los rótulos del thead de Biblioteca nunca desbordan a la columna
+   vecina (por si una columna queda angosta). Scopeado — el thead global no cambia. */
+.library-tracks thead th {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Por debajo de ~1024px (incluye 150% zoom en laptops) las columnas fijas
+   (num/calidad/tiempo/acciones = 278px) + Artista/Álbum (22%+22%) aplastan la
+   columna Título+carátula hacia cero → la carátula (40px, flex-shrink:0) y los
+   <th> (sin ellipsis) desbordan sobre Artista y se solapan. Reusamos la MISMA
+   receta compacta que la base ya aplica a ≤700px, pero SCOPEADA a Biblioteca:
+   ocultamos Artista/Álbum/Calidad y movemos la calidad al chip inline bajo el
+   título. El artista sigue visible en .track-sub → no se pierde dato; el Título
+   se lleva el ancho y trunca limpio con "…". */
+@media (max-width: 1024px) {
+  .library-tracks .col-artist,
+  .library-tracks .col-album,
+  .library-tracks .col-quality { display: none; }
+  .library-tracks .quality-chip.chip-inline { display: inline-flex; }
 }
 
 /* ── ALBUM GRID ─────────────────────────── */
