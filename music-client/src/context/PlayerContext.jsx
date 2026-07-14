@@ -1,14 +1,25 @@
 import {
   createContext, useContext, useRef, useState, useEffect, useCallback,
 } from 'react';
-import { streamUrl } from '../api/client.js';
+import { streamUrl, coverUrl } from '../api/client.js';
+import { resolveTrackMeta, isComplete } from '../utils/trackMeta.js';
+import { useAuth } from './AuthContext.jsx';
 
 const PlayerContext = createContext(null);
 
+// Acciones de MediaSession que cableamos. Se listan aparte para poder desregistrarlas
+// todas en el cleanup sin repetir la lista.
+const MEDIA_ACTIONS = [
+  'play', 'pause', 'previoustrack', 'nexttrack',
+  'seekto', 'seekbackward', 'seekforward', 'stop',
+];
+
 export function PlayerProvider({ children }) {
+  const { token } = useAuth();      // para re-emitir el artwork al rotar el token (reauth)
   const audioRef    = useRef(null);
   const queueRef    = useRef([]);   // stable refs for event callbacks
   const idxRef      = useRef(-1);
+  const metaCacheRef = useRef(new Map());   // memo id→trackMeta resuelto (evita re-fetch por reproducción)
 
   // Modos de reproducción. Se duplican en refs porque el callback 'ended' del
   // <audio> se registra una vez y necesita leer el valor actual, no el del montaje.
@@ -18,6 +29,7 @@ export function PlayerProvider({ children }) {
   const historyRef  = useRef([]);            // orden real de reproducción (para "anterior" en shuffle)
 
   const [currentTrack, setCurrentTrack] = useState(null);
+  const [trackMeta,    setTrackMeta]    = useState(null);  // currentTrack enriquecido (badge + MediaSession)
   const [isPlaying,    setIsPlaying]    = useState(false);
   const [currentTime,  setCurrentTime]  = useState(0);
   const [duration,     setDuration]     = useState(0);
@@ -121,6 +133,29 @@ export function PlayerProvider({ children }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Metadata enriquecida de la pista actual (badge de calidad + `album` para MediaSession).
+  // Reemplaza el estado `quality` que vivía en Player.jsx: mismo comportamiento (el badge
+  // se muestra SYNC desde lo que trae la cola; enriquece solo si falta algo, lo que hoy no
+  // pasa con ninguna ruta de cola) pero centralizado, memoizado y disponible para MediaSession.
+  useEffect(() => {
+    if (!currentTrack) { setTrackMeta(null); return; }
+    const cached = metaCacheRef.current.get(currentTrack.id);
+    if (cached) { setTrackMeta(cached); return; }
+    // Badge inmediato (sync) desde la cola, como el `quality` viejo: el badge sale de
+    // campos de audio, nunca de album/album_artist → jamás parpadea. Si no hay specs, NO
+    // reseteamos: queda el valor previo durante el fetch (igual que el `quality` viejo).
+    if (currentTrack.codec || currentTrack.sample_rate || currentTrack.bitrate) {
+      setTrackMeta(currentTrack);
+    }
+    if (isComplete(currentTrack)) { metaCacheRef.current.set(currentTrack.id, currentTrack); return; }
+    let cancelled = false;
+    resolveTrackMeta(currentTrack).then(m => {
+      metaCacheRef.current.set(currentTrack.id, m);
+      if (!cancelled) setTrackMeta(m);
+    });
+    return () => { cancelled = true; };
+  }, [currentTrack]);
+
   const play = useCallback((tracks, startIndex = 0) => {
     queueRef.current = tracks;
     playedRef.current = new Set();         // nuevo origen de cola → reinicia ciclo shuffle e historial
@@ -180,11 +215,86 @@ export function PlayerProvider({ children }) {
     });
   }, []);
 
+  // ── MediaSession ────────────────────────────────────────────────────────────
+  // Proyecta el estado de reproducción al SO. Es lo ÚNICO que se ve en la pantalla del
+  // carro (CarPlay en la Maverick; AVRCP por Bluetooth en Kangoo/RAV4) y lo que pinta el
+  // lockscreen. Vive acá porque el contexto es el dueño del <audio>, que nunca se expone.
+
+  // Metadata + carátula. Re-emite al cambiar de pista, al enriquecerse `trackMeta`, y al
+  // rotar el token (la URL de la carátula lo lleva en query param).
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    if (!currentTrack) { navigator.mediaSession.metadata = null; return; }
+    // `trackMeta` puede ir un tick por detrás de `currentTrack` mientras se resuelve:
+    // solo lo usamos si es de ESTA pista, para no publicar el álbum de la anterior.
+    const meta = trackMeta?.id === currentTrack.id ? trackMeta : currentTrack;
+    // Hueco de reauth (token=null un instante): emitimos SIN artwork en vez de mandar
+    // `?token=null`, que 404ea en el lockscreen. Al llegar el token nuevo, este efecto
+    // vuelve a correr y re-emite con la URL fresca.
+    const src = token ? coverUrl(currentTrack.id) : null;
+    // Los 3 `sizes` apuntan a la MISMA imagen (el backend sirve la carátula embebida
+    // original, sin resize): el SO elige y escala. Sin `type`: el endpoint hace sendFile
+    // del archivo original, que puede ser jpeg o png.
+    const artwork = src ? ['96x96', '256x256', '512x512'].map((sizes) => ({ src, sizes })) : [];
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title:  meta.title  || 'Sin título',
+        artist: meta.artist || 'Artista desconocido',
+        album:  meta.album  || '',
+        artwork,
+      });
+    } catch { /* motor sin MediaMetadata → sin "Now Playing"; la reproducción sigue igual */ }
+  }, [currentTrack, trackMeta, token]);
+
+  // Estado play/pause. Sin esto, iOS/CarPlay desincroniza el glifo.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState =
+      !currentTrack ? 'none' : isPlaying ? 'playing' : 'paused';
+  }, [currentTrack, isPlaying]);
+
+  // Controles del volante / lockscreen. Cada handler va en su propio try/catch porque un
+  // motor viejo lanza TypeError en las acciones que no soporta, y una sola caída no puede
+  // llevarse las demás. No seteamos `playbackState` acá: los eventos play/pause del <audio>
+  // mueven `isPlaying` y el efecto de arriba lo refleja.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const set = (action, handler) => {
+      try { navigator.mediaSession.setActionHandler(action, handler); }
+      catch { /* acción no soportada → se ignora */ }
+    };
+    set('play',          () => { getAudio().play().catch(() => {}); });
+    set('pause',         () => getAudio().pause());
+    set('previoustrack', () => prev());
+    set('nexttrack',     () => next());
+    set('seekto',        (d) => { if (d?.seekTime != null) seek(d.seekTime); });   // seek() clampa
+    set('seekbackward',  (d) => seek(getAudio().currentTime - (d?.seekOffset ?? 10)));
+    set('seekforward',   (d) => seek(getAudio().currentTime + (d?.seekOffset ?? 10)));
+    set('stop',          () => { getAudio().pause(); seek(0); });
+    return () => { for (const a of MEDIA_ACTIONS) set(a, null); };
+  }, [next, prev, seek]);
+
+  // Posición para el scrubber. Crítico en iOS: con el JS dormido en background, el SO
+  // interpola desde el último estado publicado; sin esto la barra se congela en el carro.
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    // La API LANZA con duration no finita/0 o position > duration. Al arrancar una pista
+    // duration=0 (playIndex resetea) → se omite hasta el primer 'timeupdate'.
+    if (!isFinite(duration) || duration <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: 1,                                        // no cambiamos velocidad
+        position: Math.max(0, Math.min(currentTime, duration)),
+      });
+    } catch { /* motor viejo → sin scrubber; el resto sigue */ }
+  }, [currentTime, duration]);
+
   const queueIndex = idxRef.current;
 
   return (
     <PlayerContext.Provider value={{
-      currentTrack, isPlaying, currentTime, duration, volume, queueIndex,
+      currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
       shuffle, repeat,
       queue: queueRef.current,
       play, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,

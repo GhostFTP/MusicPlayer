@@ -3,6 +3,24 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.5.0] - 2026-07-14
+
+### Nuevo
+- **Tu música en la pantalla del carro**: conectá el teléfono por **CarPlay**,
+  **Android Auto** o **Bluetooth** y el carro ya sabe qué está sonando. En vez de una
+  pantalla en blanco, aparece la **carátula** del disco con el **título**, el
+  **artista** y el **álbum**, y se actualiza sola cada vez que cambia la canción. Lo
+  mismo en la **pantalla bloqueada** del teléfono: la carátula a tamaño completo,
+  aunque tengas la app en segundo plano o la pantalla apagada.
+- **Los controles del volante manejan SonoraRev**: play/pausa, **anterior** y
+  **siguiente**, y **adelantar/retroceder 10 segundos** responden desde el volante,
+  desde la pantalla bloqueada y desde los controles del sistema — sin tocar el
+  teléfono mientras manejás. "Anterior" respeta el modo aleatorio igual que en la app
+  (vuelve a la canción que sonó de verdad, no a la de la lista).
+- **La barra de progreso avanza en el carro y en la pantalla bloqueada**: se mueve
+  junto con la canción aunque el teléfono esté bloqueado o estés en otra app, y podés
+  **arrastrarla para saltar** a cualquier punto de la canción desde ahí mismo.
+
 ## [1.4.9] - 2026-07-11
 
 ### Nuevo
