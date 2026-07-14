@@ -22,8 +22,20 @@ const MUSIC_DIR = resolve(process.env.MUSIC_DIR ?? resolve(__dir, '../../music')
 
 const ARTIST_IMAGE_NAMES = ['artist.jpg', 'artist.jpeg', 'artist.png', 'artist.webp'];
 
+// El tag del FLAC y el nombre de la carpeta pueden traer la MISMA letra en dos formas
+// Unicode distintas: "Motörhead" puede llevar ö como un solo code point (NFC) o como o +
+// diéresis combinante (NFD). En pantalla se ven idénticos, byte a byte no lo son — y en
+// Linux (producción) el sistema de archivos compara bytes, así que la foto no cargaría y no
+// habría ningún error visible. Normalizamos a NFC de los dos lados para que un artista con
+// acento no dependa de que el tag y la carpeta se hayan escrito igual.
+//
+// NFC a propósito, NO NFKC: NFKC hace mapeos de compatibilidad (p. ej. U+FE68 '﹨' → '\'),
+// así que normalizar con NFKC después del guard reintroduciría el path traversal. NFC nunca
+// produce caracteres ASCII nuevos.
+const nfc = (s) => (typeof s === 'string' ? s.normalize('NFC') : s);
+
 // GUARD 1 — el nombre llega de la URL: si trae separadores o '..' es una ruta disfrazada de
-// nombre. Se rechaza ANTES de tocar el disco.
+// nombre. Se rechaza ANTES de tocar el disco y ANTES de normalizar.
 function isSafeArtistName(a) {
   return typeof a === 'string' && a !== ''
     && !a.includes('..') && !a.includes('/') && !a.includes('\\') && !a.includes('\0');
@@ -43,7 +55,10 @@ function insideMusicDir(dir) {
 // andaría en local y fallaría EN SILENCIO en prod, así que la carpeta se deriva del
 // file_path real que el scanner ya escribió; la convención queda como primer candidato.
 function artistDirCandidates(artist) {
-  const dirs = [join(MUSIC_DIR, artist)];
+  const wanted = nfc(artist);
+  // Las dos formas del candidato por convención: si la carpeta se escribió en la forma
+  // contraria a la del tag, una de las dos acierta.
+  const dirs = [join(MUSIC_DIR, artist), join(MUSIC_DIR, wanted)];
   const rows = db.prepare(
     'SELECT DISTINCT file_path FROM tracks WHERE album_artist = ? AND file_path IS NOT NULL'
   ).all(artist);
@@ -52,8 +67,10 @@ function artistDirCandidates(artist) {
     dirs.push(dirname(d), d);          // el padre primero: cubre el caso con carpeta de álbum
   }
   // basename === artist distingue "carpeta del artista" de "carpeta del álbum" y descarta
-  // las pistas sueltas en la raíz (Metallica tiene 8 en su carpeta y 7 sueltas).
-  return [...new Set(dirs)].filter(d => basename(d) === artist && insideMusicDir(d));
+  // las pistas sueltas en la raíz (Metallica tiene 8 en su carpeta y 7 sueltas). La
+  // comparación va en NFC de ambos lados: estas rutas salen del file_path real (bytes del
+  // disco) y el nombre viene del tag — pueden no coincidir byte a byte.
+  return [...new Set(dirs)].filter(d => nfc(basename(d)) === wanted && insideMusicDir(d));
 }
 
 // Ruta absoluta de la foto del artista, o null si no hay. Nunca lanza.
