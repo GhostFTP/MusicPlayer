@@ -35,8 +35,11 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - Las animaciones respetan `prefers-reduced-motion`.
 
 ## Estado actual
+- **Producción va en `v1.5.0`** (tag `v1.5.0` → merge `6d0f14b`, desplegado y verificado el
+  2026-07-14). El tag más reciente **es** la versión en producción: `main` con auto-deploy
+  despliega directo. Para saber la versión real, **leé el tope de `CHANGELOG.md` o
+  `git tag --sort=-v:refname | head -1`** — no confíes en versiones citadas en docs o memoria.
 - En producción en **https://sonorarev.com** (servidor X99, Dokploy, túnel Cloudflare *Healthy*).
-  `main` con auto-deploy despliega directo a producción.
 - Auth: Cloudflare Access + Google SSO; auto-login SSO→JWT **desplegado y funcionando**
   (commit `d7a23b6`), con login usuario/contraseña como fallback local. El usuario **ghost**
   fue descartado y los usuarios de prueba (sebas, Kister, GhostFTP, 8431) se limpiaron de la
@@ -45,6 +48,12 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   Guarda `codec`, `bits_per_sample`, `sample_rate`, `bitrate`, `lossless`, `genre`.
   **No** guarda canales ni MBIDs.
 - Artistas (7): Daft Punk, NewJeans, Nujabes, Various Artists, Kali Uchis, Metallica, Treyarch Sound.
+- **Frente "auto" (car-lab):** hardware real = **4 carros** — **Mazda 3 2021** (Mazda Connect) y
+  **Maverick 2022** (SYNC 4) por **CarPlay/AA**, los dos prioritarios; **RAV4 2016** y
+  **Kangoo 2007** por **Bluetooth AVRCP**. Orden pactado **A → C → B**:
+  **A) MediaSession ✅ EN PRODUCCIÓN (v1.5.0)** — cubre los 4 carros sin trabajo nuevo, falta
+  solo la prueba física; **C) responsivo de teléfono** ← el frente activo; **B) Modo Auto**.
+  El contrato completo vive en `.claude/skills/car-lab/SKILL.md` — no duplicar acá.
 - Env vars (según `docker-compose.yml`): `NODE_ENV`, `PORT`, `MUSIC_DIR`, `JWT_SECRET`,
   `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
@@ -67,4 +76,4 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-13._
+_Última actualización: 2026-07-14 (release v1.5.0)._
