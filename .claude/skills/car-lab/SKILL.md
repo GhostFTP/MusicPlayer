@@ -9,18 +9,30 @@ Fuente de verdad del frente "reproductor en el auto".
 
 ## PREMISA (hardware real del usuario — no re-litigar)
 
-Los carros son **Kangoo 2007**, **RAV4 2016** y **Maverick 2022** (SYNC 4 con
-CarPlay/AA). **No hay head unit Android aftermarket ni se piensa comprar uno.**
+**Cuatro carros**, en orden de importancia. **No hay head unit Android aftermarket ni se
+piensa comprar uno.**
+
+| # | Carro | Sistema | Vía | Quién dibuja el "Now Playing" |
+|---|---|---|---|---|
+| **1** | **Mazda 3 2021** ← **PRIORITARIO** | Mazda Connect | **CarPlay / Android Auto** | **iOS / Google** (no Mazda) |
+| **2** | **Maverick 2022** ← **PRIORITARIO** | SYNC 4 | **CarPlay / Android Auto** | **iOS / Google** (no Ford) |
+| 3 | RAV4 2016 | — | Bluetooth AVRCP | **el estéreo del carro** |
+| 4 | Kangoo 2007 | — | Bluetooth AVRCP | **el estéreo del carro** |
+
 Consecuencias que definen TODO este frente:
 
 - **CarPlay/Android Auto NO renderizan web.** La pantalla del carro solo muestra el
   **"Now Playing" del sistema, alimentado por MediaSession** — y lo mismo por
   **Bluetooth AVRCP** en los carros sin CarPlay. → **MediaSession es lo ÚNICO que se ve
-  en la pantalla del carro, y aplica a los TRES carros** (CarPlay en la Maverick; AVRCP
-  por Bluetooth en Kangoo/RAV4).
+  en la pantalla del carro, y aplica a los CUATRO carros** (CarPlay/AA en Mazda 3 y
+  Maverick; AVRCP por Bluetooth en RAV4/Kangoo).
+- **Los DOS carros prioritarios van por CarPlay/AA** → misma superficie, mismo código, y
+  **el "Now Playing" ni siquiera lo dibuja el fabricante** (ver §Quién dibuja el "Now
+  Playing"). **El frente A ya en producción los cubre a los dos: cero trabajo nuevo por el
+  Mazda 3.**
 - **El "Modo Auto" es para el TELÉFONO MONTADO en el tablero**, no para la pantalla del
   carro. Su hardware objetivo son **teléfonos** (portrait o landscape) — **NO head units ni
-  DAPs**. Importa sobre todo en los carros sin CarPlay, donde el teléfono montado es la única
+  DAPs**. Importa sobre todo en RAV4/Kangoo, donde el teléfono montado es la única
   pantalla que puedes mirar.
 
 Gran parte de este sistema **está por construirse** — la skill es el **contrato a
@@ -32,7 +44,7 @@ real** antes de opinar o tocar.
 
 | # | Frente | Qué es | Prioridad |
 |---|---|---|---|
-| **A** | **MediaSession** | **lo ÚNICO que se ve en la pantalla del carro** (CarPlay/AA/BT "Now Playing"), en los 3 carros. Metadata + carátula + controles del volante | **la más alta** — es la experiencia del carro |
+| **A** | **MediaSession** | **lo ÚNICO que se ve en la pantalla del carro** (CarPlay/AA/BT "Now Playing"), en los **4 carros**. Metadata + carátula + controles del volante | **la más alta** — es la experiencia del carro. **✅ EN PRODUCCIÓN (v1.5.0)** |
 | **C** | **Responsivo de teléfono** | portrait cómodo y **landscape corto** del teléfono montado (ya **NO** head units ni DAPs). Beneficia a toda la app | media |
 | **B** | **Modo Auto** | layout de conducción para el **teléfono montado** (capa que suprime) | media |
 
@@ -60,8 +72,69 @@ descarta**: no hay hardware ultrawide en scope. Ver §Frente B.
 ## Frente A — MediaSession (contrato) — EL QUE MÁS IMPORTA
 
 **Vive en PlayerContext, NO en Player.jsx.** El contexto es el dueño del audio y del ciclo
-de reproducción; MediaSession es una proyección de ese estado al SO. Es lo que pinta la
-Maverick en CarPlay y los tres carros por Bluetooth → **acá se invierte de más, no de menos**.
+de reproducción; MediaSession es una proyección de ese estado al SO. Es lo que pinta el Mazda 3
+y la Maverick por CarPlay/AA y los otros dos por Bluetooth → **acá se invierte de más, no de
+menos**.
+
+**✅ Estado: EN PRODUCCIÓN desde v1.5.0** (`PlayerContext.jsx`, merge `6d0f14b`). Metadata +
+artwork, `playbackState`, los 8 action handlers y `setPositionState`, todos con sus guards.
+Verificado en el panel Media de Chrome; **falta la prueba física en los carros**.
+
+### Cobertura por carro (los 4, sin trabajo nuevo)
+
+**MediaSession es una API del navegador: la app no sabe —ni necesita saber— qué carro hay del
+otro lado.** El teléfono proyecta la misma metadata a CarPlay, a Android Auto o a AVRCP según
+cómo esté conectado. Por eso:
+
+| Carro | Cómo lo cubre el frente A | ¿Trabajo nuevo? |
+|---|---|---|
+| **Mazda 3 2021** | CarPlay/AA ← el mismo código ya desplegado | **No** |
+| **Maverick 2022** | CarPlay/AA ← el mismo código ya desplegado | **No** |
+| RAV4 2016 | AVRCP recibe la misma metadata | **No** |
+| Kangoo 2007 | AVRCP recibe la misma metadata | **No** |
+
+**Sumar un carro con CarPlay/AA NO abre trabajo de implementación** — abre **una prueba física
+más**. Si algún día un carro se ve mal, el sospechoso es el render del SO o del estéreo, **no**
+el código: antes de tocar `PlayerContext`, comparar contra el lockscreen del teléfono (ver abajo).
+
+### Quién dibuja el "Now Playing" (define qué es un bug y qué no)
+
+**Dato clave, no re-litigar:** en **CarPlay lo dibuja iOS**, no Mazda ni Ford. En **Android Auto
+lo dibuja Google**. El fabricante del carro **no controla el render** — solo hospeda la pantalla.
+Consecuencias directas para el QA:
+
+- **Mazda 3 y Maverick se van a ver casi idénticos.** Misma superficie de iOS/Google. Una
+  diferencia entre los dos NO es un bug de la app.
+- **La prueba del lockscreen del iPhone EQUIVALE a la prueba de CarPlay.** Si el lockscreen se ve
+  bien, CarPlay se ve bien: es el mismo render con el mismo `MediaMetadata`. Esto abarata el QA —
+  no hace falta el carro para saber si la metadata está sana, solo para confirmar el enlace.
+- **Mazda/Ford SÍ controlan el render en Bluetooth AVRCP** (RAV4/Kangoo) → ver abajo.
+
+### Expectativa realista en Bluetooth AVRCP (RAV4 / Kangoo)
+
+**Acá el estéreo del carro sí decide qué pinta, y sus límites son del hardware, NO de la app.**
+Anotado para **no perseguir bugs que no existen**:
+
+- **Muchos estéreos NO muestran carátula por AVRCP.** Que el RAV4 o el Kangoo no muestren la
+  portada es **lo esperable**, no un fallo de MediaSession. No "arreglar" nada por eso.
+- **Truncan títulos largos.** Un título cortado en la pantalla del carro es un límite de
+  caracteres del estéreo. La app manda el string completo; el corte pasa aguas abajo.
+- **Lo que SÍ debe funcionar por AVRCP:** título/artista (aunque truncados) y los controles del
+  volante (play/pausa, prev/next).
+- **Regla de diagnóstico:** si el lockscreen del teléfono se ve bien y el estéreo no, **el
+  problema es del estéreo**. La app ya hizo su parte.
+
+### ⚠️ RIESGO ABIERTO — ¿el Mazda 3 del usuario trae CarPlay?
+
+CarPlay es **estándar en los trims Select / Preferred / Premium** del Mazda 3 2021. El **trim BASE
+(2.0) puede NO traerlo** — pero es **activable en agencia con una actualización de software**
+(**no requiere hardware nuevo**), así que el peor caso es un trámite, no un carro fuera de scope.
+
+**Pendiente del usuario (🔍 FÍSICA, 30 segundos):** conectar un iPhone por cable y ver si aparece
+el ícono de CarPlay en la pantalla. Si aparece → riesgo cerrado. Si no → agencia.
+
+**No bloquea nada:** aunque el trim base no lo tenga, el frente A ya está desplegado y el carro
+seguiría cubierto por **Bluetooth AVRCP** mientras tanto (con la expectativa realista de arriba).
 
 ### Helper de metadata compartido
 
@@ -176,8 +249,10 @@ el glifo play/pause.
 
 ### iOS Safari vs Chrome Android (diferencias reales)
 
-Ambos importan: la Maverick usa **CarPlay (iPhone) o Android Auto**; los otros carros, **BT
-AVRCP** desde cualquiera de los dos.
+Ambos importan: **Mazda 3 y Maverick** usan **CarPlay (iPhone) o Android Auto**; RAV4/Kangoo,
+**BT AVRCP** desde cualquiera de los dos. Y como el "Now Playing" de CarPlay/AA **lo dibuja el
+SO** (no el carro), esta tabla —no el fabricante— es lo que predice qué se ve en los dos carros
+prioritarios.
 
 | Aspecto | Chrome Android | iOS Safari / PWA standalone |
 |---|---|---|
@@ -350,9 +425,14 @@ polyfills): fuera.
 **No hay hardware real en este entorno** (ni carro, ni CarPlay/AA, ni teléfono físico). El QA cubre
 **código + DevTools**: device mode con las **6 resoluciones reales** de la matriz en **ambas
 orientaciones**, emulación táctil, `prefers-reduced-motion`, throttling; MediaSession inspeccionable
-en `chrome://media-internals` y el panel Media de DevTools. Todo lo que exija hardware —**CarPlay de
-la Maverick**, Bluetooth AVRCP de los tres carros, controles del volante, lockscreen iOS real, Wake
-Lock físico— se marca **🔍 REQUIERE PRUEBA FÍSICA** con pasos exactos: **las hace el usuario en el carro**.
+en `chrome://media-internals` y el panel Media de DevTools. Todo lo que exija hardware —**CarPlay/AA
+de Mazda 3 y Maverick**, Bluetooth AVRCP de RAV4/Kangoo, controles del volante, lockscreen iOS real,
+Wake Lock físico— se marca **🔍 REQUIERE PRUEBA FÍSICA** con pasos exactos: **las hace el usuario en
+el carro**.
+
+**Atajo que abarata el QA de CarPlay/AA:** como el "Now Playing" lo dibuja el SO y no el carro, el
+**lockscreen del teléfono es un proxy fiel de lo que verán Mazda 3 y Maverick**. Un iPhone/Android a
+mano (sin carro) ya valida la metadata; el carro solo confirma el enlace y los controles del volante.
 
 ## Checklist QA
 
@@ -365,8 +445,19 @@ Lock físico— se marca **🔍 REQUIERE PRUEBA FÍSICA** con pasos exactos: **l
    de pista; **no** toca el reloj del karaoke.
 4. **Token rotation:** al forzar un 401/reauth, la metadata se re-emite con URL fresca; en el hueco
    `token=null` no se manda `?token=null`.
-5. 🔍 FÍSICA (la prueba estrella): metadata + carátula + prev/next/seek del volante en **CarPlay de
-   la Maverick** y por **Bluetooth** en Kangoo/RAV4; scrubber del lockscreen se mueve en background (iOS).
+5. 🔍 FÍSICA — **los 4 carros**. Hacer **primero el proxy** (lockscreen del teléfono: metadata +
+   carátula + prev/next/seek + el scrubber moviéndose en background). Con eso verde:
+   - **5a. Mazda 3 2021 (CarPlay/AA)** — ⭐ prueba estrella. Antes que nada: **¿aparece el ícono de
+     CarPlay al conectar el iPhone?** (cierra el riesgo abierto del trim BASE). Después: carátula +
+     título/artista/álbum en la pantalla y prev/next/seek desde el volante.
+   - **5b. Maverick 2022 (CarPlay/AA)** — ⭐ prueba estrella. Lo mismo. **Debe verse casi idéntico al
+     Mazda 3**: si difieren, es del SO, no de la app.
+   - **5c. RAV4 2016 (AVRCP)** — título/artista y controles del volante. **Sin carátula = ESPERABLE**,
+     no un hallazgo. Título truncado = límite del estéreo, no un hallazgo.
+   - **5d. Kangoo 2007 (AVRCP)** — ídem 5c.
+
+   **Regla de triage:** si el lockscreen se ve bien y un carro no, **el hallazgo NO es de la app**.
+   Solo abrir bug contra `PlayerContext` si el **lockscreen** falla.
 
 **Frente C — Responsivo de teléfono**
 6. Las **6 resoluciones** de la matriz en ambas orientaciones: **sin scroll horizontal**, sin
