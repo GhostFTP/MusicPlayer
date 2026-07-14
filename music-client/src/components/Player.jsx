@@ -125,7 +125,7 @@ export default function Player({ navigate, view, detailOpen }) {
   const [repeatSpin, setRepeatSpin] = useState(false);
   const preMuteVol = useRef(0.7);          // volumen a restaurar al quitar el mute
   const player = usePlayer();
-  const { currentTrack, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
+  const { currentTrack, trackMeta, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
 
   // ── Estado del swipe de la carátula ──
@@ -158,21 +158,9 @@ export default function Player({ navigate, view, detailOpen }) {
     : 'desactivado';
   const repeatTitle = `Repetir: ${repeatState}`;
 
-  // Calidad de la pista que suena. Si la cola ya la trae (reproducción desde la
-  // Biblioteca) la usamos directo; si no (p.ej. un álbum), pedimos el detalle.
-  const [quality, setQuality] = useState(null);
-  useEffect(() => {
-    if (!currentTrack) { setQuality(null); return; }
-    if (currentTrack.codec || currentTrack.sample_rate || currentTrack.bitrate) {
-      setQuality(currentTrack);
-      return;
-    }
-    let cancelled = false;
-    api.track(currentTrack.id)
-      .then(full => { if (!cancelled) setQuality(full); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [currentTrack]);
+  // La metadata enriquecida (badge de calidad + `album`/`album_artist` para navegación y
+  // MediaSession) ahora vive en PlayerContext como `trackMeta`, memoizada y compartida.
+  // Antes era un estado `quality` local con su propio api.track de fallback.
 
   // Última vista distinta de Novedades: adónde vuelve Esc al "cerrar" la vista de
   // la campanita (no hay historial de navegación; esto guarda el único "atrás"
@@ -587,14 +575,14 @@ export default function Player({ navigate, view, detailOpen }) {
     ? <img className="player-art" src={coverUrl(currentTrack.id)} alt="" onClick={openExpanded} title="Abrir reproductor" />
     : <div className="player-art-placeholder" onClick={openExpanded} title="Abrir reproductor">♪</div>;
 
-  // Género (integrado al subtítulo) del track enriquecido (quality) o del actual.
-  const genre = (quality ?? currentTrack)?.genre ?? null;
-  // album_artist/album confiables: quality (api.track = SELECT *) o el track de la
+  // Género (integrado al subtítulo) del track enriquecido (trackMeta) o del actual.
+  const genre = (trackMeta ?? currentTrack)?.genre ?? null;
+  // album_artist/album confiables: trackMeta (api.track = SELECT *) o el track de la
   // cola. Para navegar al artista usamos album_artist (NO el `artist` mostrado, que
-  // rompería "Various Artists"/feats). Pueden faltar si la cola vino de
-  // /albums/:album/tracks → en ese caso se resuelven con api.track(id).
-  const albumArtist = (quality ?? currentTrack)?.album_artist ?? null;
-  const album       = (quality ?? currentTrack)?.album ?? null;
+  // rompería "Various Artists"/feats). Puede faltar `album_artist` si la cola vino de una
+  // playlist → goArtist/goAlbum lo resuelven con api.track(id) (fetch lazy, sin tocar).
+  const albumArtist = (trackMeta ?? currentTrack)?.album_artist ?? null;
+  const album       = (trackMeta ?? currentTrack)?.album ?? null;
 
   // Navegación desde la barra Y el expandido. stopPropagation (no disparar el
   // onClick de .player-track en móvil) y cierre del expandido Y de la Letra antes
@@ -632,9 +620,9 @@ export default function Player({ navigate, view, detailOpen }) {
   };
   // Calidad partida: códec para el badge + resto del detalle como texto gris.
   // El color/caja del badge refleja el tier (hi-res / lossless / lossy…).
-  const qCodec = qualityCodec(quality);
-  const qDetail = qualityDetail(quality);
-  const qTier = qualityTier(quality);
+  const qCodec = qualityCodec(trackMeta);
+  const qDetail = qualityDetail(trackMeta);
+  const qTier = qualityTier(trackMeta);
 
   // Color del tiempo transcurrido, por PRIORIDAD: pausa (ámbar) > últimos 15s (rojo)
   // > normal (lavanda). El color transiciona suave (va en el span estable, no en el
@@ -672,7 +660,7 @@ export default function Player({ navigate, view, detailOpen }) {
       {/* ── Panel de información de la pista (modal) ── */}
       {showInfo && (
         <InfoPanel
-          track={quality ?? currentTrack}
+          track={trackMeta ?? currentTrack}
           onClose={() => setShowInfo(false)}
           navigate={(view, target) => { setShowInfo(false); setExpanded(false); setShowLyrics(false); navigate(view, target); }}
         />
@@ -779,7 +767,7 @@ export default function Player({ navigate, view, detailOpen }) {
                   {qCodec && (
                     <span
                       className={`quality-chip player-quality-badge q-${qTier.id}`}
-                      title={qualityTierTitle(quality)}
+                      title={qualityTierTitle(trackMeta)}
                     >
                       {qCodec}
                     </span>
@@ -927,7 +915,7 @@ export default function Player({ navigate, view, detailOpen }) {
                     {qCodec && (
                       <span
                         className={`quality-chip player-quality-badge q-${qTier.id}`}
-                        title={qualityTierTitle(quality)}
+                        title={qualityTierTitle(trackMeta)}
                       >
                         {qCodec}
                       </span>

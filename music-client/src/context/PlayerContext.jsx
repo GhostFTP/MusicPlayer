@@ -2,6 +2,7 @@ import {
   createContext, useContext, useRef, useState, useEffect, useCallback,
 } from 'react';
 import { streamUrl } from '../api/client.js';
+import { resolveTrackMeta, isComplete } from '../utils/trackMeta.js';
 
 const PlayerContext = createContext(null);
 
@@ -9,6 +10,7 @@ export function PlayerProvider({ children }) {
   const audioRef    = useRef(null);
   const queueRef    = useRef([]);   // stable refs for event callbacks
   const idxRef      = useRef(-1);
+  const metaCacheRef = useRef(new Map());   // memo id→trackMeta resuelto (evita re-fetch por reproducción)
 
   // Modos de reproducción. Se duplican en refs porque el callback 'ended' del
   // <audio> se registra una vez y necesita leer el valor actual, no el del montaje.
@@ -18,6 +20,7 @@ export function PlayerProvider({ children }) {
   const historyRef  = useRef([]);            // orden real de reproducción (para "anterior" en shuffle)
 
   const [currentTrack, setCurrentTrack] = useState(null);
+  const [trackMeta,    setTrackMeta]    = useState(null);  // currentTrack enriquecido (badge + MediaSession)
   const [isPlaying,    setIsPlaying]    = useState(false);
   const [currentTime,  setCurrentTime]  = useState(0);
   const [duration,     setDuration]     = useState(0);
@@ -121,6 +124,29 @@ export function PlayerProvider({ children }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Metadata enriquecida de la pista actual (badge de calidad + `album` para MediaSession).
+  // Reemplaza el estado `quality` que vivía en Player.jsx: mismo comportamiento (el badge
+  // se muestra SYNC desde lo que trae la cola; enriquece solo si falta algo, lo que hoy no
+  // pasa con ninguna ruta de cola) pero centralizado, memoizado y disponible para MediaSession.
+  useEffect(() => {
+    if (!currentTrack) { setTrackMeta(null); return; }
+    const cached = metaCacheRef.current.get(currentTrack.id);
+    if (cached) { setTrackMeta(cached); return; }
+    // Badge inmediato (sync) desde la cola, como el `quality` viejo: el badge sale de
+    // campos de audio, nunca de album/album_artist → jamás parpadea. Si no hay specs, NO
+    // reseteamos: queda el valor previo durante el fetch (igual que el `quality` viejo).
+    if (currentTrack.codec || currentTrack.sample_rate || currentTrack.bitrate) {
+      setTrackMeta(currentTrack);
+    }
+    if (isComplete(currentTrack)) { metaCacheRef.current.set(currentTrack.id, currentTrack); return; }
+    let cancelled = false;
+    resolveTrackMeta(currentTrack).then(m => {
+      metaCacheRef.current.set(currentTrack.id, m);
+      if (!cancelled) setTrackMeta(m);
+    });
+    return () => { cancelled = true; };
+  }, [currentTrack]);
+
   const play = useCallback((tracks, startIndex = 0) => {
     queueRef.current = tracks;
     playedRef.current = new Set();         // nuevo origen de cola → reinicia ciclo shuffle e historial
@@ -184,7 +210,7 @@ export function PlayerProvider({ children }) {
 
   return (
     <PlayerContext.Provider value={{
-      currentTrack, isPlaying, currentTime, duration, volume, queueIndex,
+      currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
       shuffle, repeat,
       queue: queueRef.current,
       play, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
