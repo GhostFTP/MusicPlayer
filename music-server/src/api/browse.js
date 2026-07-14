@@ -1,9 +1,72 @@
 import { Router } from 'express';
+import { existsSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import db from '../db/database.js';
 import { authMiddleware } from '../auth/jwt.js';
 
 const router = Router();
 router.use(authMiddleware);
+
+// ── FOTO DE ARTISTA (artist.jpg curado por el usuario) ──────────────────────────
+// Se resuelve al vuelo desde el disco: no hay columna en la DB ni paso del scanner.
+// Soltar el archivo y recargar alcanza (el scanner solo corre a mano, así que indexarlo
+// obligaría a re-escanear en producción para ver un cambio de foto).
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+// Raíz de la biblioteca, mismo criterio que el scanner (scanner/index.js:229) sin el arg de
+// CLI. Es el PRIMER sitio donde el server lee MUSIC_DIR: hasta ahora solo lo usaba el
+// scanner (el server trabaja con las rutas absolutas que ya están en la DB). Si faltara,
+// esto degrada a "no hay foto" — no rompe el arranque.
+const MUSIC_DIR = resolve(process.env.MUSIC_DIR ?? resolve(__dir, '../../music'));
+
+const ARTIST_IMAGE_NAMES = ['artist.jpg', 'artist.jpeg', 'artist.png', 'artist.webp'];
+
+// GUARD 1 — el nombre llega de la URL: si trae separadores o '..' es una ruta disfrazada de
+// nombre. Se rechaza ANTES de tocar el disco.
+function isSafeArtistName(a) {
+  return typeof a === 'string' && a !== ''
+    && !a.includes('..') && !a.includes('/') && !a.includes('\\') && !a.includes('\0');
+}
+
+// GUARD 2 — la ruta RESUELTA tiene que caer estrictamente dentro de MUSIC_DIR (ni igual a
+// la raíz, ni fuera). Se aplica a TODOS los candidatos, incluidos los derivados de la DB.
+function insideMusicDir(dir) {
+  const rel = relative(MUSIC_DIR, dir);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
+
+// Carpetas candidatas a "carpeta del artista", en orden de preferencia.
+// NO se asume MUSIC_DIR/<artista>: en producción la biblioteca cuelga de un prefijo
+// (docker-compose monta /mnt/storage en /music con MUSIC_DIR=/music, y la música vive en
+// /mnt/storage/Musica → dentro del contenedor es /music/Musica/<Artista>). Esa suposición
+// andaría en local y fallaría EN SILENCIO en prod, así que la carpeta se deriva del
+// file_path real que el scanner ya escribió; la convención queda como primer candidato.
+function artistDirCandidates(artist) {
+  const dirs = [join(MUSIC_DIR, artist)];
+  const rows = db.prepare(
+    'SELECT DISTINCT file_path FROM tracks WHERE album_artist = ? AND file_path IS NOT NULL'
+  ).all(artist);
+  for (const { file_path } of rows) {
+    const d = dirname(file_path);      // <raíz>/<Artista>/<Álbum>  ó  <raíz>/<Artista>
+    dirs.push(dirname(d), d);          // el padre primero: cubre el caso con carpeta de álbum
+  }
+  // basename === artist distingue "carpeta del artista" de "carpeta del álbum" y descarta
+  // las pistas sueltas en la raíz (Metallica tiene 8 en su carpeta y 7 sueltas).
+  return [...new Set(dirs)].filter(d => basename(d) === artist && insideMusicDir(d));
+}
+
+// Ruta absoluta de la foto del artista, o null si no hay. Nunca lanza.
+function findArtistImage(artist) {
+  if (!isSafeArtistName(artist)) return null;
+  for (const dir of artistDirCandidates(artist)) {
+    for (const name of ARTIST_IMAGE_NAMES) {
+      const file = join(dir, name);
+      if (existsSync(file)) return file;
+    }
+  }
+  return null;
+}
 
 // GET /api/browse/genres  — géneros con nº de pistas y álbumes
 router.get('/genres', (req, res) => {
@@ -19,9 +82,9 @@ router.get('/genres', (req, res) => {
   `).all());
 });
 
-// GET /api/browse/artists  — artistas (por album_artist) con conteos y carátula
+// GET /api/browse/artists  — artistas (por album_artist) con conteos, carátula y foto propia
 router.get('/artists', (req, res) => {
-  res.json(db.prepare(`
+  const artists = db.prepare(`
     SELECT
       album_artist          AS artist,
       COUNT(DISTINCT album) AS album_count,
@@ -31,7 +94,11 @@ router.get('/artists', (req, res) => {
     WHERE album_artist IS NOT NULL AND album_artist <> ''
     GROUP BY album_artist
     ORDER BY album_artist COLLATE NOCASE
-  `).all());
+  `).all();
+  // has_image deja que la vista elija el nivel de la cadena de fallback ANTES de renderizar
+  // (foto → carátula → iniciales), igual que hoy hace con sample_track_id. Cuesta unos pocos
+  // existsSync por artista; el server ya lee la biblioteca en cada request (stream.js:29,42).
+  res.json(artists.map(a => ({ ...a, has_image: findArtistImage(a.artist) !== null })));
 });
 
 // GET /api/browse/artists/:artist  — agregados LOCALES de un artista (album_artist):
@@ -71,6 +138,17 @@ router.get('/artists/:artist', (req, res) => {
       lossy:    agg.lossy ?? 0,
     },
   });
+});
+
+// GET /api/browse/artists/:artist/image  — la foto curada del artista (artist.jpg en su
+// carpeta). Sin foto → 404 y la vista cae a la carátula (cadena de fallback).
+router.get('/artists/:artist/image', (req, res) => {
+  const artist = req.params.artist;      // Express ya lo decodificó (decodeURIComponent)
+  // Un nombre inválido es un intento de ruta, no un artista que no existe → 400, no 404.
+  if (!isSafeArtistName(artist)) return res.status(400).json({ error: 'Invalid artist name' });
+  const file = findArtistImage(artist);
+  if (!file) return res.status(404).json({ error: 'No artist image' });
+  res.sendFile(file);
 });
 
 // GET /api/browse/years  — años con nº de álbumes y pistas
