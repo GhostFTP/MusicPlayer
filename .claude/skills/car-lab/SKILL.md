@@ -19,9 +19,9 @@ Consecuencias que definen TODO este frente:
   en la pantalla del carro, y aplica a los TRES carros** (CarPlay en la Maverick; AVRCP
   por Bluetooth en Kangoo/RAV4).
 - **El "Modo Auto" es para el TELÉFONO MONTADO en el tablero**, no para la pantalla del
-  carro. Su hardware objetivo son **teléfonos** (portrait o landscape) y el **DAP HiBy R4**
-  — **NO head units**. Importa sobre todo en los carros sin CarPlay, donde el teléfono
-  montado es la única pantalla que puedes mirar.
+  carro. Su hardware objetivo son **teléfonos** (portrait o landscape) — **NO head units ni
+  DAPs**. Importa sobre todo en los carros sin CarPlay, donde el teléfono montado es la única
+  pantalla que puedes mirar.
 
 Gran parte de este sistema **está por construirse** — la skill es el **contrato a
 construir**, no un mapa de código existente. Lo que ya existe lleva `archivo:línea`; lo
@@ -33,7 +33,7 @@ real** antes de opinar o tocar.
 | # | Frente | Qué es | Prioridad |
 |---|---|---|---|
 | **A** | **MediaSession** | **lo ÚNICO que se ve en la pantalla del carro** (CarPlay/AA/BT "Now Playing"), en los 3 carros. Metadata + carátula + controles del volante | **la más alta** — es la experiencia del carro |
-| **C** | **Responsivo de teléfono** | portrait cómodo y **landscape corto** de teléfono montado + DAP HiBy R4 (ya **NO** head units). Beneficia a toda la app | media |
+| **C** | **Responsivo de teléfono** | portrait cómodo y **landscape corto** del teléfono montado (ya **NO** head units ni DAPs). Beneficia a toda la app | media |
 | **B** | **Modo Auto** | layout de conducción para el **teléfono montado** (capa que suprime) | media |
 
 **Orden de ejecución pactado: A → C → B.** A es aislado, se prueba con Bluetooth/CarPlay el
@@ -206,20 +206,24 @@ correcto.
 
 ### Matriz de resoluciones REALES (checklist QA)
 
-Teléfono montado (ambas orientaciones) + DAP. Los head units **se descartan** (sin hardware).
+**Teléfono montado, ambas orientaciones — 6 resoluciones** (3 portrait + 3 landscape). Nada más.
 
 | Resolución | Orientación | Régimen | Nota |
 |---|---|---|---|
 | 390×844 | portrait | Portrait | iPhone montado vertical |
 | 412×915 | portrait | Portrait | Android grande vertical |
 | 375×667 | portrait | Portrait | iPhone SE vertical |
-| 360×640 | portrait | Portrait | **DAP HiBy R4** (en mano, no "carro" — responsive general) |
 | 844×390 | landscape | Landscape | iPhone montado horizontal |
 | 915×412 | landscape | Landscape | Android grande horizontal |
 | 667×375 | landscape | Landscape (h=375, **el peor**) | iPhone SE horizontal — **el caso de diseño crítico** |
 
-**Descartadas (hipotéticas, sin hardware):** 800×480, 1024×600, 1280×720, 1280×480, 1920×720,
-1280×800 (head units aftermarket / ultrawide de tablero).
+**Fuera de car-lab a propósito:**
+- **HiBy R4 (360×640):** es un **DAP de mano, NO va montado en el tablero** → no es escenario
+  "auto". Su portrait chico es **territorio de mobile-lab** (que ya tiene su matriz). Su única
+  implicación técnica (el Chrome viejo del DAP) es un pendiente de `build.target` **a nivel
+  proyecto**, anotado en `CLAUDE.md` → "Pendientes conocidos", **no** en car-lab.
+- **Head units aftermarket / ultrawide de tablero** (800×480, 1024×600, 1280×720, 1280×480,
+  1920×720, 1280×800): hipotéticos, sin hardware — CarPlay/AA cubren la pantalla del carro.
 
 ## Frente B — Modo Auto (la capa)
 
@@ -327,7 +331,7 @@ polyfills): fuera.
 ## Entorno de QA (limitación conocida)
 
 **No hay hardware real en este entorno** (ni carro, ni CarPlay/AA, ni teléfono físico). El QA cubre
-**código + DevTools**: device mode con las **7 resoluciones reales** de la matriz en **ambas
+**código + DevTools**: device mode con las **6 resoluciones reales** de la matriz en **ambas
 orientaciones**, emulación táctil, `prefers-reduced-motion`, throttling; MediaSession inspeccionable
 en `chrome://media-internals` y el panel Media de DevTools. Todo lo que exija hardware —**CarPlay de
 la Maverick**, Bluetooth AVRCP de los tres carros, controles del volante, lockscreen iOS real, Wake
@@ -348,7 +352,7 @@ Lock físico— se marca **🔍 REQUIERE PRUEBA FÍSICA** con pasos exactos: **l
    la Maverick** y por **Bluetooth** en Kangoo/RAV4; scrubber del lockscreen se mueve en background (iOS).
 
 **Frente C — Responsivo de teléfono**
-6. Las **7 resoluciones** de la matriz en ambas orientaciones: **sin scroll horizontal**, sin
+6. Las **6 resoluciones** de la matriz en ambas orientaciones: **sin scroll horizontal**, sin
    solapamientos, type legible.
 7. Cruce portrait ↔ landscape: sin saltos ni elementos cortados; el reflow ocurre por
    `@media orientation`, el escalado por `clamp`.

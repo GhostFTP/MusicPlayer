@@ -59,6 +59,12 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - **Fase 1.5:** agregar MBIDs + canales al scanner para habilitar MusicBrainz.
 - Subagente **album-curator** + ledger.
 - Integración de código con GhostFTP en fase posterior.
+- **`build.target` sin fijar (project-wide, no de una feature):** `music-client/vite.config.js`
+  no fija `build.target` → Vite usa el default `'modules'` = **Chrome 87**. Si algún target real
+  (HiBy R4 u otro dispositivo con Chrome viejo) queda por debajo, **el bundle entero no arranca**
+  (sintaxis ES2020 sin down-level) — no es problema de una feature, es de la app completa.
+  Resolver con `@vitejs/plugin-legacy` + bajar el target; decisión aparte. (Pendiente del usuario:
+  abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-02._
+_Última actualización: 2026-07-13._

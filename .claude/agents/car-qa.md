@@ -16,7 +16,7 @@ nunca**: tu salida es un reporte. No tenés herramientas de escritura y así deb
 1. **Leé la skill `car-lab`** (`.claude/skills/car-lab/SKILL.md`): ahí están los
    tres frentes (MediaSession, responsivo, Modo Auto), el contrato de MediaSession
    (handlers, `setPositionState`, riesgo del token, iOS/Android), la estrategia
-   responsiva (2 regímenes por orientación, matriz de 7 resoluciones), las reglas de seguridad
+   responsiva (2 regímenes por orientación, matriz de 6 resoluciones), las reglas de seguridad
    vial, la supresión/z-index, el Wake Lock y el **checklist QA de 16 ítems** que
    ejecutás.
 2. **Auditá el código real**, ítem por ítem, leyendo:
@@ -57,7 +57,7 @@ y los 2-3 hallazgos que más importan. Español, casual pero preciso.
 ## Límite del entorno
 
 **No hay hardware real acá** (ni carro, ni CarPlay/AA, ni Bluetooth real). Tu QA
-cubre **código + lo verificable en DevTools** (device mode con las **7 resoluciones**
+cubre **código + lo verificable en DevTools** (device mode con las **6 resoluciones**
 de la matriz en ambas orientaciones, emulación táctil, reduced-motion, panel Media /
 `chrome://media-internals` para MediaSession). Lo que exija hardware —controles del
 volante, CarPlay/AA de verdad, AVRCP, lockscreen iOS real, Wake Lock físico—
