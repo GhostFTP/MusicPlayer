@@ -127,6 +127,7 @@ router.get('/artists/:artist', (req, res) => {
     SELECT
       COUNT(DISTINCT album) AS album_count,
       COUNT(*)              AS track_count,
+      SUM(duration)         AS total_duration,
       SUM(CASE WHEN lossless = 1 AND (COALESCE(bits_per_sample, 0) >= 24 OR COALESCE(sample_rate, 0) > 48000) THEN 1 ELSE 0 END) AS hires,
       SUM(CASE WHEN lossless = 1 THEN 1 ELSE 0 END) AS lossless_total,
       SUM(CASE WHEN lossless = 0 THEN 1 ELSE 0 END) AS lossy
@@ -148,6 +149,10 @@ router.get('/artists/:artist', (req, res) => {
     artist,
     album_count: agg.album_count ?? 0,
     track_count: agg.track_count ?? 0,
+    // Segundos. `duration` está poblada al 100% (medido: 0 nulas en 484 pistas), pero el
+    // ?? 0 cubre el caso de que un rescan futuro deje alguna sin ella: SUM() ignora los
+    // NULL y solo devuelve NULL si TODAS lo son. El cliente oculta el dato si es 0.
+    total_duration: agg.total_duration ?? 0,
     genres,
     quality: {
       hires,
