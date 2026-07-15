@@ -32,6 +32,23 @@ function regionName(code) {
   catch { return code; }
 }
 
+// Discografía en orden cronológico ascendente: la grilla cuenta la carrera, de la primera
+// a la última. El backend devuelve `ORDER BY album_artist, album` (alfabético), que en una
+// discografía no dice nada: Daft Punk salía Alive 1997 → Alive 2007 → Discovery → Homework…
+//
+// El sort vive ACÁ y no en AlbumGrid a propósito: Años también usa ese componente, y allá
+// todos los álbumes comparten año → ordenar por año sería un no-op y el desempate mandaría
+// la grilla a orden alfabético, rompiendo su "agrupado por artista". Con el sort acá, Años
+// no puede verse afectado.
+//
+// Los álbumes sin año van al final (no al principio, que es lo que haría `?? 0`).
+function byYearAsc(albums) {
+  return [...albums].sort((a, b) =>
+    (a.year ?? Infinity) - (b.year ?? Infinity) ||
+    a.album.localeCompare(b.album, 'es')
+  );
+}
+
 export default function Artists({ target, clearTarget, setDetailOpen }) {
   const [artists,  setArtists]  = useState(null);
   const [sel,      setSel]      = useState(null);   // artista seleccionado
@@ -62,7 +79,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
   async function open(a) {
     setSel(a);
     setAlbums(null);
-    setAlbums(await api.albums({ artist: a.artist }));
+    setAlbums(byYearAsc(await api.albums({ artist: a.artist })));
   }
 
   // Agregados LOCALES (duración, géneros, calidad) para las stats y los chips del hero.
@@ -152,7 +169,9 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
           </div>
         </div>
 
-        {albums ? <AlbumGrid albums={albums} onOpen={setSelAlbum} /> : <div className="spinner">Cargando…</div>}
+        {albums
+          ? <AlbumGrid albums={albums} onOpen={setSelAlbum} secondary="year" />
+          : <div className="spinner">Cargando…</div>}
       </div>
     );
   }
