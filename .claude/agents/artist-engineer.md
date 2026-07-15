@@ -43,6 +43,14 @@ apruebe**. Si el encargo ya trae la decisión tomada, saltá a implementar.
   silencioso que anda en local y falla en prod**.
 - **La cadena de fallback nunca se salta**: la vista jamás queda sin imagen ni rota. Sin
   ninguna foto subida **debe verse como hoy**.
+- **NADA DE BIOS.** Está medido: **MusicBrainz no tiene bios** (`annotation: null`; su
+  `disambiguation` lo traen 2 de 7 y en Various Artists dice *"add compilations to this
+  artist"*, una instrucción para editores de MB). Traer una exige Wikipedia/Last.fm =
+  **dependencia externa nueva** → **pedila, no la agregues**. El hero muestra identidad
+  factual de MB (tipo · país · años) y datos locales.
+- **El sort de la discografía vive en `Artists.jsx`, NUNCA en `AlbumGrid`**: `AlbumGrid` lo
+  comparte **Años**, donde ordenar por año rompería su orden. Y `secondary` mantiene default
+  `"artist"` para que Años no cambie.
 - **No inventar datos**: los chips de género/calidad salen de `api.artistDetail()`, que ya
   existe. Nada de fuentes externas no pactadas.
 - **Curación ≠ código:** las pistas sin `ALBUMARTIST` (Red Hot Chili Peppers) y las sueltas

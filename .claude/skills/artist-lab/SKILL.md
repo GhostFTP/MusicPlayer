@@ -119,6 +119,30 @@ donde vive el path traversal**. Obligatorio, en este orden:
   bien, pero **algunos proxies normalizan `%2F` a `/` antes de enrutar** y romperían la ruta.
   Sin casos hoy. Si aparece, se resuelve con query param en vez de path param.
 
+## ⛔ BIO: NO. MusicBrainz no tiene bios (medido, no re-litigar)
+
+**Se consultó la API real de MusicBrainz con los 7 artistas.** Resultado:
+
+- El endpoint de búsqueda que usa `info.js` **no devuelve ningún campo de bio** para ninguno.
+- El lookup completo con `inc=annotation+url-rels` da **`annotation: null`**.
+- Lo único parecido es **`disambiguation`**, una línea suelta, y **solo la traen 2 de 7**:
+  Daft Punk → `"French electronic duo"`; **Various Artists → `"add compilations to this
+  artist"`** — una **instrucción para editores de MusicBrainz**. Pintarla como bio pondría
+  eso en el hero. Los otros 5 (Kali Uchis, Metallica, NewJeans, Nujabes, Treyarch Sound): nada.
+- La única vía a una bio real es `wikidata` → Wikidata → Wikipedia: **dos saltos a un servicio
+  externo nuevo** — la misma clase de dependencia que se descartó para las fotos, y contra la
+  regla de `CLAUDE.md`: *"Nunca inventar biografías ni traer fuentes externas no acordadas"*.
+
+**Lo que MB SÍ da, y `info.js` ya devuelve cacheado 24 h con su rate limit → cero backend:**
+identidad factual. `Grupo · Francia · 1993–2021` (Daft Punk), `Persona · Japón · 1974–2010`
+(Nujabes: nacimiento–muerte). País vía **`Intl.DisplayNames`** (nativo, sin tabla propia).
+
+- `type: "Other"` **se descarta**: en Various Artists daría "Otro", que no dice nada → ese
+  hero simplemente no pinta la línea.
+- Es **mejora progresiva**: `info.js` serializa a 1 req/s **sin timeout**, así que la línea
+  puede tardar. Aparece cuando llega, **nunca bloquea**, y si MB no responde no se pinta.
+  Por eso vive en un efecto **separado** de los agregados locales.
+
 ## Dirección visual: "Retrato" (elegida)
 
 **El problema que resuelve:** hoy Artistas **es la tarjeta de Álbumes menos una línea** —
@@ -130,16 +154,49 @@ mismo `.album-grid`, mismo `.album-card`, misma tipografía, mismo hover; solo c
 - **Lista:** se muere el círculo y se muere la grilla cuadrada. Tarjetas **verticales 3:4**,
   foto a sangre hasta el borde, degradado oscuro abajo, nombre encima de la foto, contadores
   muted debajo. **Retrato vs cuadrado = imposible de confundir con Álbumes, por estructura.**
-- **Detalle:** **hero a sangre** con la foto (hoy el detalle **no tiene ninguna imagen**:
-  es un `<h1>` desnudo sobre la grilla, `Artists.jsx:57-73` — la única vista con detalle sin
-  hero). Nombre grande superpuesto + **chips de géneros y calidad**, y la misma foto
-  **desenfocada y oscurecida** como fondo de la grilla de álbumes.
-- **Injerto de la dirección "Roster":** los chips salen de **`api.artistDetail()`**
-  (`client.js:61` → `browse.js:40-74`), que **ya devuelve `genres` y `quality`
-  {hires, lossless, lossy} y hoy `Artists.jsx` IGNORA** (solo lo usa el InfoPanel). **Dato
-  gratis, cero backend nuevo.**
+- **Detalle:** **hero a sangre** con la foto (antes el detalle **no tenía ninguna imagen**:
+  era un `<h1>` desnudo sobre la grilla — la única vista con detalle sin hero).
 - **Descartada la dirección "Duotono"** (hue por artista tipo `emojiHue`): **el duotono
   destruye la foto curada**, que es justo el punto del frente.
+
+### Los 5 niveles del hero (orden fijo)
+
+```
+ARTISTA                                       ← kicker, --accent. Dice "no es un álbum".
+Daft Punk                                     ← nombre
+Grupo · Francia · 1993–2021                   ← identidad MB (red, progresiva, puede faltar)
+8 álbumes · 122 pistas · 9 h 39 min           ← stats locales (fmtTotal)
+[Electronic] [Soundtracks/General] [Mix]      ← chips: géneros (tope 3) + calidad + Mix
+```
+
+- **Las stats van en LÍNEA, no en chips.** Son el mismo tipo de dato y como chips competían
+  con géneros y calidad: el peor caso (Kali Uchis) daba **12 chips**. Con la línea: **6**.
+- **`fmtTotal`** (`utils/formatTotal.js`) — la misma que el hero de playlist y el subtítulo
+  de Biblioteca. Mismo formato en toda la app, y devuelve `null` en 0 → el segmento se oculta.
+- **Géneros: tope 3 (`MAX_GENRE_CHIPS`), ordenados por nº de pistas** — ver §Deudas/Decisiones.
+- Los chips salen de `api.artistDetail()`, que ya existía y esta vista ignoraba (solo lo usaba
+  el InfoPanel). **Dato local, cero fuentes externas.**
+
+## La grilla de la discografía: "Cronología"
+
+- **Prop semántica `secondary="year" | "artist"`** en `AlbumGrid` (default `"artist"`). **No
+  es un `hideArtist` disfrazado:** el campo que *desambigua* depende del contexto. En Artistas
+  todos los álbumes son del mismo artista → el nombre repetido es ruido y el año distingue. En
+  **Años** (`Years.jsx`, el otro consumidor) es al revés: el año es el ruido.
+- **Año como kicker** sobre el título: muted en reposo → `--accent` al hover. Rima con el
+  kicker "ARTISTA". Muted y no morado fijo porque ocho kickers morados serían ruido y
+  devaluarían el acento (que en esta app significa "activo").
+- **Título a 2 líneas** (`-webkit-line-clamp: 2` + `min-height` reservado, o la grilla se
+  dentea). Truncar a una cortaba tan temprano que los títulos largos no se distinguían.
+- **⚠️ REGLA DURA — el sort vive en `Artists.jsx`, NUNCA en `AlbumGrid`.** `AlbumGrid` es
+  presentacional y **no ordena**. Si el sort viviera ahí, **rompería Años**: allá todos los
+  álbumes comparten año → ordenar por año sería un no-op y el desempate por título mandaría la
+  grilla del "agrupado por artista" que trae el backend a orden alfabético. Con el sort en
+  `Artists.jsx`, Años **no puede** verse afectado — no es que "no debería".
+- **Ascendente**, álbumes sin año **al final** (no al principio, que es lo que haría `?? 0`).
+- **Por qué el año no es decorativo:** ordenada cronológicamente, **"Alive 1997" cae en 2001**,
+  al lado de Discovery (es el registro del 97, editado en 2001). Sin el año explícito la vista
+  **induce a error**. El dato corrige, no adorna.
 
 Respetar `ui-polish`: tokens de `:root` (nada de colores mágicos), radios de card ~10px,
 easings ya existentes (`cubic-bezier(.34,1.42,.5,1)` para el pop), y **rama de
@@ -178,12 +235,39 @@ ritmo de la curación del usuario.
 3. **No asumir `MUSIC_DIR/<artista>`** — derivar del `file_path` real (ver arriba).
 4. **La cadena de fallback nunca se salta**: la vista jamás queda sin imagen ni rota.
 5. **El detalle SIEMPRE tiene hero.** Era la única vista sin uno; no se vuelve atrás.
-6. **Nada de dependencias nuevas ni de red.** La foto es local, del disco del usuario.
+6. **La foto es local.** Nada de APIs de imágenes: la cura el usuario, del disco.
 7. **`prefers-reduced-motion`** y tokens de `:root` (`ui-polish`).
-8. **No inventar datos.** Los chips salen de la DB (`artistDetail`), nunca de una fuente
-   externa no pactada.
+8. **NADA DE BIOS.** MusicBrainz no tiene (medido). Traer una exige Wikipedia/Last.fm =
+   dependencia externa nueva → **prohibido sin OK explícito**. El hero muestra **identidad
+   factual** de MB (tipo · país · años) y datos locales. Ver §BIO.
+9. **El sort de la discografía vive en `Artists.jsx`, no en `AlbumGrid`** (o se rompe Años).
+10. **`secondary` tiene default `"artist"`**: los otros consumidores de `AlbumGrid` no cambian.
 
 ## Deudas conocidas (anotadas a propósito)
+
+- **`year` como bare column (`albums.js:15`)** — **el usuario decidió dejarlo como deuda.**
+  Bajo `GROUP BY album, album_artist`, SQLite devuelve el `year` de una fila **arbitraria**
+  del grupo. Con el orden cronológico esto **ya no es solo texto: define posición**. Medido:
+  afecta a **1 álbum de 33** (Kali Uchis, *ORQUÍDEAS [Explicit]*, con 2023 y 2024 mezclados)
+  → cae una posición corrida entre sus 5 discos. Fix = `MIN(year)`, **una línea**, pero en
+  `albums.js`, que **no está autorizado** y sirve también a Álbumes y Años. **Requiere OK
+  explícito del usuario.**
+- **Tres copias de la tarjeta de álbum** — `AlbumGrid.jsx` (usado por Artistas y Años) y la
+  **copia inline de `Albums.jsx:131`**. El usuario descartó unificarlas ahora: *"un frente,
+  una cosa"*. Consecuencia viva: **Álbumes NO recibió** la tipografía nueva (título a 2 líneas)
+  → quedó con el truncado a una línea. Si se unifica, `secondary="artist"` le sirve tal cual.
+- **`MAX_GENRE_CHIPS = 3` es un tope, no una curación.** Los géneros vienen **por nº de
+  pistas** (`browse.js`, `ORDER BY COUNT(*) DESC`) porque alfabético elegía mal — medido: a
+  Kali Uchis le cortaba **R&B** (15 pistas) dejando "Pop/General"; a Daft Punk le ponía
+  "Dance & DJ" (10) delante de "Electronic" (81). Pero **la basura de etiquetado sigue**
+  ("R&B" vs "R&B/General", "Soundtrack" vs "Soundtracks" — documentada en `CLAUDE.md`), así
+  que un hero puede mostrar dos chips que son el mismo género. Normalizar es **curación de
+  tags**, no código. *(Cambiar ese orden afecta también al InfoPanel, que consume los mismos
+  `genres` — consultado y aprobado por el usuario.)*
+- **La identidad MB depende de la red en cada artista nuevo.** `info.js` serializa a **1 req/s
+  y no tiene timeout**: 7 clics seguidos = la identidad del 7º puede tardar ~7 s. No bloquea
+  (mejora progresiva) y después queda cacheada 24 h. El riesgo ya existía con el InfoPanel;
+  ahora se dispara al abrir cualquier artista.
 
 - **Lectura de disco por request:** `GET /artists` hace unos pocos `existsSync` (uno por
   candidato × 7 artistas) y `/image` uno por request. **Sin problema de permisos:** el server
@@ -212,11 +296,29 @@ ritmo de la curación del usuario.
 6. `Various Artists` (con espacio) resuelve — el round-trip `encodeURIComponent` → Express.
 7. **Ni el scanner ni la DB fueron tocados** (`git diff` solo muestra `browse.js`).
 
+7b. `total_duration` en `artistDetail` cuadra con `SUM(duration)` de la DB; con 0 el cliente
+   **oculta** el segmento (no muestra "0 min").
+7c. Los `genres` vienen **por nº de pistas**, no alfabéticos (si no, el tope de 3 corta mal).
+
 **Frontend**
 8. Cadena de fallback: con foto → foto; sin foto → carátula; sin carátula → iniciales.
+   **Con `onError`, no por confianza** — sin él aparece el ícono roto del navegador.
 9. **Sin ninguna foto subida, la vista se ve como hoy** (no se rompe nada).
-10. Detalle **con hero** + chips de género y calidad (datos de `artistDetail`, no inventados).
+10. Detalle **con hero de 5 niveles** (kicker → nombre → identidad MB → stats → chips).
+    **Ninguna bio.** Si MB no tiene datos, la línea de identidad **no se pinta** (probar con
+    **Various Artists**, que es justo ese caso).
 11. La lista **no se confunde con Álbumes** (retrato 3:4, no círculo sobre grilla cuadrada).
-12. `prefers-reduced-motion`: se anula el movimiento, se conserva el color.
+12. `prefers-reduced-motion`: se anula el movimiento, se conserva el color (incluido el
+    kicker de año, que pierde la transición pero **no** el cambio a `--accent`).
 13. Móvil: la grilla de retratos no desborda; sin scroll horizontal.
 14. Desktop y el resto de la app intactos.
+
+**Grilla de la discografía**
+15. Orden **cronológico ascendente**; sin año → **al final**. Caso testigo: **"Alive 1997"
+    debe caer en 2001**, junto a Discovery.
+16. **Años (`Years.jsx`) NO cambió de orden** — sigue "agrupado por artista". Es la regresión
+    que el default `secondary="artist"` y el sort fuera de `AlbumGrid` existen para evitar.
+17. En la discografía **no se repite el nombre del artista** en cada tarjeta; en Años **sí**
+    aparece (y no el año).
+18. Títulos largos ("TRON: Legacy - The Complete Edition…") ocupan 2 líneas **sin dentar la
+    grilla** (el `min-height` reserva el hueco).
