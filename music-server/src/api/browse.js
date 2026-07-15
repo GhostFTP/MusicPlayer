@@ -137,10 +137,15 @@ router.get('/artists/:artist', (req, res) => {
 
   if (!agg || agg.track_count === 0) return res.status(404).json({ error: 'Artist not found' });
 
+  // Por nº de pistas, no alfabético: quien consume esto muestra los primeros N (el hero de
+  // Artistas corta en 3), y alfabético elegía mal. Medido: a Kali Uchis le cortaba **R&B**
+  // (15 pistas) dejando "Pop/General"; a Daft Punk le ponía "Dance & DJ" (10) delante de
+  // "Electronic" (81). Desempate alfabético para que el orden sea estable entre llamadas.
   const genres = db.prepare(`
-    SELECT DISTINCT genre FROM tracks
+    SELECT genre FROM tracks
     WHERE album_artist = ? AND genre IS NOT NULL AND genre <> ''
-    ORDER BY genre COLLATE NOCASE
+    GROUP BY genre
+    ORDER BY COUNT(*) DESC, genre COLLATE NOCASE
   `).all(artist).map(r => r.genre);
 
   const hires = agg.hires ?? 0;

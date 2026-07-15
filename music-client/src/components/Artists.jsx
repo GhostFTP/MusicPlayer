@@ -1,14 +1,42 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
+import { fmtTotal } from '../utils/formatTotal.js';
 import AlbumGrid from './AlbumGrid.jsx';
 import AlbumDetail from './AlbumDetail.jsx';
 import ArtistImage from './ArtistImage.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
+const MAX_GENRE_CHIPS = 3;   // Kali Uchis tiene 5 géneros; sin tope el hero se satura
+
+// Identidad factual del artista según MusicBrainz: "Grupo · Francia · 1993–2021".
+// NO es una bio: MusicBrainz no tiene bios (su `annotation` viene null y el único campo
+// parecido, `disambiguation`, lo traen 2 de 7 artistas — y en Various Artists dice "add
+// compilations to this artist", una instrucción para editores de MB). Traer una bio real
+// exigiría Wikipedia/Last.fm = dependencia externa nueva, descartada.
+function mbIdentity(info) {
+  if (!info?.found) return null;
+  const parts = [];
+  // "Other" se descarta: en Various Artists daría "Otro", que no dice nada.
+  if (info.type === 'Person') parts.push('Persona');
+  else if (info.type === 'Group') parts.push('Grupo');
+  if (info.country) parts.push(regionName(info.country));
+  const from = info.begin?.slice(0, 4);
+  const to   = info.end?.slice(0, 4);
+  if (from) parts.push(to ? `${from}–${to}` : from);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+// ISO 3166-1 → nombre en español, nativo (FR → "Francia"). Sin tabla propia ni dependencia.
+function regionName(code) {
+  try { return new Intl.DisplayNames(['es'], { type: 'region' }).of(code) ?? code; }
+  catch { return code; }
+}
+
 export default function Artists({ target, clearTarget, setDetailOpen }) {
   const [artists,  setArtists]  = useState(null);
   const [sel,      setSel]      = useState(null);   // artista seleccionado
-  const [detail,   setDetail]   = useState(null);   // agregados del artista (chips del hero)
+  const [detail,   setDetail]   = useState(null);   // agregados locales (stats + chips del hero)
+  const [mbInfo,   setMbInfo]   = useState(null);   // identidad MusicBrainz (línea del hero)
   const [albums,   setAlbums]   = useState(null);
   const [selAlbum, setSelAlbum] = useState(null);
   const [error,    setError]    = useState(null);
@@ -37,15 +65,29 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
     setAlbums(await api.albums({ artist: a.artist }));
   }
 
-  // Géneros + desglose de calidad para los chips del hero. Son datos LOCALES que el backend
-  // ya devolvía y esta vista ignoraba (solo los usaba el InfoPanel) → cero backend nuevo.
-  // Si falla, degrada en silencio: el hero se queda sin chips, no aparece un error.
+  // Agregados LOCALES (duración, géneros, calidad) para las stats y los chips del hero.
+  // Si falla, degrada en silencio: el hero se queda con lo que ya trae `sel`, sin error.
   useEffect(() => {
     if (!sel) { setDetail(null); return; }
     let cancelled = false;
     setDetail(null);
     api.artistDetail(sel.artist)
       .then(d => { if (!cancelled) setDetail(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [sel]);
+
+  // Identidad de MusicBrainz para la línea del hero. Va SEPARADA de los agregados locales a
+  // propósito: es la única parte del hero que sale de la red, y `info.js` serializa las
+  // llamadas a MB con 1s de separación y sin timeout → puede tardar. Como mejora progresiva,
+  // aparece cuando llega y nunca bloquea el resto. Sin match, sin datos o con MB caído,
+  // simplemente no se pinta (el endpoint ya devuelve { found:false } en vez de fallar).
+  useEffect(() => {
+    if (!sel) { setMbInfo(null); return; }
+    let cancelled = false;
+    setMbInfo(null);
+    api.artistInfo(sel.artist)
+      .then(i => { if (!cancelled) setMbInfo(i); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [sel]);
@@ -70,7 +112,17 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
 
   // ── Detalle: los álbumes de un artista ──
   if (sel) {
-    const q = detail?.quality;
+    const q        = detail?.quality;
+    const identity = mbIdentity(mbInfo);
+    const dur      = fmtTotal(detail?.total_duration);        // null si 0 → se oculta el segmento
+    // Las stats van en una línea, no en chips: son del mismo tipo de dato y como chips
+    // competían con los géneros y la calidad (el peor caso, Kali Uchis, daba 12 chips).
+    const stats    = [
+      `${sel.album_count} álbumes`,
+      `${sel.track_count} pistas`,
+      dur,
+    ].filter(Boolean).join(' · ');
+
     return (
       <div>
         <button className="back-btn" onClick={() => { setSel(null); setAlbums(null); }}>
@@ -85,10 +137,13 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
           <div className="artist-hero-body">
             <div className="artist-hero-kicker">Artista</div>
             <h1 className="artist-hero-name">{sel.artist}</h1>
+            {/* Identidad de MusicBrainz. Llega tarde o no llega: sin ella el hero se lee igual. */}
+            {identity && <div className="artist-hero-meta">{identity}</div>}
+            <div className="artist-hero-stats">{stats}</div>
             <div className="artist-hero-chips">
-              <span className="artist-chip artist-chip-q">{sel.album_count} álbumes</span>
-              <span className="artist-chip artist-chip-q">{sel.track_count} pistas</span>
-              {detail?.genres?.map(g => <span key={g} className="artist-chip">{g}</span>)}
+              {detail?.genres?.slice(0, MAX_GENRE_CHIPS).map(g => (
+                <span key={g} className="artist-chip">{g}</span>
+              ))}
               {q?.hires    > 0 && <span className="artist-chip artist-chip-q q-hires">{q.hires} hi-res</span>}
               {q?.lossless > 0 && <span className="artist-chip artist-chip-q q-lossless">{q.lossless} lossless</span>}
               {q?.lossy    > 0 && <span className="artist-chip artist-chip-q q-lossy">{q.lossy} lossy</span>}

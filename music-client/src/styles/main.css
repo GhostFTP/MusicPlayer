@@ -981,7 +981,21 @@ button, input, select, textarea { font-family: inherit; }
   font-size: clamp(26px, 5vw, 44px);
   font-weight: 800;
   line-height: 1.1;
-  margin: 4px 0 12px;
+  margin: 4px 0 8px;
+}
+/* Identidad de MusicBrainz ("Grupo · Francia · 1993–2021"). Dato REAL y estructurado, no
+   una bio: MusicBrainz no tiene bios. Llega por red y tarde; si no llega, no se pinta. */
+.artist-hero-meta {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, .78);      /* sobre foto: --text-muted (#888) no se lee */
+  margin-bottom: 2px;
+}
+/* Stats locales en una línea (antes eran chips y competían con géneros/calidad). */
+.artist-hero-stats {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, .62);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 12px;
 }
 .artist-hero-chips {
   display: flex;
