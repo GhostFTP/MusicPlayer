@@ -1045,7 +1045,7 @@ button, input, select, textarea { font-family: inherit; }
   inset: 0;
   border-radius: inherit;
   background: linear-gradient(to top, rgba(10, 10, 10, .94) 6%, rgba(10, 10, 10, .62) 48%, rgba(10, 10, 10, .22) 100%);
-  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 55% 58% / .22);
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 55% 58% / .32);
 }
 .artist-hero-body {
   position: relative;
@@ -1053,14 +1053,16 @@ button, input, select, textarea { font-family: inherit; }
   width: 100%;
   padding: 20px;
 }
-/* El kicker es lo que dice "esto es un ARTISTA, no un álbum" antes de leer nada. Teñido
-   con el hue del artista (misma fórmula que .pl-kicker); sin --h cae al morado 265. */
+/* El kicker es lo que dice "esto es un ARTISTA, no un álbum" antes de leer nada. Teñido con
+   el hue del artista, un escalón MÁS saturado que .pl-kicker (60→72%): el hero tiñe menos
+   área que una card de playlist —sin emoji ni collage—, así que necesita más presencia para
+   distinguir. La luminosidad queda en 72% (piso de contraste intacto). Sin --h cae al 265. */
 .artist-hero-kicker {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: hsl(var(--h, 265) 60% 72%);
+  color: hsl(var(--h, 265) 72% 72%);
 }
 .artist-hero-name {
   font-size: clamp(26px, 5vw, 44px);
@@ -1104,8 +1106,8 @@ button, input, select, textarea { font-family: inherit; }
    artista — wash + borde teñidos con --h, texto casi-blanco para no perder legibilidad.
    Los de calidad (.artist-chip-q) NO se tocan: conservan su color de tier. */
 .artist-chip:not(.artist-chip-q) {
-  background: hsl(var(--h, 265) 45% 40% / .24);
-  border-color: hsl(var(--h, 265) 55% 60% / .45);
+  background: hsl(var(--h, 265) 55% 40% / .32);
+  border-color: hsl(var(--h, 265) 55% 60% / .6);
 }
 .artist-chip-q            { font-variant-numeric: tabular-nums; }
 .artist-chip-q.q-hires    { color: var(--q-hires); }
@@ -1116,10 +1118,10 @@ button, input, select, textarea { font-family: inherit; }
    GLOW toma el hue del artista → ata la acción a su identidad sin perder reconocimiento.
    Solo el Mix del hero; el resto de .mix-btn de la app queda intacto. */
 .artist-hero-chips .mix-btn {
-  box-shadow: 0 4px 16px hsl(var(--h, 265) 60% 45% / .5);
+  box-shadow: 0 4px 16px hsl(var(--h, 265) 60% 45% / .6);
 }
 .artist-hero-chips .mix-btn:hover {
-  box-shadow: 0 8px 24px hsl(var(--h, 265) 60% 45% / .6);
+  box-shadow: 0 8px 24px hsl(var(--h, 265) 60% 45% / .7);
 }
 
 /* reduced-motion: se va el movimiento (elevación, zoom, stagger de entrada y revelado del
