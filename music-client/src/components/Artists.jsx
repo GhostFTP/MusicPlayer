@@ -217,7 +217,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
           veía casi idéntico a su propio álbum en la otra pestaña. */}
       <div className="artist-grid">
         {artists.map((a, i) => (
-          <div key={a.artist} className="artist-portrait" style={{ '--i': i }} onClick={() => open(a)}>
+          <div key={a.artist} className="artist-portrait" style={{ '--i': i, '--h': stringHue(a.artist) }} onClick={() => open(a)}>
             <ArtistImage artist={a} />
             <div className="artist-portrait-info">
               <div className="artist-portrait-name">{a.artist}</div>

@@ -962,7 +962,16 @@ button, input, select, textarea { font-family: inherit; }
   animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
   animation-delay: calc(var(--i, 0) * 24ms);
 }
-.artist-portrait:hover { transform: translateY(-4px); box-shadow: 0 14px 34px rgba(0, 0, 0, .55); }
+/* Hover: lift + sombra negra (profundidad) MÁS una capa teñida con el hue del artista (aro
+   1px + glow) → la lista previsualiza el color del detalle. En REPOSO no hay hue: la foto
+   curada manda, el color solo aparece al enfocar. Sin --h cae al morado 265. */
+.artist-portrait:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, .55),
+    0 0 0 1px hsl(var(--h, 265) 60% 60% / .5),
+    0 8px 28px hsl(var(--h, 265) 65% 45% / .35);
+}
 
 /* Imagen común a la tarjeta y al hero (la pinta ArtistImage en cualquiera de sus 3 niveles). */
 .artist-img {
@@ -1132,7 +1141,8 @@ button, input, select, textarea { font-family: inherit; }
   .artist-portrait,
   .artist-img { transition: none; }
   .artist-portrait { animation: none; }
-  .artist-portrait:hover { transform: none; box-shadow: none; outline: 2px solid var(--accent); }
+  /* El outline del hover toma el hue del artista (identidad por color sin movimiento). */
+  .artist-portrait:hover { transform: none; box-shadow: none; outline: 2px solid hsl(var(--h, 265) 60% 60%); }
   .artist-portrait:hover .artist-img { transform: none; }
   /* El kicker de año pierde la transición pero CONSERVA el cambio de color (regla de la
      casa: en reduced-motion se quita el movimiento, no el feedback). */
