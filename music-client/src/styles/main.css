@@ -642,8 +642,8 @@ button, input, select, textarea { font-family: inherit; }
 
 /* Kicker de año (solo en la discografía de un artista, vía secondary="year"). Rima con el
    kicker "ARTISTA" del hero → la vista habla un mismo idioma de arriba a abajo. Muted en
-   reposo y --accent al hover: ocho kickers morados fijos serían ruido y devaluarían el
-   acento, que en esta app significa "activo". */
+   reposo y al hover pasa al hue del artista (hsl var --h, misma fórmula que el kicker del
+   hero): ocho kickers de color fijos serían ruido; el color solo aparece al "activar". */
 .album-year {
   font-size: 11px;
   font-weight: 700;
@@ -653,7 +653,52 @@ button, input, select, textarea { font-family: inherit; }
   margin-bottom: 2px;
   transition: color .15s;
 }
-.album-card:hover .album-year { color: var(--accent); }
+.album-card:hover .album-year { color: hsl(var(--h, 265) 60% 72%); }
+
+/* ── Discografía Prisma (AlbumGrid: Artistas + Años) ───────────────────────────
+   Solo la grilla que monta AlbumGrid lleva .album-grid-anim → la copia inline de Álbumes
+   (Albums.jsx) queda intacta. Tarjetas con peso: sombra en reposo, elevación + zoom
+   interno de la carátula al hover (mismo lenguaje que .artist-portrait) y entrada
+   escalonada (emoji-pop + --i, como Playlists/Géneros). NADA tapa la carátula: el zoom
+   vive dentro de .album-cover-frame (overflow:hidden). Sin hue (Años) todo lo cromático
+   cae al morado 265; el año-kicker ni se pinta ahí. */
+
+/* Marco que recorta el zoom de la carátula sin desbordar las esquinas redondeadas. */
+.album-cover-frame {
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.album-cover-frame .album-cover,
+.album-cover-frame .album-cover-placeholder { margin-bottom: 0; }   /* el hueco lo pone el marco */
+.album-cover-frame .album-cover {
+  display: block;
+  transition: transform .35s cubic-bezier(.22, 1, .36, 1);
+}
+
+.album-grid-anim .album-card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .3);            /* peso en reposo */
+  transition: background .18s, transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .18s ease;
+  animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 24ms);
+}
+.album-grid-anim .album-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5);
+}
+.album-grid-anim .album-card:hover .album-cover { transform: scale(1.04); }
+
+/* reduced-motion: se va el movimiento (elevación, zoom, stagger); se conservan la sombra
+   en reposo (estática) y el cambio de color del año-kicker. */
+@media (prefers-reduced-motion: reduce) {
+  .album-grid-anim .album-card {
+    animation: none;
+    transition: background .18s, box-shadow .18s ease;
+  }
+  .album-grid-anim .album-card:hover { transform: none; }
+  .album-cover-frame .album-cover { transition: none; }
+  .album-grid-anim .album-card:hover .album-cover { transform: none; }
+}
 
 /* ── ALBUM DETAIL ─────────────────────── */
 
@@ -913,6 +958,9 @@ button, input, select, textarea { font-family: inherit; }
   cursor: pointer;
   background: var(--surface);
   transition: transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .18s ease;
+  /* Entrada escalonada al montar la grilla (reusa emoji-pop + --i, patrón de la casa). */
+  animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 24ms);
 }
 .artist-portrait:hover { transform: translateY(-4px); box-shadow: 0 14px 34px rgba(0, 0, 0, .55); }
 
@@ -977,6 +1025,9 @@ button, input, select, textarea { font-family: inherit; }
   display: flex;
   align-items: flex-end;
   background: var(--surface);
+  /* Entrada: el hero se revela con el deslizamiento suave de la casa (mismo keyframe
+     que el panel de Letra). transform+opacity, una sola vez al montar. */
+  animation: lyrics-in .3s cubic-bezier(.22, 1, .36, 1);
 }
 .artist-hero-bg {
   position: absolute;
@@ -985,12 +1036,16 @@ button, input, select, textarea { font-family: inherit; }
 }
 .artist-hero-bg.artist-img-initials { font-size: clamp(44px, 9vw, 84px); }
 
-/* Scrim del hero, por encima de la foto y por debajo del texto. */
+/* Scrim del hero, por encima de la foto y por debajo del texto. Lleva también el ARO
+   Prisma (inset ring teñido con --h): identidad por artista SIN tocar la foto — el aro
+   va por encima de la imagen, el scrim la mantiene intacta. Sin --h cae al morado 265. */
 .artist-hero::after {
   content: '';
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   background: linear-gradient(to top, rgba(10, 10, 10, .94) 6%, rgba(10, 10, 10, .62) 48%, rgba(10, 10, 10, .22) 100%);
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 55% 58% / .22);
 }
 .artist-hero-body {
   position: relative;
@@ -998,13 +1053,14 @@ button, input, select, textarea { font-family: inherit; }
   width: 100%;
   padding: 20px;
 }
-/* El kicker es lo que dice "esto es un ARTISTA, no un álbum" antes de leer nada. */
+/* El kicker es lo que dice "esto es un ARTISTA, no un álbum" antes de leer nada. Teñido
+   con el hue del artista (misma fórmula que .pl-kicker); sin --h cae al morado 265. */
 .artist-hero-kicker {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: hsl(var(--h, 265) 60% 72%);
 }
 .artist-hero-name {
   font-size: clamp(26px, 5vw, 44px);
@@ -1044,16 +1100,36 @@ button, input, select, textarea { font-family: inherit; }
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
+/* Chips de GÉNERO (todo .artist-chip que no sea de calidad): jerarquía por hue del
+   artista — wash + borde teñidos con --h, texto casi-blanco para no perder legibilidad.
+   Los de calidad (.artist-chip-q) NO se tocan: conservan su color de tier. */
+.artist-chip:not(.artist-chip-q) {
+  background: hsl(var(--h, 265) 45% 40% / .24);
+  border-color: hsl(var(--h, 265) 55% 60% / .45);
+}
 .artist-chip-q            { font-variant-numeric: tabular-nums; }
 .artist-chip-q.q-hires    { color: var(--q-hires); }
 .artist-chip-q.q-lossless { color: var(--q-lossless); }
 .artist-chip-q.q-lossy    { color: var(--q-lossy-high); }
 
-/* reduced-motion: se va el movimiento (elevación y zoom), NO el feedback: el hover pasa a
-   ser un cambio de color (regla de la casa). */
+/* Botón Mix del hero: el fill sigue morado (--accent = "acción" en toda la app), pero el
+   GLOW toma el hue del artista → ata la acción a su identidad sin perder reconocimiento.
+   Solo el Mix del hero; el resto de .mix-btn de la app queda intacto. */
+.artist-hero-chips .mix-btn {
+  box-shadow: 0 4px 16px hsl(var(--h, 265) 60% 45% / .5);
+}
+.artist-hero-chips .mix-btn:hover {
+  box-shadow: 0 8px 24px hsl(var(--h, 265) 60% 45% / .6);
+}
+
+/* reduced-motion: se va el movimiento (elevación, zoom, stagger de entrada y revelado del
+   hero), NO el feedback: el hover pasa a ser un cambio de color (regla de la casa). El aro,
+   el kicker teñido y los chips de género conservan su color (son estáticos). */
 @media (prefers-reduced-motion: reduce) {
+  .artist-hero { animation: none; }
   .artist-portrait,
   .artist-img { transition: none; }
+  .artist-portrait { animation: none; }
   .artist-portrait:hover { transform: none; box-shadow: none; outline: 2px solid var(--accent); }
   .artist-portrait:hover .artist-img { transform: none; }
   /* El kicker de año pierde la transición pero CONSERVA el cambio de color (regla de la
@@ -3653,6 +3729,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .album-card { padding: 12px; }
   .album-card:hover { transform: none; }
+  /* Sin elevación ni zoom al tocar (no hay hover en táctil); la especificidad de las
+     reglas .album-grid-anim obliga a repetir el override acá. La entrada escalonada sí
+     corre (one-shot, barata). */
+  .album-grid-anim .album-card:hover { transform: none; }
+  .album-grid-anim .album-card:hover .album-cover { transform: none; }
 
   /* Artistas: retratos más chicos y sin elevación al tocar (no hay hover en táctil). */
   .artist-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }

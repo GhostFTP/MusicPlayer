@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
 import { fmtTotal } from '../utils/formatTotal.js';
+import { stringHue } from '../utils/emojiHue.js';
 import AlbumGrid from './AlbumGrid.jsx';
 import AlbumDetail from './AlbumDetail.jsx';
 import ArtistImage from './ArtistImage.jsx';
@@ -148,8 +149,10 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
 
         {/* Hero: la foto a sangre. Esta era la ÚNICA vista con detalle sin hero — el nombre
             era un <h1> desnudo sobre la grilla de álbumes. El kicker "ARTISTA" en morado es
-            lo que la separa de un detalle de álbum de un vistazo. */}
-        <div className="artist-hero">
+            lo que la separa de un detalle de álbum de un vistazo.
+            `--h`: identidad Prisma por artista (kicker, aro, chips de género y glow del Mix).
+            Solo tiñe el CROMO — la foto (.artist-hero-bg) queda intacta. */}
+        <div className="artist-hero" style={{ '--h': stringHue(sel.artist) }}>
           <ArtistImage artist={sel} className="artist-hero-bg" />
           <div className="artist-hero-body">
             <div className="artist-hero-kicker">Artista</div>
@@ -170,7 +173,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
         </div>
 
         {albums
-          ? <AlbumGrid albums={albums} onOpen={setSelAlbum} secondary="year" />
+          ? <AlbumGrid albums={albums} onOpen={setSelAlbum} secondary="year" hue={stringHue(sel.artist)} />
           : <div className="spinner">Cargando…</div>}
       </div>
     );
@@ -213,8 +216,8 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
           redonda — y como esa miniatura era una carátula, un artista de un solo álbum se
           veía casi idéntico a su propio álbum en la otra pestaña. */}
       <div className="artist-grid">
-        {artists.map(a => (
-          <div key={a.artist} className="artist-portrait" onClick={() => open(a)}>
+        {artists.map((a, i) => (
+          <div key={a.artist} className="artist-portrait" style={{ '--i': i }} onClick={() => open(a)}>
             <ArtistImage artist={a} />
             <div className="artist-portrait-info">
               <div className="artist-portrait-name">{a.artist}</div>
