@@ -75,6 +75,8 @@ const ADDED_COLUMNS = {
   genre:           'TEXT',
   lrc_path:        'TEXT',
   vocals:          'TEXT',
+  disc_number:     'INTEGER',
+  disc_total:      'INTEGER',
 };
 for (const [col, type] of Object.entries(ADDED_COLUMNS)) {
   if (!trackCols.has(col)) db.exec(`ALTER TABLE tracks ADD COLUMN ${col} ${type}`);
