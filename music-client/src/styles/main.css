@@ -403,6 +403,19 @@ button, input, select, textarea { font-family: inherit; }
 .track-row.playing { background: var(--accent-dim); }
 .track-row.playing td.col-num { box-shadow: inset 3px 0 0 var(--accent); }
 
+/* Separador "Disco N" — solo aparece cuando el álbum tiene más de un disco. */
+.track-disc-header td {
+  padding: 14px 14px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+  cursor: default;
+}
+.track-disc-header:first-child td { padding-top: 0; }
+
 /* # / play indicator */
 .track-row td.col-num  { padding-left: 14px; color: var(--text-muted); }
 .track-num { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }

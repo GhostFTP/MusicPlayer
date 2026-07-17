@@ -3,6 +3,17 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.5.1] - 2026-07-16
+
+### Corregido
+- **Los álbumes de doble disco ahora se muestran separados por disco**: en
+  discos dobles como *Stadium Arcadium* o *Random Access Memories (10th
+  Anniversary Edition)*, la numeración aparecía mezclada (1, 1, 2, 2, 3, 3…)
+  porque el disco de cada canción no se guardaba. Ahora cada álbum de más de
+  un disco muestra un separador **"Disco 1" / "Disco 2"** entre los bloques de
+  canciones, en el orden correcto. Los álbumes de un solo disco (la inmensa
+  mayoría de tu biblioteca) no cambian — no aparece ningún separador de más.
+
 ## [1.5.0] - 2026-07-14
 
 ### Nuevo
