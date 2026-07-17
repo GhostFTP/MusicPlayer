@@ -66,6 +66,18 @@ export function AuthProvider({ children }) {
     setLoginMethod(null);
   }, []);
 
+  // Cierre de sesión iniciado por el USUARIO — distinto del logout() interno, que reauth()
+  // usa para limpiar antes de re-loguear (por eso NO se le puede meter el redirect a
+  // logout() sin romper el auto-login SSO). En password alcanza con limpiar el JWT. En SSO
+  // hay que terminar ADEMÁS la sesión de Cloudflare Access: si no, reauth() (en el montaje
+  // y en cada 401) vuelve a entrar. /cdn-cgi/access/logout es el endpoint del edge que corta
+  // esa sesión. (La sesión de Google puede seguir viva y CF re-autenticar en silencio — eso
+  // no lo controlamos; el texto de Ajustes se lo avisa al usuario.)
+  const signOut = useCallback(() => {
+    logout();
+    if (loginMethod === 'sso') window.location.href = '/cdn-cgi/access/logout';
+  }, [logout, loginMethod]);
+
   // Reautentica vía Cloudflare Access: su sesión sigue viva de fondo aunque el
   // JWT propio haya vencido o sea inválido. `checking=true` mientras tanto
   // oculta <Layout/> (App.jsx) para no dejar ver datos rotos ni parpadear a
@@ -108,7 +120,7 @@ export function AuthProvider({ children }) {
   }, [reauth]);
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, isAuth: !!token, checking, loginMethod }}>
+    <AuthContext.Provider value={{ token, user, login, logout, signOut, isAuth: !!token, checking, loginMethod }}>
       {children}
     </AuthContext.Provider>
   );
