@@ -31,10 +31,10 @@ router.get('/', authMiddleware, (req, res) => {
 // GET /api/albums/:album/tracks
 router.get('/:album/tracks', authMiddleware, (req, res) => {
   const tracks = db.prepare(`
-    SELECT id, title, artist, track_number, duration, cover_path
+    SELECT id, title, artist, track_number, disc_number, disc_total, duration, cover_path
     FROM tracks
     WHERE album = ?
-    ORDER BY track_number, title
+    ORDER BY COALESCE(disc_number, 1), track_number, title
   `).all(req.params.album);
   res.json(tracks);
 });

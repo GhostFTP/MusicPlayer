@@ -13,7 +13,7 @@ const router = Router();
 router.get('/', authMiddleware, (req, res) => {
   const { search, artist, album_artist, album, genre, year, limit = 50, offset = 0 } = req.query;
 
-  let sql = `SELECT id, title, artist, album, album_artist, genre, year, track_number,
+  let sql = `SELECT id, title, artist, album, album_artist, genre, year, track_number, disc_number, disc_total,
                     duration, cover_path, codec, bits_per_sample, sample_rate, bitrate, lossless
              FROM tracks WHERE 1=1`;
   const params = [];
@@ -29,11 +29,13 @@ router.get('/', authMiddleware, (req, res) => {
   if (genre)        { sql += ' AND genre = ?';        params.push(genre); }
   if (year)         { sql += ' AND year = ?';         params.push(Number(year)); }
 
-  // Con filtro de álbum: orden natural del disco (track_number decide, no el
-  // artist de la pista — evita que las pistas feat. salten al final).
+  // Con filtro de álbum: orden natural del disco (disc_number primero para
+  // discos dobles/múltiples, luego track_number decide, no el artist de la
+  // pista — evita que las pistas feat. salten al final). COALESCE(disc_number,1)
+  // trata los álbumes de un solo disco (disc_number NULL) como disco 1, sin romperlos.
   // Sin filtro (Biblioteca, Géneros): igual que hoy — agrupar por artista/álbum.
   sql += album
-    ? ' ORDER BY track_number, title'
+    ? ' ORDER BY COALESCE(disc_number, 1), track_number, title'
     : ' ORDER BY artist, album, track_number, title';
   sql += ' LIMIT ? OFFSET ?';
   params.push(Number(limit), Number(offset));
