@@ -46,7 +46,8 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   DB de producción; quedan solo usuarios reales por SSO.
 - DB: **334 pistas FLAC** (tras limpiar 114 filas huérfanas dejadas por el viejo bug del
   scanner, ya corregido — ver abajo). Guarda `codec`, `bits_per_sample`, `sample_rate`,
-  `bitrate`, `lossless`, `genre`. **No** guarda canales ni MBIDs.
+  `bitrate`, `lossless`, `genre` y —nuevo, ver "Trabajo hecho sin pushear"— `disc_number`/
+  `disc_total` (se pueblan al re-escanear). **No** guarda canales ni MBIDs.
 - **Scanner: el barrido de huérfanas YA EXISTE** (commit `d5eabe0`, `scanner/index.js:181-216`),
   activo por defecto, con dos guards: aborta si el walk halló 0 archivos (mount caído) y
   aborta si borraría >50% de la tabla Y >10 filas (mount parcial); `--force-prune` fuerza,
@@ -63,6 +64,43 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
   son obligatorias: el arranque falla si faltan.
+
+## Trabajo hecho SIN pushear (mapa real de ramas — 2026-07-16)
+
+`origin/main` sigue en **v1.5.0** (`6d0f14b`) — nada de lo de abajo está desplegado. El mapa
+REAL (no el recordado), para que una sesión futura no lo redescubra:
+
+- **`feature/sonorarev-integration`** (rama de desarrollo, ~54 commits ahead de su origin):
+  - **Artistas — "Retrato" + "Prisma Retrato"** (frente grande, hecho): foto propia por
+    artista (`/image` al vuelo, `has_image`), dirección Retrato (3:4, hero con chips), hero
+    redistribuido (identidad MusicBrainz + `total_duration`), tarjeta "Cronología", y el
+    lenguaje de color **Prisma Retrato** (hue por artista vía `stringHue` con BITS ALTOS,
+    hero teñido con L fija, hue hover-only en la lista). Lab `artist-lab`.
+  - **disc_number (discos dobles)** — hecho, ver sub-sección abajo.
+  - **actions-lab** (equipo skill+engineer+qa): contrato de la cola + menú contextual, **sin
+    código aún** (bloqueo activo sobre `PlayerContext` hasta la prueba física de MediaSession).
+  - **nav-lab** (skill del contrato de navegación): EN CURSO — falta extraer `dismissTop()` e
+    integrar la History API (atrás del navegador). **Frente activo.**
+- **`main`**: 3 commits ahead de `origin/main` = los **duplicados** del fix de disc_number
+  (patch IDÉNTICO a los de feature, distinto SHA — confirmado por `range-diff`). Llegaron por
+  un descuido de branch en otra sesión. **No es trabajo extra**: al mergear `feature` esos
+  cambios entran por ahí sin chocar (git ve el mismo patch en ambos lados). Recomendación:
+  `git branch -f main origin/main` para no arrastrar duplicados — decisión del usuario (es
+  producción; no se toca sin OK).
+
+### Fix de disc_number (discos dobles) — full-stack, completo
+
+Los FLAC dobles (Stadium Arcadium, RAM 10th Anniversary) traían DISCNUMBER/DISCTOTAL pero el
+scanner no los leía y la DB no tenía columnas → quedaban como disco único con `track_number`
+repetido. **Tocó scanner + backend (decisión tomada en otra sesión):**
+- **scanner** (`e7896c3`): columnas `disc_number`/`disc_total` vía `ADDED_COLUMNS`; lee
+  `common.disk?.no/of` y las incluye en el upsert.
+- **api** (`d971ef5`): `ORDER BY COALESCE(disc_number,1), track_number, title` en
+  `/albums/:album/tracks` y en `/tracks` con filtro de álbum (los de un disco = disco 1).
+- **frontend** (`c325d5a`): separador "Disco N" en `TrackTable` para álbumes de +1 disco.
+- **OJO:** las columnas se pueblan solo al **re-escanear** (`npm run scan`); las filas viejas
+  quedan `disc_number` NULL → `COALESCE` las trata como disco 1 (inofensivo). Para que los
+  dobles se separen en prod, hace falta rescan tras el deploy.
 
 ## Pendientes conocidos
 - Cerrar `/register` (aún pendiente).
@@ -87,4 +125,4 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-14 (release v1.5.0; frente Artistas en curso)._
+_Última actualización: 2026-07-16 (mapa real de ramas + fix disc_number documentado; Prisma Retrato hecho, nav-lab en curso)._
