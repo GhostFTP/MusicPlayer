@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
@@ -168,29 +168,39 @@ export default function Player({ navigate, view, detailOpen }) {
   const prevViewRef = useRef('library');
   useEffect(() => { if (view !== 'changelog') prevViewRef.current = view; }, [view]);
 
-  // Esc global del reproductor, por prioridad de lo más "encima": el InfoPanel
-  // (modal, z 300) maneja su propio Esc; luego la Letra —esté o no en el expandido—;
-  // luego Novedades (la vista que abre la campanita) vuelve a la vista anterior;
-  // por último, si no hay panel abierto, cierra el expandido. Antes este handler
-  // vivía sólo mientras expanded=true, así que Esc no cerraba la Letra abierta desde
-  // la barra (fuera del expandido); ahora escucha siempre.
+  // ── La escalera única de navegación (contrato nav-lab) ──────────────────────
+  // dismissTop() cierra la capa más "encima" por prioridad y devuelve true si cerró
+  // algo, false si no había nada. Es la ÚNICA fuente de prioridad del "atrás": hoy la
+  // corre el Esc; el popstate (atrás del navegador) la correrá también en el paso que
+  // integra la History API. El swipe-atrás de móvil (Layout.jsx) NO la llama — es un
+  // disparador angosto del escalón "detalle" (nav-lab REGLA DURA #2: ensancharlo es
+  // regresión). Capa nueva → se agrega SOLO acá y los disparadores la respetan gratis.
+  // Prioridad, de lo más "encima" a lo más profundo:
+  //  1. Info: el InfoPanel (modal, z 300) maneja su PROPIO Esc (cierre animado) → no bajamos.
+  //  2. Letra: esté o no dentro del expandido.
+  //  3. Novedades (la vista de la campanita): vuelve a la vista anterior.
+  //  4. Expandido.
+  //  5. Detalle (álbum/artista/género/playlist/año) → { reset:true } vía navigate(view).
+  //     VA AL FINAL a propósito: si el expandido está montado ENCIMA de un detalle (z 200,
+  //     tapa la pantalla), el atrás cierra primero lo VISIBLE (el expandido); el detalle
+  //     solo se cierra cuando no hay overlay ni expandido abiertos.
+  const dismissTop = useCallback(() => {
+    if (showInfo)             return false;                        // el InfoPanel cierra por su cuenta
+    if (showLyrics)           { setShowLyrics(false);          return true; }
+    if (view === 'changelog') { navigate(prevViewRef.current); return true; }
+    if (expanded)             { setExpanded(false);           return true; }
+    if (detailOpen)           { navigate(view);               return true; }
+    return false;
+  }, [showInfo, showLyrics, view, expanded, detailOpen, navigate]);
+
+  // Esc global del reproductor → corre la escalera. Antes este handler vivía sólo
+  // mientras expanded=true, así que Esc no cerraba la Letra abierta desde la barra
+  // (fuera del expandido); ahora escucha siempre.
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      if (showInfo)        return;                 // el InfoPanel maneja su propio Esc (cierre animado)
-      else if (showLyrics) setShowLyrics(false);   // cierra la letra donde sea que esté abierta
-      else if (view === 'changelog') navigate(prevViewRef.current);  // "cierra" Novedades
-      else if (expanded)   setExpanded(false);
-      // Detalle de navegación (álbum/artista/género/playlist/año) → vuelve a la lista
-      // reusando { reset:true } (navigate(view) con un solo arg). VA AL FINAL a
-      // propósito: si el expandido está montado ENCIMA de un detalle (z 200, tapa la
-      // pantalla), Esc debe cerrar primero lo VISIBLE (el expandido); el detalle solo
-      // se cierra cuando no hay overlay ni expandido abiertos.
-      else if (detailOpen) navigate(view);
-    };
+    const onKey = (e) => { if (e.key === 'Escape') dismissTop(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expanded, showInfo, showLyrics, view, navigate, detailOpen]);
+  }, [dismissTop]);
 
   // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
   // Pointer Events (touch + mouse). touch-action: none (CSS): el navegador no
