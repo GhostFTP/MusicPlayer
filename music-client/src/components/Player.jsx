@@ -168,6 +168,10 @@ export default function Player({ navigate, view, detailOpen }) {
   const prevViewRef = useRef('library');
   useEffect(() => { if (view !== 'changelog') prevViewRef.current = view; }, [view]);
 
+  // Handle imperativo del InfoPanel: dismissTop dispara su cierre ANIMADO (requestClose)
+  // en vez de dejar el Info como excepción que solo su propio Esc conocía (nav-lab).
+  const infoRef = useRef(null);
+
   // ── La escalera única de navegación (contrato nav-lab) ──────────────────────
   // dismissTop() cierra la capa más "encima" por prioridad y devuelve true si cerró
   // algo, false si no había nada. Es la ÚNICA fuente de prioridad del "atrás": hoy la
@@ -176,7 +180,8 @@ export default function Player({ navigate, view, detailOpen }) {
   // disparador angosto del escalón "detalle" (nav-lab REGLA DURA #2: ensancharlo es
   // regresión). Capa nueva → se agrega SOLO acá y los disparadores la respetan gratis.
   // Prioridad, de lo más "encima" a lo más profundo:
-  //  1. Info: el InfoPanel (modal, z 300) maneja su PROPIO Esc (cierre animado) → no bajamos.
+  //  1. Info: dispara su cierre ANIMADO (requestClose vía infoRef) — capa de la escalera para
+  //     los DOS disparadores (Esc y popstate), no una excepción que solo Esc conoce.
   //  2. Letra: esté o no dentro del expandido.
   //  3. Novedades (la vista de la campanita): vuelve a la vista anterior.
   //  4. Expandido.
@@ -185,7 +190,7 @@ export default function Player({ navigate, view, detailOpen }) {
   //     tapa la pantalla), el atrás cierra primero lo VISIBLE (el expandido); el detalle
   //     solo se cierra cuando no hay overlay ni expandido abiertos.
   const dismissTop = useCallback(() => {
-    if (showInfo)             return false;                        // el InfoPanel cierra por su cuenta
+    if (showInfo)             { infoRef.current?.requestClose(); return true; }   // cierre animado (imperative handle)
     if (showLyrics)           { setShowLyrics(false);          return true; }
     if (view === 'changelog') { navigate(prevViewRef.current); return true; }
     if (expanded)             { setExpanded(false);           return true; }
@@ -670,6 +675,7 @@ export default function Player({ navigate, view, detailOpen }) {
       {/* ── Panel de información de la pista (modal) ── */}
       {showInfo && (
         <InfoPanel
+          ref={infoRef}
           track={trackMeta ?? currentTrack}
           onClose={() => setShowInfo(false)}
           navigate={(view, target) => { setShowInfo(false); setExpanded(false); setShowLyrics(false); navigate(view, target); }}

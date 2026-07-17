@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { qualityTier, qualityCodec, qualityTierTitle, shortCodec } from './QualityChip.jsx';
 
@@ -224,7 +224,7 @@ function ArtistBlock({ artistName, artistKey, navigate }) {
 
 // Panel de información de la pista. SOLO usa datos que ya están en la DB
 // (no biografías ni fuentes externas). Pensado para crecer luego con MusicBrainz.
-export default function InfoPanel({ track, onClose, navigate }) {
+function InfoPanel({ track, onClose, navigate }, ref) {
   const [album, setAlbum] = useState(null);   // { count, total, summary }
   const [closing, setClosing] = useState(false);   // animación de cierre antes de desmontar
   const closingRef = useRef(false);
@@ -241,6 +241,11 @@ export default function InfoPanel({ track, onClose, navigate }) {
     closeTimer.current = setTimeout(onClose, 180);
   };
   useEffect(() => () => clearTimeout(closeTimer.current), []);
+
+  // Expone el cierre ANIMADO hacia arriba: la escalera única de navegación (dismissTop en
+  // Player) lo dispara tanto para Esc COMO para el atrás del navegador, así el Info es una
+  // capa más de la escalera y no una excepción que solo su propio Esc conocía (nav-lab).
+  useImperativeHandle(ref, () => ({ requestClose }));
 
   // Agregados del álbum (para el resumen de calidad) desde /api/tracks?album=…
   // Filtrado por álbum + album_artist para no mezclar homónimos de otros artistas.
@@ -259,13 +264,9 @@ export default function InfoPanel({ track, onClose, navigate }) {
     return () => { cancelled = true; };
   }, [track?.album, track?.album_artist]);
 
-  // Cerrar con Escape (animado).
-  useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') requestClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose]);
+  // El Esc del Info ya NO se maneja acá: lo corre la escalera única (dismissTop en Player)
+  // vía el handle de arriba, para que el MISMO cierre animado responda a Esc y al atrás del
+  // navegador. El backdrop y el botón "cerrar" siguen llamando requestClose directo (abajo).
 
   if (!track) return null;
 
@@ -341,3 +342,5 @@ export default function InfoPanel({ track, onClose, navigate }) {
     </div>
   );
 }
+
+export default forwardRef(InfoPanel);
