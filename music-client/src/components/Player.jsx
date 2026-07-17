@@ -207,6 +207,43 @@ export default function Player({ navigate, view, detailOpen }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [dismissTop]);
 
+  // ── Atrás del navegador = la MISMA escalera (contrato nav-lab · guardia único · Modelo 1) ──
+  // Sin esto la navegación es UNA sola entrada de historial y el atrás nativo saca de la app.
+  // openCount = capas abiertas AHORA (pre-cierre): decide el re-armado del guardia SIN leer
+  // estado post-setState (que sería stale, sobre todo con el cierre asíncrono del Info).
+  const openCount = (showInfo ? 1 : 0) + (showLyrics ? 1 : 0) + (view === 'changelog' ? 1 : 0)
+                  + (expanded ? 1 : 0) + (detailOpen ? 1 : 0);
+  const anyLayerOpen = openCount > 0;
+  const navArmedRef = useRef(false);   // ¿hay un guardia de historial empujado y sin consumir?
+
+  // Armado: al pasar de profundidad 0→>0 se empuja UN guardia (una sola entrada mientras haya
+  // cualquier capa abierta). pushState NO dispara popstate → sin ciclo.
+  useEffect(() => {
+    if (anyLayerOpen && !navArmedRef.current) {
+      window.history.pushState({ sonoraNav: true }, '');
+      navArmedRef.current = true;
+    }
+  }, [anyLayerOpen]);
+
+  // popstate = el "atrás" del navegador. Corre dismissTop (la MISMA escalera que Esc), capa
+  // por capa. ⛔ REGLA DURA #3 (nav-lab): acá SOLO setState (vía dismissTop) + como mucho UN
+  // pushState de re-armado. NUNCA history.back()/go() dentro de popstate (dispararía otro
+  // popstate → loop "el atrás no hace nada"). Re-arma solo si quedaba MÁS de una capa
+  // (openBefore>1); si era la última, no re-arma → el próximo atrás sale de la app (Modelo 1).
+  useEffect(() => {
+    const onPop = () => {
+      navArmedRef.current = false;                 // este 'atrás' ya consumió el guardia
+      const openBefore = openCount;
+      const closed = dismissTop();
+      if (closed && openBefore > 1) {
+        window.history.pushState({ sonoraNav: true }, '');
+        navArmedRef.current = true;
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [dismissTop, openCount]);
+
   // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
   // Pointer Events (touch + mouse). touch-action: none (CSS): el navegador no
   // panea nada sobre la carátula — el gesto entero es del JS, incluida la
