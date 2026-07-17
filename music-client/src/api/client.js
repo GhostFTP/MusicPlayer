@@ -79,3 +79,8 @@ export const api = {
 // URL helpers for src attributes (need token in query param)
 export function coverUrl(trackId)  { return `/api/tracks/${trackId}/cover?token=${getToken()}`; }
 export function streamUrl(trackId) { return `/stream/${trackId}?token=${getToken()}`; }
+// Foto curada del artista (artist.jpg en su carpeta). 404 si no hay: quien la use tiene que
+// manejar el onError y caer a la carátula (ver ArtistImage.jsx).
+export function artistImageUrl(artist) {
+  return `/api/browse/artists/${encodeURIComponent(artist)}/image?token=${getToken()}`;
+}

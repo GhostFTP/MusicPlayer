@@ -403,6 +403,19 @@ button, input, select, textarea { font-family: inherit; }
 .track-row.playing { background: var(--accent-dim); }
 .track-row.playing td.col-num { box-shadow: inset 3px 0 0 var(--accent); }
 
+/* Separador "Disco N" — solo aparece cuando el álbum tiene más de un disco. */
+.track-disc-header td {
+  padding: 14px 14px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+  cursor: default;
+}
+.track-disc-header:first-child td { padding-top: 0; }
+
 /* # / play indicator */
 .track-row td.col-num  { padding-left: 14px; color: var(--text-muted); }
 .track-num { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -622,9 +635,83 @@ button, input, select, textarea { font-family: inherit; }
   margin-bottom: 12px;
 }
 
-.album-name   { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Título a 2 líneas en vez de truncar a una: los títulos largos de verdad ("TRON: Legacy -
+   The Complete Edition (Original Motion Picture Soundtrack)") se cortaban tan temprano que
+   no se distinguían entre sí. El min-height reserva las 2 líneas para que la grilla no se
+   dentee cuando conviven títulos de 1 y de 2 líneas. */
+.album-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+  min-height: calc(2 * 1.3em);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .album-artist { font-size: 12px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.album-count  { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.album-count  { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+/* Kicker de año (solo en la discografía de un artista, vía secondary="year"). Rima con el
+   kicker "ARTISTA" del hero → la vista habla un mismo idioma de arriba a abajo. Muted en
+   reposo y al hover pasa al hue del artista (hsl var --h, misma fórmula que el kicker del
+   hero): ocho kickers de color fijos serían ruido; el color solo aparece al "activar". */
+.album-year {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 2px;
+  transition: color .15s;
+}
+.album-card:hover .album-year { color: hsl(var(--h, 265) 60% 72%); }
+
+/* ── Discografía Prisma (AlbumGrid: Artistas + Años) ───────────────────────────
+   Solo la grilla que monta AlbumGrid lleva .album-grid-anim → la copia inline de Álbumes
+   (Albums.jsx) queda intacta. Tarjetas con peso: sombra en reposo, elevación + zoom
+   interno de la carátula al hover (mismo lenguaje que .artist-portrait) y entrada
+   escalonada (emoji-pop + --i, como Playlists/Géneros). NADA tapa la carátula: el zoom
+   vive dentro de .album-cover-frame (overflow:hidden). Sin hue (Años) todo lo cromático
+   cae al morado 265; el año-kicker ni se pinta ahí. */
+
+/* Marco que recorta el zoom de la carátula sin desbordar las esquinas redondeadas. */
+.album-cover-frame {
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.album-cover-frame .album-cover,
+.album-cover-frame .album-cover-placeholder { margin-bottom: 0; }   /* el hueco lo pone el marco */
+.album-cover-frame .album-cover {
+  display: block;
+  transition: transform .35s cubic-bezier(.22, 1, .36, 1);
+}
+
+.album-grid-anim .album-card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .3);            /* peso en reposo */
+  transition: background .18s, transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .18s ease;
+  animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 24ms);
+}
+.album-grid-anim .album-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5);
+}
+.album-grid-anim .album-card:hover .album-cover { transform: scale(1.04); }
+
+/* reduced-motion: se va el movimiento (elevación, zoom, stagger); se conservan la sombra
+   en reposo (estática) y el cambio de color del año-kicker. */
+@media (prefers-reduced-motion: reduce) {
+  .album-grid-anim .album-card {
+    animation: none;
+    transition: background .18s, box-shadow .18s ease;
+  }
+  .album-grid-anim .album-card:hover { transform: none; }
+  .album-cover-frame .album-cover { transition: none; }
+  .album-grid-anim .album-card:hover .album-cover { transform: none; }
+}
 
 /* ── ALBUM DETAIL ─────────────────────── */
 
@@ -865,12 +952,215 @@ button, input, select, textarea { font-family: inherit; }
   .genre-item:hover .genre-tile { transform: none; }
 }
 
-/* ── BROWSE · ARTISTAS (avatar circular) ── */
+/* ── BROWSE · ARTISTAS · "Retrato" ────────
+   La foto del artista manda: la tarjeta ES la foto (retrato 3:4 a sangre, nombre encima).
+   Grilla propia, no `.album-grid`: retrato vs cuadrado es lo que hace imposible confundir
+   esta vista con Álbumes por estructura, no por un detalle. */
 
-.artist-card { text-align: center; }
-.artist-card .album-name { white-space: normal; }
-.album-cover.artist-avatar,
-.album-cover-placeholder.artist-avatar { border-radius: 50%; }
+.artist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+  gap: 18px;
+}
+
+.artist-portrait {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--surface);
+  transition: transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .18s ease;
+  /* Entrada escalonada al montar la grilla (reusa emoji-pop + --i, patrón de la casa). */
+  animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 24ms);
+}
+/* Hover: lift + sombra negra (profundidad) MÁS una capa teñida con el hue del artista (aro
+   1px + glow) → la lista previsualiza el color del detalle. En REPOSO no hay hue: la foto
+   curada manda, el color solo aparece al enfocar. Sin --h cae al morado 265. */
+.artist-portrait:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, .55),
+    0 0 0 1px hsl(var(--h, 265) 60% 60% / .5),
+    0 8px 28px hsl(var(--h, 265) 65% 45% / .35);
+}
+
+/* Imagen común a la tarjeta y al hero (la pinta ArtistImage en cualquiera de sus 3 niveles). */
+.artist-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform .35s cubic-bezier(.22, 1, .36, 1);
+}
+.artist-portrait:hover .artist-img { transform: scale(1.05); }
+
+/* Nivel 3 de la cadena: iniciales. Mismo degradado que el placeholder de álbum, para que
+   un artista sin foto ni carátula no se sienta de otro sistema. */
+.artist-img-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2d1b69 0%, #1a2f5c 100%);
+  font-size: clamp(30px, 6vw, 46px);
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--text);
+}
+
+.artist-portrait-info {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  padding: 34px 12px 12px;
+  /* Scrim: el nombre tiene que leerse sobre cualquier foto, clara u oscura. */
+  background: linear-gradient(to top, rgba(0, 0, 0, .9) 28%, rgba(0, 0, 0, .55) 62%, transparent);
+  pointer-events: none;
+}
+.artist-portrait-name {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.artist-portrait-count {
+  font-size: 11px;
+  color: rgba(255, 255, 255, .72);      /* sobre foto: --text-muted (#888) no se lee */
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Hero del detalle ──
+   Antes esta era la ÚNICA vista con detalle sin hero: el nombre era un <h1> desnudo sobre
+   la grilla de álbumes, indistinguible de un detalle de álbum. */
+
+.artist-hero {
+  position: relative;
+  min-height: 240px;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: flex-end;
+  background: var(--surface);
+  /* Entrada: el hero se revela con el deslizamiento suave de la casa (mismo keyframe
+     que el panel de Letra). transform+opacity, una sola vez al montar. */
+  animation: lyrics-in .3s cubic-bezier(.22, 1, .36, 1);
+}
+.artist-hero-bg {
+  position: absolute;
+  inset: 0;
+  transition: none;                     /* sin el zoom-on-hover de la tarjeta */
+}
+.artist-hero-bg.artist-img-initials { font-size: clamp(44px, 9vw, 84px); }
+
+/* Scrim del hero, por encima de la foto y por debajo del texto. Lleva también el ARO
+   Prisma (inset ring teñido con --h): identidad por artista SIN tocar la foto — el aro
+   va por encima de la imagen, el scrim la mantiene intacta. Sin --h cae al morado 265. */
+.artist-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(to top, rgba(10, 10, 10, .94) 6%, rgba(10, 10, 10, .62) 48%, rgba(10, 10, 10, .22) 100%);
+  box-shadow: inset 0 0 0 1px hsl(var(--h, 265) 55% 58% / .32);
+}
+.artist-hero-body {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  padding: 20px;
+}
+/* El kicker es lo que dice "esto es un ARTISTA, no un álbum" antes de leer nada. Teñido con
+   el hue del artista, un escalón MÁS saturado que .pl-kicker (60→72%): el hero tiñe menos
+   área que una card de playlist —sin emoji ni collage—, así que necesita más presencia para
+   distinguir. La luminosidad queda en 72% (piso de contraste intacto). Sin --h cae al 265. */
+.artist-hero-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: hsl(var(--h, 265) 72% 72%);
+}
+.artist-hero-name {
+  font-size: clamp(26px, 5vw, 44px);
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 4px 0 8px;
+}
+/* Identidad de MusicBrainz ("Grupo · Francia · 1993–2021"). Dato REAL y estructurado, no
+   una bio: MusicBrainz no tiene bios. Llega por red y tarde; si no llega, no se pinta. */
+.artist-hero-meta {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, .78);      /* sobre foto: --text-muted (#888) no se lee */
+  margin-bottom: 2px;
+}
+/* Stats locales en una línea (antes eran chips y competían con géneros/calidad). */
+.artist-hero-stats {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, .62);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 12px;
+}
+.artist-hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+/* Chips de vidrio sobre la foto. Los de calidad usan los tokens de tier de siempre. */
+.artist-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .14);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+/* Chips de GÉNERO (todo .artist-chip que no sea de calidad): jerarquía por hue del
+   artista — wash + borde teñidos con --h, texto casi-blanco para no perder legibilidad.
+   Los de calidad (.artist-chip-q) NO se tocan: conservan su color de tier. */
+.artist-chip:not(.artist-chip-q) {
+  background: hsl(var(--h, 265) 55% 40% / .32);
+  border-color: hsl(var(--h, 265) 55% 60% / .6);
+}
+.artist-chip-q            { font-variant-numeric: tabular-nums; }
+.artist-chip-q.q-hires    { color: var(--q-hires); }
+.artist-chip-q.q-lossless { color: var(--q-lossless); }
+.artist-chip-q.q-lossy    { color: var(--q-lossy-high); }
+
+/* Botón Mix del hero: el fill sigue morado (--accent = "acción" en toda la app), pero el
+   GLOW toma el hue del artista → ata la acción a su identidad sin perder reconocimiento.
+   Solo el Mix del hero; el resto de .mix-btn de la app queda intacto. */
+.artist-hero-chips .mix-btn {
+  box-shadow: 0 4px 16px hsl(var(--h, 265) 60% 45% / .6);
+}
+.artist-hero-chips .mix-btn:hover {
+  box-shadow: 0 8px 24px hsl(var(--h, 265) 60% 45% / .7);
+}
+
+/* reduced-motion: se va el movimiento (elevación, zoom, stagger de entrada y revelado del
+   hero), NO el feedback: el hover pasa a ser un cambio de color (regla de la casa). El aro,
+   el kicker teñido y los chips de género conservan su color (son estáticos). */
+@media (prefers-reduced-motion: reduce) {
+  .artist-hero { animation: none; }
+  .artist-portrait,
+  .artist-img { transition: none; }
+  .artist-portrait { animation: none; }
+  /* El outline del hover toma el hue del artista (identidad por color sin movimiento). */
+  .artist-portrait:hover { transform: none; box-shadow: none; outline: 2px solid hsl(var(--h, 265) 60% 60%); }
+  .artist-portrait:hover .artist-img { transform: none; }
+  /* El kicker de año pierde la transición pero CONSERVA el cambio de color (regla de la
+     casa: en reduced-motion se quita el movimiento, no el feedback). */
+  .album-year { transition: none; }
+}
 
 /* ── PLAYLISTS ─────────────────────────── */
 
@@ -3464,6 +3754,18 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .album-card { padding: 12px; }
   .album-card:hover { transform: none; }
+  /* Sin elevación ni zoom al tocar (no hay hover en táctil); la especificidad de las
+     reglas .album-grid-anim obliga a repetir el override acá. La entrada escalonada sí
+     corre (one-shot, barata). */
+  .album-grid-anim .album-card:hover { transform: none; }
+  .album-grid-anim .album-card:hover .album-cover { transform: none; }
+
+  /* Artistas: retratos más chicos y sin elevación al tocar (no hay hover en táctil). */
+  .artist-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .artist-portrait:hover { transform: none; box-shadow: none; }
+  .artist-portrait:hover .artist-img { transform: none; }
+  .artist-hero { min-height: 190px; }
+  .artist-hero-body { padding: 16px; }
 
   /* Playlists: grilla más compacta + medallón/hero algo menores */
   .playlist-list { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
@@ -3529,6 +3831,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   :root { --sidebar-w: 180px; }
   .main-content { padding: 24px 24px; }
   .album-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); }
+  .artist-grid { grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); }
 
   /* Barra del reproductor — tamaño medio: el bloque de metadata cede primero
      (título · artista · género truncan con … por min-width:0) y el volumen se

@@ -3,6 +3,29 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.6.0] - 2026-07-16
+
+### Añadido
+- **Vista de Artistas renovada**: cada artista ahora tiene su **propia foto**
+  (curada), un encabezado con su **país**, sus **años de actividad** y la
+  **duración total** de su discografía, y un **color propio** que lo distingue
+  del resto.
+
+### Corregido
+- **Los álbumes de más de un disco ahora se separan por disco**: en discos
+  dobles como *Stadium Arcadium* o *Random Access Memories (10th Anniversary
+  Edition)*, las canciones aparecían mezcladas; ahora cada disco va con su
+  separador **"Disco 1" / "Disco 2"** en el orden correcto. Los álbumes de un
+  solo disco no cambian.
+- **El botón atrás del navegador ya no te saca de la app**: cierra lo que tengas
+  abierto —el panel de información, la letra, el reproductor expandido— **paso a
+  paso**, una capa por cada "atrás".
+
+### Cambiado
+- **Los álbumes de un artista se muestran en orden cronológico**: en el detalle
+  de un artista, su discografía va del disco más viejo al más nuevo (antes se
+  ordenaba alfabéticamente).
+
 ## [1.5.0] - 2026-07-14
 
 ### Nuevo

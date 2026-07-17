@@ -52,9 +52,9 @@ function saveCover(picture, trackId) {
 }
 
 const upsert = db.prepare(`
-  INSERT INTO tracks (title, artist, album, album_artist, genre, year, track_number, duration, file_path, cover_path, lrc_path, vocals, mime_type,
+  INSERT INTO tracks (title, artist, album, album_artist, genre, year, track_number, disc_number, disc_total, duration, file_path, cover_path, lrc_path, vocals, mime_type,
                       codec, bits_per_sample, sample_rate, bitrate, lossless)
-  VALUES (@title, @artist, @album, @album_artist, @genre, @year, @track_number, @duration, @file_path, @cover_path, @lrc_path, @vocals, @mime_type,
+  VALUES (@title, @artist, @album, @album_artist, @genre, @year, @track_number, @disc_number, @disc_total, @duration, @file_path, @cover_path, @lrc_path, @vocals, @mime_type,
           @codec, @bits_per_sample, @sample_rate, @bitrate, @lossless)
   ON CONFLICT(file_path) DO UPDATE SET
     title        = excluded.title,
@@ -64,6 +64,8 @@ const upsert = db.prepare(`
     genre        = excluded.genre,
     year         = excluded.year,
     track_number = excluded.track_number,
+    disc_number  = excluded.disc_number,
+    disc_total   = excluded.disc_total,
     duration     = excluded.duration,
     cover_path   = excluded.cover_path,
     lrc_path     = excluded.lrc_path,
@@ -143,6 +145,8 @@ export async function scanLibrary(musicDir, { prune = true, forcePrune = false }
         genre:        common.genre?.[0]?.trim() || null,
         year:         common.year   ?? null,
         track_number: common.track?.no ?? null,
+        disc_number:  common.disk?.no ?? null,
+        disc_total:   common.disk?.of ?? null,
         duration:     format.duration ?? null,
         file_path:    filePath,
         cover_path:   null,
