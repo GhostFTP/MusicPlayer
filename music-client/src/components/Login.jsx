@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
-import { api } from '../api/client.js';
 
 export default function Login() {
   const { login } = useAuth();
-  const [mode,     setMode]     = useState('login'); // 'login' | 'register'
+  // Solo login: el registro público está CERRADO (el backend rechaza /register con 403
+  // salvo ALLOW_REGISTRATION=true, reservado para bootstrap). Los usuarios reales entran
+  // por SSO (Cloudflare Access) o, en red local, con usuario/contraseña.
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');
@@ -15,9 +16,6 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      if (mode === 'register') {
-        await api.register(username, password);
-      }
       await login(username, password);
     } catch (err) {
       setError(err.message);
@@ -34,10 +32,8 @@ export default function Login() {
           SonoraRev
         </div>
 
-        <h2 className="login-title">{mode === 'login' ? 'Bienvenido' : 'Crear cuenta'}</h2>
-        <p className="login-sub">
-          {mode === 'login' ? 'Inicia sesión para escuchar tu biblioteca' : 'Crea tu cuenta personal'}
-        </p>
+        <h2 className="login-title">Bienvenido</h2>
+        <p className="login-sub">Inicia sesión para escuchar tu biblioteca</p>
 
         {error && <div className="login-error">{error}</div>}
 
@@ -58,16 +54,9 @@ export default function Login() {
             />
           </div>
           <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} disabled={loading}>
-            {loading ? 'Cargando…' : mode === 'login' ? 'Entrar' : 'Registrarse'}
+            {loading ? 'Cargando…' : 'Entrar'}
           </button>
         </form>
-
-        <div className="login-toggle">
-          {mode === 'login' ? '¿No tienes cuenta? ' : '¿Ya tienes cuenta? '}
-          <button onClick={() => { setMode(m => m === 'login' ? 'register' : 'login'); setError(''); }}>
-            {mode === 'login' ? 'Regístrate' : 'Inicia sesión'}
-          </button>
-        </div>
       </div>
     </div>
   );
