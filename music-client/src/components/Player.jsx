@@ -4,6 +4,7 @@ import { api, coverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ChangelogBell from './ChangelogBell.jsx';
+import SettingsFab from './SettingsFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import InfoPanel from './InfoPanel.jsx';
 
@@ -694,6 +695,7 @@ export default function Player({ navigate, view, detailOpen }) {
     <>
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
       <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
+      <SettingsFab   navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
 
       {/* ── Panel de letra (overlay, desktop y móvil). Modo controlado desde acá;
           "Reducir" además cierra el expandido: modo panel ⇒ barra real visible

@@ -7,6 +7,7 @@ import Genres    from './Genres.jsx';
 import Years     from './Years.jsx';
 import Playlists from './Playlists.jsx';
 import Changelog from './Changelog.jsx';
+import Settings  from './Settings.jsx';
 import Player    from './Player.jsx';
 
 // ── Gesto "atrás" en móvil: deslizar en el contenido para salir del detalle
@@ -79,6 +80,7 @@ export default function Layout() {
     years:     <Years     {...viewProps} />,
     playlists: <Playlists {...viewProps} />,
     changelog: <Changelog {...viewProps} />,
+    settings:  <Settings  {...viewProps} />,
   };
 
   // ── Gesto "atrás" (móvil): ver banner de comentario arriba del archivo ──

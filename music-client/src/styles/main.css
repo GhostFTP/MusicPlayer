@@ -154,17 +154,81 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text-muted);
 }
 
-.btn-logout {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: color .15s, background .15s;
+/* ── AJUSTES (vista Settings) — "panel de control" ─────────────
+   Header con identidad (barrita de acento reusando .lib-heading/.lib-accent del
+   header de Biblioteca) y secciones en TARJETAS (.settings-card) para crecer sin
+   refactor: cada sección futura (tema, movimiento reducido, "acerca de"/versión)
+   entra como otra tarjeta. */
+.settings { max-width: 640px; }
+/* Subtítulo del header, al lado de la barrita de acento (.lib-accent). */
+.settings-subtitle { font-size: 13px; color: var(--text-muted); }
+
+.settings-section { margin-bottom: 28px; }
+.settings-section-title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-muted); margin-bottom: 12px;
 }
-.btn-logout:hover { color: var(--text); background: var(--surface-hover); }
+
+/* Tarjeta de sección: superficie + borde de la casa; filas separadas por hairline
+   interno (mismo lenguaje que .info-row). overflow:hidden recorta el hairline al radio. */
+.settings-card {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.settings-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 12px 14px; font-size: 14px;
+}
+.settings-row + .settings-row { border-top: 1px solid rgba(255, 255, 255, .06); }
+.settings-row dt { color: var(--text-muted); flex-shrink: 0; }
+.settings-row dd { margin: 0; color: var(--text); font-weight: 500; text-align: right; min-width: 0; }
+
+/* Valor "Método de acceso": etiqueta legible + chip glanceable (SSO/Local). */
+.settings-method { display: inline-flex; align-items: baseline; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* Chip gris NEUTRO (misma parquedad que .lib-stat: el morado se reserva). */
+.settings-chip {
+  flex-shrink: 0; padding: 2px 8px; border-radius: 7px;
+  background: rgba(255, 255, 255, .04); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: .3px;
+  white-space: nowrap;
+}
+
+/* Cerrar sesión: acción con PESO (caja sólida) pero neutra — sin rojo (los tiers de
+   calidad reservan ese color) ni morado (reservado al acento). ≥44px táctil. */
+.settings-logout {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 18px; min-height: 44px; padding: 0 18px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.settings-logout:hover { background: var(--surface-hover); border-color: var(--surface-hover); }
+.settings-logout svg { flex-shrink: 0; }
+
+/* Caveat SSO: cajita bajo el botón (estilo .info-mb-note), legible, con puntito
+   ámbar (--amber = color "info" de la casa: avisa sin alarmar). */
+.settings-note {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 12px; max-width: 46ch; padding: 8px 12px;
+  background: rgba(255, 255, 255, .05); border-radius: 6px;
+  font-size: 12.5px; line-height: 1.5; color: var(--text-muted);
+}
+.settings-note-dot {
+  flex-shrink: 0; margin-top: .42em; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--amber);
+}
+
+/* Móvil: filas apiladas (label arriba, valor abajo → el método largo no se
+   quiebra a la derecha) y botón full-width. Sin movimiento → sin rama reduced-motion. */
+@media (max-width: 700px) {
+  .settings-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .settings-row dd { text-align: left; }
+  .settings-method { justify-content: flex-start; }
+  .settings-logout { display: flex; width: 100%; }
+}
 
 /* ── SECTION HEADER ─────────────────────── */
 
@@ -3876,15 +3940,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .toast { animation: none; }
 }
 
-/* ── Campanita flotante de Novedades (solo móvil; en desktop está el sidebar) ── */
-.changelog-bell { display: none; }
+/* ── FABs flotantes de utilidad (solo móvil; en desktop están en el sidebar) ──────
+   Clúster top-right: Ajustes (⚙, a la izquierda) + Novedades (🔔, en la esquina). El
+   top-left lo ocupan el título de sección y el "atrás" de los detalles → van a la derecha. */
+.changelog-bell, .settings-fab { display: none; }
 @media (max-width: 700px) {
-  .changelog-bell {
+  .changelog-bell, .settings-fab {
     position: fixed;
     top: calc(env(safe-area-inset-top, 0px) + 14px);
-    right: calc(env(safe-area-inset-right, 0px) + 14px);
-    z-index: 150;                         /* sobre el contenido; con overlays no se renderiza */
-    width: 40px; height: 40px;
+    z-index: 150;                         /* sobre el contenido; con overlays no se renderizan */
+    width: 44px; height: 44px;            /* ≥44 (piso táctil HIG) y uniforma el clúster */
     display: inline-flex; align-items: center; justify-content: center;
     border: 1px solid rgba(255, 255, 255, .12);
     border-radius: 50%;
@@ -3897,8 +3962,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
     transition: color .15s, background .15s, transform .15s;
   }
-  .changelog-bell:hover  { color: var(--text); background: rgba(36, 36, 36, .78); }
-  .changelog-bell:active { transform: scale(.92); }
+  .changelog-bell { right: calc(env(safe-area-inset-right, 0px) + 14px); }
+  /* Ajustes a la izquierda de la campanita: base (14) + ancho del FAB (44) + gap (10) = 68. */
+  .settings-fab   { right: calc(env(safe-area-inset-right, 0px) + 68px); }
+  .changelog-bell:hover, .settings-fab:hover   { color: var(--text); background: rgba(36, 36, 36, .78); }
+  .changelog-bell:active, .settings-fab:active { transform: scale(.92); }
 }
 /* Puntito de "hay novedad" (color de acento), anclado al botón fijo. */
 .changelog-bell-dot {
@@ -3912,7 +3980,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 @keyframes bell-dot-in { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .changelog-bell:active { transform: none; }
+  .changelog-bell:active, .settings-fab:active { transform: none; }
   .changelog-bell-dot { animation: none; }
 }
 

@@ -3,6 +3,17 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.6.1] - 2026-07-17
+
+### Añadido
+- **Nuevo apartado de Ajustes**, con la opción de **cerrar sesión** — a mano tanto en
+  la computadora como en el teléfono (hasta ahora, en el teléfono no había forma de
+  cerrar sesión).
+
+### Cambiado
+- **El registro de cuentas nuevas quedó cerrado**: SonoraRev ahora es **solo por
+  invitación** — ya no aparece la opción de crear una cuenta desde la pantalla de inicio.
+
 ## [1.6.0] - 2026-07-16
 
 ### Añadido
