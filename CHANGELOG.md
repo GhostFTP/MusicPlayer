@@ -3,6 +3,12 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.6.2] - 2026-07-17
+
+### Añadido
+- **En la pantalla de inicio, un botón para entrar directamente con tu cuenta de
+  Google** — sin escribir usuario ni contraseña.
+
 ## [1.6.1] - 2026-07-17
 
 ### Añadido
