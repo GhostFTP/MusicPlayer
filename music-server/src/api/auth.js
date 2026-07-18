@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import db from '../db/database.js';
 import { signToken } from '../auth/jwt.js';
-import { verifyCfAccess } from '../auth/cloudflare.js';
+import { verifyCfAccess, cfAccessEnabled } from '../auth/cloudflare.js';
 
 const router = Router();
 
@@ -65,5 +65,12 @@ router.post('/cf', async (req, res) => {
   const user = await upsertUserByEmail(identity.email);
   res.json({ token: signToken({ id: user.id, username: user.username }) });
 });
+
+// Config PÚBLICA del login: SIN auth middleware (este router es público — es la pantalla
+// de login, el usuario aún no tiene token; gatearlo sería un catch-22). Solo expone si el
+// auto-login por Cloudflare Access está disponible, para que el frontend decida si mostrar
+// el botón "Iniciar sesión con Google". NO filtra el AUD ni el team domain: cfAccessEnabled
+// es un booleano puro (Boolean(TEAM_DOMAIN && AUD), ver cloudflare.js).
+router.get('/config', (_req, res) => res.json({ sso: cfAccessEnabled }));
 
 export default router;

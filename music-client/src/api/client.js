@@ -45,6 +45,8 @@ export const api = {
   // inyecta las cabeceras de identidad y el backend devuelve un token. Si no
   // (red local), responde 401 y caemos al login tradicional.
   cfLogin:  () => request('/api/auth/cf', { method: 'POST' }),
+  // Config pública del login: ¿hay auto-login por Cloudflare Access? (para el botón Google).
+  authConfig: () => request('/api/auth/config'),
 
   // Tracks
   tracks:   (params = {}) => request('/api/tracks?' + new URLSearchParams(params)),
