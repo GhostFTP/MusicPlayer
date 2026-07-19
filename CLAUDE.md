@@ -79,8 +79,11 @@ REAL (no el recordado), para que una sesión futura no lo redescubra:
   - **disc_number (discos dobles)** — hecho, ver sub-sección abajo.
   - **actions-lab** (equipo skill+engineer+qa): contrato de la cola + menú contextual, **sin
     código aún** (bloqueo activo sobre `PlayerContext` hasta la prueba física de MediaSession).
-  - **nav-lab** (skill del contrato de navegación): EN CURSO — falta extraer `dismissTop()` e
-    integrar la History API (atrás del navegador). **Frente activo.**
+  - **nav-lab (routing Modelo 2) — HECHO (commits F1.1–F1.4: `2d7267a`…`443cdd1`).** URLs por
+    vista y por detalle, atrás/adelante del navegador, deep-linking, F5 que restaura; TODO
+    detalle es ruta —incluido el álbum abierto desde un artista/año (`/albums/:aa/:a`)—. El
+    Modelo 1 (guardia único) quedó retirado; `AlbumDetail.jsx` borrado. Contrato as-built en
+    `.claude/skills/nav-lab/SKILL.md`. **Candidato a v1.7.0.**
 - **`main`**: 3 commits ahead de `origin/main` = los **duplicados** del fix de disc_number
   (patch IDÉNTICO a los de feature, distinto SHA — confirmado por `range-diff`). Llegaron por
   un descuido de branch en otra sesión. **No es trabajo extra**: al mergear `feature` esos
@@ -125,4 +128,4 @@ repetido. **Tocó scanner + backend (decisión tomada en otra sesión):**
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-16 (mapa real de ramas + fix disc_number documentado; Prisma Retrato hecho, nav-lab en curso)._
+_Última actualización: 2026-07-19 (routing Modelo 2 F1.1–F1.4 HECHO — candidato a v1.7.0; contrato nav-lab as-built). NOTA: el conteo "commits ahead" del mapa de ramas quedó viejo — reverificar tras un `git fetch`._
