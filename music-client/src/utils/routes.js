@@ -29,6 +29,12 @@ const KNOWN_VIEWS = new Set(['albums', 'artists', 'genres', 'years', 'playlists'
 // detalle son DOS segmentos (album_artist/album) para desambiguar homónimos.
 const DETAIL_PARAM = { artists: 'artist', genres: 'genre', years: 'year', playlists: 'id' };
 
+// Params NUMÉRICOS (year e id son INTEGER en la DB). Se coercen a number en el BORDE
+// (pathToState), no en las vistas: así cuando years/playlists consuman su target matchean
+// contra el número de la DB (=== ), y el resto de la app sigue viendo los tipos de siempre.
+// Sin esto, un '2007' string nunca matchearía y el detalle no abriría — falla silenciosa.
+const NUMERIC_PARAM = new Set(['years', 'playlists']);
+
 // { view, target } → pathname. library = '/'; el resto '/<view>' o su detalle.
 export function stateToPath(state = {}) {
   const { view, target } = state ?? {};
@@ -61,7 +67,14 @@ export function pathToState(pathname = '/') {
   }
 
   const param = DETAIL_PARAM[seg0];
-  if (param && seg1) return { view: seg0, target: { [param]: seg1 } };
+  if (param && seg1) {
+    if (NUMERIC_PARAM.has(seg0)) {
+      const n = Number(seg1);
+      // Segmento no numérico (/years/abc) → cae a la lista, no crashea ni inventa NaN.
+      return Number.isFinite(n) ? { view: seg0, target: { [param]: n } } : { view: seg0, target: null };
+    }
+    return { view: seg0, target: { [param]: seg1 } };
+  }
 
   return { view: seg0, target: null };
 }
