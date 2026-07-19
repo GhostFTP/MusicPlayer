@@ -9,6 +9,7 @@ import Playlists from './Playlists.jsx';
 import Changelog from './Changelog.jsx';
 import Settings  from './Settings.jsx';
 import Player    from './Player.jsx';
+import { pathToState, stateToPath } from '../utils/routes.js';
 
 // ── Gesto "atrás" en móvil: deslizar en el contenido para salir del detalle
 // actual (álbum/artista/género/playlist/año) y volver a su lista. Reusa el
@@ -49,12 +50,24 @@ function navChevronStyle(navDrag, reduced) {
 }
 
 export default function Layout() {
-  const [view, setView] = useState('library');
-  const [navTarget, setNavTarget] = useState(null);
+  // F1.2 (routing Modelo 2): la vista+target INICIAL salen de la URL (deep-link / F5), no de
+  // un default fijo. `/` → library (igual que antes); `/artists/Daft%20Punk` → el detalle.
+  // Se lee una vez al montar (initializer perezoso de useState).
+  const [view, setView] = useState(() => pathToState(window.location.pathname).view);
+  const [navTarget, setNavTarget] = useState(() => pathToState(window.location.pathname).target);
   // ¿Hay un DETALLE abierto en la vista actual? Cada vista con detalle lo reporta
   // vía setDetailOpen (y lo limpia al desmontar). Player lo usa para que Esc, sin
   // overlays ni expandido, salga del detalle y vuelva a la lista.
   const [detailOpen, setDetailOpen] = useState(false);
+
+  // F1.2: canoniza la entrada de historial actual — guarda {view,target} en history.state
+  // (para que F1.3/popstate lo lea) y reescribe la URL a su forma canónica (p.ej. /basura →
+  // /, una barra final se limpia). replaceState NO crea entrada nueva. ADITIVO: no toca
+  // navigate() ni popstate — al navegar en-app la URL todavía NO cambia (eso es F1.3).
+  useEffect(() => {
+    const s = pathToState(window.location.pathname);
+    window.history.replaceState({ view: s.view, target: s.target }, '', stateToPath(s));
+  }, []);
 
   // Navegación central: cambia de vista y (opcionalmente) fija un target para
   // que la vista destino lo consuma. El menú y el bottom-nav navegan siempre
