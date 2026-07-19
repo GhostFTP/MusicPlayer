@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar   from './Sidebar.jsx';
 import Library   from './Library.jsx';
 import Albums    from './Albums.jsx';
@@ -74,11 +74,37 @@ export default function Layout() {
   // con target null, así entrar por el menú nunca hereda un target viejo.
   // Excepción: tocar la pestaña YA activa (mismo view, sin target) envía la señal
   // { reset: true } para que la vista salga del detalle y vuelva a su lista.
+  // F1.3a: además EMPUJA una entrada de ruta a nivel VISTA (Modelo 2). El detalle sigue
+  // interno a cada vista (F1.3b lo hace ruta); { reset:true } es señal transitoria, no ruta,
+  // así que la entrada persistente guarda target null (la lista) y la URL cae a /<view>. No
+  // se empuja si el path no cambia (tocar la pestaña activa ya en su lista).
   const navigate = (nextView, target = null) => {
+    const nextTarget = target == null && nextView === view ? { reset: true } : target;
     setView(nextView);
-    setNavTarget(target == null && nextView === view ? { reset: true } : target);
+    setNavTarget(nextTarget);
+    const routeTarget = nextTarget?.reset ? null : nextTarget;
+    const path = stateToPath({ view: nextView, target: routeTarget });
+    if (path !== window.location.pathname) {
+      window.history.pushState({ view: nextView, target: routeTarget }, '', path);
+    }
   };
   const clearTarget = () => setNavTarget(null);
+
+  // F1.3a: cierra el detalle de la vista actual SIN empujar historial. Lo llama el escalón
+  // "detalle" de dismissTop (Player) cuando el atrás/Esc lo cierra: navigate empujaría una
+  // entrada nueva (mal para un "atrás"), así que va por acá — solo la señal { reset:true }.
+  const clearDetail = useCallback(() => setNavTarget({ reset: true }), []);
+
+  // F1.3a: restaura una ruta de VISTA sin empujar (lo llama el popstate de Player al hacer
+  // pop de ruta, cuando no había overlay/detalle que cerrar). Traduce el estado guardado en
+  // la entrada a la señal que la vista consume: con target → ese target; sin target → la lista
+  // ({ reset:true } cierra cualquier detalle). Sin state (entrada ajena) → se deriva de la URL.
+  // useCallback [] → estable, así el efecto de popstate en Player no se re-suscribe por render.
+  const restoreRoute = useCallback((state) => {
+    const s = state ?? pathToState(window.location.pathname);
+    setView(s.view);
+    setNavTarget(s.target ?? { reset: true });
+  }, []);
 
   // Canal del target hacia las vistas: cada vista consume su target de navegación
   // (album/artist/genre para ir al detalle, o { reset:true } para volver a la lista)
@@ -203,7 +229,8 @@ export default function Layout() {
         </div>
       )}
 
-      <Player navigate={navigate} view={view} detailOpen={detailOpen} />
+      <Player navigate={navigate} view={view} detailOpen={detailOpen}
+              restoreRoute={restoreRoute} clearDetail={clearDetail} />
 
       <BottomNav view={view} navigate={navigate} />
     </div>

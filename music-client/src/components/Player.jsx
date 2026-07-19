@@ -109,7 +109,7 @@ function rubber(dx) {
 function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
 function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
-export default function Player({ navigate, view, detailOpen }) {
+export default function Player({ navigate, view, detailOpen, restoreRoute, clearDetail }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
@@ -163,87 +163,71 @@ export default function Player({ navigate, view, detailOpen }) {
   // MediaSession) ahora vive en PlayerContext como `trackMeta`, memoizada y compartida.
   // Antes era un estado `quality` local con su propio api.track de fallback.
 
-  // Última vista distinta de Novedades: adónde vuelve Esc al "cerrar" la vista de
-  // la campanita (no hay historial de navegación; esto guarda el único "atrás"
-  // que Esc necesita). Ref y no estado: solo se lee dentro del handler de Esc.
-  const prevViewRef = useRef('library');
-  useEffect(() => { if (view !== 'changelog') prevViewRef.current = view; }, [view]);
-
   // Handle imperativo del InfoPanel: dismissTop dispara su cierre ANIMADO (requestClose)
   // en vez de dejar el Info como excepción que solo su propio Esc conocía (nav-lab).
   const infoRef = useRef(null);
 
-  // ── La escalera única de navegación (contrato nav-lab) ──────────────────────
-  // dismissTop() cierra la capa más "encima" por prioridad y devuelve true si cerró
-  // algo, false si no había nada. Es la ÚNICA fuente de prioridad del "atrás": hoy la
-  // corre el Esc; el popstate (atrás del navegador) la correrá también en el paso que
-  // integra la History API. El swipe-atrás de móvil (Layout.jsx) NO la llama — es un
-  // disparador angosto del escalón "detalle" (nav-lab REGLA DURA #2: ensancharlo es
-  // regresión). Capa nueva → se agrega SOLO acá y los disparadores la respetan gratis.
-  // Prioridad, de lo más "encima" a lo más profundo:
-  //  1. Info: dispara su cierre ANIMADO (requestClose vía infoRef) — capa de la escalera para
-  //     los DOS disparadores (Esc y popstate), no una excepción que solo Esc conoce.
+  // ── La escalera del "atrás" (contrato nav-lab · Modelo 2 · F1.3a) ───────────
+  // dismissTop() cierra la capa más "encima" por prioridad y devuelve true si cerró algo, false
+  // si no había nada. Cubre las capas que NO son ruta de vista: los overlays (Info/Letra/
+  // Expandido) y —por ahora (F1.3a)— el DETALLE, que sigue interno a cada vista. La corren DOS
+  // disparadores: Esc y el popstate (atrás del navegador). El swipe-atrás de móvil (Layout.jsx)
+  // NO la llama — sigue siendo el disparador ANGOSTO detalle→lista (REGLA DURA #2: ensancharlo
+  // es regresión). Novedades YA NO está acá: es una RUTA de vista (navigate('changelog') empuja
+  // /changelog; su atrás es pop de ruta). Prioridad, de lo más "encima" a lo más profundo:
+  //  1. Info: cierre ANIMADO (requestClose vía infoRef).
   //  2. Letra: esté o no dentro del expandido.
-  //  3. Novedades (la vista de la campanita): vuelve a la vista anterior.
-  //  4. Expandido.
-  //  5. Detalle (álbum/artista/género/playlist/año) → { reset:true } vía navigate(view).
-  //     VA AL FINAL a propósito: si el expandido está montado ENCIMA de un detalle (z 200,
-  //     tapa la pantalla), el atrás cierra primero lo VISIBLE (el expandido); el detalle
-  //     solo se cierra cuando no hay overlay ni expandido abiertos.
+  //  3. Expandido.
+  //  4. Detalle → clearDetail() (señal { reset:true }, cierra SIN empujar historial). VA AL
+  //     FINAL: si el expandido está montado ENCIMA de un detalle (z 200, tapa la pantalla), el
+  //     atrás cierra primero lo VISIBLE. F1.3b lo saca de acá y lo hace ruta (abrir empuja /view/X).
   const dismissTop = useCallback(() => {
-    if (showInfo)             { infoRef.current?.requestClose(); return true; }   // cierre animado (imperative handle)
-    if (showLyrics)           { setShowLyrics(false);          return true; }
-    if (view === 'changelog') { navigate(prevViewRef.current); return true; }
-    if (expanded)             { setExpanded(false);           return true; }
-    if (detailOpen)           { navigate(view);               return true; }
+    if (showInfo)   { infoRef.current?.requestClose(); return true; }   // cierre animado (imperative handle)
+    if (showLyrics) { setShowLyrics(false);          return true; }
+    if (expanded)   { setExpanded(false);           return true; }
+    if (detailOpen) { clearDetail();                return true; }
     return false;
-  }, [showInfo, showLyrics, view, expanded, detailOpen, navigate]);
+  }, [showInfo, showLyrics, expanded, detailOpen, clearDetail]);
 
-  // Esc global del reproductor → corre la escalera. Antes este handler vivía sólo
-  // mientras expanded=true, así que Esc no cerraba la Letra abierta desde la barra
-  // (fuera del expandido); ahora escucha siempre.
+  // Esc global del reproductor → corre la escalera (overlays + detalle). Escucha siempre (no
+  // solo con expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc
+  // NO navega rutas de vista (cambiar de vista o cerrar Novedades es el atrás del navegador):
+  // Esc NO llama history.back() → REGLA DURA #3 se cumple trivial (cero history.back() acá).
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') dismissTop(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [dismissTop]);
 
-  // ── Atrás del navegador = la MISMA escalera (contrato nav-lab · guardia único · Modelo 1) ──
-  // Sin esto la navegación es UNA sola entrada de historial y el atrás nativo saca de la app.
-  // openCount = capas abiertas AHORA (pre-cierre): decide el re-armado del guardia SIN leer
-  // estado post-setState (que sería stale, sobre todo con el cierre asíncrono del Info).
-  const openCount = (showInfo ? 1 : 0) + (showLyrics ? 1 : 0) + (view === 'changelog' ? 1 : 0)
-                  + (expanded ? 1 : 0) + (detailOpen ? 1 : 0);
-  const anyLayerOpen = openCount > 0;
-  const navArmedRef = useRef(false);   // ¿hay un guardia de historial empujado y sin consumir?
-
-  // Armado: al pasar de profundidad 0→>0 se empuja UN guardia (una sola entrada mientras haya
-  // cualquier capa abierta). pushState NO dispara popstate → sin ciclo.
+  // ── Atrás del navegador = DOS NIVELES (contrato nav-lab · Modelo 2 · F1.3a) ──
+  // Las RUTAS de vista (biblioteca/artistas/álbumes/… + changelog/settings) son entradas de
+  // historial que empuja Layout.navigate. Las capas de dismissTop (overlays + detalle) NO son
+  // rutas, así que para que el atrás las cierre ANTES de tocar una ruta necesitan su propia
+  // entrada. Guardia: cada vez que la profundidad de capas SUBE (se abrió un overlay o un
+  // detalle) se empuja UNA entrada del MISMO path/estado (pushState no dispara popstate → sin
+  // ciclo); el atrás la consume cerrando la capa, sin mover la URL. Al BAJAR por Esc/botón la
+  // entrada queda sin consumir a propósito: es el "atrás absorbido", quirk conocido del guardia.
+  const layerDepth = (showInfo ? 1 : 0) + (showLyrics ? 1 : 0) + (expanded ? 1 : 0) + (detailOpen ? 1 : 0);
+  const prevLayerDepth = useRef(layerDepth);
   useEffect(() => {
-    if (anyLayerOpen && !navArmedRef.current) {
-      window.history.pushState({ sonoraNav: true }, '');
-      navArmedRef.current = true;
-    }
-  }, [anyLayerOpen]);
+    const delta = layerDepth - prevLayerDepth.current;
+    for (let i = 0; i < delta; i++) window.history.pushState(window.history.state, '', window.location.pathname);
+    prevLayerDepth.current = layerDepth;
+  }, [layerDepth]);
 
-  // popstate = el "atrás" del navegador. Corre dismissTop (la MISMA escalera que Esc), capa
-  // por capa. ⛔ REGLA DURA #3 (nav-lab): acá SOLO setState (vía dismissTop) + como mucho UN
-  // pushState de re-armado. NUNCA history.back()/go() dentro de popstate (dispararía otro
-  // popstate → loop "el atrás no hace nada"). Re-arma solo si quedaba MÁS de una capa
-  // (openBefore>1); si era la última, no re-arma → el próximo atrás sale de la app (Modelo 1).
+  // popstate = el "atrás" del navegador, en DOS NIVELES. ⛔ REGLA DURA #3 (nav-lab): acá SOLO
+  // setState (dismissTop / restoreRoute). NUNCA history.back()/go() dentro de popstate
+  // (dispararía otro popstate → loop "el atrás no hace nada"). Nivel 1: si hay una capa,
+  // dismissTop la cierra y se PARA (el atrás consumió el guardia; la ruta no se toca). Nivel 2:
+  // sin capa, es pop de RUTA → restoreRoute(event.state) restaura la vista de la entrada.
   useEffect(() => {
-    const onPop = () => {
-      navArmedRef.current = false;                 // este 'atrás' ya consumió el guardia
-      const openBefore = openCount;
-      const closed = dismissTop();
-      if (closed && openBefore > 1) {
-        window.history.pushState({ sonoraNav: true }, '');
-        navArmedRef.current = true;
-      }
+    const onPop = (e) => {
+      if (dismissTop()) return;      // cerró un overlay/detalle → el atrás se consumió ahí
+      restoreRoute(e.state);         // pop de ruta de vista
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [dismissTop, openCount]);
+  }, [dismissTop, restoreRoute]);
 
   // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
   // Pointer Events (touch + mouse). touch-action: none (CSS): el navegador no
