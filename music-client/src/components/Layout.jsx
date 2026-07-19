@@ -55,18 +55,29 @@ export default function Layout() {
   // Se lee una vez al montar (initializer perezoso de useState).
   const [view, setView] = useState(() => pathToState(window.location.pathname).view);
   const [navTarget, setNavTarget] = useState(() => pathToState(window.location.pathname).target);
-  // ¿Hay un DETALLE abierto en la vista actual? Cada vista con detalle lo reporta
-  // vía setDetailOpen (y lo limpia al desmontar). Player lo usa para que Esc, sin
-  // overlays ni expandido, salga del detalle y vuelva a la lista.
+  // ¿Hay un DETALLE abierto en la vista actual (primer nivel o álbum anidado)? Cada vista lo
+  // reporta vía setDetailOpen y lo limpia al desmontar. F1.3b: ya NO lo usa Player (el detalle
+  // es ruta) — lo usa el GATE del swipe-atrás de móvil (solo arranca con un detalle abierto).
   const [detailOpen, setDetailOpen] = useState(false);
+  // ¿Hay un ÁLBUM ANIDADO abierto (selAlbum en Artists/Years)? Ese nivel NO está en el esquema
+  // de rutas, así que es una capa con GUARDIA (no ruta): lo reportan solo Artists/Years. Player
+  // lo usa para el guardia de capas y el escalón de dismissTop.
+  const [nestedOpen, setNestedOpen] = useState(false);
 
-  // F1.2: canoniza la entrada de historial actual — guarda {view,target} en history.state
-  // (para que F1.3/popstate lo lea) y reescribe la URL a su forma canónica (p.ej. /basura →
-  // /, una barra final se limpia). replaceState NO crea entrada nueva. ADITIVO: no toca
-  // navigate() ni popstate — al navegar en-app la URL todavía NO cambia (eso es F1.3).
+  // F1.2/F1.3b: canoniza la entrada de historial al montar. Si la ruta inicial es un DETALLE
+  // (deep-link / F5 sobre /artists/X), SINTETIZA la lista como entrada PADRE debajo del detalle:
+  // replaceState(lista) + pushState(detalle). Así "cerrar = history.back()" (F1.3b) cae en la
+  // lista y no sale de la app. Ruta sin target (lista/vista simple) → solo canoniza. replaceState
+  // no crea entrada; pushState sí (la del detalle). Ninguno dispara popstate → sin ciclo.
   useEffect(() => {
     const s = pathToState(window.location.pathname);
-    window.history.replaceState({ view: s.view, target: s.target }, '', stateToPath(s));
+    if (s.target) {
+      const list = { view: s.view, target: null };
+      window.history.replaceState(list, '', stateToPath(list));
+      window.history.pushState(s, '', stateToPath(s));
+    } else {
+      window.history.replaceState(s, '', stateToPath(s));
+    }
   }, []);
 
   // Navegación central: cambia de vista y (opcionalmente) fija un target para
@@ -90,10 +101,11 @@ export default function Layout() {
   };
   const clearTarget = () => setNavTarget(null);
 
-  // F1.3a: cierra el detalle de la vista actual SIN empujar historial. Lo llama el escalón
-  // "detalle" de dismissTop (Player) cuando el atrás/Esc lo cierra: navigate empujaría una
-  // entrada nueva (mal para un "atrás"), así que va por acá — solo la señal { reset:true }.
-  const clearDetail = useCallback(() => setNavTarget({ reset: true }), []);
+  // F1.3b: cierra el ÁLBUM ANIDADO (selAlbum) SIN empujar historial — señal { closeNested:true }
+  // que Artists/Years consumen (setSelAlbum(null)). Lo llama el escalón "álbum anidado" de
+  // dismissTop (Player) cuando el atrás/Esc lo cierra. El detalle de primer nivel ya no pasa por
+  // acá: es ruta (lo cierra history.back en el back-btn/swipe → pop de ruta).
+  const clearNested = useCallback(() => setNavTarget({ closeNested: true }), []);
 
   // F1.3a: restaura una ruta de VISTA sin empujar (lo llama el popstate de Player al hacer
   // pop de ruta, cuando no había overlay/detalle que cerrar). Traduce el estado guardado en
@@ -110,7 +122,7 @@ export default function Layout() {
   // (album/artist/genre para ir al detalle, o { reset:true } para volver a la lista)
   // y llama a clearTarget → consumo único. Al cambiar de `view` la vista destino se
   // monta de cero (reset natural de su estado).
-  const viewProps = { target: navTarget, clearTarget, setDetailOpen };
+  const viewProps = { target: navTarget, clearTarget, setDetailOpen, setNestedOpen, navigate };
   const VIEWS = {
     library:   <Library   {...viewProps} />,
     albums:    <Albums    {...viewProps} />,
@@ -129,8 +141,6 @@ export default function Layout() {
   const navSettleTimer = useRef(null);   // timer del fundido del chevron
   const detailOpenRef  = useRef(detailOpen);
   useEffect(() => { detailOpenRef.current = detailOpen; }, [detailOpen]);
-  const viewRef = useRef(view);
-  useEffect(() => { viewRef.current = view; }, [view]);
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -204,7 +214,7 @@ export default function Layout() {
     if (!g || g.dir !== 'h') return;
     const dx = e.clientX - g.x0;                       // umbral desde el down (feel intacto)
     const flick = g.vx > NAV_VEL_THRESH && dx > NAV_MIN_FLICK;
-    if (dx > 0 && (dx >= NAV_DIST_THRESH || flick)) navigate(viewRef.current);   // mismo canal que Esc
+    if (dx > 0 && (dx >= NAV_DIST_THRESH || flick)) window.history.back();   // F1.3b: cerrar = pop de ruta
     settleNavDrag();
   };
 
@@ -229,8 +239,8 @@ export default function Layout() {
         </div>
       )}
 
-      <Player navigate={navigate} view={view} detailOpen={detailOpen}
-              restoreRoute={restoreRoute} clearDetail={clearDetail} />
+      <Player navigate={navigate} view={view}
+              restoreRoute={restoreRoute} nestedOpen={nestedOpen} clearNested={clearNested} />
 
       <BottomNav view={view} navigate={navigate} />
     </div>

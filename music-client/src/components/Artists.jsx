@@ -50,7 +50,7 @@ function byYearAsc(albums) {
   );
 }
 
-export default function Artists({ target, clearTarget, setDetailOpen }) {
+export default function Artists({ target, clearTarget, setDetailOpen, setNestedOpen, navigate }) {
   const [artists,  setArtists]  = useState(null);
   const [sel,      setSel]      = useState(null);   // artista seleccionado
   const [detail,   setDetail]   = useState(null);   // agregados locales (stats + chips del hero)
@@ -71,11 +71,13 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Detalle
-  // anidado: álbumes del artista (`sel`) o un AlbumDetail (`selAlbum`). El cleanup
-  // de desmontaje evita que el flag quede colgado en true al cambiar de pestaña.
+  // Reporta a Layout: detailOpen (primer nivel o anidado) para el GATE del swipe; nestedOpen
+  // (SOLO el álbum anidado `selAlbum`) para el guardia/escalón de Player (capa dentro de la ruta
+  // del artista). Los cleanups de desmontaje evitan flags colgados al cambiar de pestaña.
   useEffect(() => { setDetailOpen(!!(sel || selAlbum)); }, [sel, selAlbum, setDetailOpen]);
   useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
+  useEffect(() => { setNestedOpen(!!selAlbum); }, [selAlbum, setNestedOpen]);
+  useEffect(() => () => setNestedOpen(false), [setNestedOpen]);
 
   async function open(a) {
     setSel(a);
@@ -115,6 +117,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
   // `artist`), así que el match es directo. Espera a que la lista cargue (deps).
   // Consumo único: siempre limpia; si no existe, queda en la lista.
   useEffect(() => {
+    if (target?.closeNested) { setSelAlbum(null); clearTarget(); return; }   // atrás cierra solo el álbum anidado
     if (target?.reset) { setSel(null); setSelAlbum(null); setAlbums(null); clearTarget(); return; }
     if (!target?.artist || !artists) return;
     const a = artists.find(x => x.artist === target.artist);
@@ -125,7 +128,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
 
   // ── Álbum abierto desde un artista ──
   if (selAlbum) {
-    return <AlbumDetail album={selAlbum} onBack={() => setSelAlbum(null)} />;
+    return <AlbumDetail album={selAlbum} onBack={() => window.history.back()} />;
   }
 
   // ── Detalle: los álbumes de un artista ──
@@ -143,7 +146,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
 
     return (
       <div>
-        <button className="back-btn" onClick={() => { setSel(null); setAlbums(null); }}>
+        <button className="back-btn" onClick={() => window.history.back()}>
           ← Todos los artistas
         </button>
 
@@ -217,7 +220,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
           veía casi idéntico a su propio álbum en la otra pestaña. */}
       <div className="artist-grid">
         {artists.map((a, i) => (
-          <div key={a.artist} className="artist-portrait" style={{ '--i': i, '--h': stringHue(a.artist) }} onClick={() => open(a)}>
+          <div key={a.artist} className="artist-portrait" style={{ '--i': i, '--h': stringHue(a.artist) }} onClick={() => navigate('artists', { artist: a.artist })}>
             <ArtistImage artist={a} />
             <div className="artist-portrait-info">
               <div className="artist-portrait-name">{a.artist}</div>

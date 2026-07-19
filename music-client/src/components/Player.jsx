@@ -109,7 +109,7 @@ function rubber(dx) {
 function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
 function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
-export default function Player({ navigate, view, detailOpen, restoreRoute, clearDetail }) {
+export default function Player({ navigate, view, restoreRoute, nestedOpen, clearNested }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
@@ -167,31 +167,29 @@ export default function Player({ navigate, view, detailOpen, restoreRoute, clear
   // en vez de dejar el Info como excepción que solo su propio Esc conocía (nav-lab).
   const infoRef = useRef(null);
 
-  // ── La escalera del "atrás" (contrato nav-lab · Modelo 2 · F1.3a) ───────────
+  // ── La escalera del "atrás" (contrato nav-lab · Modelo 2 · F1.3b) ───────────
   // dismissTop() cierra la capa más "encima" por prioridad y devuelve true si cerró algo, false
-  // si no había nada. Cubre las capas que NO son ruta de vista: los overlays (Info/Letra/
-  // Expandido) y —por ahora (F1.3a)— el DETALLE, que sigue interno a cada vista. La corren DOS
-  // disparadores: Esc y el popstate (atrás del navegador). El swipe-atrás de móvil (Layout.jsx)
-  // NO la llama — sigue siendo el disparador ANGOSTO detalle→lista (REGLA DURA #2: ensancharlo
-  // es regresión). Novedades YA NO está acá: es una RUTA de vista (navigate('changelog') empuja
-  // /changelog; su atrás es pop de ruta). Prioridad, de lo más "encima" a lo más profundo:
+  // si no había nada. Cubre las capas que NO son ruta: overlays (Info/Letra/Expandido) + el
+  // ÁLBUM ANIDADO (selAlbum de Artists/Years, capa DENTRO de la ruta /artists/X — no está en el
+  // esquema de rutas). El detalle de PRIMER NIVEL ya NO está acá: es RUTA (abrir = navigate empuja
+  // /artists/X; cerrar = pop de ruta vía history.back en el back-btn/swipe). La corren DOS
+  // disparadores: Esc y el popstate. El swipe-atrás (Layout) NO la llama. Prioridad:
   //  1. Info: cierre ANIMADO (requestClose vía infoRef).
   //  2. Letra: esté o no dentro del expandido.
   //  3. Expandido.
-  //  4. Detalle → clearDetail() (señal { reset:true }, cierra SIN empujar historial). VA AL
-  //     FINAL: si el expandido está montado ENCIMA de un detalle (z 200, tapa la pantalla), el
-  //     atrás cierra primero lo VISIBLE. F1.3b lo saca de acá y lo hace ruta (abrir empuja /view/X).
+  //  4. Álbum anidado → clearNested() (señal { closeNested:true }, cierra selAlbum). VA AL FINAL:
+  //     si el expandido está montado ENCIMA, el atrás cierra primero lo VISIBLE.
   const dismissTop = useCallback(() => {
     if (showInfo)   { infoRef.current?.requestClose(); return true; }   // cierre animado (imperative handle)
     if (showLyrics) { setShowLyrics(false);          return true; }
     if (expanded)   { setExpanded(false);           return true; }
-    if (detailOpen) { clearDetail();                return true; }
+    if (nestedOpen) { clearNested();                return true; }
     return false;
-  }, [showInfo, showLyrics, expanded, detailOpen, clearDetail]);
+  }, [showInfo, showLyrics, expanded, nestedOpen, clearNested]);
 
-  // Esc global del reproductor → corre la escalera (overlays + detalle). Escucha siempre (no
-  // solo con expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc
-  // NO navega rutas de vista (cambiar de vista o cerrar Novedades es el atrás del navegador):
+  // Esc global del reproductor → corre la escalera (overlays + álbum anidado). Escucha siempre
+  // (no solo con expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc
+  // NO navega rutas (cambiar de vista, cerrar Novedades o un DETALLE es el atrás del navegador):
   // Esc NO llama history.back() → REGLA DURA #3 se cumple trivial (cero history.back() acá).
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') dismissTop(); };
@@ -199,15 +197,15 @@ export default function Player({ navigate, view, detailOpen, restoreRoute, clear
     return () => window.removeEventListener('keydown', onKey);
   }, [dismissTop]);
 
-  // ── Atrás del navegador = DOS NIVELES (contrato nav-lab · Modelo 2 · F1.3a) ──
-  // Las RUTAS de vista (biblioteca/artistas/álbumes/… + changelog/settings) son entradas de
-  // historial que empuja Layout.navigate. Las capas de dismissTop (overlays + detalle) NO son
-  // rutas, así que para que el atrás las cierre ANTES de tocar una ruta necesitan su propia
-  // entrada. Guardia: cada vez que la profundidad de capas SUBE (se abrió un overlay o un
-  // detalle) se empuja UNA entrada del MISMO path/estado (pushState no dispara popstate → sin
-  // ciclo); el atrás la consume cerrando la capa, sin mover la URL. Al BAJAR por Esc/botón la
-  // entrada queda sin consumir a propósito: es el "atrás absorbido", quirk conocido del guardia.
-  const layerDepth = (showInfo ? 1 : 0) + (showLyrics ? 1 : 0) + (expanded ? 1 : 0) + (detailOpen ? 1 : 0);
+  // ── Atrás del navegador = DOS NIVELES (contrato nav-lab · Modelo 2 · F1.3b) ──
+  // Las RUTAS (vistas + detalles /artists/X + changelog/settings) son entradas de historial que
+  // empuja Layout.navigate (o el mount al sintetizar el padre). Las capas de dismissTop (overlays
+  // + álbum anidado) NO son rutas, así que para que el atrás las cierre ANTES de tocar una ruta
+  // necesitan su propia entrada. Guardia: cada vez que la profundidad de capas SUBE se empuja UNA
+  // entrada del MISMO path/estado (pushState no dispara popstate → sin ciclo); el atrás la consume
+  // cerrando la capa, sin mover la URL. Al BAJAR por Esc/botón la entrada queda sin consumir a
+  // propósito: es el "atrás absorbido", quirk conocido del guardia.
+  const layerDepth = (showInfo ? 1 : 0) + (showLyrics ? 1 : 0) + (expanded ? 1 : 0) + (nestedOpen ? 1 : 0);
   const prevLayerDepth = useRef(layerDepth);
   useEffect(() => {
     const delta = layerDepth - prevLayerDepth.current;
@@ -222,8 +220,8 @@ export default function Player({ navigate, view, detailOpen, restoreRoute, clear
   // sin capa, es pop de RUTA → restoreRoute(event.state) restaura la vista de la entrada.
   useEffect(() => {
     const onPop = (e) => {
-      if (dismissTop()) return;      // cerró un overlay/detalle → el atrás se consumió ahí
-      restoreRoute(e.state);         // pop de ruta de vista
+      if (dismissTop()) return;      // cerró un overlay/álbum anidado → el atrás se consumió ahí
+      restoreRoute(e.state);         // pop de ruta (vista o detalle de primer nivel)
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
