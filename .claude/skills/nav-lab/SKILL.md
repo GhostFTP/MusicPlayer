@@ -1,6 +1,6 @@
 ---
 name: nav-lab
-description: Estándar de la navegación core de SonoraRev — el modelo de DOS NIVELES (rutas con URL + overlays), routing a mano sobre la History API (Modelo 2 real, deep-linking, F5 que restaura), la escalera dismissTop para overlays, el gesto swipe-atrás, y qué es navegación y qué no. Úsala SIEMPRE antes de tocar o auditar rutas/URLs, el botón atrás del navegador, la cadena de Esc, el swipe-atrás o cualquier cambio de vista/detalle (Player.jsx, Layout.jsx, App.jsx).
+description: Estándar de la navegación core de SonoraRev — el Modelo 2 real (rutas con URL + capas encima), routing a mano sobre la History API (deep-linking, F5 que restaura, atrás/adelante de vistas Y detalles), la escalera dismissTop, el guardia de capas, el álbum anidado como capa con guardia, y el gesto swipe-atrás. Úsala SIEMPRE antes de tocar o auditar rutas/URLs, el botón atrás del navegador, la cadena de Esc, el swipe-atrás o cualquier cambio de vista/detalle (routes.js, Layout.jsx, Player.jsx y las 5 vistas con detalle).
 ---
 
 # Nav Lab — estándar de navegación de SonoraRev
@@ -14,23 +14,30 @@ rutas son el ancla.
 
 ## ⏱️ Estado actual (leer primero)
 
-- **EN CÓDIGO hoy: nav-lab v1 (Modelo 1)** — commits `dea7f26` (skill v1), `f21e418`
-  (extraer `dismissTop`), `1be9fa1` (3a: Info como capa), `6ebd4c6` (3b: guardia
-  único + `popstate`). El atrás cierra capas y **sale en la lista pelada**.
-- **OBJETIVO de este contrato: Modelo 2 (routing real)** — URLs por vista/detalle,
-  historial de vistas, deep-linking, F5 que restaura. **Fase 1 aún NO está
-  implementada.** Lo de abajo describe el TARGET y marca qué de v1 sobrevive y qué
-  se rehace. No asumas que el código ya hace Modelo 2: todavía hace Modelo 1.
+- **EN CÓDIGO hoy (rama `feature/sonorarev-integration`): Modelo 2 completo (routing
+  real).** Commits, en orden:
+  - `2d7267a` **F1.1** — módulo PURO `music-client/src/utils/routes.js`
+    (`stateToPath` / `pathToState`, con `encodeURIComponent` + NFC).
+  - `0ed4b8c` — `pathToState` coerce `year`/`id` a **número** (la DB es INTEGER).
+  - `123f92f` **F1.2** — deep-link / F5 al montar: `Layout` lee `location.pathname`.
+  - `9005557` **F1.3a** — URL-sync + atrás Modelo 2 a nivel **vista**.
+  - `a40befc` **F1.3b** — el **detalle es RUTA** en las 5 vistas + **álbum anidado
+    con guardia**.
+- **NO desplegado.** `origin/main` sigue en **v1.5.0 (Modelo 1)**: en producción todavía
+  corre el Modelo 1 hasta que se mergee. Esta tanda es el candidato a **v1.7.0**.
+- **El Modelo 1 (nav-lab v1) quedó RETIRADO del código de la rama** (ver "Qué se retiró
+  de v1"). No lo "arregles" pensando que estaba mal: fue correcto hasta que se decidió
+  routing (ver "Por qué existió el Modelo 1").
 
 ## Premisa (el contrato, no el botón)
 
 El frente es **el modelo de navegación de la app y su única fuente de verdad**:
-*dónde estás* (la ruta) y *qué tenés encima* (los overlays). SonoraRev **no usa
-react-router** — decisión ratificada: la superficie es chica (7 vistas, 3 patrones
-de detalle), ya existe un choke point único (`navigate()` en Layout), ya existe el
-SPA fallback en el server, y sumar una dependencia arriesga el pendiente de
-`build.target`/Chrome-87 del R4. El routing se construye **a mano sobre la History
-API** — extendiendo la maquinaria que nav-lab v1 ya introdujo, no peleándola.
+*dónde estás* (la ruta) y *qué tenés encima* (las capas). SonoraRev **no usa
+react-router** — decisión ratificada: la superficie es chica (8 vistas, 3 patrones
+de detalle), hay un choke point único (`navigate()` en `Layout`), existe el SPA
+fallback en el server, y sumar una dependencia arriesga el pendiente de
+`build.target`/Chrome-87 del R4. El routing se construyó **a mano sobre la History
+API**, extendiendo la maquinaria de guardia que nav-lab v1 ya había introducido.
 
 ## 🧭 El modelo de DOS NIVELES (el corazón del contrato)
 
@@ -38,155 +45,206 @@ Hay dos niveles de "atrás", y no se mezclan:
 
 | Nivel | Qué | Ejemplos | ¿URL? | El atrás… |
 |---|---|---|---|---|
-| **1 — Rutas** | *lugares* | vista (`/artists`) y detalle (`/artists/:artist`, `/albums/:album_artist/:album`, `/genres/:genre`, `/years/:year`, `/playlists/:id`, `/changelog`) | **Sí** (deep-linkable, F5-restaurable) | recorre el **historial de vistas** (Modelo 2) |
-| **2 — Overlays** | *cosas encima*, transitorias | expandido, Letra, Info | **No** (no se deep-linkea "el expandido") | los **cierra primero** (escalera `dismissTop`) |
+| **1 — Rutas** | *lugares* | vista (`/artists`) y **detalle** (`/artists/:artist`, `/albums/:album_artist/:album`, `/genres/:genre`, `/years/:year`, `/playlists/:id`, `/changelog`, `/settings`) | **Sí** (deep-linkable, F5-restaurable, atrás/adelante) | recorre el **historial** del navegador → `restoreRoute` |
+| **2 — Capas** | *cosas encima*, transitorias | expandido, Letra, Info, **álbum anidado** | **No** | las **cierra primero** (`dismissTop` + guardia de capas) |
 
-**El atrás, en orden:** `popstate` corre **primero la escalera de overlays**
-(`dismissTop`); si cerró un overlay, para ahí. Si no había overlay, es un **pop de
-ruta** → el router restaura la vista/detalle anterior desde la URL. Overlays antes
-que rutas, siempre.
+**El atrás, en orden:** el `popstate` corre **primero la escalera de capas**
+(`dismissTop`); si cerró una, para ahí (el atrás consumió el guardia). Si no había
+capa, es un **pop de ruta** → `restoreRoute(event.state)` restaura la vista/detalle
+de la entrada. **Capas antes que rutas, siempre.**
 
-## La escalera de OVERLAYS — `dismissTop()` (sobrevive de v1)
+> **El álbum anidado es una capa de Nivel 2 A PROPÓSITO.** En Artists y Years se
+> puede abrir un álbum DENTRO de un artista/año (`selAlbum` → `AlbumDetail`). Ese
+> nivel **no está en el esquema de rutas** (sería un tercer segmento no definido), así
+> que se lo trata como **capa con guardia**, no como ruta. Decisión explícita del
+> usuario (F1.3b, opción "capa con guardia"). El detalle de PRIMER nivel sí es ruta.
 
-La escalera ahora cubre **solo overlays**. El *detalle* y *Novedades* dejan de ser
-peldaños y pasan a ser **rutas** (Nivel 1). Prioridad, de lo más "encima" a lo más
-profundo:
+## La escalera de CAPAS — `dismissTop()` (`Player.jsx`)
 
-| # | Overlay | Bandera | Acción de cierre |
+Cierra la capa más "encima" por prioridad y devuelve `true` si cerró algo. Cubre las
+capas que **NO son ruta**. De lo más "encima" a lo más profundo:
+
+| # | Capa | Bandera | Acción de cierre |
 |---|---|---|---|
-| 1 | **Info** | `showInfo` | `infoRef.current.requestClose()` — cierre ANIMADO vía imperative handle (3a) |
+| 1 | **Info** | `showInfo` | `infoRef.current.requestClose()` — cierre ANIMADO vía imperative handle |
 | 2 | **Letra** | `showLyrics` | `setShowLyrics(false)` |
 | 3 | **Expandido** | `expanded` | `setExpanded(false)` |
+| 4 | **Álbum anidado** | `nestedOpen` (= `!!selAlbum`, lo reportan Artists/Years) | `clearNested()` → señal `{ closeNested:true }` que la vista consume (`setSelAlbum(null)`) |
 
-Cuando la escalera devuelve "no cerré nada" (no hay overlay), el `popstate` es un
-**pop de ruta**: lo maneja el router (Nivel 1), no la escalera.
+El **detalle de primer nivel** y **Novedades** ya **NO** son peldaños: son **rutas**.
+Cuando `dismissTop()` devuelve `false` (no había capa), el `popstate` hace **pop de
+ruta** (`restoreRoute`).
 
-### REGLA DURA #1 — una escalera de overlays, cero lógica duplicada
+## El GUARDIA de capas (cómo el atrás cierra capas antes que rutas)
 
-`dismissTop()` es la única fuente de prioridad de los overlays. La corren el **Esc**
-y el **`popstate`** (que primero prueba overlays, después ruta). Overlay nuevo → se
-agrega SOLO en `dismissTop()`. **El Info es una capa más, no una excepción:** su
-cierre animado se dispara con `requestClose` expuesto por `useImperativeHandle`
-(`InfoPanel.jsx`, `forwardRef`), NO con un Esc propio del panel (3a lo unificó).
+Las capas no tienen URL, así que para que el atrás las cierre **antes** de tocar una
+ruta necesitan su propia entrada de historial:
+
+- `Player` calcula `layerDepth = showInfo + showLyrics + expanded + nestedOpen`.
+- Cuando `layerDepth` **SUBE** (se abrió una capa), empuja **UNA** entrada del **mismo
+  path/estado** (`pushState(history.state, '', location.pathname)`). `pushState` **no**
+  dispara `popstate` → sin ciclo.
+- El atrás la consume cerrando la capa (`dismissTop`), **sin mover la URL**.
+- Las **rutas** las empuja `Layout.navigate` (`pushState(stateToPath(...))`); en un
+  deep-link a un detalle, el **mount sintetiza el padre** (ver "Deep-linking + auth").
+
+Esto **reemplaza el guardia único del Modelo 1** (`navArmedRef`/`openCount`/re-armado):
+ahora el guardia es por-capa (empuja al subir la profundidad) y **coexiste** con las
+entradas de ruta.
+
+### REGLA DURA #1 — una escalera de capas, cero lógica duplicada
+
+`dismissTop()` es la única fuente de prioridad de las capas. La corren el **Esc** y el
+**`popstate`** (que primero prueba capas, después ruta). Capa nueva → se agrega SOLO en
+`dismissTop()` **y** su bandera entra en `layerDepth`. **El Info es una capa más:** su
+cierre animado se dispara con `requestClose` (`InfoPanel.jsx`, `forwardRef` +
+`useImperativeHandle`), NO con un Esc propio.
 
 ### REGLA DURA #2 — el swipe-atrás se queda angosto
 
-El swipe de móvil (`Layout.jsx`, guard `detailOpenRef`, `max-width:700px`) ataca
-**solo detalle→lista** (que en Modelo 2 es un **pop de ruta**), vía el mismo
-primitivo que usa esa transición. **NO llama a `dismissTop()`** — ensancharlo para
-que cierre expandido/Letra es **regresión**. Cualquier ensanche es decisión
-explícita del usuario, nunca efecto colateral.
+El swipe de móvil (`Layout.jsx`, gate `detailOpenRef` en `onContentPointerDown`,
+`max-width:700px`) ataca **solo detalle→lista**. En Modelo 2 **cierra con
+`window.history.back()`** (pop de ruta, o pop del guardia si hay un álbum anidado). El
+gate NO cambió (sigue exigiendo un detalle abierto) — solo cambió su acción de cierre.
+**NO llama a `dismissTop()`** ni se ensancha a overlays: eso es regresión, y solo por
+decisión explícita del usuario.
 
-### ⛔ REGLA DURA #3 — anti-loop (sigue vigente, en los DOS niveles)
+### ⛔ REGLA DURA #3 — anti-loop (vigente, es la más importante)
 
-> **Ningún handler de `popstate` —ni el de overlays ni el de rutas— puede llamar
-> `history.back()` / `history.go(-1)` adentro. `popstate` solo hace `setState` y,
-> como mucho, `pushState`.**
+> **El handler de `popstate` NO puede llamar `history.back()` / `history.go(-1)`
+> adentro. Solo hace `setState` (`dismissTop` / `restoreRoute`) y, como mucho,
+> `pushState`.**
 
-`history.back()` dentro de `popstate` dispara otro `popstate` → **loop** ("el atrás
-no hace nada" / "hay que apretarlo 5 veces"). Es el bug clásico del routing a mano.
-Con react-router uno no lo ve porque la librería lo maneja; **a mano es
-responsabilidad nuestra**. Grep de `history.back(` dentro de un `popstate` =
-hallazgo crítico.
+`history.back()` dentro de `popstate` dispara otro `popstate` → **loop** ("el atrás no
+hace nada"). **OJO al auditar:** `window.history.back()` **sí** aparece en el código —
+en los back-btns, el `onBack` del álbum anidado, el swipe y "borrar la playlist
+abierta". **Todos son acciones de USUARIO (clicks/gesto), NO el `popstate` — y eso está
+bien.** El grep de #3 verifica que **el handler de `popstate` (en `Player.jsx`) no lo
+llame**: hoy `history.back` solo aparece ahí **en comentarios**. Grep de `history.back(`
+DENTRO del `onPop` = hallazgo crítico.
 
-## 🕰️ Por qué existió el Modelo 1 y por qué se revierte (NO fue un error)
+## El QUIRK del "atrás absorbido" (guardia) — original + álbum anidado
+
+Cuando cerrás una capa **por Esc o por su botón** (no por el atrás del navegador), la
+entrada-guardia que se empujó al abrirla **queda sin consumir**. El próximo atrás la
+consume "en falso": **cierra nada visible una vez** (la URL/estado ya eran los de esa
+entrada) y recién el siguiente atrás hace el pop real.
+
+- Aplica a **todas las capas guardadas por igual**: overlays (Info/Letra/expandido) **y
+  el álbum anidado** (misma mecánica de `layerDepth`).
+- Es **conocido y aceptado.** Se re-evaluó al implementar Fase 1 y se **mantiene**: la
+  alternativa (consumir el guardia en cada cierre-no-atrás con un `history.back()`)
+  reintroduce races con el cierre **asíncrono** del Info y complica el handler. El costo
+  del quirk (un atrás "de más" tras cerrar a mano) es menor que ese riesgo.
+
+## 🕰️ Por qué existió el Modelo 1 y por qué se revirtió (NO fue un error)
 
 **nav-lab v1 (Modelo 1)** fijó el bug inmediato —el atrás nativo sacaba de la app—
 **sin** meter routing: guardia único + `popstate` corriendo la escalera, y "en la
 lista pelada el atrás SALE". Fue una decisión **consciente y correcta para su
-alcance**: conservadora con producción, chica, cero backend, sin revertir la
-ausencia de router. **No fue un atajo mal hecho** — fue el peldaño correcto antes de
-una decisión de arquitectura.
+alcance** (conservadora con producción, chica, cero backend). **No fue un atajo mal
+hecho** — fue el peldaño correcto antes de una decisión de arquitectura. Después el
+usuario pidió **deep-linking / routing real (Modelo 2)**, y el giro 1 → 2 es
+**deliberado**. No "arregles" el Modelo 1 pensando que estaba mal.
 
-Después el usuario pidió **deep-linking / routing real (Modelo 2)**: URLs por
-vista/detalle, historial de vistas, links compartibles, F5 que restaura. Eso
-**supersede** parte de v1 (ver tabla). El giro Modelo 1 → Modelo 2 es **deliberado
-y deseado**, no una corrección de un error. La próxima sesión no debe "arreglar" el
-Modelo 1 de v1 pensando que estaba mal: fue lo correcto hasta que se decidió routing.
+## Qué se RETIRÓ de v1 y qué SOBREVIVIÓ
 
-## Qué SOBREVIVE de v1 y qué se REHACE
-
-| Sobrevive (se reusa) | Se rehace (superseded) |
+| Sobrevivió (se reusa) | Se retiró / rehízo |
 |---|---|
-| Escalera `dismissTop` para **overlays** (Info/Letra/expandido) | El **guardia único** (3b) para detalle/changelog → lo absorbe el **historial del router** |
-| **3a**: Info como capa (imperative handle, `InfoPanel` `forwardRef`/`useImperativeHandle`) | **Modelo 1** "lista pelada SALE" → **Modelo 2** "atrás va a la vista anterior; sale en la 1ª entrada" |
-| REGLA DURA #2 (swipe angosto) | Rungs **detalle** (5) y **Novedades** (3) salen de la escalera → pasan a **rutas** |
-| REGLA DURA #3 (anti-loop) — para cualquier `popstate` a mano | **F5 resetea a Biblioteca** → **F5 restaura** desde la URL |
-| Aislamiento de MediaSession; reduced-motion | El "QUIRK del atrás absorbido" de v1 → **a re-evaluar en Fase 1** (depende de cómo los overlays empujen/no historial) |
+| Escalera `dismissTop` (ahora **capas**: Info/Letra/expandido **+ álbum anidado**) | **Guardia único** (`navArmedRef`/`openCount`/re-armado en popstate) → **guardia por-capa** (`layerDepth`) que coexiste con rutas |
+| **Info como capa** (imperative handle, `InfoPanel` `forwardRef`/`useImperativeHandle`) | **Modelo 1 "lista pelada SALE"** → **Modelo 2** "atrás recorre vistas Y detalles; sale en la 1ª entrada" |
+| REGLA DURA #2 (swipe angosto) — mismo gate; solo cambió su cierre a `history.back()` | Peldaños **detalle** y **Novedades** → salieron de la escalera; ahora son **rutas** |
+| REGLA DURA #3 (anti-loop) — para el `popstate` | **F5 resetea a Biblioteca** → **F5 restaura** desde la URL (`pathToState` al montar) |
+| `prevViewRef` (Novedades "atrás") | **Eliminado** — el historial del router reemplaza el "atrás" de Novedades |
 
-## 🗺️ Esquema de rutas (target del routing a mano)
+## Cambios de comportamiento (a propósito, no son bugs)
 
-- `/` → Biblioteca · `/albums` · `/artists` · `/genres` · `/years` · `/playlists` · `/changelog`
-- Detalles: `/artists/:artist` · `/genres/:genre` · `/years/:year` · `/playlists/:id`
-- **Álbum lleva DOS identificadores** (nombre + `album_artist` para desambiguar
-  homónimos): `/albums/:album_artist/:album` (dos segmentos). Viene de
-  `navigate('albums', { album, album_artist })`.
-- **Detalles internos hoy sin `navigate` externo** (un año, una playlist) también
-  necesitan su URL → **superficie extra**, no olvidarlos.
-- **Encoding (mismo cuidado que `/image`):** `encodeURIComponent(nombre)` al armar
-  el link; `decodeURIComponent` + **normalizar a NFC al hacer match** (igual que
-  `findArtistImage`/commit `c201836`). El round-trip de un link generado por la app
-  es sin pérdida; el riesgo es solo un link tipeado a mano con otra normalización.
+- **Esc ya no cierra un detalle de primer nivel pelado ni Novedades** (son rutas; los
+  cierran el atrás del navegador / swipe / back-btn). Esc **sigue** cerrando overlays
+  (Info/Letra/expandido) **y el álbum anidado**.
 
-## Deep-linking + auth (ya conviven, con una secuencia)
+## 🗺️ Esquema de rutas (as-built · `routes.js`)
+
+- Vistas (8): `/` → Biblioteca · `/albums` · `/artists` · `/genres` · `/years` ·
+  `/playlists` · `/changelog` · `/settings`.
+- Detalles: `/artists/:artist` · `/genres/:genre` · `/years/:year` · `/playlists/:id`.
+- **Álbum lleva DOS identificadores** (nombre + `album_artist`, desambigua homónimos):
+  `/albums/:album_artist/:album`. Viene de `navigate('albums', { album, album_artist })`.
+- **`year` e `id` son NÚMERO:** `pathToState` los coerce (la URL no tiene tipos, pero la
+  DB es INTEGER → matchea con `===`). Segmento no numérico (`/years/abc`) → cae a la lista.
+- **NO son ruta:** el **álbum anidado** (capa con guardia) y los overlays.
+- **Encoding (mismo cuidado que `/image`):** `encodeURIComponent` al armar; `decodeURIComponent`
+  + **NFC al hacer match** (como `findArtistImage`/`c201836`). Round-trip de un link generado
+  por la app = sin pérdida.
+- **Ruta desconocida → `{ view:'library' }`** (no crashea). El mount la canoniza a `/`.
+- **Borde conocido:** un álbum **sin `album_artist`** no forma ruta de 2 segmentos → su
+  detalle abre (por consumo de target) pero la URL se queda en `/albums`. Raro; se afina
+  aparte si molesta.
+
+## Deep-linking + auth (conviven, con una secuencia)
 
 - **Cloudflare Access gatea el hostname entero** (independiente del path) → un link
-  compartido solo lo abre un email autorizado por la política. Es *feature*.
-- Al cargar cualquier path: `AuthProvider` monta, `checking=true`, **`App.jsx`
-  (`if (checking) return null`) no pinta la vista** hasta que `reauth()` (SSO→JWT)
-  resuelve → recién ahí monta `<Layout/>` y el router lee la URL. **El auth resuelve
-  ANTES del detalle deep-linkeado** (y el handler de 401 cubre cualquier fetch que
-  se adelante).
-- **localhost user/pass:** sin CF Access, se muestra `<Login/>` en **la misma URL**;
-  al loguear, el router abre el path pendiente. Funciona.
+  compartido solo lo abre un email autorizado. Es *feature*.
+- Al cargar cualquier path: `AuthProvider` monta, `checking=true`, **`App.jsx` no pinta
+  la vista** hasta que `reauth()` (SSO→JWT) resuelve → recién ahí monta `<Layout/>` y se
+  lee la URL. El auth resuelve **antes** del detalle deep-linkeado.
+- **localhost user/pass:** sin CF Access se muestra `<Login/>` en la misma URL; al
+  loguear, se abre el path pendiente.
+- **Padre sintetizado (F1.3b):** al montar sobre un **detalle** (deep-link / F5 en
+  `/artists/X`), `Layout` **sintetiza la lista como entrada padre** debajo:
+  `replaceState(lista)` + `pushState(detalle)`. Así **"cerrar = `history.back()`" cae en
+  la lista y NO sale de la app**. Sobre una lista/vista simple, solo canoniza.
 
 ## Backend — el SPA fallback YA EXISTE (routing = frontend-only)
 
-`server.js` (~40-46): `express.static(DIST)` + `app.get('*')` que sirve
-`index.html` en cualquier ruta no-`/api`/`/stream`. **F5 en `/artists/Daft Punk` NO
-da 404.** El routing **no toca backend**. No re-implementar esto ni listarlo como
-pendiente.
+`server.js` (~40-46): `express.static(DIST)` + `app.get('*')` que sirve `index.html` en
+cualquier ruta no-`/api`/`/stream`. **F5 en `/artists/Daft Punk` NO da 404.** El routing
+**no toca backend**. No re-implementar ni listar como pendiente.
 
 ## Aislamiento de MediaSession (producción)
 
-La navegación (escalera, router, popstate) vive en `Player.jsx` / `Layout.jsx` /
-`App.jsx`. **MediaSession y la cola viven en `PlayerContext.jsx` (~218-289)** —
-archivos distintos, cero solape. MediaSession está en prod (v1.5.0) **sin prueba
-física en el carro**: el routing **no debe tocar `PlayerContext.jsx`**. Si un cambio
-pretende entrar ahí, **parar y pactar** (carro primero).
+La navegación (escalera, guardia, `popstate`, rutas) vive en `Player.jsx` / `Layout.jsx`
+/ las 5 vistas / `routes.js`. **MediaSession y la cola viven en `PlayerContext.jsx`** —
+archivos distintos, cero solape. MediaSession está en prod (v1.5.0) **sin prueba física
+en el carro**: el routing **no toca `PlayerContext.jsx`**. Si un cambio pretende entrar
+ahí, **parar y pactar** (carro primero).
 
 ## reduced-motion
 
 El único movimiento propio de navegación es el **chevron del swipe-atrás**
-(`nav-back-chevron`, `Layout.jsx`): su fundido se anula en `prefers-reduced-motion`
-(`main.css`). El resto del atrás (Esc, popstate, cambio de ruta) es lógica; la
-animación la pone cada capa/vista al montar/cerrarse y ya respeta reduced-motion.
+(`nav-back-chevron`, `Layout.jsx`): su fundido se anula en `prefers-reduced-motion`. El
+resto del atrás (Esc, popstate, cambio de ruta) es lógica; la animación la pone cada
+capa/vista al montar/cerrarse y ya respeta reduced-motion.
 
 ## Fases (troceo del routing)
 
-1. **Fase 1 — URLs + historial de vistas + F5** (núcleo): `navigate()` → `pushState(path)`;
-   `popstate` → overlays primero, si no, leer `location.pathname` → vista+target; leer
-   la URL al montar (F5 restaura). Gana: URL por vista/detalle, atrás/adelante de vistas
-   (Modelo 2), F5 te deja donde estabas.
-2. **Fase 2 — Compartir / deep-linking robusto**: NFC al match, URL de álbum con 2 params,
-   ruta desconocida → fallback sensato. Gana: links que abren directo.
-3. **Fase 3 (opcional) — pulido**: URL canónica, restauración de scroll, vista 404, adelante.
+1. **Fase 1 — URLs + historial + F5 + detalle como ruta: ✅ HECHA** (F1.1–F1.3b). URL por
+   vista y por detalle, atrás/adelante de vistas Y detalles, F5 restaura, deep-link abre
+   directo, álbum anidado como capa con guardia.
+2. **Fase 2 / pulido (opcional, pendiente):** restauración de scroll al hacer pop, vista
+   404 propia, resolver el borde `album_artist` nulo, y —si molesta— afinar el quirk del
+   "atrás absorbido". Nada de esto bloquea el release.
 
-## Checklist QA de navegación (Modelo 2)
+## Checklist QA de navegación (Modelo 2 · as-built)
 
-1. **Overlays antes que rutas:** con un overlay abierto (Info/Letra/expandido) sobre
-   un detalle, el atrás cierra **el overlay primero**; recién sin overlays hace pop de ruta.
-2. **Escalera de overlays por Esc:** Esc cierra Info → Letra → expandido (uno por vez);
-   el Info cierra animado vía `requestClose` (imperative handle), no por Esc propio.
-3. **Historial de vistas (Modelo 2):** navegar Biblioteca → Artistas → un artista y darle
-   atrás recorre esas vistas hacia atrás; adelante las rehace.
-4. **F5 en un detalle:** recarga y **restaura la misma vista/detalle** desde la URL (no
-   Biblioteca).
-5. **Deep-link:** pegar `/artists/<nombre>` abre directo en ese artista (tras el auth).
-6. **Encoding:** nombres con espacio/tilde/∞/en-dash en la URL resuelven al artista/álbum
-   correcto (encodeURIComponent + NFC al match); álbum usa `:album_artist/:album`.
-7. **No-loop (REGLA DURA #3):** ningún `popstate` llama `history.back()`; atrás repetido
-   nunca "no hace nada".
-8. **Swipe angosto (REGLA DURA #2):** sigue solo detalle→lista, no cierra overlays.
-9. **Aislamiento:** el diff NO toca `PlayerContext.jsx` (MediaSession) ni el server (SPA
-   fallback ya existe).
+1. **Capas antes que rutas:** con un overlay (Info/Letra/expandido) sobre un detalle, el
+   atrás cierra **el overlay primero**; recién sin capas hace pop de ruta.
+2. **Escalera por Esc:** Esc cierra Info → Letra → expandido → álbum anidado (uno por vez);
+   el Info cierra animado vía `requestClose`. Esc **NO** cierra un detalle de primer nivel
+   pelado ni Novedades (eso es el atrás del navegador).
+3. **Historial de vistas Y detalles:** Biblioteca → Artistas → un artista y atrás recorre
+   detalle → lista → Biblioteca; adelante rehace. La URL muestra `/artists/<nombre>`.
+4. **F5 en un detalle:** recarga y **restaura el mismo detalle** desde la URL (no Biblioteca).
+5. **Deep-link:** pegar `/artists/<nombre>` (o `/years/2007`, `/playlists/:id`) abre directo
+   en ese detalle (tras el auth); el back-btn "← Todos…" cae en la **lista**, no sale de la app.
+6. **Álbum anidado:** artista → abrir un álbum de su grilla → atrás cierra **el álbum → grilla
+   del artista** → atrás → lista. La URL se queda en `/artists/X` mientras el álbum está abierto.
+7. **Encoding:** nombres con espacio/tilde/∞/en-dash resuelven al artista/álbum correcto
+   (encodeURIComponent + NFC); álbum usa `:album_artist/:album`; `year`/`id` son número.
+8. **No-loop (REGLA DURA #3):** el handler de `popstate` **no** llama `history.back()`
+   (los `history.back()` del código son back-btns/onBack/swipe/borrar — acciones de usuario).
+   Atrás repetido nunca "no hace nada" (salvo el quirk del absorbido, documentado).
+9. **Swipe angosto (REGLA DURA #2):** sigue solo detalle→lista (gate `detailOpenRef`), cierra
+   con `history.back()`; no cierra overlays.
+10. **Aislamiento:** el diff NO toca `PlayerContext.jsx` (MediaSession) ni el server (SPA
+    fallback ya existe).
