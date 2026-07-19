@@ -77,7 +77,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
     return (
       <div>
         <button className="back-btn" onClick={() => window.history.back()}>
-          ← Todos los álbumes
+          ← Volver
         </button>
 
         <div className="detail-hero">

@@ -3,7 +3,6 @@ import { api } from '../api/client.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 import { stringHue } from '../utils/emojiHue.js';
 import AlbumGrid from './AlbumGrid.jsx';
-import AlbumDetail from './AlbumDetail.jsx';
 import ArtistImage from './ArtistImage.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
@@ -50,13 +49,12 @@ function byYearAsc(albums) {
   );
 }
 
-export default function Artists({ target, clearTarget, setDetailOpen, setNestedOpen, navigate }) {
+export default function Artists({ target, clearTarget, setDetailOpen, navigate }) {
   const [artists,  setArtists]  = useState(null);
   const [sel,      setSel]      = useState(null);   // artista seleccionado
   const [detail,   setDetail]   = useState(null);   // agregados locales (stats + chips del hero)
   const [mbInfo,   setMbInfo]   = useState(null);   // identidad MusicBrainz (línea del hero)
   const [albums,   setAlbums]   = useState(null);
-  const [selAlbum, setSelAlbum] = useState(null);
   const [error,    setError]    = useState(null);
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
@@ -71,13 +69,10 @@ export default function Artists({ target, clearTarget, setDetailOpen, setNestedO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reporta a Layout: detailOpen (primer nivel o anidado) para el GATE del swipe; nestedOpen
-  // (SOLO el álbum anidado `selAlbum`) para el guardia/escalón de Player (capa dentro de la ruta
-  // del artista). Los cleanups de desmontaje evitan flags colgados al cambiar de pestaña.
-  useEffect(() => { setDetailOpen(!!(sel || selAlbum)); }, [sel, selAlbum, setDetailOpen]);
+  // Reporta a Layout si hay un detalle abierto — lo usa el GATE del swipe-atrás de móvil (solo
+  // arranca con un detalle). El cleanup de desmontaje evita que quede colgado al cambiar de pestaña.
+  useEffect(() => { setDetailOpen(!!sel); }, [sel, setDetailOpen]);
   useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
-  useEffect(() => { setNestedOpen(!!selAlbum); }, [selAlbum, setNestedOpen]);
-  useEffect(() => () => setNestedOpen(false), [setNestedOpen]);
 
   async function open(a) {
     setSel(a);
@@ -117,19 +112,13 @@ export default function Artists({ target, clearTarget, setDetailOpen, setNestedO
   // `artist`), así que el match es directo. Espera a que la lista cargue (deps).
   // Consumo único: siempre limpia; si no existe, queda en la lista.
   useEffect(() => {
-    if (target?.closeNested) { setSelAlbum(null); clearTarget(); return; }   // atrás cierra solo el álbum anidado
-    if (target?.reset) { setSel(null); setSelAlbum(null); setAlbums(null); clearTarget(); return; }
+    if (target?.reset) { setSel(null); setAlbums(null); clearTarget(); return; }
     if (!target?.artist || !artists) return;
     const a = artists.find(x => x.artist === target.artist);
     if (a) open(a);
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, artists]);
-
-  // ── Álbum abierto desde un artista ──
-  if (selAlbum) {
-    return <AlbumDetail album={selAlbum} onBack={() => window.history.back()} />;
-  }
 
   // ── Detalle: los álbumes de un artista ──
   if (sel) {
@@ -176,7 +165,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, setNestedO
         </div>
 
         {albums
-          ? <AlbumGrid albums={albums} onOpen={setSelAlbum} secondary="year" hue={stringHue(sel.artist)} />
+          ? <AlbumGrid albums={albums} onOpen={(a) => navigate('albums', { album: a.album, album_artist: a.album_artist })} secondary="year" hue={stringHue(sel.artist)} />
           : <div className="spinner">Cargando…</div>}
       </div>
     );

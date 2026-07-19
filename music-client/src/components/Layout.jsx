@@ -55,14 +55,10 @@ export default function Layout() {
   // Se lee una vez al montar (initializer perezoso de useState).
   const [view, setView] = useState(() => pathToState(window.location.pathname).view);
   const [navTarget, setNavTarget] = useState(() => pathToState(window.location.pathname).target);
-  // ¿Hay un DETALLE abierto en la vista actual (primer nivel o álbum anidado)? Cada vista lo
-  // reporta vía setDetailOpen y lo limpia al desmontar. F1.3b: ya NO lo usa Player (el detalle
-  // es ruta) — lo usa el GATE del swipe-atrás de móvil (solo arranca con un detalle abierto).
+  // ¿Hay un DETALLE abierto en la vista actual? Cada vista lo reporta vía setDetailOpen y lo
+  // limpia al desmontar. NO lo usa Player (el detalle es ruta) — lo usa el GATE del swipe-atrás
+  // de móvil (solo arranca con un detalle abierto).
   const [detailOpen, setDetailOpen] = useState(false);
-  // ¿Hay un ÁLBUM ANIDADO abierto (selAlbum en Artists/Years)? Ese nivel NO está en el esquema
-  // de rutas, así que es una capa con GUARDIA (no ruta): lo reportan solo Artists/Years. Player
-  // lo usa para el guardia de capas y el escalón de dismissTop.
-  const [nestedOpen, setNestedOpen] = useState(false);
 
   // F1.2/F1.3b: canoniza la entrada de historial al montar. Si la ruta inicial es un DETALLE
   // (deep-link / F5 sobre /artists/X), SINTETIZA la lista como entrada PADRE debajo del detalle:
@@ -101,12 +97,6 @@ export default function Layout() {
   };
   const clearTarget = () => setNavTarget(null);
 
-  // F1.3b: cierra el ÁLBUM ANIDADO (selAlbum) SIN empujar historial — señal { closeNested:true }
-  // que Artists/Years consumen (setSelAlbum(null)). Lo llama el escalón "álbum anidado" de
-  // dismissTop (Player) cuando el atrás/Esc lo cierra. El detalle de primer nivel ya no pasa por
-  // acá: es ruta (lo cierra history.back en el back-btn/swipe → pop de ruta).
-  const clearNested = useCallback(() => setNavTarget({ closeNested: true }), []);
-
   // F1.3a: restaura una ruta de VISTA sin empujar (lo llama el popstate de Player al hacer
   // pop de ruta, cuando no había overlay/detalle que cerrar). Traduce el estado guardado en
   // la entrada a la señal que la vista consume: con target → ese target; sin target → la lista
@@ -122,7 +112,7 @@ export default function Layout() {
   // (album/artist/genre para ir al detalle, o { reset:true } para volver a la lista)
   // y llama a clearTarget → consumo único. Al cambiar de `view` la vista destino se
   // monta de cero (reset natural de su estado).
-  const viewProps = { target: navTarget, clearTarget, setDetailOpen, setNestedOpen, navigate };
+  const viewProps = { target: navTarget, clearTarget, setDetailOpen, navigate };
   const VIEWS = {
     library:   <Library   {...viewProps} />,
     albums:    <Albums    {...viewProps} />,
@@ -239,8 +229,7 @@ export default function Layout() {
         </div>
       )}
 
-      <Player navigate={navigate} view={view}
-              restoreRoute={restoreRoute} nestedOpen={nestedOpen} clearNested={clearNested} />
+      <Player navigate={navigate} view={view} restoreRoute={restoreRoute} />
 
       <BottomNav view={view} navigate={navigate} />
     </div>
