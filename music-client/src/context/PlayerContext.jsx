@@ -31,6 +31,7 @@ export function PlayerProvider({ children }) {
   const forcedNextRef = useRef([]);          // FIFO de _qid "a continuación" (play-next; prioridad sobre shuffle/secuencial)
 
   const [queue,        setQueue]        = useState([]);    // cola reactiva para la UI; queueRef es su espejo
+  const [upNextIds,    setUpNextIds]    = useState([]);    // espejo REACTIVO de forcedNextRef → el pill "a continuación" no cuelga de un ref invisible a React
   const [currentTrack, setCurrentTrack] = useState(null);
   const [trackMeta,    setTrackMeta]    = useState(null);  // currentTrack enriquecido (badge + MediaSession)
   const [isPlaying,    setIsPlaying]    = useState(false);
@@ -83,6 +84,7 @@ export function PlayerProvider({ children }) {
       const qid = forcedNextRef.current.shift();
       const i = q.findIndex((t) => t._qid === qid);
       if (i >= 0) {
+        setUpNextIds([...forcedNextRef.current]);   // el consumido (y descartes previos) ya salieron del ref → sacarlos del pill
         if (curQid != null) historyRef.current.push(curQid);
         playIndex(i);
         return;
@@ -184,6 +186,7 @@ export function PlayerProvider({ children }) {
     playedRef.current = new Set();         // nuevo origen de cola → reinicia ciclo shuffle e historial
     historyRef.current = [];
     forcedNextRef.current = [];            // reemplazar la cola entera también limpia lo "a continuación"
+    setUpNextIds([]);                      // espejo reactivo
     playIndex(startIndex);
   }, [playIndex]);
 
@@ -218,6 +221,7 @@ export function PlayerProvider({ children }) {
       playIndex(at);                                  // nada sonaba → arranca con la primera insertada
     } else {
       forcedNextRef.current.unshift(...items.map((t) => t._qid));   // que suenen a continuación (incl. shuffle)
+      setUpNextIds([...forcedNextRef.current]);                     // espejo reactivo para el pill
       if (curQid != null) idxRef.current = next.findIndex((t) => t._qid === curQid);  // recomputar posición actual
     }
   }, [playIndex]);
@@ -367,7 +371,7 @@ export function PlayerProvider({ children }) {
     <PlayerContext.Provider value={{
       currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
       shuffle, repeat,
-      queue, upNext: new Set(forcedNextRef.current),   // _qid marcados "a continuación" (para el pill)
+      queue, upNext: new Set(upNextIds),   // _qid "a continuación" desde ESTADO (reactivo); forcedNextRef sigue siendo la verdad del motor
       play, addToQueue, playAfterCurrent, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
     }}>
       {children}
