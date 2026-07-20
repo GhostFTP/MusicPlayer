@@ -2454,6 +2454,15 @@ button, input, select, textarea { font-family: inherit; }
   border-color: var(--accent);
 }
 
+/* Botón de cola: morado del tema (mismo criterio que letra). El glifo usa
+   currentColor, así que el estado activo también lo tiñe con `color`. */
+.queue-btn:hover { color: var(--accent); background: var(--accent-dim); }
+.queue-btn.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
 /* Botón de info en ámbar (se distingue del morado de la letra). */
 .info-btn { color: var(--amber-soft); }
 .info-btn:hover { color: var(--amber); background: var(--amber-dim); }

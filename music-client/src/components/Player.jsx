@@ -1045,8 +1045,19 @@ export default function Player({ navigate, view, restoreRoute }) {
           </div>
         </div>
 
-        {/* Desktop: acciones (letra, info) + volumen */}
+        {/* Desktop: acciones (cola, letra, info) + volumen. En móvil `.player-actions`
+            se oculta por completo (la cola en móvil se abre desde el expandido). */}
         <div className="player-actions">
+          <BarTip tip="Cola" accent="var(--accent)">
+            <button
+              className={`action-btn queue-btn${showQueue ? ' active' : ''}`}
+              onClick={e => { e.stopPropagation(); setShowQueue(v => !v); }}
+              aria-pressed={showQueue}
+              aria-label="Cola"
+            >
+              <QueueGlyph />
+            </button>
+          </BarTip>
           <BarTip tip="Letra" accent="var(--lyric-pink)" line="linear-gradient(90deg, var(--accent), var(--lyric-pink))">
             <button
               className={`action-btn lyrics-btn${showLyrics ? ' active' : ''}`}
