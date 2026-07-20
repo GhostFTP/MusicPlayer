@@ -26,8 +26,9 @@ export function PlayerProvider({ children }) {
   // <audio> se registra una vez y necesita leer el valor actual, no el del montaje.
   const shuffleRef  = useRef(false);
   const repeatRef   = useRef('off');         // 'off' | 'all' | 'one'
-  const playedRef   = useRef(new Set());     // índices ya sonados en el ciclo de shuffle
-  const historyRef  = useRef([]);            // orden real de reproducción (para "anterior" en shuffle)
+  const playedRef   = useRef(new Set());     // _qid ya sonados en el ciclo de shuffle
+  const historyRef  = useRef([]);            // orden real de reproducción por _qid (para "anterior" en shuffle)
+  const forcedNextRef = useRef([]);          // FIFO de _qid "a continuación" (play-next; prioridad sobre shuffle/secuencial)
 
   const [queue,        setQueue]        = useState([]);    // cola reactiva para la UI; queueRef es su espejo
   const [currentTrack, setCurrentTrack] = useState(null);
@@ -74,6 +75,20 @@ export function PlayerProvider({ children }) {
 
     const q = queueRef.current;
     const curQid = q[idxRef.current]?._qid;
+
+    // Cola manual "a continuación" (play-next): tiene PRIORIDAD sobre el pick shuffle/secuencial
+    // → hace que playAfterCurrent suene a continuación incluso en shuffle. FIFO por _qid; se
+    // descartan los _qid que ya no estén en la cola (por si se quitó en un paso futuro).
+    while (forcedNextRef.current.length) {
+      const qid = forcedNextRef.current.shift();
+      const i = q.findIndex((t) => t._qid === qid);
+      if (i >= 0) {
+        if (curQid != null) historyRef.current.push(curQid);
+        playIndex(i);
+        return;
+      }
+    }
+
     let nextIdx = -1;
     if (shuffleRef.current && len > 1) {
       // candidatas: las que aún no han sonado en este ciclo (sin la actual), por _qid
@@ -169,6 +184,41 @@ export function PlayerProvider({ children }) {
     playedRef.current = new Set();         // nuevo origen de cola → reinicia ciclo shuffle e historial
     historyRef.current = [];
     playIndex(startIndex);
+  }, [playIndex]);
+
+  // Encola pistas AL FINAL sin resetear. Acepta una o muchas. Si nada suena (sin pista actual),
+  // arranca la reproducción con la primera agregada — si no, la acción sería invisible. Append
+  // no corre índices → played/history (por _qid) no se tocan.
+  const addToQueue = useCallback((tracks) => {
+    const list = Array.isArray(tracks) ? tracks : [tracks];
+    if (!list.length) return;
+    const items = list.map((t) => ({ ...t, _qid: ++uidRef.current }));
+    const startAt = queueRef.current.length;          // primera nueva
+    const next = [...queueRef.current, ...items];
+    queueRef.current = next;
+    setQueue(next);
+    if (idxRef.current < 0) playIndex(startAt);        // nada sonaba → arranca
+  }, [playIndex]);
+
+  // Inserta pistas JUSTO DESPUÉS de la actual y las marca para sonar a continuación (forcedNext,
+  // así vale también en shuffle). Acepta una o muchas. Nada suena → arranca. Como played/history
+  // son por _qid, insertar NO remapea nada; solo se recomputa idxRef por _qid.
+  const playAfterCurrent = useCallback((tracks) => {
+    const list = Array.isArray(tracks) ? tracks : [tracks];
+    if (!list.length) return;
+    const items = list.map((t) => ({ ...t, _qid: ++uidRef.current }));
+    const curQid = queueRef.current[idxRef.current]?._qid;
+    const at = idxRef.current + 1;                     // idx=-1 (nada suena) → at=0
+    const next = [...queueRef.current];
+    next.splice(at, 0, ...items);
+    queueRef.current = next;
+    setQueue(next);
+    if (idxRef.current < 0) {
+      playIndex(at);                                  // nada sonaba → arranca con la primera insertada
+    } else {
+      forcedNextRef.current.unshift(...items.map((t) => t._qid));   // que suenen a continuación (incl. shuffle)
+      if (curQid != null) idxRef.current = next.findIndex((t) => t._qid === curQid);  // recomputar posición actual
+    }
   }, [playIndex]);
 
   const togglePlay = useCallback(() => {
@@ -308,7 +358,7 @@ export function PlayerProvider({ children }) {
       currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
       shuffle, repeat,
       queue,
-      play, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+      play, addToQueue, playAfterCurrent, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
     }}>
       {children}
     </PlayerContext.Provider>
