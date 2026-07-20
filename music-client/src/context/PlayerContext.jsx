@@ -17,7 +17,8 @@ const MEDIA_ACTIONS = [
 export function PlayerProvider({ children }) {
   const { token } = useAuth();      // para re-emitir el artwork al rotar el token (reauth)
   const audioRef    = useRef(null);
-  const queueRef    = useRef([]);   // stable refs for event callbacks
+  const queueRef    = useRef([]);   // espejo de la cola (los callbacks registrados una vez lo leen)
+  const uidRef      = useRef(0);    // contador del _qid por entrada de cola (identidad interna)
   const idxRef      = useRef(-1);
   const metaCacheRef = useRef(new Map());   // memo id→trackMeta resuelto (evita re-fetch por reproducción)
 
@@ -28,6 +29,7 @@ export function PlayerProvider({ children }) {
   const playedRef   = useRef(new Set());     // índices ya sonados en el ciclo de shuffle
   const historyRef  = useRef([]);            // orden real de reproducción (para "anterior" en shuffle)
 
+  const [queue,        setQueue]        = useState([]);    // cola reactiva para la UI; queueRef es su espejo
   const [currentTrack, setCurrentTrack] = useState(null);
   const [trackMeta,    setTrackMeta]    = useState(null);  // currentTrack enriquecido (badge + MediaSession)
   const [isPlaying,    setIsPlaying]    = useState(false);
@@ -50,7 +52,7 @@ export function PlayerProvider({ children }) {
     const track = queueRef.current[idx];
     if (!track) return;
     idxRef.current = idx;
-    playedRef.current.add(idx);            // marca como sonada (regla shuffle sin repetir)
+    playedRef.current.add(track._qid);     // marca como sonada por _qid (regla shuffle sin repetir)
     setCurrentTrack(track);
     const audio = getAudio();
     audio.src = streamUrl(track.id);
@@ -70,16 +72,18 @@ export function PlayerProvider({ children }) {
     // Repetir una: al terminar sola, vuelve a empezar la misma.
     if (natural && repeatRef.current === 'one') { playIndex(idxRef.current); return; }
 
+    const q = queueRef.current;
+    const curQid = q[idxRef.current]?._qid;
     let nextIdx = -1;
     if (shuffleRef.current && len > 1) {
-      // candidatas: las que aún no han sonado en este ciclo (sin la actual)
+      // candidatas: las que aún no han sonado en este ciclo (sin la actual), por _qid
       let pool = [];
       for (let i = 0; i < len; i++) {
-        if (i !== idxRef.current && !playedRef.current.has(i)) pool.push(i);
+        if (i !== idxRef.current && !playedRef.current.has(q[i]._qid)) pool.push(i);
       }
       // ciclo agotado: si repetimos la cola, reinicia el ciclo (conserva la actual como sonada)
       if (pool.length === 0 && repeatRef.current === 'all') {
-        playedRef.current = new Set(idxRef.current >= 0 ? [idxRef.current] : []);
+        playedRef.current = new Set(curQid != null ? [curQid] : []);
         for (let i = 0; i < len; i++) if (i !== idxRef.current) pool.push(i);
       }
       if (pool.length) nextIdx = pool[Math.floor(Math.random() * pool.length)];
@@ -90,7 +94,7 @@ export function PlayerProvider({ children }) {
     }
 
     if (nextIdx >= 0) {
-      historyRef.current.push(idxRef.current);
+      if (curQid != null) historyRef.current.push(curQid);   // orden real por _qid (para "anterior")
       playIndex(nextIdx);
     } else {
       setIsPlaying(false);                 // fin sin repetición
@@ -157,7 +161,11 @@ export function PlayerProvider({ children }) {
   }, [currentTrack]);
 
   const play = useCallback((tracks, startIndex = 0) => {
-    queueRef.current = tracks;
+    // Cada entrada recibe un _qid estable (identidad interna de la cola; NO viaja a la API ni a
+    // MediaSession). play() REEMPLAZA la cola entera, como antes.
+    const items = tracks.map((t) => ({ ...t, _qid: ++uidRef.current }));
+    queueRef.current = items;              // espejo síncrono para los callbacks
+    setQueue(items);                       // estado reactivo para la UI
     playedRef.current = new Set();         // nuevo origen de cola → reinicia ciclo shuffle e historial
     historyRef.current = [];
     playIndex(startIndex);
@@ -177,7 +185,9 @@ export function PlayerProvider({ children }) {
     const audio = getAudio();
     if (audio.currentTime > 3) { audio.currentTime = 0; return; }
     if (shuffleRef.current && historyRef.current.length) {
-      playIndex(historyRef.current.pop());   // en shuffle, "anterior" = la realmente sonada antes
+      const qid = historyRef.current.pop();  // en shuffle, "anterior" = la realmente sonada antes
+      const i = queueRef.current.findIndex(t => t._qid === qid);
+      if (i >= 0) playIndex(i);
       return;
     }
     const p = idxRef.current - 1;
@@ -199,8 +209,9 @@ export function PlayerProvider({ children }) {
       const v = !s;
       shuffleRef.current = v;
       if (v) {
-        // al activar: arranca un ciclo nuevo dejando la actual como ya sonada
-        playedRef.current = new Set(idxRef.current >= 0 ? [idxRef.current] : []);
+        // al activar: arranca un ciclo nuevo dejando la actual como ya sonada (por _qid)
+        const curQid = queueRef.current[idxRef.current]?._qid;
+        playedRef.current = new Set(curQid != null ? [curQid] : []);
         historyRef.current = [];
       }
       return v;
@@ -296,7 +307,7 @@ export function PlayerProvider({ children }) {
     <PlayerContext.Provider value={{
       currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
       shuffle, repeat,
-      queue: queueRef.current,
+      queue,
       play, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
     }}>
       {children}
