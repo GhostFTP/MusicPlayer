@@ -183,6 +183,7 @@ export function PlayerProvider({ children }) {
     setQueue(items);                       // estado reactivo para la UI
     playedRef.current = new Set();         // nuevo origen de cola → reinicia ciclo shuffle e historial
     historyRef.current = [];
+    forcedNextRef.current = [];            // reemplazar la cola entera también limpia lo "a continuación"
     playIndex(startIndex);
   }, [playIndex]);
 
