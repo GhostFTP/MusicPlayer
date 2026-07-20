@@ -897,6 +897,13 @@ export default function Player({ navigate, view, restoreRoute }) {
               móvil se ocultan (CSS) y se usan las del header. */}
           <div className="exp-actions">
             <button
+              className={`exp-icon-btn${showQueue ? ' active' : ''}`}
+              onClick={() => setShowQueue(v => !v)}
+              title="Cola"
+            >
+              <QueueGlyph size={22} />
+            </button>
+            <button
               className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
               onClick={toggleLyricsExpanded}
               title="Letra"
