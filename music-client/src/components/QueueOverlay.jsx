@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 
@@ -64,6 +64,18 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
 export default function QueueOverlay({ onClose }) {
   const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo } = usePlayer();
   const hasCover = !!currentTrack?.cover_path;
+  const bodyRef = useRef(null);
+
+  // Auto-scroll: al cambiar la pista actual, llevar la fila marcada a la vista. Dep [queueIndex]
+  // (NO currentTime) → no corre en cada tick del progreso. Vía querySelector sobre el DOM: NO
+  // agrega props a las QueueRow memoizadas → el aislamiento del re-render del progreso (cuidado 3)
+  // queda intacto. block:'nearest' no salta si la fila ya está visible; reduced-motion → sin animar.
+  useEffect(() => {
+    const row = bodyRef.current?.querySelector('.queue-row.current');
+    if (!row) return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    row.scrollIntoView({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' });
+  }, [queueIndex]);
 
   return (
     <div className="queue-panel">
@@ -92,7 +104,7 @@ export default function QueueOverlay({ onClose }) {
           </svg>
         </button>
       </div>
-      <div className="queue-body">
+      <div className="queue-body" ref={bodyRef}>
         {queue.length === 0 ? (
           <div className="queue-empty">
             <div className="queue-empty-icon">♪</div>
