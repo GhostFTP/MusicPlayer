@@ -6,6 +6,7 @@ import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ChangelogBell from './ChangelogBell.jsx';
 import SettingsFab from './SettingsFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
+import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
 
 function fmt(s) {
@@ -121,6 +122,7 @@ export default function Player({ navigate, view, restoreRoute }) {
   // inferior mostraría el expandido cortado en vez de la barra ("barra fantasma").
   const [lyricsImmersive, setLyricsImmersive] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [showQueue, setShowQueue] = useState(false);
   const [shufflePhrase, setShufflePhrase] = useState('');
   const [shuffleSpin, setShuffleSpin] = useState(false);
   const [repeatSpin, setRepeatSpin] = useState(false);
@@ -174,14 +176,16 @@ export default function Player({ navigate, view, restoreRoute }) {
   // empuja /view/X; cerrar = pop de ruta vía history.back en el back-btn/swipe. La corren DOS
   // disparadores: Esc y el popstate. El swipe-atrás (Layout) NO la llama. Prioridad:
   //  1. Info: cierre ANIMADO (requestClose vía infoRef).
-  //  2. Letra: esté o no dentro del expandido.
-  //  3. Expandido.
+  //  2. Cola: overlay z 255, por encima de la Letra (250) y del expandido (200).
+  //  3. Letra: esté o no dentro del expandido.
+  //  4. Expandido.
   const dismissTop = useCallback(() => {
     if (showInfo)   { infoRef.current?.requestClose(); return true; }   // cierre animado (imperative handle)
+    if (showQueue)  { setShowQueue(false);           return true; }
     if (showLyrics) { setShowLyrics(false);          return true; }
     if (expanded)   { setExpanded(false);           return true; }
     return false;
-  }, [showInfo, showLyrics, expanded]);
+  }, [showInfo, showQueue, showLyrics, expanded]);
 
   // Esc global del reproductor → corre la escalera de overlays. Escucha siempre (no solo con
   // expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc NO navega
@@ -195,13 +199,13 @@ export default function Player({ navigate, view, restoreRoute }) {
 
   // ── Atrás del navegador = DOS NIVELES (contrato nav-lab · Modelo 2) ──────────
   // Las RUTAS (vistas + detalles /artists/X + changelog/settings) son entradas de historial que
-  // empuja Layout.navigate (o el mount al sintetizar el padre). Los OVERLAYS (Info/Letra/Expandido)
+  // empuja Layout.navigate (o el mount al sintetizar el padre). Los OVERLAYS (Info/Cola/Letra/Expandido)
   // NO son rutas, así que para que el atrás los cierre ANTES de tocar una ruta necesitan su propia
   // entrada. Guardia: cada vez que la profundidad de overlays SUBE se empuja UNA entrada del MISMO
   // path/estado (pushState no dispara popstate → sin ciclo); el atrás la consume cerrando el overlay,
   // sin mover la URL. Al BAJAR por Esc/botón la entrada queda sin consumir a propósito: es el
   // "atrás absorbido", quirk conocido del guardia.
-  const layerDepth = (showInfo ? 1 : 0) + (showLyrics ? 1 : 0) + (expanded ? 1 : 0);
+  const layerDepth = (showInfo ? 1 : 0) + (showQueue ? 1 : 0) + (showLyrics ? 1 : 0) + (expanded ? 1 : 0);
   const prevLayerDepth = useRef(layerDepth);
   useEffect(() => {
     const delta = layerDepth - prevLayerDepth.current;
@@ -672,8 +676,8 @@ export default function Player({ navigate, view, restoreRoute }) {
   return (
     <>
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
-      <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
-      <SettingsFab   navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
+      <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
+      <SettingsFab   navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
 
       {/* ── Panel de letra (overlay, desktop y móvil). Modo controlado desde acá;
           "Reducir" además cierra el expandido: modo panel ⇒ barra real visible
@@ -698,6 +702,9 @@ export default function Player({ navigate, view, restoreRoute }) {
           navigate={(view, target) => { setShowInfo(false); setExpanded(false); setShowLyrics(false); navigate(view, target); }}
         />
       )}
+
+      {/* ── Vista de cola (overlay del player) ── */}
+      {showQueue && <QueueOverlay onClose={() => setShowQueue(false)} />}
 
       {/* ── Full-screen expanded player (mobile) ── */}
       {/* Scrim del gesto de cierre: mismo z (200) que el sheet, pero hermano
@@ -729,6 +736,13 @@ export default function Player({ navigate, view, restoreRoute }) {
               <ChevronDown /> Ahora reproduciendo
             </button>
             <div className="exp-head-actions">
+              <button
+                className={`exp-icon-btn${showQueue ? ' active' : ''}`}
+                onClick={() => setShowQueue(v => !v)}
+                title="Cola"
+              >
+                <QueueGlyph size={22} />
+              </button>
               <button
                 className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
                 onClick={toggleLyricsExpanded}
@@ -1157,6 +1171,18 @@ function RepeatOneIcon({ size = 18 }) {
     </svg>
   );
 }
+// Glifo de cola: líneas de lista (decrecientes) + triángulo de play. SVG inline propio.
+function QueueGlyph({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="4" y1="7" x2="20" y2="7" />
+      <line x1="4" y1="12" x2="14" y2="12" />
+      <line x1="4" y1="17" x2="12" y2="17" />
+      <polygon points="17,13 22,15.5 17,18" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 // Glifo de letra original: líneas de texto + nota musical (corchea) + un destello
 // (sparkle) que late despacio vía CSS (.lyrics-glyph-sparkle). SVG inline propio.
 function LyricsGlyph({ size = 20 }) {
