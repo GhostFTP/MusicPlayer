@@ -245,6 +245,15 @@ export function PlayerProvider({ children }) {
     if (p >= 0) playIndex(p);
   }, [playIndex]);
 
+  // Salta a una pista de la cola por índice (tap en la vista de cola). Empuja el _qid actual a
+  // history para que "anterior" vuelva a donde saltaste; playIndex ya marca la nueva como sonada
+  // (playedRef.add(_qid)) → en shuffle el ciclo NO la vuelve a elegir.
+  const jumpTo = useCallback((index) => {
+    const curQid = queueRef.current[idxRef.current]?._qid;
+    if (curQid != null) historyRef.current.push(curQid);
+    playIndex(index);
+  }, [playIndex]);
+
   const seek = useCallback((time) => {
     const audio = getAudio();
     audio.currentTime = Math.max(0, Math.min(time, audio.duration || 0));
@@ -358,8 +367,8 @@ export function PlayerProvider({ children }) {
     <PlayerContext.Provider value={{
       currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
       shuffle, repeat,
-      queue,
-      play, addToQueue, playAfterCurrent, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+      queue, upNext: new Set(forcedNextRef.current),   // _qid marcados "a continuación" (para el pill)
+      play, addToQueue, playAfterCurrent, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
     }}>
       {children}
     </PlayerContext.Provider>
