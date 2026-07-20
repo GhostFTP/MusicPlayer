@@ -65,28 +65,31 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
   son obligatorias: el arranque falla si faltan.
 
-## Trabajo hecho SIN pushear (mapa real de ramas — 2026-07-16)
+## Trabajo hecho SIN pushear (mapa real de ramas — 2026-07-19)
 
-`origin/main` sigue en **v1.5.0** (`6d0f14b`) — nada de lo de abajo está desplegado. El mapa
-REAL (no el recordado), para que una sesión futura no lo redescubra:
+`origin/main` está en **v1.6.2** (`2d49496`) — los frentes marcados **(v1.6.x)** abajo YA se
+desplegaron. **Lo único SIN mergear a `main` es el routing Modelo 2** (candidato a v1.7.0). El
+mapa REAL (no el recordado), para que una sesión futura no lo redescubra:
 
-- **`feature/sonorarev-integration`** (rama de desarrollo, ~54 commits ahead de su origin):
-  - **Artistas — "Retrato" + "Prisma Retrato"** (frente grande, hecho): foto propia por
+- **`feature/sonorarev-integration`** (rama de desarrollo, **9 commits ahead de `origin/main`**
+  = SOLO el routing; el ref `origin/feature/…` quedó viejo —está ATRÁS de `main`—, ignoralo):
+  - **(v1.6.x) Artistas — "Retrato" + "Prisma Retrato"**: foto propia por
     artista (`/image` al vuelo, `has_image`), dirección Retrato (3:4, hero con chips), hero
     redistribuido (identidad MusicBrainz + `total_duration`), tarjeta "Cronología", y el
     lenguaje de color **Prisma Retrato** (hue por artista vía `stringHue` con BITS ALTOS,
     hero teñido con L fija, hue hover-only en la lista). Lab `artist-lab`.
-  - **disc_number (discos dobles)** — hecho, ver sub-sección abajo.
+  - **(v1.6.0) disc_number (discos dobles)** — ver sub-sección abajo.
   - **actions-lab** (equipo skill+engineer+qa): contrato de la cola + menú contextual, **sin
     código aún** (bloqueo activo sobre `PlayerContext` hasta la prueba física de MediaSession).
-  - **nav-lab** (skill del contrato de navegación): EN CURSO — falta extraer `dismissTop()` e
-    integrar la History API (atrás del navegador). **Frente activo.**
-- **`main`**: 3 commits ahead de `origin/main` = los **duplicados** del fix de disc_number
-  (patch IDÉNTICO a los de feature, distinto SHA — confirmado por `range-diff`). Llegaron por
-  un descuido de branch en otra sesión. **No es trabajo extra**: al mergear `feature` esos
-  cambios entran por ahí sin chocar (git ve el mismo patch en ambos lados). Recomendación:
-  `git branch -f main origin/main` para no arrastrar duplicados — decisión del usuario (es
-  producción; no se toca sin OK).
+  - **nav-lab (routing Modelo 2) — HECHO (commits F1.1–F1.4: `2d7267a`…`443cdd1`).** URLs por
+    vista y por detalle, atrás/adelante del navegador, deep-linking, F5 que restaura; TODO
+    detalle es ruta —incluido el álbum abierto desde un artista/año (`/albums/:aa/:a`)—. El
+    Modelo 1 (guardia único) quedó retirado; `AlbumDetail.jsx` borrado. Contrato as-built en
+    `.claude/skills/nav-lab/SKILL.md`. **Candidato a v1.7.0.**
+- **`main`**: `local main` == `origin/main` (**v1.6.2**, 0 ahead) — los "duplicados" del fix
+  de disc_number que había acá **ya se resolvieron** (los v1.6.x los superseden). Nada que
+  limpiar. La divergencia normal de `--no-ff` (`origin/main` tiene los merges de release que
+  `feature` no) es benigna: el merge de v1.7.0 la reconcilia limpio, como los v1.6.x.
 
 ### Fix de disc_number (discos dobles) — full-stack, completo
 
@@ -125,4 +128,4 @@ repetido. **Tocó scanner + backend (decisión tomada en otra sesión):**
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-16 (mapa real de ramas + fix disc_number documentado; Prisma Retrato hecho, nav-lab en curso)._
+_Última actualización: 2026-07-19 (routing Modelo 2 F1.1–F1.4 HECHO — candidato a v1.7.0; mapa de ramas reconciliado tras `git fetch`: producción = v1.6.2, feature = 9 commits = solo el routing)._

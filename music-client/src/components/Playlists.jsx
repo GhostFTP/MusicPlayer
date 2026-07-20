@@ -8,7 +8,7 @@ import PlaylistCover from './PlaylistCover.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 
-export default function Playlists({ target, clearTarget, setDetailOpen }) {
+export default function Playlists({ target, clearTarget, setDetailOpen, navigate }) {
   const [playlists, setPlaylists] = useState([]);
   const [loadError, setLoadError] = useState(null);
   const [newName,   setNewName]   = useState('');
@@ -35,13 +35,17 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Tap en la pestaña ya activa → salir del detalle (volver a la lista).
+  // Consumo del target de navegación: reset vuelve a la lista; { id } abre el detalle de la
+  // playlist (F1.3b: deep-link /playlists/42 y pop de ruta). El id llega como NÚMERO (coerción
+  // en pathToState) → matchea p.id (PK INTEGER) con ===.
   useEffect(() => {
-    if (!target?.reset) return;
-    setSelected(null);
+    if (target?.reset) { setSelected(null); clearTarget(); return; }
+    if (target?.id == null || !playlists.length) return;
+    const pl = playlists.find(p => p.id === target.id);
+    if (pl) open(pl);
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target]);
+  }, [target, playlists]);
 
   // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Reactivo a
   // `selected`; el cleanup de desmontaje evita que el flag quede colgado en true.
@@ -61,7 +65,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     e?.stopPropagation();
     await api.deletePlaylist(id);
     setPlaylists(prev => prev.filter(p => p.id !== id));
-    if (selected?.playlist.id === id) setSelected(null);
+    if (selected?.playlist.id === id) window.history.back();   // F1.3b: borrar la abierta = pop de ruta
   }
 
   async function open(playlist) {
@@ -138,7 +142,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
     const heroCoverIds = tracks.filter(t => t.cover_path != null).slice(0, 4).map(t => t.id);
     return (
       <div>
-        <button className="back-btn" onClick={() => setSelected(null)}>
+        <button className="back-btn" onClick={() => window.history.back()}>
           ← Todas las playlists
         </button>
 
@@ -398,7 +402,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen }) {
                 key={pl.id}
                 className="playlist-item"
                 style={{ '--h': emojiHue(pl.emoji), '--i': idx }}
-                onClick={() => open(pl)}
+                onClick={() => navigate('playlists', { id: pl.id })}
               >
                 <span className="playlist-medallion">
                   <PlaylistCover ids={parseCovers(pl.sample_covers)} emoji={pl.emoji} lazy />

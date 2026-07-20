@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar   from './Sidebar.jsx';
 import Library   from './Library.jsx';
 import Albums    from './Albums.jsx';
@@ -9,6 +9,7 @@ import Playlists from './Playlists.jsx';
 import Changelog from './Changelog.jsx';
 import Settings  from './Settings.jsx';
 import Player    from './Player.jsx';
+import { pathToState, stateToPath } from '../utils/routes.js';
 
 // ── Gesto "atrás" en móvil: deslizar en el contenido para salir del detalle
 // actual (álbum/artista/género/playlist/año) y volver a su lista. Reusa el
@@ -49,29 +50,69 @@ function navChevronStyle(navDrag, reduced) {
 }
 
 export default function Layout() {
-  const [view, setView] = useState('library');
-  const [navTarget, setNavTarget] = useState(null);
-  // ¿Hay un DETALLE abierto en la vista actual? Cada vista con detalle lo reporta
-  // vía setDetailOpen (y lo limpia al desmontar). Player lo usa para que Esc, sin
-  // overlays ni expandido, salga del detalle y vuelva a la lista.
+  // F1.2 (routing Modelo 2): la vista+target INICIAL salen de la URL (deep-link / F5), no de
+  // un default fijo. `/` → library (igual que antes); `/artists/Daft%20Punk` → el detalle.
+  // Se lee una vez al montar (initializer perezoso de useState).
+  const [view, setView] = useState(() => pathToState(window.location.pathname).view);
+  const [navTarget, setNavTarget] = useState(() => pathToState(window.location.pathname).target);
+  // ¿Hay un DETALLE abierto en la vista actual? Cada vista lo reporta vía setDetailOpen y lo
+  // limpia al desmontar. NO lo usa Player (el detalle es ruta) — lo usa el GATE del swipe-atrás
+  // de móvil (solo arranca con un detalle abierto).
   const [detailOpen, setDetailOpen] = useState(false);
+
+  // F1.2/F1.3b: canoniza la entrada de historial al montar. Si la ruta inicial es un DETALLE
+  // (deep-link / F5 sobre /artists/X), SINTETIZA la lista como entrada PADRE debajo del detalle:
+  // replaceState(lista) + pushState(detalle). Así "cerrar = history.back()" (F1.3b) cae en la
+  // lista y no sale de la app. Ruta sin target (lista/vista simple) → solo canoniza. replaceState
+  // no crea entrada; pushState sí (la del detalle). Ninguno dispara popstate → sin ciclo.
+  useEffect(() => {
+    const s = pathToState(window.location.pathname);
+    if (s.target) {
+      const list = { view: s.view, target: null };
+      window.history.replaceState(list, '', stateToPath(list));
+      window.history.pushState(s, '', stateToPath(s));
+    } else {
+      window.history.replaceState(s, '', stateToPath(s));
+    }
+  }, []);
 
   // Navegación central: cambia de vista y (opcionalmente) fija un target para
   // que la vista destino lo consuma. El menú y el bottom-nav navegan siempre
   // con target null, así entrar por el menú nunca hereda un target viejo.
   // Excepción: tocar la pestaña YA activa (mismo view, sin target) envía la señal
   // { reset: true } para que la vista salga del detalle y vuelva a su lista.
+  // F1.3a: además EMPUJA una entrada de ruta a nivel VISTA (Modelo 2). El detalle sigue
+  // interno a cada vista (F1.3b lo hace ruta); { reset:true } es señal transitoria, no ruta,
+  // así que la entrada persistente guarda target null (la lista) y la URL cae a /<view>. No
+  // se empuja si el path no cambia (tocar la pestaña activa ya en su lista).
   const navigate = (nextView, target = null) => {
+    const nextTarget = target == null && nextView === view ? { reset: true } : target;
     setView(nextView);
-    setNavTarget(target == null && nextView === view ? { reset: true } : target);
+    setNavTarget(nextTarget);
+    const routeTarget = nextTarget?.reset ? null : nextTarget;
+    const path = stateToPath({ view: nextView, target: routeTarget });
+    if (path !== window.location.pathname) {
+      window.history.pushState({ view: nextView, target: routeTarget }, '', path);
+    }
   };
   const clearTarget = () => setNavTarget(null);
+
+  // F1.3a: restaura una ruta de VISTA sin empujar (lo llama el popstate de Player al hacer
+  // pop de ruta, cuando no había overlay/detalle que cerrar). Traduce el estado guardado en
+  // la entrada a la señal que la vista consume: con target → ese target; sin target → la lista
+  // ({ reset:true } cierra cualquier detalle). Sin state (entrada ajena) → se deriva de la URL.
+  // useCallback [] → estable, así el efecto de popstate en Player no se re-suscribe por render.
+  const restoreRoute = useCallback((state) => {
+    const s = state ?? pathToState(window.location.pathname);
+    setView(s.view);
+    setNavTarget(s.target ?? { reset: true });
+  }, []);
 
   // Canal del target hacia las vistas: cada vista consume su target de navegación
   // (album/artist/genre para ir al detalle, o { reset:true } para volver a la lista)
   // y llama a clearTarget → consumo único. Al cambiar de `view` la vista destino se
   // monta de cero (reset natural de su estado).
-  const viewProps = { target: navTarget, clearTarget, setDetailOpen };
+  const viewProps = { target: navTarget, clearTarget, setDetailOpen, navigate };
   const VIEWS = {
     library:   <Library   {...viewProps} />,
     albums:    <Albums    {...viewProps} />,
@@ -90,8 +131,6 @@ export default function Layout() {
   const navSettleTimer = useRef(null);   // timer del fundido del chevron
   const detailOpenRef  = useRef(detailOpen);
   useEffect(() => { detailOpenRef.current = detailOpen; }, [detailOpen]);
-  const viewRef = useRef(view);
-  useEffect(() => { viewRef.current = view; }, [view]);
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -165,7 +204,7 @@ export default function Layout() {
     if (!g || g.dir !== 'h') return;
     const dx = e.clientX - g.x0;                       // umbral desde el down (feel intacto)
     const flick = g.vx > NAV_VEL_THRESH && dx > NAV_MIN_FLICK;
-    if (dx > 0 && (dx >= NAV_DIST_THRESH || flick)) navigate(viewRef.current);   // mismo canal que Esc
+    if (dx > 0 && (dx >= NAV_DIST_THRESH || flick)) window.history.back();   // F1.3b: cerrar = pop de ruta
     settleNavDrag();
   };
 
@@ -190,7 +229,7 @@ export default function Layout() {
         </div>
       )}
 
-      <Player navigate={navigate} view={view} detailOpen={detailOpen} />
+      <Player navigate={navigate} view={view} restoreRoute={restoreRoute} />
 
       <BottomNav view={view} navigate={navigate} />
     </div>

@@ -6,7 +6,7 @@ import ShuffleButton from './ShuffleButton.jsx';
 import { genreEmoji } from '../utils/genreEmoji.js';
 import { emojiHue } from '../utils/emojiHue.js';
 
-export default function Genres({ target, clearTarget, setDetailOpen }) {
+export default function Genres({ target, clearTarget, setDetailOpen, navigate }) {
   const [genres, setGenres] = useState(null);
   const [sel,    setSel]    = useState(null);   // género seleccionado
   const [tracks, setTracks] = useState(null);
@@ -54,7 +54,7 @@ export default function Genres({ target, clearTarget, setDetailOpen }) {
   if (sel) {
     return (
       <div>
-        <button className="back-btn" onClick={() => { setSel(null); setTracks(null); }}>
+        <button className="back-btn" onClick={() => window.history.back()}>
           ← Todos los géneros
         </button>
         <div className="section-header" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
@@ -109,7 +109,7 @@ export default function Genres({ target, clearTarget, setDetailOpen }) {
             key={g.genre}
             className="browse-item genre-item"
             style={{ '--h': emojiHue(genreEmoji(g.genre)), '--i': idx }}
-            onClick={() => open(g)}
+            onClick={() => navigate('genres', { genre: g.genre })}
           >
             <span className="genre-item-main">
               <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>

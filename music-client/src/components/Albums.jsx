@@ -4,7 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import TrackTable from './TrackTable.jsx';
 
-export default function Albums({ target, clearTarget, setDetailOpen }) {
+export default function Albums({ target, clearTarget, setDetailOpen, navigate }) {
   const [albums,   setAlbums]   = useState([]);
   const [selected, setSelected] = useState(null); // { album, tracks }
   const [loading,  setLoading]  = useState(true);
@@ -76,8 +76,8 @@ export default function Albums({ target, clearTarget, setDetailOpen }) {
     // desplaza a la vista dentro de TrackTable.
     return (
       <div>
-        <button className="back-btn" onClick={() => setSelected(null)}>
-          ← Todos los álbumes
+        <button className="back-btn" onClick={() => window.history.back()}>
+          ← Volver
         </button>
 
         <div className="detail-hero">
@@ -128,7 +128,7 @@ export default function Albums({ target, clearTarget, setDetailOpen }) {
 
       <div className="album-grid">
         {albums.map(album => (
-          <div key={`${album.album}-${album.album_artist}`} className="album-card" onClick={() => openAlbum(album)}>
+          <div key={`${album.album}-${album.album_artist}`} className="album-card" onClick={() => navigate('albums', { album: album.album, album_artist: album.album_artist })}>
             {album.sample_track_id
               ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" />
               : <div className="album-cover-placeholder">♫</div>

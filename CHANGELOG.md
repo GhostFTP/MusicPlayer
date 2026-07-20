@@ -3,6 +3,23 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.7.0] - 2026-07-19
+
+### Añadido
+- **Cada pantalla tiene su propia dirección web**: cada **artista, álbum, género,
+  año y playlist** tiene ahora su propio enlace. Podés **compartirlo o guardarlo en
+  favoritos** —le pasás a alguien el link de un artista o de un álbum y se le abre
+  justo ahí— (mientras tenga acceso a SonoraRev).
+- **Recargar te deja donde estabas**: si estás viendo un artista o un álbum y
+  actualizás la página (F5), volvés a **ese mismo lugar**, no al inicio.
+
+### Cambiado
+- **El atrás y el adelante del navegador ahora funcionan como en cualquier página
+  web**: recorren las pantallas que visitaste —del álbum al artista, del artista a
+  su lista, a la Biblioteca— y **"adelante" rehace el camino**. (Antes el atrás solo
+  cerraba lo que tuvieras abierto encima —el panel de info, la letra, el reproductor
+  expandido—; eso sigue igual, y ahora además navega entre pantallas.)
+
 ## [1.6.2] - 2026-07-17
 
 ### Añadido

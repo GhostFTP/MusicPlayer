@@ -3,7 +3,6 @@ import { api } from '../api/client.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 import { stringHue } from '../utils/emojiHue.js';
 import AlbumGrid from './AlbumGrid.jsx';
-import AlbumDetail from './AlbumDetail.jsx';
 import ArtistImage from './ArtistImage.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
@@ -50,13 +49,12 @@ function byYearAsc(albums) {
   );
 }
 
-export default function Artists({ target, clearTarget, setDetailOpen }) {
+export default function Artists({ target, clearTarget, setDetailOpen, navigate }) {
   const [artists,  setArtists]  = useState(null);
   const [sel,      setSel]      = useState(null);   // artista seleccionado
   const [detail,   setDetail]   = useState(null);   // agregados locales (stats + chips del hero)
   const [mbInfo,   setMbInfo]   = useState(null);   // identidad MusicBrainz (línea del hero)
   const [albums,   setAlbums]   = useState(null);
-  const [selAlbum, setSelAlbum] = useState(null);
   const [error,    setError]    = useState(null);
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
@@ -71,10 +69,9 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Detalle
-  // anidado: álbumes del artista (`sel`) o un AlbumDetail (`selAlbum`). El cleanup
-  // de desmontaje evita que el flag quede colgado en true al cambiar de pestaña.
-  useEffect(() => { setDetailOpen(!!(sel || selAlbum)); }, [sel, selAlbum, setDetailOpen]);
+  // Reporta a Layout si hay un detalle abierto — lo usa el GATE del swipe-atrás de móvil (solo
+  // arranca con un detalle). El cleanup de desmontaje evita que quede colgado al cambiar de pestaña.
+  useEffect(() => { setDetailOpen(!!sel); }, [sel, setDetailOpen]);
   useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
 
   async function open(a) {
@@ -115,18 +112,13 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
   // `artist`), así que el match es directo. Espera a que la lista cargue (deps).
   // Consumo único: siempre limpia; si no existe, queda en la lista.
   useEffect(() => {
-    if (target?.reset) { setSel(null); setSelAlbum(null); setAlbums(null); clearTarget(); return; }
+    if (target?.reset) { setSel(null); setAlbums(null); clearTarget(); return; }
     if (!target?.artist || !artists) return;
     const a = artists.find(x => x.artist === target.artist);
     if (a) open(a);
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, artists]);
-
-  // ── Álbum abierto desde un artista ──
-  if (selAlbum) {
-    return <AlbumDetail album={selAlbum} onBack={() => setSelAlbum(null)} />;
-  }
 
   // ── Detalle: los álbumes de un artista ──
   if (sel) {
@@ -143,7 +135,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
 
     return (
       <div>
-        <button className="back-btn" onClick={() => { setSel(null); setAlbums(null); }}>
+        <button className="back-btn" onClick={() => window.history.back()}>
           ← Todos los artistas
         </button>
 
@@ -173,7 +165,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
         </div>
 
         {albums
-          ? <AlbumGrid albums={albums} onOpen={setSelAlbum} secondary="year" hue={stringHue(sel.artist)} />
+          ? <AlbumGrid albums={albums} onOpen={(a) => navigate('albums', { album: a.album, album_artist: a.album_artist })} secondary="year" hue={stringHue(sel.artist)} />
           : <div className="spinner">Cargando…</div>}
       </div>
     );
@@ -217,7 +209,7 @@ export default function Artists({ target, clearTarget, setDetailOpen }) {
           veía casi idéntico a su propio álbum en la otra pestaña. */}
       <div className="artist-grid">
         {artists.map((a, i) => (
-          <div key={a.artist} className="artist-portrait" style={{ '--i': i, '--h': stringHue(a.artist) }} onClick={() => open(a)}>
+          <div key={a.artist} className="artist-portrait" style={{ '--i': i, '--h': stringHue(a.artist) }} onClick={() => navigate('artists', { artist: a.artist })}>
             <ArtistImage artist={a} />
             <div className="artist-portrait-info">
               <div className="artist-portrait-name">{a.artist}</div>

@@ -1,29 +1,30 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
 import AlbumGrid from './AlbumGrid.jsx';
-import AlbumDetail from './AlbumDetail.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 
-export default function Years({ target, clearTarget, setDetailOpen }) {
+export default function Years({ target, clearTarget, setDetailOpen, navigate }) {
   const [years,    setYears]    = useState(null);
   const [sel,      setSel]      = useState(null);   // año seleccionado
   const [albums,   setAlbums]   = useState(null);
-  const [selAlbum, setSelAlbum] = useState(null);
 
   useEffect(() => { api.years().then(setYears); }, []);
 
-  // Tap en la pestaña ya activa → salir del detalle (volver a la lista).
+  // Consumo del target de navegación: reset vuelve a la lista; { year } abre el detalle del año
+  // (deep-link /years/2007 y pop de ruta). El year llega como NÚMERO (coerción en pathToState) →
+  // matchea y.year (INTEGER) con ===.
   useEffect(() => {
-    if (!target?.reset) return;
-    setSel(null); setSelAlbum(null); setAlbums(null);
+    if (target?.reset) { setSel(null); setAlbums(null); clearTarget(); return; }
+    if (target?.year == null || !years) return;
+    const y = years.find(x => x.year === target.year);
+    if (y) open(y);
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target]);
+  }, [target, years]);
 
-  // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Detalle
-  // anidado: álbumes del año (`sel`) o un AlbumDetail (`selAlbum`). El cleanup de
-  // desmontaje evita que el flag quede colgado en true al cambiar de pestaña.
-  useEffect(() => { setDetailOpen(!!(sel || selAlbum)); }, [sel, selAlbum, setDetailOpen]);
+  // Reporta a Layout si hay un detalle abierto — lo usa el GATE del swipe-atrás de móvil. El
+  // cleanup de desmontaje evita que quede colgado al cambiar de pestaña.
+  useEffect(() => { setDetailOpen(!!sel); }, [sel, setDetailOpen]);
   useEffect(() => () => setDetailOpen(false), [setDetailOpen]);
 
   async function open(y) {
@@ -32,16 +33,11 @@ export default function Years({ target, clearTarget, setDetailOpen }) {
     setAlbums(await api.albums({ year: y.year }));
   }
 
-  // ── Álbum abierto desde un año ──
-  if (selAlbum) {
-    return <AlbumDetail album={selAlbum} onBack={() => setSelAlbum(null)} />;
-  }
-
   // ── Detalle: los álbumes de un año ──
   if (sel) {
     return (
       <div>
-        <button className="back-btn" onClick={() => { setSel(null); setAlbums(null); }}>
+        <button className="back-btn" onClick={() => window.history.back()}>
           ← Todos los años
         </button>
         <div className="section-header">
@@ -51,7 +47,7 @@ export default function Years({ target, clearTarget, setDetailOpen }) {
             <ShuffleButton getTracks={() => api.tracks({ year: sel.year, limit: 10000 })} />
           </div>
         </div>
-        {albums ? <AlbumGrid albums={albums} onOpen={setSelAlbum} /> : <div className="spinner">Cargando…</div>}
+        {albums ? <AlbumGrid albums={albums} onOpen={(a) => navigate('albums', { album: a.album, album_artist: a.album_artist })} /> : <div className="spinner">Cargando…</div>}
       </div>
     );
   }
@@ -79,7 +75,7 @@ export default function Years({ target, clearTarget, setDetailOpen }) {
       </div>
       <ul className="browse-list">
         {years.map(y => (
-          <li key={y.year} className="browse-item" onClick={() => open(y)}>
+          <li key={y.year} className="browse-item" onClick={() => navigate('years', { year: y.year })}>
             <span className="browse-item-name">{y.year}</span>
             <span className="browse-item-meta">{y.album_count} álbumes · {y.track_count} pistas</span>
           </li>
