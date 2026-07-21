@@ -26,6 +26,7 @@
   --mini-player-h: 64px;
   --bottom-nav-h:  60px;
   --sidebar-w:     220px;
+  --queue-w:       320px;                 /* ancho de la columna de cola en desktop (C2, D1) */
   --radius:        8px;
   /* Capa de los popovers que nacen en la barra del reproductor (menú "+",
      tooltip del shuffle): sobre la Letra (250), bajo Info (300) y toast (400).
@@ -3771,6 +3772,8 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   }
   /* Botón de letra en la barra mini: morado del tema (con su destello). */
   .mini-btn.lyrics-mini { color: var(--accent); }
+  /* Botón de cola en la barra mini: gris; morado cuando la cola está abierta (glifo por currentColor). */
+  .mini-btn.queue-mini.active { color: var(--accent); }
 
   /* Bottom nav — 6 entradas: más compacto para que quepan */
   .bottom-nav {
@@ -4082,4 +4085,25 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .queue-panel { animation: none; }
   .queue-eq i { animation: none; }
   .queue-progress-fill { transition: none; }
+}
+
+/* ── C2 · Desktop (≥701px): la cola es la 3ª columna del grid (.layout--queue), no un overlay.
+   D1 "columna Spotify": SÓLIDA, sin backdrop-filter ni carátula difuminada → mata el buffeo de
+   raíz (no apila blur sobre el expandido). El grid pasa de 2→3 columnas al agregar la clase, sin
+   transición sobre grid-template-columns (nada de reflow animado de la biblioteca). En ≤700px
+   nada de esto aplica: sigue el cajón/overlay fixed. ── */
+@media (min-width: 701px) {
+  .layout--queue { grid-template-columns: var(--sidebar-w) 1fr var(--queue-w); }
+  .layout--queue .queue-panel {
+    position: static;
+    grid-column: 3; grid-row: 1;
+    inset: auto;
+    z-index: auto;
+    background: #0d0d0d;                          /* sólida, como el sidebar */
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    border-top: none;
+    border-left: 1px solid var(--border);
+    animation: none;                             /* aparición instantánea: cero jank */
+  }
+  .layout--queue .queue-bg { display: none; }    /* sin carátula difuminada en la columna sólida */
 }

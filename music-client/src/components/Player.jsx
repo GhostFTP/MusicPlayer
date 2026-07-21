@@ -1116,8 +1116,18 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           </div>
         </div>
 
-        {/* Mobile mini controls — letra + play + siguiente (lyrics nunca desaparece) */}
+        {/* Mobile mini controls — cola + letra + play + siguiente (lyrics nunca desaparece).
+            Cola en la barra móvil (antes solo se abría desde el expandido, un paso de más);
+            el acceso desde el expandido móvil sigue igual. */}
         <div className="player-mini-controls">
+          <button
+            className={`mini-btn queue-mini${showQueue ? ' active' : ''}`}
+            onClick={e => { e.stopPropagation(); setShowQueue(v => !v); }}
+            title="Cola"
+            aria-pressed={showQueue}
+          >
+            <QueueGlyph size={22} />
+          </button>
           <button
             className={`mini-btn lyrics-mini${showLyrics ? ' active' : ''}`}
             onClick={toggleLyricsBar}

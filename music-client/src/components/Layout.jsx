@@ -214,7 +214,7 @@ export default function Layout() {
   };
 
   return (
-    <div className="layout">
+    <div className={`layout${showQueue ? ' layout--queue' : ''}`}>
       <Sidebar view={view} navigate={navigate} />
 
       <main
