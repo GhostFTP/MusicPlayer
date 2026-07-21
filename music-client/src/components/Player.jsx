@@ -6,7 +6,6 @@ import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ChangelogBell from './ChangelogBell.jsx';
 import SettingsFab from './SettingsFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
-import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
 
 function fmt(s) {
@@ -110,7 +109,7 @@ function rubber(dx) {
 function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
 function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
-export default function Player({ navigate, view, restoreRoute }) {
+export default function Player({ navigate, view, restoreRoute, showQueue, setShowQueue }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
@@ -122,7 +121,8 @@ export default function Player({ navigate, view, restoreRoute }) {
   // inferior mostraría el expandido cortado en vez de la barra ("barra fantasma").
   const [lyricsImmersive, setLyricsImmersive] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const [showQueue, setShowQueue] = useState(false);
+  // showQueue vive en Layout (C1: la cola pasa a ser hija de .layout, futura columna del grid
+  // en desktop). Llega por prop y se usa igual acá (botones, dismissTop, layerDepth, hidden).
   const [shufflePhrase, setShufflePhrase] = useState('');
   const [shuffleSpin, setShuffleSpin] = useState(false);
   const [repeatSpin, setRepeatSpin] = useState(false);
@@ -703,8 +703,8 @@ export default function Player({ navigate, view, restoreRoute }) {
         />
       )}
 
-      {/* ── Vista de cola (overlay del player) ── */}
-      {showQueue && <QueueOverlay onClose={() => setShowQueue(false)} />}
+      {/* ── Vista de cola: montada en Layout (hija de .layout), no acá. Se controla con
+          showQueue/setShowQueue que llegan por prop (C1: lifting behavior-preserving). ── */}
 
       {/* ── Full-screen expanded player (mobile) ── */}
       {/* Scrim del gesto de cierre: mismo z (200) que el sheet, pero hermano

@@ -9,6 +9,7 @@ import Playlists from './Playlists.jsx';
 import Changelog from './Changelog.jsx';
 import Settings  from './Settings.jsx';
 import Player    from './Player.jsx';
+import QueueOverlay from './QueueOverlay.jsx';
 import { pathToState, stateToPath } from '../utils/routes.js';
 
 // ── Gesto "atrás" en móvil: deslizar en el contenido para salir del detalle
@@ -59,6 +60,10 @@ export default function Layout() {
   // limpia al desmontar. NO lo usa Player (el detalle es ruta) — lo usa el GATE del swipe-atrás
   // de móvil (solo arranca con un detalle abierto).
   const [detailOpen, setDetailOpen] = useState(false);
+  // Cola: estado de UI (abierta/cerrada). Vive acá —no en Player— porque la cola pasa a ser hija
+  // de .layout (C1) y en desktop será una columna del grid (C2). Player recibe showQueue+setter por
+  // prop y la usa igual (botones, dismissTop, layerDepth). Sigue siendo overlay hasta C2.
+  const [showQueue, setShowQueue] = useState(false);
 
   // F1.2/F1.3b: canoniza la entrada de historial al montar. Si la ruta inicial es un DETALLE
   // (deep-link / F5 sobre /artists/X), SINTETIZA la lista como entrada PADRE debajo del detalle:
@@ -229,7 +234,11 @@ export default function Layout() {
         </div>
       )}
 
-      <Player navigate={navigate} view={view} restoreRoute={restoreRoute} />
+      <Player navigate={navigate} view={view} restoreRoute={restoreRoute} showQueue={showQueue} setShowQueue={setShowQueue} />
+
+      {/* Cola: hija directa de .layout (C1). Sigue siendo el overlay actual (fixed, z 255);
+          en C2 se vuelve columna del grid en desktop. onClose la controla el estado de acá. */}
+      {showQueue && <QueueOverlay onClose={() => setShowQueue(false)} />}
 
       <BottomNav view={view} navigate={navigate} />
     </div>
