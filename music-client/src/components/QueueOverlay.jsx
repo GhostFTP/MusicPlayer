@@ -41,6 +41,7 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
       onClick={() => onJump(index)}
       title="Reproducir esta pista"
     >
+      <span className="queue-num">{index + 1}</span>
       <span className="queue-cover">
         {track.cover_path
           ? <img src={coverUrl(track.id)} alt="" loading="lazy" />
@@ -66,15 +67,16 @@ export default function QueueOverlay({ onClose }) {
   const hasCover = !!currentTrack?.cover_path;
   const bodyRef = useRef(null);
 
-  // Auto-scroll: al cambiar la pista actual, llevar la fila marcada a la vista. Dep [queueIndex]
+  // Auto-scroll: al cambiar la pista actual, centrar la fila marcada en la vista. Dep [queueIndex]
   // (NO currentTime) → no corre en cada tick del progreso. Vía querySelector sobre el DOM: NO
-  // agrega props a las QueueRow memoizadas → el aislamiento del re-render del progreso (cuidado 3)
-  // queda intacto. block:'nearest' no salta si la fila ya está visible; reduced-motion → sin animar.
+  // agrega props a las QueueRow memoizadas → el aislamiento del re-render del progreso queda intacto.
+  // behavior:'auto' (salto directo, SIEMPRE): con shuffle + cola larga "siguiente" salta cientos de
+  // filas y animar ese trayecto marea; el salto instantáneo orienta sin recorrerlo (auto = sin
+  // motion → también respeta prefers-reduced-motion). block:'center' orienta mejor en saltos grandes.
   useEffect(() => {
     const row = bodyRef.current?.querySelector('.queue-row.current');
     if (!row) return;
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    row.scrollIntoView({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' });
+    row.scrollIntoView({ block: 'center', behavior: 'auto' });
   }, [queueIndex]);
 
   return (

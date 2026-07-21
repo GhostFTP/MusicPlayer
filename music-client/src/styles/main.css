@@ -4047,6 +4047,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .queue-played { opacity: .42; }
 .queue-row.current { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
 
+/* Número de posición 1-based (orienta en saltos grandes de shuffle), sutil como el # de TrackTable. */
+.queue-num { flex: none; min-width: 2.5ch; text-align: right; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.queue-row.current .queue-num { color: var(--accent); font-weight: 700; }
+
 .queue-cover { position: relative; flex: none; width: 38px; height: 38px; border-radius: var(--radius); overflow: hidden; }
 .queue-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .queue-cover-ph { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: rgba(255, 255, 255, .06); color: var(--text-muted); }
