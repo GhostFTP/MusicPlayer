@@ -26,12 +26,14 @@
   --mini-player-h: 64px;
   --bottom-nav-h:  60px;
   --sidebar-w:     220px;
+  --queue-w:       320px;                 /* ancho de la columna de cola en desktop (C2, D1) */
   --radius:        8px;
   /* Capa de los popovers que nacen en la barra del reproductor (menú "+",
      tooltip del shuffle): sobre la Letra (250), bajo Info (300) y toast (400).
      Escala completa: barra (sin z) < campanita 150 < expandido 200 < Letra 250
      < popovers de barra 260 < Info 300 < toast 400. */
   --z-bar-popover: 260;
+  --z-queue: 255;   /* vista de cola: sobre el expandido (200), bajo popovers (260) e Info (300) */
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   /* App dark-only: que el motor pinte TODOS los controles de formulario en apariencia
      oscura. Sin esto, iOS Safari / Android Chrome (SO en oscuro) pintan el texto de los
@@ -2453,6 +2455,15 @@ button, input, select, textarea { font-family: inherit; }
   border-color: var(--accent);
 }
 
+/* Botón de cola: morado del tema (mismo criterio que letra). El glifo usa
+   currentColor, así que el estado activo también lo tiñe con `color`. */
+.queue-btn:hover { color: var(--accent); background: var(--accent-dim); }
+.queue-btn.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
 /* Botón de info en ámbar (se distingue del morado de la letra). */
 .info-btn { color: var(--amber-soft); }
 .info-btn:hover { color: var(--amber); background: var(--amber-dim); }
@@ -2844,6 +2855,57 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .exp-bg { animation: none; }
+}
+
+/* ── E2c · Drawer del expandido DESKTOP con contenido real. Vive DENTRO de .player-expanded
+   (fixed z-200 → stacking context propio): z-index:2 local, sobre .exp-bg(-1) y el cuerpo, bajo la
+   Letra (250) e Info (300). "Hoja sólida" (D1): SIN backdrop-filter (no revive el buffeo). Sube por
+   transform: translateY (no anima height ni grid). Desktop-only (base display:none). ── */
+.exp-drawer { display: none; }
+@media (min-width: 701px) {
+  .exp-drawer {
+    display: flex; flex-direction: column;
+    position: absolute;
+    /* inset unos px de los bordes → las esquinas redondeadas se ven; llega al fondo real.
+       (No usar valores negativos: .player-expanded tiene overflow-x:hidden y recorta el
+       excedente — era el bug de alineación de E2b, "N COLA".) */
+    left: 14px; right: 14px; bottom: 0;
+    z-index: 2;
+    background: #0d0d0d;
+    border: 1px solid var(--border); border-bottom: none;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, .55);   /* suaviza la costura contra la canción */
+    overflow: hidden;
+    transform: translateY(100%);                 /* oculto por debajo */
+    /* E2h-1: se transiciona también height → el snap del alto al soltar el grabber es suave. */
+    transition: transform .3s cubic-bezier(.22, 1, .36, 1), height .3s cubic-bezier(.22, 1, .36, 1);
+    will-change: transform, height;
+  }
+  .exp-drawer.open { transform: translateY(0); } /* sube a la vista (alto por style inline) */
+  /* E2h-1: durante el drag el alto lo pone Player.jsx inline por frame → sin transición (sigue al
+     puntero sin lag). Al soltar se quita .dragging y la transición reanuda para el snap. */
+  .exp-drawer.dragging { transition: none; }
+
+  /* Barrita (grabber) ARRASTRABLE (E2h-1) con aire arriba. Área táctil ampliada por ::before;
+     touch-action:none → el arrastre táctil lo maneja el JS (no scroll). */
+  .exp-drawer-grabber {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    width: 40px; height: 4px; border-radius: 2px; z-index: 3;
+    background: rgba(255, 255, 255, .22);
+    cursor: grab; touch-action: none;
+  }
+  .exp-drawer-grabber:active { cursor: grabbing; }
+  .exp-drawer-grabber:hover  { background: rgba(255, 255, 255, .4); }
+  .exp-drawer-grabber::before { content: ''; position: absolute; inset: -12px -26px; }
+  /* Contenido alineado con el bloque de la canción: misma caja centrada (max-width) que .exp-body
+     → mismo margen izquierdo, sin cortarse contra el filo (fix del bug de E2b). */
+  .exp-drawer-inner {
+    flex: 1; min-height: 0; width: 100%; max-width: 1040px; margin: 0 auto;
+    display: flex; flex-direction: column;
+  }
+}
+@media (min-width: 701px) and (prefers-reduced-motion: reduce) {
+  .exp-drawer { transition: none; }
 }
 
 .exp-header {
@@ -3761,6 +3823,8 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   }
   /* Botón de letra en la barra mini: morado del tema (con su destello). */
   .mini-btn.lyrics-mini { color: var(--accent); }
+  /* Botón de cola en la barra mini: gris; morado cuando la cola está abierta (glifo por currentColor). */
+  .mini-btn.queue-mini.active { color: var(--accent); }
 
   /* Bottom nav — 6 entradas: más compacto para que quepan */
   .bottom-nav {
@@ -3993,4 +4057,264 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    ganar en cascada al bloque móvil; conserva el cambio de color al presionar). */
 @media (prefers-reduced-motion: reduce) {
   .mini-btn:active, .mini-btn.mini-next:active { transform: none; }
+}
+
+/* ── Vista de cola (QueueOverlay · overlay del player · dirección A + eq/progreso) ──
+   Glass calcado de .lyrics-panel; marcador de la actual calcado de .track-row.playing. */
+.queue-panel {
+  position: fixed; left: 0; right: 0; top: 0; bottom: var(--player-h);
+  z-index: var(--z-queue);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: rgba(13, 13, 19, .72);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  animation: queue-in .28s cubic-bezier(.22, 1, .36, 1) both;
+}
+.queue-bg {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-size: cover; background-position: center;
+  filter: blur(40px) brightness(.42); transform: scale(1.2); opacity: .5;
+}
+@keyframes queue-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+.queue-header {
+  position: relative; z-index: 1;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 18px 18px 12px;
+}
+.queue-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.queue-kicker { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.queue-shuf { font-size: 12px; color: var(--text-muted); }
+.queue-close { display: flex; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 8px; }
+.queue-close:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
+
+.queue-body { position: relative; z-index: 1; flex: 1; overflow-y: auto; padding: 0 8px 14px; }
+.queue-list { list-style: none; margin: 0; padding: 0; }
+
+.queue-row {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 10px; border-radius: 10px; cursor: pointer;
+}
+.queue-row:hover { background: rgba(255, 255, 255, .05); }
+.queue-played { opacity: .42; }
+.queue-row.current { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
+
+/* Número de posición 1-based (orienta en saltos grandes de shuffle), sutil como el # de TrackTable. */
+.queue-num { flex: none; min-width: 2.5ch; text-align: right; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.queue-row.current .queue-num { color: var(--accent); font-weight: 700; }
+
+.queue-cover { position: relative; flex: none; width: 38px; height: 38px; border-radius: var(--radius); overflow: hidden; }
+.queue-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.queue-cover-ph { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: rgba(255, 255, 255, .06); color: var(--text-muted); }
+.queue-play { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); color: #fff; font-size: 13px; }
+.queue-row:hover .queue-play { display: flex; }
+.queue-row.current:hover .queue-play { display: none; }   /* la actual no tapa las eq-bars con el play */
+
+.queue-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.queue-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.queue-title-name { color: var(--text); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-artist { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-dur { flex: none; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.queue-pill { flex: none; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 6px; }
+
+.queue-eq { position: absolute; right: 3px; bottom: 3px; z-index: 1; display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+.queue-eq i { width: 2px; height: 100%; background: var(--accent); border-radius: 1px; transform-origin: bottom; animation: queue-eq 900ms ease-in-out infinite; }
+.queue-eq i:nth-child(2) { animation-delay: 200ms; }
+.queue-eq i:nth-child(3) { animation-delay: 400ms; }
+@keyframes queue-eq { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+
+.queue-progress { position: absolute; left: 10px; right: 10px; bottom: 2px; height: 2px; background: rgba(255, 255, 255, .12); border-radius: 2px; overflow: hidden; }
+.queue-progress-fill { height: 100%; background: var(--time-elapsed); border-radius: 2px; transition: width .25s linear; }
+
+.queue-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 60px 20px; color: var(--text-muted); }
+.queue-empty-icon { font-size: 40px; opacity: .5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .queue-panel { animation: none; }
+  .queue-eq i { animation: none; }
+  .queue-progress-fill { transition: none; }
+}
+
+/* ── C2 · Desktop (≥701px): la cola es la 3ª columna del grid (.layout--queue), no un overlay.
+   D1 "columna Spotify": SÓLIDA, sin backdrop-filter ni carátula difuminada → mata el buffeo de
+   raíz (no apila blur sobre el expandido). El grid pasa de 2→3 columnas al agregar la clase, sin
+   transición sobre grid-template-columns (nada de reflow animado de la biblioteca). En ≤700px
+   nada de esto aplica: sigue el cajón/overlay fixed. ── */
+@media (min-width: 701px) {
+  .layout--queue { grid-template-columns: var(--sidebar-w) 1fr var(--queue-w); }
+  .layout--queue .queue-panel {
+    position: static;
+    grid-column: 3; grid-row: 1;
+    inset: auto;
+    z-index: auto;
+    background: #0d0d0d;                          /* sólida, como el sidebar */
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    border-top: none;
+    border-left: 1px solid var(--border);
+    animation: none;                             /* aparición instantánea: cero jank */
+  }
+  .layout--queue .queue-bg { display: none; }    /* sin carátula difuminada en la columna sólida */
+}
+
+/* ── E2c · Contenido REUSADO dentro del drawer del expandido desktop: se montan QueueOverlay (cola:
+   mismo motor/pill/número/auto-scroll) y LyricsPanel (letra sincronizada, mismo .lrc/LRCLIB) TAL
+   CUAL, adaptados por CSS a "hoja sólida": posición estática (llenan .exp-drawer-inner), SIN fondo
+   difuminado ni backdrop-filter (no revive el buffeo). Va DESPUÉS del bloque C2 para ganar el
+   desempate de especificidad con .layout--queue .queue-panel. El cierre lo hace la X propia de
+   cada panel (onClose → expPanel='none'), además de Esc/atrás (escalera) y el toggle del expandido. ── */
+@media (min-width: 701px) {
+  .exp-drawer .queue-panel,
+  .exp-drawer .lyrics-panel {
+    position: static; inset: auto; z-index: auto;
+    flex: 1; min-height: 0; width: 100%;
+    background: none; border: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    animation: none;
+  }
+  .exp-drawer .queue-bg,
+  .exp-drawer .lyrics-bg { display: none; }        /* sin carátula difuminada (D1, sin blur) */
+  .exp-drawer .lyrics-toggle { display: none; }    /* sin "pantalla completa" dentro del drawer */
+  /* Aire para el grabber: el header del panel montado no arranca pegado a la costura superior. */
+  .exp-drawer .queue-header,
+  .exp-drawer .lyrics-header { padding-top: 22px; }
+}
+
+/* ── E2d · Reacomodo "solo subir" de la canción al abrir el drawer (desktop). El transform lo
+   pone Player.jsx inline en .exp-body (translateY según expPanel: sube más con la letra que con
+   la cola, 0 al cerrar); acá va SOLO la transición que lo acompaña al slide del drawer (mismo
+   easing/duración). Desktop-only (en móvil .exp-body es display:contents → el transform es no-op
+   y esto no aplica). Va al final para ganar orden de fuente sobre la regla base de .exp-body.
+   Respeta prefers-reduced-motion (sin animar). ── */
+@media (min-width: 701px) {
+  .exp-body { transition: transform .3s cubic-bezier(.22, 1, .36, 1); }
+}
+@media (min-width: 701px) and (prefers-reduced-motion: reduce) {
+  .exp-body { transition: none; }
+}
+
+/* ── E2e · Compactar la canción SOLO con el panel de LETRA (drawer alto ~58vh). La carátula se
+   achica (width; aspect-ratio:1 mantiene el cuadrado) → el bloque se compacta y los controles
+   quedan despejados sobre el drawer de letra. Con cola/none la carátula queda a tamaño normal
+   (E2d intacto): la clase .exp-lyrics-compact la pone Player.jsx SOLO con expPanel==='lyrics'.
+   Transición del achicado con el mismo easing/duración que el slide del drawer → acompaña.
+   Desktop-only (la clase nunca se pone en móvil; y las reglas van gateadas ≥701px). Respeta
+   prefers-reduced-motion. Valores de ancho afinables a ojo. ── */
+@media (min-width: 701px) {
+  .exp-art, .exp-art-placeholder { transition: width .3s cubic-bezier(.22, 1, .36, 1); }
+  .exp-lyrics-compact .exp-art,
+  .exp-lyrics-compact .exp-art-placeholder { width: min(26vw, 250px); }
+}
+@media (min-width: 701px) and (prefers-reduced-motion: reduce) {
+  .exp-art, .exp-art-placeholder { transition: none; }
+}
+
+/* ── E2j · Aire para el header de la LETRA dentro del drawer del expandido (desktop). LyricsPanel
+   se reusa TAL CUAL (E2c) y su header viene calibrado para el panel a pantalla completa: los 5
+   controles de sync van con gap 1px (se leen como un bloque continuo) y el grupo queda a 6px de la
+   X de cerrar, cuyo círculo de hover (44px) los pisa; además el header no tiene column-gap, así que
+   un título largo llega pegado al "−.5". Acá SOLO se ajusta ESPACIADO — padding, gaps, margin y los
+   min-width de los controles para que cada uno se vea completo. Nada de lógica: el LyricsPanel no se
+   toca. Gateado a .exp-drawer + ≥701px → la letra en barra/móvil (showLyrics) queda idéntica.
+   El layout del header es horizontal y su alto lo fija su contenido, así que no depende del alto del
+   drawer: se ve igual en chico (38/58vh) que en grande (~92vh, E2i). ── */
+@media (min-width: 701px) {
+  /* Aire contra el filo derecho + separación garantizada entre el título (que trunca) y las acciones. */
+  .exp-drawer .lyrics-header { padding-right: 34px; column-gap: 24px; }
+  /* El grupo de sync deja de rozar la X: el margin-right de 2px se reemplaza por un gap real. */
+  .exp-drawer .lyrics-head-actions { gap: 16px; }
+  .exp-drawer .lyrics-sync { gap: 6px; margin-right: 0; }
+  /* Cada control con su propio ancho: los ±.1/±.5 dejan de tocarse y el valor entra completo
+     también cuando muestra el offset ("−0.5 s"), no solo la palabra "sync". */
+  .exp-drawer .lyrics-sync-btn { min-width: 32px; padding: 0 7px; }
+  .exp-drawer .lyrics-sync-val { min-width: 48px; padding: 4px 6px; }
+}
+
+/* ── E2k · Balance del estado LETRA: que la canción y el karaoke cuadren SIN tapar la barra de
+   acciones (cola/letra/info/+). El problema no era de posición sino de ESPACIO: bajo el header
+   (~116px) y sobre el drawer de letra quedaba menos hueco del que mide la columna de info
+   (~389px: meta 86 + progreso 22 + tiempos 17 + controles 70 + volumen 30 + acciones 44, más 5
+   gaps de 24px). Mover la canción no crea espacio — por eso E2f subió el lift y las acciones
+   siguieron tapadas. Acá se ataca el espacio con tres palancas, TODAS solo en el estado letra
+   (cola y drawer cerrado quedan EXACTAMENTE igual):
+
+     1. Karaoke un escalón más chico DENTRO del drawer (abajo) → caben las mismas líneas en menos
+        alto → el drawer de letra puede bajar de 58 a 50vh (DRAWER_SMALL_VH en Player.jsx).
+     2. Columna de info compacta: el gap baja 24 → 12px y los botones de transporte ceden unos px.
+        Es lo único que devuelve alto real (−68px) y lo que destapa las acciones.
+     3. songLift de letra: −26vh → −22vh (Player.jsx). Con 1 y 2 la canción entra sin forzarse
+        hacia arriba; antes se metía por debajo del header y aun así las acciones no entraban.
+
+   La carátula NO se toca (sigue en min(26vw, 250px), E2e): con la info en ~390px la fila del grid
+   la define la COLUMNA, no la carátula de 250px — achicarla más no devuelve un solo píxel.
+
+   Cuentas a 1600×900 (el caso apretado): hueco útil = 50vh − 116px = 334px; info compacta = 321px
+   → entra con ~13px de aire, y con −22vh el bloque queda entre 125px y 447px, o sea bajo el header
+   (116px) y sobre el drawer (450px). A 1080px de alto sobra holgado. Los tres números son
+   afinables a ojo. Desktop-only; el gate ≥701px y el prefijo .exp-drawer/.exp-lyrics-compact dejan
+   la letra en barra/móvil (showLyrics) idéntica. LyricsPanel no se toca (solo CSS). ── */
+@media (min-width: 701px) {
+  /* 1 · Karaoke calibrado para el drawer. El font-size baja PAREJO en todas las líneas: la
+     jerarquía la sigue dando transform:scale y el box queda uniforme → el encuadre por transform
+     (que mide offsetTop/offsetHeight en vivo) no salta. El padding del cuerpo también cede: el
+     panel inmersivo se puede dar 44/80px, el drawer no. padTopRef se relee con getComputedStyle
+     al montar, así que el padding nuevo entra sin tocar el motor. */
+  .exp-drawer .lyrics-line   { font-size: clamp(20px, 2.6vw, 28px); }
+  .exp-drawer .lyrics-plain p { font-size: clamp(16px, 1.7vw, 19px); line-height: 1.7; }
+  .exp-drawer .lyrics-body   { padding: 24px 28px 32px; }
+
+  /* 2 · Columna de info compacta SOLO con la letra abierta (.exp-lyrics-compact la pone Player.jsx
+     únicamente con expPanel==='lyrics'). Nada se oculta: todos los bloques siguen ahí, más juntos. */
+  .exp-lyrics-compact .exp-col-info { gap: 12px; }
+  .exp-lyrics-compact .exp-btn      { width: 54px; height: 54px; }
+  .exp-lyrics-compact .exp-btn.play { width: 62px; height: 62px; }
+
+  /* La compactación acompaña al slide del drawer con el mismo easing/duración que E2d/E2e (el lift
+     y la carátula) → un solo movimiento, sin brinco de los controles. */
+  .exp-col-info { transition: gap .3s cubic-bezier(.22, 1, .36, 1); }
+  /* Se conserva TAL CUAL la transición de hover/active de .exp-btn y solo se le suma el tamaño. */
+  .exp-btn {
+    transition: color .15s, background .12s, transform .15s, box-shadow .15s,
+                width .3s cubic-bezier(.22, 1, .36, 1), height .3s cubic-bezier(.22, 1, .36, 1);
+  }
+}
+@media (min-width: 701px) and (prefers-reduced-motion: reduce) {
+  .exp-col-info { transition: none; }
+  .exp-btn { transition: color .15s, background .12s, transform .15s, box-shadow .15s; }
+}
+
+/* ── E2l · Centrar el bloque canción (carátula + info) con la LETRA abierta (desktop).
+   El grid base es 1fr/1fr con la carátula pegada al centro (justify-self:end): con la carátula a
+   tamaño normal (460px en una columna de 496) los márgenes salen parejos y el conjunto queda
+   centrado — la premisa del comentario del grid base. Con la carátula compacta de E2e (250px) esa
+   premisa se cae: la columna izquierda le queda 246px grandes, que se vacían a la IZQUIERDA de la
+   carátula, y el grupo entero se corre a la derecha (contenido de x=246 a x=1004 dentro de 1040:
+   246px muertos de un lado, 36 del otro).
+
+   Fix: con letra, los tracks dejan de repartirse el ancho y se dimensionan al contenido, y el par
+   se centra como GRUPO (justify-content). 250 + 36 + 460 = 746px centrados en 1040 → ~147px de
+   aire a cada lado. El gap baja 48 → 36px: con una carátula de 250 el hueco de 48 hacía leer dos
+   islas en vez de un bloque (afinable).
+
+   minmax(0, 460px) y no 460px fijo: en viewports angostos (701–960px) no hay lugar para
+   carátula + 460 + gap; el track crece hasta 460 si el espacio sobra y se encoge si no, así que
+   no desborda. De hecho la info queda MÁS ancha que hoy ahí (≈375px contra los ≈298px que le deja
+   el 1fr), no más comprimida. .exp-col-info conserva su min-width:0 → el título sigue truncando.
+
+   Sin animar grid-template-columns (reflow por frame y pelearía con el karaoke): el cambio de
+   tracks es instantáneo. Igual el recentrado se ve fluido — el track `auto` sigue el width de la
+   carátula, que E2e ya anima 460→250 en 300ms, así que el grupo se recentra frame a frame solo.
+   El gap salta 12px de golpe: imperceptible al lado del movimiento de la carátula.
+
+   SOLO estado letra: la clase .exp-lyrics-compact la pone Player.jsx únicamente con
+   expPanel==='lyrics'. Con cola y con el drawer cerrado el grid queda 1fr/1fr y gap 48 EXACTOS
+   como hoy. Desktop-only (en móvil .exp-body es display:contents y el gate ≥701px no aplica). ── */
+@media (min-width: 701px) {
+  .exp-body.exp-lyrics-compact {
+    grid-template-columns: auto minmax(0, 460px);
+    justify-content: center;
+    column-gap: 36px;
+  }
 }

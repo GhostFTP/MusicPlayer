@@ -12,20 +12,17 @@ Este lab existe porque el contrato es **transversal**: ninguna vista es dueña. 
 Biblioteca, Álbumes, Artistas, Géneros, Años y Playlists — y `artist-lab` / `playlist-lab`
 van a apoyarse en él.
 
-## 🔒 BLOQUEO ACTIVO (2026-07-15) — leer antes de tocar `PlayerContext.jsx`
+## ✅ DESBLOQUEADO (2026-07-20) — se cumplió la prueba física del carro
 
-**El sistema de cola NO se implementa hasta que el usuario confirme la prueba física de
-MediaSession en el Mazda 3 / Maverick.**
+**El sistema de cola YA se puede implementar.** MediaSession (v1.5.0) fue **probado en
+hardware — CarPlay en el Mazda 3** — y el usuario lo confirmó. El bloqueo que aislaba la
+variable ("carro primero") queda **levantado**.
 
-Razón (del usuario, no re-litigar): MediaSession salió en **v1.5.0**, está en producción y
-**sin prueba física en los carros**. Vive en el **mismo archivo** que la cola
-(`PlayerContext.jsx:218-291`). Si la cola mete un bug sutil de reproducción y se mergea, un
-fallo en el carro sería **indistinguible** entre las dos causas. **Se aísla la variable:
-carro primero.**
-
-- ✅ Se puede hacer YA: este lab (markdown), el diseño, el diagnóstico.
-- 🔒 Espera luz verde explícita: **cualquier** edición de `PlayerContext.jsx`.
-- Si te piden "solo una función chiquita en PlayerContext" → **NO**. Preguntá primero.
+**PERO MediaSession sigue viviendo en el mismo archivo (`PlayerContext.jsx:225-291`)** — se
+edita con cuidado: los cambios de cola **NO tocan esos efectos** (interactúan por interfaces
+limpias: el estado `currentTrack` + los callbacks `next`/`prev`/`seek`). Si un cambio pretende
+entrar a `:225-291`, **parar y avisar** — bandera roja. Verificación de regresión sin carro:
+el **lockscreen del teléfono** (misma superficie MediaSession que CarPlay).
 
 ## PREMISA (decidida, no re-litigar)
 
@@ -66,16 +63,23 @@ según el tipo.** No un menú por vista. Provider + hook, un solo menú montado.
 | **Nadie consume `queue` ni `queueIndex`** | grep en todo `music-client/src`: cero hits fuera del contexto | la cola es **invisible**: no hay UI |
 | `playedRef` / `historyRef` guardan **índices**, no ids | `:28-29`, `:78`, `:93` | de ahí sale el problema del remapeo (abajo) |
 
-### ⚠️ El remapeo: por qué "añadir al final" y "reproducir a continuación" NO son lo mismo
+### ⚠️ El problema de los índices — resuelto con `_qid` (opción c, decidida 2026-07-20)
 
-- **Añadir al final** (`[...queue, track]`): **seguro**. Los índices ya guardados en
-  `playedRef`/`historyRef` siguen apuntando a la misma pista. Sin remapeo.
-- **Reproducir a continuación** (insertar en `idx+1`): **ROMPE** shuffle y "anterior". Todos
-  los índices `>= inserción` se corren en uno → `playedRef` cree que sonaron pistas que no
-  sonaron, y `prev()` en shuffle (`:179-181`) salta a la equivocada. **Exige remapear
-  explícitamente `playedRef`, `historyRef` e `idxRef`.** No es opcional.
-- **Cola vacía / nada suena**: encolar sobre la nada es invisible → tiene que **arrancar la
-  reproducción**, o la acción no hace nada observable.
+El problema (real): `playedRef`/`historyRef`/`idxRef` guardaban **índices**. Insertar en
+`idx+1` corre todos los índices `>= inserción` → `playedRef` cree que sonaron pistas que no,
+y `prev()` en shuffle salta a la equivocada.
+
+**Decisión (con números): NO se remapean índices — cada entrada de cola lleva un `_qid`
+estable (contador `uidRef`), y `playedRef`/`historyRef` se llevan por `_qid`.** Así
+insertar/quitar/reordenar **nunca** corrompe played/history (son posición-independientes) y
+los **duplicados** funcionan (la misma pista dos veces = dos `_qid` distintos). `idxRef` se
+recomputa con `findIndex(current._qid)` tras cada mutación — un solo lugar, no per-estructura.
+
+- Se eligió (c) sobre (a) remapear índices porque la fragilidad de (a) llegaba en el **paso 2**
+  ("quitar de la cola"), no en un futuro lejano; (c) cuesta ~12 líneas mecánicas más, no toca
+  ninguna función extra que (a), y evita re-abrir `playNext`/`prev` + re-testear el carro.
+- Se descartó (b) IDs de track: **se rompe con duplicados** (no distingue instancias).
+- **Cola vacía / nada suena**: encolar sobre la nada → **arranca la reproducción**.
 
 ### Las otras acciones: existen, pero soldadas
 
@@ -113,7 +117,7 @@ usuario (*"un frente, una cosa"*) — **no la re-litigues**, solo sabé que el c
 | **Artista** | Reproducir todo · Añadir a la cola 🔒 · Ver artista |
 | **Fila de cola** | *fuera de scope* — la superficie no existe |
 
-🔒 = depende del sistema de cola (bloqueado hasta la prueba física del carro).
+🔒 = depende del sistema de cola (desbloqueado 2026-07-20; en construcción, v1.8.0).
 
 **Camino B (contingencia, NO recomendado):** de las 7 acciones sobre pista, **solo 2 tocan
 `PlayerContext`**. Las otras 5 no. Si la prueba física se demora semanas, el menú podría
@@ -177,11 +181,13 @@ Cuando entre: con la maquinaria de **`mobile-lab`** y con la cola ya visible.
 
 ## Reglas duras (no romper)
 
-1. **🔒 `PlayerContext.jsx` está BLOQUEADO** hasta que el usuario confirme MediaSession en el
-   carro. No es negociable ni "es solo una función chica".
-2. **⚠️ El remapeo de `playedRef`/`historyRef`/`idxRef` va SIEMPRE** que se inserte en medio
-   de la cola. Sin él, shuffle y "anterior" quedan sutilmente rotos — el peor tipo de bug:
-   silencioso e intermitente.
+1. **`PlayerContext.jsx` DESBLOQUEADO** (2026-07-20, prueba del carro cumplida) — pero
+   MediaSession vive ahí (`:225-291`): los cambios de cola **NO tocan** esos efectos; si uno
+   pretende entrar, **parar y avisar** (bandera roja).
+2. **⚠️ `playedRef`/`historyRef` se llevan por `_qid`, NUNCA por índice** (opción c, 2026-07-20).
+   Cada entrada de cola tiene un `_qid` estable; insertar/quitar/reordenar **no remapea nada**.
+   `idxRef` se recomputa con `findIndex(current._qid)` tras cada mutación. (El remapeo de índices
+   —opción a— se descartó: frágil, muerde en el paso 2 "quitar".)
 3. **UN menú, un provider.** Si aparece un segundo componente de menú, algo se hizo mal.
 4. **Las acciones que no aplican se OCULTAN, no se deshabilitan.** Un menú con tres ítems
    grises es ruido. Precedente exacto: `goArtist` no se deshabilita, se vuelve **inerte**
@@ -228,15 +234,16 @@ Cuando entre: con la maquinaria de **`mobile-lab`** y con la cola ya visible.
 | # | Commit | Estado |
 |---|---|---|
 | 1 | `chore(actions-lab)`: skill + agentes | ✅ este archivo |
-| 2 | `feat(player)`: `addToQueue` / `playAfterCurrent` + cola a **estado** + remapeo | 🔒 espera prueba del carro |
+| 2 | `refactor+feat(player)`: cola a **estado** + motor por `_qid` + `addToQueue`/`playAfterCurrent` + `forcedNext` | 🟢 desbloqueado (v1.8.0) |
 | 3 | `feat(ui)`: ContextMenu + provider, desktop, tipo `track`, cableado **solo en `TrackTable.jsx`** (una superficie, para validar) | tras el 2 |
 | 4 | `feat(ui)`: tipos `album` y `artist`; `navigate` en `viewProps` | tras el 3 |
 | 5 | `feat(ui)`: resto de superficies (Library, Playlists, Albums, Artists, Genres) | tras el 4 |
 | 6 | `refactor(player)`: subir InfoPanel/`infoTrack` fuera de Player → "Ver info" sobre cualquier pista | tras el 5 |
 
-**Troceo en releases (acordado):** **v1.6.0** = Artistas (solo, ya listo) · **v1.7.0** =
-sistema de cola + vista de cola *sin reorder* · **v1.8.0** = menú contextual, apoyado en una
-cola ya probada · el **reorder** después.
+**Troceo en releases (acordado; renumerado 2026-07-20 — v1.7.0 salió como el routing):**
+**v1.6.x** = Artistas · **v1.7.0** = routing Modelo 2 (ya desplegado) · **v1.8.0** = sistema de
+cola + vista de cola *sin reorder* · **v1.9.0** = menú contextual, apoyado en una cola ya
+probada · el **reorder** después.
 
 ## Checklist QA
 
@@ -245,7 +252,7 @@ cola ya probada · el **reorder** después.
 2. `addToQueue` durante reproducción → **no interrumpe** lo que suena.
 3. `playAfterCurrent` → la insertada suena **inmediatamente después** de la actual.
 4. **`playAfterCurrent` + shuffle**: ninguna pista ya sonada vuelve a sonar en el ciclo, y
-   ninguna sin sonar se saltea. *(Es el test del remapeo. Si esto falla, el remapeo está mal.)*
+   ninguna sin sonar se saltea. *(Test del keying por `_qid`. Si falla, played/history están mal.)*
 5. **`playAfterCurrent` + `prev()` en shuffle** → vuelve a la realmente sonada antes.
 6. `repeat: 'all'` con cola crecida → el ciclo cubre las nuevas.
 7. La UI **se entera** de los cambios de cola (o sea: la cola es estado, no ref).

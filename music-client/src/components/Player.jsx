@@ -6,6 +6,7 @@ import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ChangelogBell from './ChangelogBell.jsx';
 import SettingsFab from './SettingsFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
+import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
 
 function fmt(s) {
@@ -99,6 +100,16 @@ const SHEET_RADIUS = 24;  // px máximos del radio
 const sheetRadius = (y) => Math.min(SHEET_RADIUS, y * 0.5);
 const SHEET_EDGE = 'inset 0 1px 0 rgba(255, 255, 255, .1), 0 -18px 48px rgba(0, 0, 0, .45)';
 
+// ── Drawer del expandido desktop: alturas por panel (E2i) ──
+// El arrastre del grabber ajusta el TAMAÑO del panel activo; NUNCA cambia de panel.
+// Cada panel tiene su altura chica propia (la de siempre) y comparten la grande.
+// E2k: la letra chica baja de 58 a 50vh. Con el karaoke un escalón más chico dentro del drawer
+// (CSS) caben las mismas líneas en menos alto, y esos 8vh son los que necesita la canción para que
+// su barra de acciones no quede tapada. Ver el bloque E2k de main.css.
+const DRAWER_SMALL_VH = { queue: 38, lyrics: 50 };
+const DRAWER_LARGE_VH = 92;   // "casi pantalla completa" (afinable)
+const DRAWER_CLOSE_VH = 20;   // por debajo de esto, soltar cierra el drawer
+
 // Resistencia progresiva más allá de RUBBER_LIMIT (no un clamp seco).
 function rubber(dx) {
   const a = Math.abs(dx);
@@ -109,7 +120,7 @@ function rubber(dx) {
 function dragRotation(x) { return Math.max(-6, Math.min(6, x * 0.04)); }
 function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 
-export default function Player({ navigate, view, restoreRoute }) {
+export default function Player({ navigate, view, restoreRoute, showQueue, setShowQueue }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
   const [expanded, setExpanded] = useState(false);
@@ -121,6 +132,22 @@ export default function Player({ navigate, view, restoreRoute }) {
   // inferior mostraría el expandido cortado en vez de la barra ("barra fantasma").
   const [lyricsImmersive, setLyricsImmersive] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  // Panel lateral del expandido DESKTOP (rediseño dos-zonas, estado único — opción a):
+  // 'none' | 'queue' | 'lyrics'. SEPARADO de showQueue (columna C2) y showLyrics (letra barra/
+  // móvil) para no acoplar el expandido con esas superficies. Se resetea a 'none' al cerrar el
+  // expandido. En E1 solo es cableado: el layout de dos zonas llega en E2.
+  const [expPanel, setExpPanel] = useState('none');
+  const lastExpPanelRef = useRef('queue');   // último panel abierto (para el slide-down del drawer, E2b)
+  // E2i: tamaño COMMITTED del panel activo ('small' = su altura de siempre, 'large' = casi full).
+  // Combinado con expPanel da la altura destino del drawer. Abrir un panel siempre arranca en 'small'.
+  const [expDrawerSize, setExpDrawerSize] = useState('small');
+  // E2h-1: grabber arrastrable. drawerH = alto EN VIVO (px) durante el drag, o null → usa expDrawerH.
+  const [drawerH, setDrawerH] = useState(null);
+  const [drawerDragging, setDrawerDragging] = useState(false);
+  const drawerGrab = useRef(null);            // gesto del grabber en curso | null
+  const drawerCloseTimer = useRef(null);      // limpieza del alto congelado tras el slide de cierre
+  // showQueue vive en Layout (C1: la cola pasa a ser hija de .layout, futura columna del grid
+  // en desktop). Llega por prop y se usa igual acá (botones, dismissTop, layerDepth, hidden).
   const [shufflePhrase, setShufflePhrase] = useState('');
   const [shuffleSpin, setShuffleSpin] = useState(false);
   const [repeatSpin, setRepeatSpin] = useState(false);
@@ -174,14 +201,18 @@ export default function Player({ navigate, view, restoreRoute }) {
   // empuja /view/X; cerrar = pop de ruta vía history.back en el back-btn/swipe. La corren DOS
   // disparadores: Esc y el popstate. El swipe-atrás (Layout) NO la llama. Prioridad:
   //  1. Info: cierre ANIMADO (requestClose vía infoRef).
-  //  2. Letra: esté o no dentro del expandido.
-  //  3. Expandido.
+  //  2. Cola: overlay z 255 (columna C2 / cajón móvil).
+  //  3. Letra (barra/móvil): showLyrics.
+  //  4. Panel del expandido desktop (letra/cola en zona): expPanel — antes que el expandido.
+  //  5. Expandido.
   const dismissTop = useCallback(() => {
     if (showInfo)   { infoRef.current?.requestClose(); return true; }   // cierre animado (imperative handle)
+    if (showQueue)  { setShowQueue(false);           return true; }
     if (showLyrics) { setShowLyrics(false);          return true; }
+    if (expPanel !== 'none') { setExpPanel('none');  return true; }   // panel del expandido antes que el expandido
     if (expanded)   { setExpanded(false);           return true; }
     return false;
-  }, [showInfo, showLyrics, expanded]);
+  }, [showInfo, showQueue, showLyrics, expPanel, expanded]);
 
   // Esc global del reproductor → corre la escalera de overlays. Escucha siempre (no solo con
   // expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc NO navega
@@ -193,15 +224,31 @@ export default function Player({ navigate, view, restoreRoute }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [dismissTop]);
 
+  // El panel del expandido solo existe mientras el expandido está montado: al cerrarse (por
+  // cualquier vía — botón, Esc, gesto, navegar) se resetea a 'none'. Evita que quede "colgado".
+  useEffect(() => { if (!expanded) setExpPanel('none'); }, [expanded]);
+
+  // E2h-1: cancelar el drag del grabber si la ventana pierde foco; limpiar el timer de cierre.
+  useEffect(() => {
+    const onBlur = () => {
+      if (!drawerGrab.current) return;
+      drawerGrab.current = null;
+      setDrawerDragging(false);
+      setDrawerH(null);
+    };
+    window.addEventListener('blur', onBlur);
+    return () => { window.removeEventListener('blur', onBlur); clearTimeout(drawerCloseTimer.current); };
+  }, []);
+
   // ── Atrás del navegador = DOS NIVELES (contrato nav-lab · Modelo 2) ──────────
   // Las RUTAS (vistas + detalles /artists/X + changelog/settings) son entradas de historial que
-  // empuja Layout.navigate (o el mount al sintetizar el padre). Los OVERLAYS (Info/Letra/Expandido)
+  // empuja Layout.navigate (o el mount al sintetizar el padre). Los OVERLAYS (Info/Cola/Letra/Expandido)
   // NO son rutas, así que para que el atrás los cierre ANTES de tocar una ruta necesitan su propia
   // entrada. Guardia: cada vez que la profundidad de overlays SUBE se empuja UNA entrada del MISMO
   // path/estado (pushState no dispara popstate → sin ciclo); el atrás la consume cerrando el overlay,
   // sin mover la URL. Al BAJAR por Esc/botón la entrada queda sin consumir a propósito: es el
   // "atrás absorbido", quirk conocido del guardia.
-  const layerDepth = (showInfo ? 1 : 0) + (showLyrics ? 1 : 0) + (expanded ? 1 : 0);
+  const layerDepth = (showInfo ? 1 : 0) + (showQueue ? 1 : 0) + (showLyrics ? 1 : 0) + (expPanel !== 'none' ? 1 : 0) + (expanded ? 1 : 0);
   const prevLayerDepth = useRef(layerDepth);
   useEffect(() => {
     const delta = layerDepth - prevLayerDepth.current;
@@ -669,15 +716,88 @@ export default function Player({ navigate, view, restoreRoute }) {
     return p;
   });
 
+  // Drawer del expandido desktop (E2b): el panel mostrado y su alto derivan de expPanel. Al cerrar
+  // (none) se conserva el ÚLTIMO panel → el slide-down baja desde el alto correcto y el contenido no
+  // parpadea a un fallback mientras se cierra. queue → ~38vh (baja), lyrics → ~58vh (alta).
+  // E2i: el alto ya no depende SOLO del panel — es (panel × tamaño). 'small' = la altura de siempre
+  // del panel; 'large' = casi pantalla completa, la misma para los dos.
+  if (expPanel !== 'none') lastExpPanelRef.current = expPanel;
+  const shownExpPanel = expPanel === 'none' ? lastExpPanelRef.current : expPanel;
+  const drawerSmallVh = DRAWER_SMALL_VH[shownExpPanel] ?? DRAWER_SMALL_VH.queue;
+  const expDrawerH = `${expDrawerSize === 'large' ? DRAWER_LARGE_VH : drawerSmallVh}vh`;
+  // E2i: abrir un panel (o cambiar de panel) con su botón lo arranca SIEMPRE en 'small'. Al cerrar
+  // NO se toca el tamaño: el drawer conserva su alto mientras baja (el slide se ve desde donde estaba).
+  const toggleExpPanel = (panel) => {
+    if (expPanel === panel) { setExpPanel('none'); return; }
+    setExpDrawerSize('small');
+    setExpPanel(panel);
+  };
+  // E2d: cuánto SUBE el bloque de la canción al abrir el drawer (desktop-only). Sube más con la
+  // letra (drawer alto) que con la cola (drawer bajo); vuelve a 0 al cerrar. Usa expPanel (no el
+  // "último"): al cerrar baja de nuevo acompañando el slide del drawer. Valores afinables a ojo.
+  // E2k: el lift de letra baja de -26vh a -22vh (la canción sube MENOS, queda más centrada). Se
+  // pudo bajar porque el drawer de letra ahora es más bajo (50vh) y la columna de info va compacta
+  // en este estado: el bloque entero entra entre el header y el drawer sin forzarse hacia arriba.
+  const songLift = expPanel === 'lyrics' ? '-22vh' : expPanel === 'queue' ? '-14vh' : '0vh';
+
+  // E2h-1 + E2i: grabber arrastrable (desktop-only). Sigue al puntero variando el ALTO del drawer
+  // (anclado bottom:0 → alto = viewportBottom − punteroY, clamp 0..grande). Al soltar, snap por
+  // POSICIÓN pero SOBRE EL PANEL ACTIVO: el arrastre ajusta su TAMAÑO (chico ↔ grande) o lo cierra,
+  // y NUNCA cambia de panel (queue↔lyrics solo lo mueven los botones). Los umbrales salen de la
+  // altura chica DEL PANEL ACTIVO (38 o 58) y de la grande, no de valores fijos. El único cambio de
+  // expPanel que hace el drag es a 'none' (misma vía que la escalera; NUNCA history.back()). Sin
+  // transición durante el drag (clase .dragging). El reacomodo de la canción es al SOLTAR (opción b):
+  // songLift/.exp-lyrics-compact reaccionan a expPanel con sus transiciones, no por frame.
+  const clampDrawerH = (h) => Math.max(0, Math.min(h, window.innerHeight * (DRAWER_LARGE_VH / 100)));
+  const onGrabberDown = (e) => {
+    if (!window.matchMedia('(min-width: 701px)').matches) return;   // desktop-only
+    clearTimeout(drawerCloseTimer.current);
+    drawerGrab.current = { id: e.pointerId };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    setDrawerDragging(true);
+    setDrawerH(clampDrawerH(window.innerHeight - e.clientY));
+  };
+  const onGrabberMove = (e) => {
+    if (!drawerGrab.current) return;
+    setDrawerH(clampDrawerH(window.innerHeight - e.clientY));
+  };
+  const onGrabberUp = (e) => {
+    if (!drawerGrab.current) return;
+    drawerGrab.current = null;
+    setDrawerDragging(false);
+    const vh = window.innerHeight / 100;
+    const h  = clampDrawerH(window.innerHeight - e.clientY);
+    // Tres zonas relativas al panel activo: cerrar / chico (su altura propia) / grande.
+    // La frontera chico↔grande es el punto medio entre ambas alturas del panel.
+    const midVh = (drawerSmallVh + DRAWER_LARGE_VH) / 2;
+    if (h < DRAWER_CLOSE_VH * vh) {
+      setExpPanel('none');
+      // Congelar el alto en el punto de suelta → el cierre (translateY) baja DESDE ahí, no crece
+      // hacia expDrawerH; limpiar tras el slide.
+      setDrawerH(h);
+      drawerCloseTimer.current = setTimeout(() => setDrawerH(null), 320);
+    } else {
+      setExpDrawerSize(h < midVh * vh ? 'small' : 'large');   // el panel NO cambia, solo su tamaño
+      setDrawerH(null);   // el alto anima h → expDrawerH (destino)
+    }
+  };
+  const cancelGrabber = () => {
+    if (!drawerGrab.current) return;
+    drawerGrab.current = null;
+    setDrawerDragging(false);
+    setDrawerH(null);   // revertir al committed, sin snap
+  };
+
   return (
     <>
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
-      <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
-      <SettingsFab   navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo} />
+      <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
+      <SettingsFab   navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
 
-      {/* ── Panel de letra (overlay, desktop y móvil). Modo controlado desde acá;
-          "Reducir" además cierra el expandido: modo panel ⇒ barra real visible
-          (si el expandido quedara montado detrás, su franja taparía la barra). ── */}
+      {/* ── Panel de letra (overlay z-250): SOLO barra/móvil (showLyrics). En el expandido DESKTOP
+          la letra vive en el drawer (expPanel==='lyrics'), NO acá (E2b: el render inmersivo se
+          puentea para el expandido desktop; las demás vistas quedan intactas). "Reducir" pasa a
+          modo panel y cierra el expandido (barra real visible). ── */}
       {showLyrics && (
         <LyricsPanel
           onClose={() => setShowLyrics(false)}
@@ -698,6 +818,9 @@ export default function Player({ navigate, view, restoreRoute }) {
           navigate={(view, target) => { setShowInfo(false); setExpanded(false); setShowLyrics(false); navigate(view, target); }}
         />
       )}
+
+      {/* ── Vista de cola: montada en Layout (hija de .layout), no acá. Se controla con
+          showQueue/setShowQueue que llegan por prop (C1: lifting behavior-preserving). ── */}
 
       {/* ── Full-screen expanded player (mobile) ── */}
       {/* Scrim del gesto de cierre: mismo z (200) que el sheet, pero hermano
@@ -730,6 +853,13 @@ export default function Player({ navigate, view, restoreRoute }) {
             </button>
             <div className="exp-head-actions">
               <button
+                className={`exp-icon-btn${showQueue ? ' active' : ''}`}
+                onClick={() => setShowQueue(v => !v)}
+                title="Cola"
+              >
+                <QueueGlyph size={22} />
+              </button>
+              <button
                 className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
                 onClick={toggleLyricsExpanded}
                 title="Letra"
@@ -751,8 +881,10 @@ export default function Player({ navigate, view, restoreRoute }) {
           </div>
 
           {/* Cuerpo: en desktop dos columnas (carátula | info); en móvil los
-              wrappers son display:contents y el layout de columna queda igual. */}
-          <div className="exp-body">
+              wrappers son display:contents y el layout de columna queda igual.
+              E2d: con el drawer abierto SUBE (transform) para dejarle aire al drawer. Desktop-only
+              (en móvil display:contents ignora el transform); la transición vive en el CSS. */}
+          <div className={`exp-body${expPanel === 'lyrics' ? ' exp-lyrics-compact' : ''}`} style={{ transform: `translateY(${songLift})` }}>
             <div className="exp-col-art">
               <div
                 ref={artRef}
@@ -881,10 +1013,22 @@ export default function Player({ navigate, view, restoreRoute }) {
 
           {/* Acciones (letra, info, +): en desktop van aquí, bajo el volumen; en
               móvil se ocultan (CSS) y se usan las del header. */}
+          {/* E1 (rediseño dos-zonas): en desktop, Cola y Letra togglean expPanel (estado único del
+              panel del expandido), NO showQueue/showLyrics → exclusión natural (un solo estado) y
+              decoupling de la columna C2 (no toca showQueue). El layout de dos zonas llega en E2:
+              en E1 expPanel='queue' aún no pinta nada; la letra sí (puente inmersivo vía el render
+              unificado). Móvil sigue en exp-head-actions (cajón / letra inmersiva), sin cambios. */}
           <div className="exp-actions">
             <button
-              className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
-              onClick={toggleLyricsExpanded}
+              className={`exp-icon-btn${expPanel === 'queue' ? ' active' : ''}`}
+              onClick={() => toggleExpPanel('queue')}
+              title="Cola"
+            >
+              <QueueGlyph size={22} />
+            </button>
+            <button
+              className={`exp-icon-btn${expPanel === 'lyrics' ? ' active' : ''}`}
+              onClick={() => toggleExpPanel('lyrics')}
               title="Letra"
             >
               <LyricsGlyph size={22} />
@@ -903,6 +1047,32 @@ export default function Player({ navigate, view, restoreRoute }) {
           </div>
             </div>{/* /exp-col-info */}
           </div>{/* /exp-body */}
+
+          {/* ── E2c · Drawer del expandido desktop con contenido real. Sube desde abajo por
+              transform: translateY (no anima height/grid). "Hoja sólida" (D1), sin blur. Vive DENTRO
+              del expandido (z 200) → z local 2, bajo Letra(250)/Info(300). Desktop-only. Contenido:
+              se REUSAN QueueOverlay (cola) y LyricsPanel (letra) montados en .exp-drawer-inner y
+              adaptados por CSS. Se montan SOLO con su panel activo (nada corriendo con el drawer
+              cerrado). Cierre: la X propia de cada panel (onClose → expPanel='none') + Esc/atrás. ── */}
+          <div
+            className={`exp-drawer${expPanel !== 'none' ? ' open' : ''}${drawerDragging ? ' dragging' : ''}`}
+            style={{ height: drawerH != null ? `${drawerH}px` : expDrawerH }}
+            aria-hidden={expPanel === 'none'}
+          >
+            <span
+              className="exp-drawer-grabber"
+              onPointerDown={onGrabberDown}
+              onPointerMove={onGrabberMove}
+              onPointerUp={onGrabberUp}
+              onPointerCancel={cancelGrabber}
+              onLostPointerCapture={cancelGrabber}
+              title="Arrastrar para agrandar / achicar / cerrar"
+            />
+            <div className="exp-drawer-inner">
+              {expPanel === 'queue'  && <QueueOverlay onClose={() => setExpPanel('none')} />}
+              {expPanel === 'lyrics' && <LyricsPanel onClose={() => setExpPanel('none')} immersive={false} />}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1031,8 +1201,19 @@ export default function Player({ navigate, view, restoreRoute }) {
           </div>
         </div>
 
-        {/* Desktop: acciones (letra, info) + volumen */}
+        {/* Desktop: acciones (cola, letra, info) + volumen. En móvil `.player-actions`
+            se oculta por completo (la cola en móvil se abre desde el expandido). */}
         <div className="player-actions">
+          <BarTip tip="Cola" accent="var(--accent)">
+            <button
+              className={`action-btn queue-btn${showQueue ? ' active' : ''}`}
+              onClick={e => { e.stopPropagation(); setShowQueue(v => !v); }}
+              aria-pressed={showQueue}
+              aria-label="Cola"
+            >
+              <QueueGlyph />
+            </button>
+          </BarTip>
           <BarTip tip="Letra" accent="var(--lyric-pink)" line="linear-gradient(90deg, var(--accent), var(--lyric-pink))">
             <button
               className={`action-btn lyrics-btn${showLyrics ? ' active' : ''}`}
@@ -1084,8 +1265,18 @@ export default function Player({ navigate, view, restoreRoute }) {
           </div>
         </div>
 
-        {/* Mobile mini controls — letra + play + siguiente (lyrics nunca desaparece) */}
+        {/* Mobile mini controls — cola + letra + play + siguiente (lyrics nunca desaparece).
+            Cola en la barra móvil (antes solo se abría desde el expandido, un paso de más);
+            el acceso desde el expandido móvil sigue igual. */}
         <div className="player-mini-controls">
+          <button
+            className={`mini-btn queue-mini${showQueue ? ' active' : ''}`}
+            onClick={e => { e.stopPropagation(); setShowQueue(v => !v); }}
+            title="Cola"
+            aria-pressed={showQueue}
+          >
+            <QueueGlyph size={22} />
+          </button>
           <button
             className={`mini-btn lyrics-mini${showLyrics ? ' active' : ''}`}
             onClick={toggleLyricsBar}
@@ -1157,6 +1348,18 @@ function RepeatOneIcon({ size = 18 }) {
     </svg>
   );
 }
+// Glifo de cola: líneas de lista (decrecientes) + triángulo de play. SVG inline propio.
+function QueueGlyph({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="4" y1="7" x2="20" y2="7" />
+      <line x1="4" y1="12" x2="14" y2="12" />
+      <line x1="4" y1="17" x2="12" y2="17" />
+      <polygon points="17,13 22,15.5 17,18" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 // Glifo de letra original: líneas de texto + nota musical (corchea) + un destello
 // (sparkle) que late despacio vía CSS (.lyrics-glyph-sparkle). SVG inline propio.
 function LyricsGlyph({ size = 20 }) {
