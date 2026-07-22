@@ -895,14 +895,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
 
           {/* Acciones (letra, info, +): en desktop van aquí, bajo el volumen; en
               móvil se ocultan (CSS) y se usan las del header. */}
+          {/* Q4a: en desktop la cola es la columna lateral → el expandido NO lleva botón de
+              cola acá. En móvil la cola se abre desde exp-head-actions (que sí lo conserva). */}
           <div className="exp-actions">
-            <button
-              className={`exp-icon-btn${showQueue ? ' active' : ''}`}
-              onClick={() => setShowQueue(v => !v)}
-              title="Cola"
-            >
-              <QueueGlyph size={22} />
-            </button>
             <button
               className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
               onClick={toggleLyricsExpanded}
