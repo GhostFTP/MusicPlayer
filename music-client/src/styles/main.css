@@ -4196,7 +4196,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @media (min-width: 701px) {
   .exp-art, .exp-art-placeholder { transition: width .3s cubic-bezier(.22, 1, .36, 1); }
   .exp-lyrics-compact .exp-art,
-  .exp-lyrics-compact .exp-art-placeholder { width: min(30vw, 300px); }
+  .exp-lyrics-compact .exp-art-placeholder { width: min(26vw, 250px); }
 }
 @media (min-width: 701px) and (prefers-reduced-motion: reduce) {
   .exp-art, .exp-art-placeholder { transition: none; }
