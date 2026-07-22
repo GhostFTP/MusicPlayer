@@ -103,7 +103,10 @@ const SHEET_EDGE = 'inset 0 1px 0 rgba(255, 255, 255, .1), 0 -18px 48px rgba(0, 
 // ── Drawer del expandido desktop: alturas por panel (E2i) ──
 // El arrastre del grabber ajusta el TAMAÑO del panel activo; NUNCA cambia de panel.
 // Cada panel tiene su altura chica propia (la de siempre) y comparten la grande.
-const DRAWER_SMALL_VH = { queue: 38, lyrics: 58 };
+// E2k: la letra chica baja de 58 a 50vh. Con el karaoke un escalón más chico dentro del drawer
+// (CSS) caben las mismas líneas en menos alto, y esos 8vh son los que necesita la canción para que
+// su barra de acciones no quede tapada. Ver el bloque E2k de main.css.
+const DRAWER_SMALL_VH = { queue: 38, lyrics: 50 };
 const DRAWER_LARGE_VH = 92;   // "casi pantalla completa" (afinable)
 const DRAWER_CLOSE_VH = 20;   // por debajo de esto, soltar cierra el drawer
 
@@ -732,7 +735,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // E2d: cuánto SUBE el bloque de la canción al abrir el drawer (desktop-only). Sube más con la
   // letra (drawer alto) que con la cola (drawer bajo); vuelve a 0 al cerrar. Usa expPanel (no el
   // "último"): al cerrar baja de nuevo acompañando el slide del drawer. Valores afinables a ojo.
-  const songLift = expPanel === 'lyrics' ? '-26vh' : expPanel === 'queue' ? '-14vh' : '0vh';
+  // E2k: el lift de letra baja de -26vh a -22vh (la canción sube MENOS, queda más centrada). Se
+  // pudo bajar porque el drawer de letra ahora es más bajo (50vh) y la columna de info va compacta
+  // en este estado: el bloque entero entra entre el header y el drawer sin forzarse hacia arriba.
+  const songLift = expPanel === 'lyrics' ? '-22vh' : expPanel === 'queue' ? '-14vh' : '0vh';
 
   // E2h-1 + E2i: grabber arrastrable (desktop-only). Sigue al puntero variando el ALTO del drawer
   // (anclado bottom:0 → alto = viewportBottom − punteroY, clamp 0..grande). Al soltar, snap por

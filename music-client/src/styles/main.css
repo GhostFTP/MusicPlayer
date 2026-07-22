@@ -4231,3 +4231,56 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-drawer .lyrics-sync-btn { min-width: 32px; padding: 0 7px; }
   .exp-drawer .lyrics-sync-val { min-width: 48px; padding: 4px 6px; }
 }
+
+/* ── E2k · Balance del estado LETRA: que la canción y el karaoke cuadren SIN tapar la barra de
+   acciones (cola/letra/info/+). El problema no era de posición sino de ESPACIO: bajo el header
+   (~116px) y sobre el drawer de letra quedaba menos hueco del que mide la columna de info
+   (~389px: meta 86 + progreso 22 + tiempos 17 + controles 70 + volumen 30 + acciones 44, más 5
+   gaps de 24px). Mover la canción no crea espacio — por eso E2f subió el lift y las acciones
+   siguieron tapadas. Acá se ataca el espacio con tres palancas, TODAS solo en el estado letra
+   (cola y drawer cerrado quedan EXACTAMENTE igual):
+
+     1. Karaoke un escalón más chico DENTRO del drawer (abajo) → caben las mismas líneas en menos
+        alto → el drawer de letra puede bajar de 58 a 50vh (DRAWER_SMALL_VH en Player.jsx).
+     2. Columna de info compacta: el gap baja 24 → 12px y los botones de transporte ceden unos px.
+        Es lo único que devuelve alto real (−68px) y lo que destapa las acciones.
+     3. songLift de letra: −26vh → −22vh (Player.jsx). Con 1 y 2 la canción entra sin forzarse
+        hacia arriba; antes se metía por debajo del header y aun así las acciones no entraban.
+
+   La carátula NO se toca (sigue en min(26vw, 250px), E2e): con la info en ~390px la fila del grid
+   la define la COLUMNA, no la carátula de 250px — achicarla más no devuelve un solo píxel.
+
+   Cuentas a 1600×900 (el caso apretado): hueco útil = 50vh − 116px = 334px; info compacta = 321px
+   → entra con ~13px de aire, y con −22vh el bloque queda entre 125px y 447px, o sea bajo el header
+   (116px) y sobre el drawer (450px). A 1080px de alto sobra holgado. Los tres números son
+   afinables a ojo. Desktop-only; el gate ≥701px y el prefijo .exp-drawer/.exp-lyrics-compact dejan
+   la letra en barra/móvil (showLyrics) idéntica. LyricsPanel no se toca (solo CSS). ── */
+@media (min-width: 701px) {
+  /* 1 · Karaoke calibrado para el drawer. El font-size baja PAREJO en todas las líneas: la
+     jerarquía la sigue dando transform:scale y el box queda uniforme → el encuadre por transform
+     (que mide offsetTop/offsetHeight en vivo) no salta. El padding del cuerpo también cede: el
+     panel inmersivo se puede dar 44/80px, el drawer no. padTopRef se relee con getComputedStyle
+     al montar, así que el padding nuevo entra sin tocar el motor. */
+  .exp-drawer .lyrics-line   { font-size: clamp(20px, 2.6vw, 28px); }
+  .exp-drawer .lyrics-plain p { font-size: clamp(16px, 1.7vw, 19px); line-height: 1.7; }
+  .exp-drawer .lyrics-body   { padding: 24px 28px 32px; }
+
+  /* 2 · Columna de info compacta SOLO con la letra abierta (.exp-lyrics-compact la pone Player.jsx
+     únicamente con expPanel==='lyrics'). Nada se oculta: todos los bloques siguen ahí, más juntos. */
+  .exp-lyrics-compact .exp-col-info { gap: 12px; }
+  .exp-lyrics-compact .exp-btn      { width: 54px; height: 54px; }
+  .exp-lyrics-compact .exp-btn.play { width: 62px; height: 62px; }
+
+  /* La compactación acompaña al slide del drawer con el mismo easing/duración que E2d/E2e (el lift
+     y la carátula) → un solo movimiento, sin brinco de los controles. */
+  .exp-col-info { transition: gap .3s cubic-bezier(.22, 1, .36, 1); }
+  /* Se conserva TAL CUAL la transición de hover/active de .exp-btn y solo se le suma el tamaño. */
+  .exp-btn {
+    transition: color .15s, background .12s, transform .15s, box-shadow .15s,
+                width .3s cubic-bezier(.22, 1, .36, 1), height .3s cubic-bezier(.22, 1, .36, 1);
+  }
+}
+@media (min-width: 701px) and (prefers-reduced-motion: reduce) {
+  .exp-col-info { transition: none; }
+  .exp-btn { transition: color .15s, background .12s, transform .15s, box-shadow .15s; }
+}
