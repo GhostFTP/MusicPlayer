@@ -4172,3 +4172,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-drawer .queue-header,
   .exp-drawer .lyrics-header { padding-top: 22px; }
 }
+
+/* ── E2d · Reacomodo "solo subir" de la canción al abrir el drawer (desktop). El transform lo
+   pone Player.jsx inline en .exp-body (translateY según expPanel: sube más con la letra que con
+   la cola, 0 al cerrar); acá va SOLO la transición que lo acompaña al slide del drawer (mismo
+   easing/duración). Desktop-only (en móvil .exp-body es display:contents → el transform es no-op
+   y esto no aplica). Va al final para ganar orden de fuente sobre la regla base de .exp-body.
+   Respeta prefers-reduced-motion (sin animar). ── */
+@media (min-width: 701px) {
+  .exp-body { transition: transform .3s cubic-bezier(.22, 1, .36, 1); }
+}
+@media (min-width: 701px) and (prefers-reduced-motion: reduce) {
+  .exp-body { transition: none; }
+}

@@ -692,6 +692,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   if (expPanel !== 'none') lastExpPanelRef.current = expPanel;
   const shownExpPanel = expPanel === 'none' ? lastExpPanelRef.current : expPanel;
   const expDrawerH = shownExpPanel === 'lyrics' ? '58vh' : '38vh';
+  // E2d: cuánto SUBE el bloque de la canción al abrir el drawer (desktop-only). Sube más con la
+  // letra (drawer alto) que con la cola (drawer bajo); vuelve a 0 al cerrar. Usa expPanel (no el
+  // "último"): al cerrar baja de nuevo acompañando el slide del drawer. Valores afinables a ojo.
+  const songLift = expPanel === 'lyrics' ? '-22vh' : expPanel === 'queue' ? '-14vh' : '0vh';
 
   return (
     <>
@@ -786,8 +790,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           </div>
 
           {/* Cuerpo: en desktop dos columnas (carátula | info); en móvil los
-              wrappers son display:contents y el layout de columna queda igual. */}
-          <div className="exp-body">
+              wrappers son display:contents y el layout de columna queda igual.
+              E2d: con el drawer abierto SUBE (transform) para dejarle aire al drawer. Desktop-only
+              (en móvil display:contents ignora el transform); la transición vive en el CSS. */}
+          <div className="exp-body" style={{ transform: `translateY(${songLift})` }}>
             <div className="exp-col-art">
               <div
                 ref={artRef}
