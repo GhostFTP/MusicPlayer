@@ -3,6 +3,25 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.8.0] - 2026-07-22
+
+### Añadido
+- **Cola de reproducción**: ahora podés ver la lista de lo que sigue sin salir de la
+  canción. Un panel muestra "En cola" con la pista actual resaltada y salta sola a
+  la que se está tocando.
+- **La cola convive con la música**: en pantalla grande, la lista de lo que sigue se
+  abre como una columna al costado, sin tapar lo que estás viendo.
+- **Letra dentro del reproductor**: la letra sincronizada aparece en su propio panel,
+  junto a los controles, sin ocupar toda la pantalla.
+- **Panel ajustable**: arrastrá la barrita del panel para agrandarlo, hacerlo más chico
+  o cerrarlo. Cada panel (cola o letra) crece en lo suyo.
+- **Botón de cola** en la barra del reproductor, en la barra móvil y en la vista
+  ampliada.
+
+### Cambiado
+- **Vista ampliada rediseñada**: al abrir la cola o la letra, la canción se reacomoda
+  para dejarles espacio, y todo el bloque queda centrado en pantalla.
+
 ## [1.7.0] - 2026-07-19
 
 ### Añadido
