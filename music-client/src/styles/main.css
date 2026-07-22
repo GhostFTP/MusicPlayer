@@ -4210,3 +4210,24 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @media (min-width: 701px) and (prefers-reduced-motion: reduce) {
   .exp-art, .exp-art-placeholder { transition: none; }
 }
+
+/* ── E2j · Aire para el header de la LETRA dentro del drawer del expandido (desktop). LyricsPanel
+   se reusa TAL CUAL (E2c) y su header viene calibrado para el panel a pantalla completa: los 5
+   controles de sync van con gap 1px (se leen como un bloque continuo) y el grupo queda a 6px de la
+   X de cerrar, cuyo círculo de hover (44px) los pisa; además el header no tiene column-gap, así que
+   un título largo llega pegado al "−.5". Acá SOLO se ajusta ESPACIADO — padding, gaps, margin y los
+   min-width de los controles para que cada uno se vea completo. Nada de lógica: el LyricsPanel no se
+   toca. Gateado a .exp-drawer + ≥701px → la letra en barra/móvil (showLyrics) queda idéntica.
+   El layout del header es horizontal y su alto lo fija su contenido, así que no depende del alto del
+   drawer: se ve igual en chico (38/58vh) que en grande (~92vh, E2i). ── */
+@media (min-width: 701px) {
+  /* Aire contra el filo derecho + separación garantizada entre el título (que trunca) y las acciones. */
+  .exp-drawer .lyrics-header { padding-right: 34px; column-gap: 24px; }
+  /* El grupo de sync deja de rozar la X: el margin-right de 2px se reemplaza por un gap real. */
+  .exp-drawer .lyrics-head-actions { gap: 16px; }
+  .exp-drawer .lyrics-sync { gap: 6px; margin-right: 0; }
+  /* Cada control con su propio ancho: los ±.1/±.5 dejan de tocarse y el valor entra completo
+     también cuando muestra el offset ("−0.5 s"), no solo la palabra "sync". */
+  .exp-drawer .lyrics-sync-btn { min-width: 32px; padding: 0 7px; }
+  .exp-drawer .lyrics-sync-val { min-width: 48px; padding: 4px 6px; }
+}
