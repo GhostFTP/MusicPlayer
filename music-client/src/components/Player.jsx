@@ -126,6 +126,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // móvil) para no acoplar el expandido con esas superficies. Se resetea a 'none' al cerrar el
   // expandido. En E1 solo es cableado: el layout de dos zonas llega en E2.
   const [expPanel, setExpPanel] = useState('none');
+  const lastExpPanelRef = useRef('queue');   // último panel abierto (para el slide-down del drawer, E2b)
   // showQueue vive en Layout (C1: la cola pasa a ser hija de .layout, futura columna del grid
   // en desktop). Llega por prop y se usa igual acá (botones, dismissTop, layerDepth, hidden).
   const [shufflePhrase, setShufflePhrase] = useState('');
@@ -684,25 +685,30 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     return p;
   });
 
+  // Drawer del expandido desktop (E2b): el panel mostrado y su alto derivan de expPanel. Al cerrar
+  // (none) se conserva el ÚLTIMO panel → el slide-down baja desde el alto correcto y el contenido no
+  // parpadea a un fallback mientras se cierra. queue → ~38vh (baja), lyrics → ~58vh (alta).
+  if (expPanel !== 'none') lastExpPanelRef.current = expPanel;
+  const shownExpPanel = expPanel === 'none' ? lastExpPanelRef.current : expPanel;
+  const expDrawerH = shownExpPanel === 'lyrics' ? '58vh' : '38vh';
+
   return (
     <>
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
       <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
       <SettingsFab   navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
 
-      {/* ── Panel de letra (overlay, desktop y móvil). Modo controlado desde acá;
-          "Reducir" además cierra el expandido: modo panel ⇒ barra real visible
-          (si el expandido quedara montado detrás, su franja taparía la barra). ── */}
-      {(showLyrics || expPanel === 'lyrics') && (
+      {/* ── Panel de letra (overlay z-250): SOLO barra/móvil (showLyrics). En el expandido DESKTOP
+          la letra vive en el drawer (expPanel==='lyrics'), NO acá (E2b: el render inmersivo se
+          puentea para el expandido desktop; las demás vistas quedan intactas). "Reducir" pasa a
+          modo panel y cierra el expandido (barra real visible). ── */}
+      {showLyrics && (
         <LyricsPanel
-          onClose={() => { setShowLyrics(false); setExpPanel(p => (p === 'lyrics' ? 'none' : p)); }}
-          immersive={expPanel === 'lyrics' || lyricsImmersive}
+          onClose={() => setShowLyrics(false)}
+          immersive={lyricsImmersive}
           onToggleImmersive={next => {
             setLyricsImmersive(next);
-            // "Reducir" → modo panel (barra visible) y cierra el expandido. Si venía del panel
-            // del expandido (expPanel==='lyrics'), hand-off a showLyrics para que la letra siga
-            // abierta en modo panel (y expPanel se limpia acá + por el effect de reset).
-            if (!next) { setShowLyrics(true); setExpPanel('none'); setExpanded(false); }
+            if (!next) setExpanded(false);
           }}
         />
       )}
@@ -943,6 +949,34 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           </div>
             </div>{/* /exp-col-info */}
           </div>{/* /exp-body */}
+
+          {/* ── E2b · Drawer del expandido desktop (cascarón). Controlado por expPanel; sube desde
+              abajo con transform: translateY (no anima height ni grid). Sólido (D1), sin blur.
+              Vive DENTRO del expandido (z 200) → z local 2, bajo la Letra (250)/Info (300).
+              Desktop-only (CSS base display:none). Contenido real de cola/letra en E2c. ── */}
+          <div
+            className={`exp-drawer${expPanel !== 'none' ? ' open' : ''}`}
+            style={{ height: expDrawerH }}
+            aria-hidden={expPanel === 'none'}
+          >
+            <span className="exp-drawer-grabber" aria-hidden="true" />
+            <div className="exp-drawer-header">
+              <span className="exp-drawer-title">{shownExpPanel === 'lyrics' ? 'Letra' : 'En cola'}</span>
+              <button
+                className="exp-drawer-close"
+                onClick={() => setExpPanel('none')}
+                title="Cerrar"
+                aria-label="Cerrar panel"
+              >
+                <ChevronDown />
+              </button>
+            </div>
+            <div className="exp-drawer-body">
+              <div className="exp-drawer-ph">
+                Placeholder — {shownExpPanel === 'lyrics' ? 'Letra' : 'Cola'} (contenido real en E2c)
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
