@@ -793,7 +793,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               wrappers son display:contents y el layout de columna queda igual.
               E2d: con el drawer abierto SUBE (transform) para dejarle aire al drawer. Desktop-only
               (en móvil display:contents ignora el transform); la transición vive en el CSS. */}
-          <div className="exp-body" style={{ transform: `translateY(${songLift})` }}>
+          <div className={`exp-body${expPanel === 'lyrics' ? ' exp-lyrics-compact' : ''}`} style={{ transform: `translateY(${songLift})` }}>
             <div className="exp-col-art">
               <div
                 ref={artRef}

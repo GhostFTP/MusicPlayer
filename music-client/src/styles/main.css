@@ -4185,3 +4185,19 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @media (min-width: 701px) and (prefers-reduced-motion: reduce) {
   .exp-body { transition: none; }
 }
+
+/* ── E2e · Compactar la canción SOLO con el panel de LETRA (drawer alto ~58vh). La carátula se
+   achica (width; aspect-ratio:1 mantiene el cuadrado) → el bloque se compacta y los controles
+   quedan despejados sobre el drawer de letra. Con cola/none la carátula queda a tamaño normal
+   (E2d intacto): la clase .exp-lyrics-compact la pone Player.jsx SOLO con expPanel==='lyrics'.
+   Transición del achicado con el mismo easing/duración que el slide del drawer → acompaña.
+   Desktop-only (la clase nunca se pone en móvil; y las reglas van gateadas ≥701px). Respeta
+   prefers-reduced-motion. Valores de ancho afinables a ojo. ── */
+@media (min-width: 701px) {
+  .exp-art, .exp-art-placeholder { transition: width .3s cubic-bezier(.22, 1, .36, 1); }
+  .exp-lyrics-compact .exp-art,
+  .exp-lyrics-compact .exp-art-placeholder { width: min(30vw, 300px); }
+}
+@media (min-width: 701px) and (prefers-reduced-motion: reduce) {
+  .exp-art, .exp-art-placeholder { transition: none; }
+}
