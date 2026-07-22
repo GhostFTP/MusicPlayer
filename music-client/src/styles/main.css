@@ -2877,17 +2877,26 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     box-shadow: 0 -12px 40px rgba(0, 0, 0, .55);   /* suaviza la costura contra la canción */
     overflow: hidden;
     transform: translateY(100%);                 /* oculto por debajo */
-    transition: transform .3s cubic-bezier(.22, 1, .36, 1);
-    will-change: transform;
+    /* E2h-1: se transiciona también height → el snap del alto al soltar el grabber es suave. */
+    transition: transform .3s cubic-bezier(.22, 1, .36, 1), height .3s cubic-bezier(.22, 1, .36, 1);
+    will-change: transform, height;
   }
   .exp-drawer.open { transform: translateY(0); } /* sube a la vista (alto por style inline) */
+  /* E2h-1: durante el drag el alto lo pone Player.jsx inline por frame → sin transición (sigue al
+     puntero sin lag). Al soltar se quita .dragging y la transición reanuda para el snap. */
+  .exp-drawer.dragging { transition: none; }
 
-  /* Barrita (grabber) con AIRE arriba: no pegada a la costura superior. */
+  /* Barrita (grabber) ARRASTRABLE (E2h-1) con aire arriba. Área táctil ampliada por ::before;
+     touch-action:none → el arrastre táctil lo maneja el JS (no scroll). */
   .exp-drawer-grabber {
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    width: 40px; height: 4px; border-radius: 2px; z-index: 1;
+    width: 40px; height: 4px; border-radius: 2px; z-index: 3;
     background: rgba(255, 255, 255, .22);
+    cursor: grab; touch-action: none;
   }
+  .exp-drawer-grabber:active { cursor: grabbing; }
+  .exp-drawer-grabber:hover  { background: rgba(255, 255, 255, .4); }
+  .exp-drawer-grabber::before { content: ''; position: absolute; inset: -12px -26px; }
   /* Contenido alineado con el bloque de la canción: misma caja centrada (max-width) que .exp-body
      → mismo margen izquierdo, sin cortarse contra el filo (fix del bug de E2b). */
   .exp-drawer-inner {

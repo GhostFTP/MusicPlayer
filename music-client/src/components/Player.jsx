@@ -128,6 +128,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // expandido. En E1 solo es cableado: el layout de dos zonas llega en E2.
   const [expPanel, setExpPanel] = useState('none');
   const lastExpPanelRef = useRef('queue');   // último panel abierto (para el slide-down del drawer, E2b)
+  // E2h-1: grabber arrastrable. drawerH = alto EN VIVO (px) durante el drag, o null → usa expDrawerH.
+  const [drawerH, setDrawerH] = useState(null);
+  const [drawerDragging, setDrawerDragging] = useState(false);
+  const drawerGrab = useRef(null);            // gesto del grabber en curso | null
+  const drawerCloseTimer = useRef(null);      // limpieza del alto congelado tras el slide de cierre
   // showQueue vive en Layout (C1: la cola pasa a ser hija de .layout, futura columna del grid
   // en desktop). Llega por prop y se usa igual acá (botones, dismissTop, layerDepth, hidden).
   const [shufflePhrase, setShufflePhrase] = useState('');
@@ -209,6 +214,18 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // El panel del expandido solo existe mientras el expandido está montado: al cerrarse (por
   // cualquier vía — botón, Esc, gesto, navegar) se resetea a 'none'. Evita que quede "colgado".
   useEffect(() => { if (!expanded) setExpPanel('none'); }, [expanded]);
+
+  // E2h-1: cancelar el drag del grabber si la ventana pierde foco; limpiar el timer de cierre.
+  useEffect(() => {
+    const onBlur = () => {
+      if (!drawerGrab.current) return;
+      drawerGrab.current = null;
+      setDrawerDragging(false);
+      setDrawerH(null);
+    };
+    window.addEventListener('blur', onBlur);
+    return () => { window.removeEventListener('blur', onBlur); clearTimeout(drawerCloseTimer.current); };
+  }, []);
 
   // ── Atrás del navegador = DOS NIVELES (contrato nav-lab · Modelo 2) ──────────
   // Las RUTAS (vistas + detalles /artists/X + changelog/settings) son entradas de historial que
@@ -697,6 +714,49 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // "último"): al cerrar baja de nuevo acompañando el slide del drawer. Valores afinables a ojo.
   const songLift = expPanel === 'lyrics' ? '-26vh' : expPanel === 'queue' ? '-14vh' : '0vh';
 
+  // E2h-1: grabber arrastrable (desktop-only). Sigue al puntero variando el ALTO del drawer
+  // (anclado bottom:0 → alto = viewportBottom − punteroY, clamp 0..65vh). Al soltar, snap por
+  // POSICIÓN: <19vh 'none' · 19–48vh 'queue' · >48vh 'lyrics' → setExpPanel (misma vía que la
+  // escalera; NUNCA history.back()). Sin transición durante el drag (clase .dragging). El
+  // reacomodo de la canción es al SOLTAR (opción b): songLift/.exp-lyrics-compact reaccionan a
+  // expPanel con sus transiciones, no se interpolan por frame.
+  const clampDrawerH = (h) => Math.max(0, Math.min(h, window.innerHeight * 0.65));
+  const onGrabberDown = (e) => {
+    if (!window.matchMedia('(min-width: 701px)').matches) return;   // desktop-only
+    clearTimeout(drawerCloseTimer.current);
+    drawerGrab.current = { id: e.pointerId };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    setDrawerDragging(true);
+    setDrawerH(clampDrawerH(window.innerHeight - e.clientY));
+  };
+  const onGrabberMove = (e) => {
+    if (!drawerGrab.current) return;
+    setDrawerH(clampDrawerH(window.innerHeight - e.clientY));
+  };
+  const onGrabberUp = (e) => {
+    if (!drawerGrab.current) return;
+    drawerGrab.current = null;
+    setDrawerDragging(false);
+    const vh = window.innerHeight / 100;
+    const h  = clampDrawerH(window.innerHeight - e.clientY);
+    const dest = h < 19 * vh ? 'none' : h < 48 * vh ? 'queue' : 'lyrics';
+    setExpPanel(dest);
+    if (dest === 'none') {
+      // Congelar el alto en el punto de suelta → el cierre (translateY) baja DESDE ahí, no crece
+      // hacia expDrawerH; limpiar tras el slide.
+      setDrawerH(h);
+      drawerCloseTimer.current = setTimeout(() => setDrawerH(null), 320);
+    } else {
+      setDrawerH(null);   // el alto anima h → expDrawerH (destino)
+    }
+  };
+  const cancelGrabber = () => {
+    if (!drawerGrab.current) return;
+    drawerGrab.current = null;
+    setDrawerDragging(false);
+    setDrawerH(null);   // revertir al committed, sin snap
+  };
+
   return (
     <>
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
@@ -964,11 +1024,19 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               adaptados por CSS. Se montan SOLO con su panel activo (nada corriendo con el drawer
               cerrado). Cierre: la X propia de cada panel (onClose → expPanel='none') + Esc/atrás. ── */}
           <div
-            className={`exp-drawer${expPanel !== 'none' ? ' open' : ''}`}
-            style={{ height: expDrawerH }}
+            className={`exp-drawer${expPanel !== 'none' ? ' open' : ''}${drawerDragging ? ' dragging' : ''}`}
+            style={{ height: drawerH != null ? `${drawerH}px` : expDrawerH }}
             aria-hidden={expPanel === 'none'}
           >
-            <span className="exp-drawer-grabber" aria-hidden="true" />
+            <span
+              className="exp-drawer-grabber"
+              onPointerDown={onGrabberDown}
+              onPointerMove={onGrabberMove}
+              onPointerUp={onGrabberUp}
+              onPointerCancel={cancelGrabber}
+              onLostPointerCapture={cancelGrabber}
+              title="Arrastrar para ajustar (letra / cola / cerrar)"
+            />
             <div className="exp-drawer-inner">
               {expPanel === 'queue'  && <QueueOverlay onClose={() => setExpPanel('none')} />}
               {expPanel === 'lyrics' && <LyricsPanel onClose={() => setExpPanel('none')} immersive={false} />}
