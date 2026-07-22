@@ -121,6 +121,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // inferior mostraría el expandido cortado en vez de la barra ("barra fantasma").
   const [lyricsImmersive, setLyricsImmersive] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  // Panel lateral del expandido DESKTOP (rediseño dos-zonas, estado único — opción a):
+  // 'none' | 'queue' | 'lyrics'. SEPARADO de showQueue (columna C2) y showLyrics (letra barra/
+  // móvil) para no acoplar el expandido con esas superficies. Se resetea a 'none' al cerrar el
+  // expandido. En E1 solo es cableado: el layout de dos zonas llega en E2.
+  const [expPanel, setExpPanel] = useState('none');
   // showQueue vive en Layout (C1: la cola pasa a ser hija de .layout, futura columna del grid
   // en desktop). Llega por prop y se usa igual acá (botones, dismissTop, layerDepth, hidden).
   const [shufflePhrase, setShufflePhrase] = useState('');
@@ -176,16 +181,18 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // empuja /view/X; cerrar = pop de ruta vía history.back en el back-btn/swipe. La corren DOS
   // disparadores: Esc y el popstate. El swipe-atrás (Layout) NO la llama. Prioridad:
   //  1. Info: cierre ANIMADO (requestClose vía infoRef).
-  //  2. Cola: overlay z 255, por encima de la Letra (250) y del expandido (200).
-  //  3. Letra: esté o no dentro del expandido.
-  //  4. Expandido.
+  //  2. Cola: overlay z 255 (columna C2 / cajón móvil).
+  //  3. Letra (barra/móvil): showLyrics.
+  //  4. Panel del expandido desktop (letra/cola en zona): expPanel — antes que el expandido.
+  //  5. Expandido.
   const dismissTop = useCallback(() => {
     if (showInfo)   { infoRef.current?.requestClose(); return true; }   // cierre animado (imperative handle)
     if (showQueue)  { setShowQueue(false);           return true; }
     if (showLyrics) { setShowLyrics(false);          return true; }
+    if (expPanel !== 'none') { setExpPanel('none');  return true; }   // panel del expandido antes que el expandido
     if (expanded)   { setExpanded(false);           return true; }
     return false;
-  }, [showInfo, showQueue, showLyrics, expanded]);
+  }, [showInfo, showQueue, showLyrics, expPanel, expanded]);
 
   // Esc global del reproductor → corre la escalera de overlays. Escucha siempre (no solo con
   // expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc NO navega
@@ -197,6 +204,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     return () => window.removeEventListener('keydown', onKey);
   }, [dismissTop]);
 
+  // El panel del expandido solo existe mientras el expandido está montado: al cerrarse (por
+  // cualquier vía — botón, Esc, gesto, navegar) se resetea a 'none'. Evita que quede "colgado".
+  useEffect(() => { if (!expanded) setExpPanel('none'); }, [expanded]);
+
   // ── Atrás del navegador = DOS NIVELES (contrato nav-lab · Modelo 2) ──────────
   // Las RUTAS (vistas + detalles /artists/X + changelog/settings) son entradas de historial que
   // empuja Layout.navigate (o el mount al sintetizar el padre). Los OVERLAYS (Info/Cola/Letra/Expandido)
@@ -205,7 +216,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // path/estado (pushState no dispara popstate → sin ciclo); el atrás la consume cerrando el overlay,
   // sin mover la URL. Al BAJAR por Esc/botón la entrada queda sin consumir a propósito: es el
   // "atrás absorbido", quirk conocido del guardia.
-  const layerDepth = (showInfo ? 1 : 0) + (showQueue ? 1 : 0) + (showLyrics ? 1 : 0) + (expanded ? 1 : 0);
+  const layerDepth = (showInfo ? 1 : 0) + (showQueue ? 1 : 0) + (showLyrics ? 1 : 0) + (expPanel !== 'none' ? 1 : 0) + (expanded ? 1 : 0);
   const prevLayerDepth = useRef(layerDepth);
   useEffect(() => {
     const delta = layerDepth - prevLayerDepth.current;
@@ -682,13 +693,16 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
       {/* ── Panel de letra (overlay, desktop y móvil). Modo controlado desde acá;
           "Reducir" además cierra el expandido: modo panel ⇒ barra real visible
           (si el expandido quedara montado detrás, su franja taparía la barra). ── */}
-      {showLyrics && (
+      {(showLyrics || expPanel === 'lyrics') && (
         <LyricsPanel
-          onClose={() => setShowLyrics(false)}
-          immersive={lyricsImmersive}
+          onClose={() => { setShowLyrics(false); setExpPanel(p => (p === 'lyrics' ? 'none' : p)); }}
+          immersive={expPanel === 'lyrics' || lyricsImmersive}
           onToggleImmersive={next => {
             setLyricsImmersive(next);
-            if (!next) setExpanded(false);
+            // "Reducir" → modo panel (barra visible) y cierra el expandido. Si venía del panel
+            // del expandido (expPanel==='lyrics'), hand-off a showLyrics para que la letra siga
+            // abierta en modo panel (y expPanel se limpia acá + por el effect de reset).
+            if (!next) { setShowLyrics(true); setExpPanel('none'); setExpanded(false); }
           }}
         />
       )}
@@ -895,21 +909,22 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
 
           {/* Acciones (letra, info, +): en desktop van aquí, bajo el volumen; en
               móvil se ocultan (CSS) y se usan las del header. */}
-          {/* Q4a (revisado): el botón de cola vuelve al expandido desktop, pero es un ATAJO a la
-              columna lateral: abre la cola y COLAPSA el expandido (setExpanded(false)). En desktop
-              la cola vive en la columna, no como overlay sobre el expandido (→ sin buffeo). En
-              móvil el cajón se abre desde exp-head-actions (que conserva su botón, sin colapsar). */}
+          {/* E1 (rediseño dos-zonas): en desktop, Cola y Letra togglean expPanel (estado único del
+              panel del expandido), NO showQueue/showLyrics → exclusión natural (un solo estado) y
+              decoupling de la columna C2 (no toca showQueue). El layout de dos zonas llega en E2:
+              en E1 expPanel='queue' aún no pinta nada; la letra sí (puente inmersivo vía el render
+              unificado). Móvil sigue en exp-head-actions (cajón / letra inmersiva), sin cambios. */}
           <div className="exp-actions">
             <button
-              className="exp-icon-btn"
-              onClick={() => { setShowQueue(true); setExpanded(false); }}
+              className={`exp-icon-btn${expPanel === 'queue' ? ' active' : ''}`}
+              onClick={() => setExpPanel(p => (p === 'queue' ? 'none' : 'queue'))}
               title="Cola"
             >
               <QueueGlyph size={22} />
             </button>
             <button
-              className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
-              onClick={toggleLyricsExpanded}
+              className={`exp-icon-btn${expPanel === 'lyrics' ? ' active' : ''}`}
+              onClick={() => setExpPanel(p => (p === 'lyrics' ? 'none' : 'lyrics'))}
               title="Letra"
             >
               <LyricsGlyph size={22} />
