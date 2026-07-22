@@ -6,6 +6,7 @@ import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ChangelogBell from './ChangelogBell.jsx';
 import SettingsFab from './SettingsFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
+import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
 
 function fmt(s) {
@@ -950,31 +951,21 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             </div>{/* /exp-col-info */}
           </div>{/* /exp-body */}
 
-          {/* ── E2b · Drawer del expandido desktop (cascarón). Controlado por expPanel; sube desde
-              abajo con transform: translateY (no anima height ni grid). Sólido (D1), sin blur.
-              Vive DENTRO del expandido (z 200) → z local 2, bajo la Letra (250)/Info (300).
-              Desktop-only (CSS base display:none). Contenido real de cola/letra en E2c. ── */}
+          {/* ── E2c · Drawer del expandido desktop con contenido real. Sube desde abajo por
+              transform: translateY (no anima height/grid). "Hoja sólida" (D1), sin blur. Vive DENTRO
+              del expandido (z 200) → z local 2, bajo Letra(250)/Info(300). Desktop-only. Contenido:
+              se REUSAN QueueOverlay (cola) y LyricsPanel (letra) montados en .exp-drawer-inner y
+              adaptados por CSS. Se montan SOLO con su panel activo (nada corriendo con el drawer
+              cerrado). Cierre: la X propia de cada panel (onClose → expPanel='none') + Esc/atrás. ── */}
           <div
             className={`exp-drawer${expPanel !== 'none' ? ' open' : ''}`}
             style={{ height: expDrawerH }}
             aria-hidden={expPanel === 'none'}
           >
             <span className="exp-drawer-grabber" aria-hidden="true" />
-            <div className="exp-drawer-header">
-              <span className="exp-drawer-title">{shownExpPanel === 'lyrics' ? 'Letra' : 'En cola'}</span>
-              <button
-                className="exp-drawer-close"
-                onClick={() => setExpPanel('none')}
-                title="Cerrar"
-                aria-label="Cerrar panel"
-              >
-                <ChevronDown />
-              </button>
-            </div>
-            <div className="exp-drawer-body">
-              <div className="exp-drawer-ph">
-                Placeholder — {shownExpPanel === 'lyrics' ? 'Letra' : 'Cola'} (contenido real en E2c)
-              </div>
+            <div className="exp-drawer-inner">
+              {expPanel === 'queue'  && <QueueOverlay onClose={() => setExpPanel('none')} />}
+              {expPanel === 'lyrics' && <LyricsPanel onClose={() => setExpPanel('none')} immersive={false} />}
             </div>
           </div>
         </div>

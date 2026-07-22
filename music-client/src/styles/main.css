@@ -2857,23 +2857,24 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-bg { animation: none; }
 }
 
-/* ── E2b · Drawer del expandido DESKTOP (cascarón). Vive DENTRO de .player-expanded (fixed z-200
-   → stacking context propio): z-index:2 local, sobre .exp-bg (-1) y el cuerpo, bajo la Letra
-   (250) e Info (300). Sólido (D1), SIN backdrop-filter (no revive el buffeo). Sube por
+/* ── E2c · Drawer del expandido DESKTOP con contenido real. Vive DENTRO de .player-expanded
+   (fixed z-200 → stacking context propio): z-index:2 local, sobre .exp-bg(-1) y el cuerpo, bajo la
+   Letra (250) e Info (300). "Hoja sólida" (D1): SIN backdrop-filter (no revive el buffeo). Sube por
    transform: translateY (no anima height ni grid). Desktop-only (base display:none). ── */
 .exp-drawer { display: none; }
 @media (min-width: 701px) {
   .exp-drawer {
     display: flex; flex-direction: column;
     position: absolute;
-    /* a ras de borde: contrarresta el padding del expandido (28px lat., ~24px inf.) */
-    left: -28px; right: -28px;
-    bottom: calc(-1 * max(env(safe-area-inset-bottom), 24px));
+    /* inset unos px de los bordes → las esquinas redondeadas se ven; llega al fondo real.
+       (No usar valores negativos: .player-expanded tiene overflow-x:hidden y recorta el
+       excedente — era el bug de alineación de E2b, "N COLA".) */
+    left: 14px; right: 14px; bottom: 0;
     z-index: 2;
     background: #0d0d0d;
-    border-top: 1px solid var(--border);
-    border-radius: 14px 14px 0 0;
-    box-shadow: 0 -10px 34px rgba(0, 0, 0, .5);
+    border: 1px solid var(--border); border-bottom: none;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, .55);   /* suaviza la costura contra la canción */
     overflow: hidden;
     transform: translateY(100%);                 /* oculto por debajo */
     transition: transform .3s cubic-bezier(.22, 1, .36, 1);
@@ -2881,31 +2882,17 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   }
   .exp-drawer.open { transform: translateY(0); } /* sube a la vista (alto por style inline) */
 
+  /* Barrita (grabber) con AIRE arriba: no pegada a la costura superior. */
   .exp-drawer-grabber {
-    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-    width: 36px; height: 4px; border-radius: 2px;
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    width: 40px; height: 4px; border-radius: 2px; z-index: 1;
     background: rgba(255, 255, 255, .22);
   }
-  .exp-drawer-header {
-    flex-shrink: 0;
-    display: flex; align-items: center; gap: 10px;
-    padding: 20px 18px 12px;
-  }
-  .exp-drawer-title {
-    font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
-    color: var(--accent);
-  }
-  .exp-drawer-close {
-    margin-left: auto; background: none; border: none; color: var(--text-muted); cursor: pointer;
-    width: 34px; height: 34px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    transition: color .15s, background .15s;
-  }
-  .exp-drawer-close:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
-  .exp-drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 18px 18px; }
-  .exp-drawer-ph {
-    display: flex; align-items: center; justify-content: center; height: 100%; min-height: 120px;
-    color: var(--text-muted); font-size: 14px; text-align: center;
+  /* Contenido alineado con el bloque de la canción: misma caja centrada (max-width) que .exp-body
+     → mismo margen izquierdo, sin cortarse contra el filo (fix del bug de E2b). */
+  .exp-drawer-inner {
+    flex: 1; min-height: 0; width: 100%; max-width: 1040px; margin: 0 auto;
+    display: flex; flex-direction: column;
   }
 }
 @media (min-width: 701px) and (prefers-reduced-motion: reduce) {
@@ -4161,4 +4148,27 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     animation: none;                             /* aparición instantánea: cero jank */
   }
   .layout--queue .queue-bg { display: none; }    /* sin carátula difuminada en la columna sólida */
+}
+
+/* ── E2c · Contenido REUSADO dentro del drawer del expandido desktop: se montan QueueOverlay (cola:
+   mismo motor/pill/número/auto-scroll) y LyricsPanel (letra sincronizada, mismo .lrc/LRCLIB) TAL
+   CUAL, adaptados por CSS a "hoja sólida": posición estática (llenan .exp-drawer-inner), SIN fondo
+   difuminado ni backdrop-filter (no revive el buffeo). Va DESPUÉS del bloque C2 para ganar el
+   desempate de especificidad con .layout--queue .queue-panel. El cierre lo hace la X propia de
+   cada panel (onClose → expPanel='none'), además de Esc/atrás (escalera) y el toggle del expandido. ── */
+@media (min-width: 701px) {
+  .exp-drawer .queue-panel,
+  .exp-drawer .lyrics-panel {
+    position: static; inset: auto; z-index: auto;
+    flex: 1; min-height: 0; width: 100%;
+    background: none; border: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    animation: none;
+  }
+  .exp-drawer .queue-bg,
+  .exp-drawer .lyrics-bg { display: none; }        /* sin carátula difuminada (D1, sin blur) */
+  .exp-drawer .lyrics-toggle { display: none; }    /* sin "pantalla completa" dentro del drawer */
+  /* Aire para el grabber: el header del panel montado no arranca pegado a la costura superior. */
+  .exp-drawer .queue-header,
+  .exp-drawer .lyrics-header { padding-top: 22px; }
 }
