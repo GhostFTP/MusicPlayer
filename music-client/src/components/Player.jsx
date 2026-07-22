@@ -100,6 +100,13 @@ const SHEET_RADIUS = 24;  // px máximos del radio
 const sheetRadius = (y) => Math.min(SHEET_RADIUS, y * 0.5);
 const SHEET_EDGE = 'inset 0 1px 0 rgba(255, 255, 255, .1), 0 -18px 48px rgba(0, 0, 0, .45)';
 
+// ── Drawer del expandido desktop: alturas por panel (E2i) ──
+// El arrastre del grabber ajusta el TAMAÑO del panel activo; NUNCA cambia de panel.
+// Cada panel tiene su altura chica propia (la de siempre) y comparten la grande.
+const DRAWER_SMALL_VH = { queue: 38, lyrics: 58 };
+const DRAWER_LARGE_VH = 92;   // "casi pantalla completa" (afinable)
+const DRAWER_CLOSE_VH = 20;   // por debajo de esto, soltar cierra el drawer
+
 // Resistencia progresiva más allá de RUBBER_LIMIT (no un clamp seco).
 function rubber(dx) {
   const a = Math.abs(dx);
@@ -128,6 +135,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // expandido. En E1 solo es cableado: el layout de dos zonas llega en E2.
   const [expPanel, setExpPanel] = useState('none');
   const lastExpPanelRef = useRef('queue');   // último panel abierto (para el slide-down del drawer, E2b)
+  // E2i: tamaño COMMITTED del panel activo ('small' = su altura de siempre, 'large' = casi full).
+  // Combinado con expPanel da la altura destino del drawer. Abrir un panel siempre arranca en 'small'.
+  const [expDrawerSize, setExpDrawerSize] = useState('small');
   // E2h-1: grabber arrastrable. drawerH = alto EN VIVO (px) durante el drag, o null → usa expDrawerH.
   const [drawerH, setDrawerH] = useState(null);
   const [drawerDragging, setDrawerDragging] = useState(false);
@@ -706,21 +716,33 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // Drawer del expandido desktop (E2b): el panel mostrado y su alto derivan de expPanel. Al cerrar
   // (none) se conserva el ÚLTIMO panel → el slide-down baja desde el alto correcto y el contenido no
   // parpadea a un fallback mientras se cierra. queue → ~38vh (baja), lyrics → ~58vh (alta).
+  // E2i: el alto ya no depende SOLO del panel — es (panel × tamaño). 'small' = la altura de siempre
+  // del panel; 'large' = casi pantalla completa, la misma para los dos.
   if (expPanel !== 'none') lastExpPanelRef.current = expPanel;
   const shownExpPanel = expPanel === 'none' ? lastExpPanelRef.current : expPanel;
-  const expDrawerH = shownExpPanel === 'lyrics' ? '58vh' : '38vh';
+  const drawerSmallVh = DRAWER_SMALL_VH[shownExpPanel] ?? DRAWER_SMALL_VH.queue;
+  const expDrawerH = `${expDrawerSize === 'large' ? DRAWER_LARGE_VH : drawerSmallVh}vh`;
+  // E2i: abrir un panel (o cambiar de panel) con su botón lo arranca SIEMPRE en 'small'. Al cerrar
+  // NO se toca el tamaño: el drawer conserva su alto mientras baja (el slide se ve desde donde estaba).
+  const toggleExpPanel = (panel) => {
+    if (expPanel === panel) { setExpPanel('none'); return; }
+    setExpDrawerSize('small');
+    setExpPanel(panel);
+  };
   // E2d: cuánto SUBE el bloque de la canción al abrir el drawer (desktop-only). Sube más con la
   // letra (drawer alto) que con la cola (drawer bajo); vuelve a 0 al cerrar. Usa expPanel (no el
   // "último"): al cerrar baja de nuevo acompañando el slide del drawer. Valores afinables a ojo.
   const songLift = expPanel === 'lyrics' ? '-26vh' : expPanel === 'queue' ? '-14vh' : '0vh';
 
-  // E2h-1: grabber arrastrable (desktop-only). Sigue al puntero variando el ALTO del drawer
-  // (anclado bottom:0 → alto = viewportBottom − punteroY, clamp 0..65vh). Al soltar, snap por
-  // POSICIÓN: <19vh 'none' · 19–48vh 'queue' · >48vh 'lyrics' → setExpPanel (misma vía que la
-  // escalera; NUNCA history.back()). Sin transición durante el drag (clase .dragging). El
-  // reacomodo de la canción es al SOLTAR (opción b): songLift/.exp-lyrics-compact reaccionan a
-  // expPanel con sus transiciones, no se interpolan por frame.
-  const clampDrawerH = (h) => Math.max(0, Math.min(h, window.innerHeight * 0.65));
+  // E2h-1 + E2i: grabber arrastrable (desktop-only). Sigue al puntero variando el ALTO del drawer
+  // (anclado bottom:0 → alto = viewportBottom − punteroY, clamp 0..grande). Al soltar, snap por
+  // POSICIÓN pero SOBRE EL PANEL ACTIVO: el arrastre ajusta su TAMAÑO (chico ↔ grande) o lo cierra,
+  // y NUNCA cambia de panel (queue↔lyrics solo lo mueven los botones). Los umbrales salen de la
+  // altura chica DEL PANEL ACTIVO (38 o 58) y de la grande, no de valores fijos. El único cambio de
+  // expPanel que hace el drag es a 'none' (misma vía que la escalera; NUNCA history.back()). Sin
+  // transición durante el drag (clase .dragging). El reacomodo de la canción es al SOLTAR (opción b):
+  // songLift/.exp-lyrics-compact reaccionan a expPanel con sus transiciones, no por frame.
+  const clampDrawerH = (h) => Math.max(0, Math.min(h, window.innerHeight * (DRAWER_LARGE_VH / 100)));
   const onGrabberDown = (e) => {
     if (!window.matchMedia('(min-width: 701px)').matches) return;   // desktop-only
     clearTimeout(drawerCloseTimer.current);
@@ -739,14 +761,17 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     setDrawerDragging(false);
     const vh = window.innerHeight / 100;
     const h  = clampDrawerH(window.innerHeight - e.clientY);
-    const dest = h < 19 * vh ? 'none' : h < 48 * vh ? 'queue' : 'lyrics';
-    setExpPanel(dest);
-    if (dest === 'none') {
+    // Tres zonas relativas al panel activo: cerrar / chico (su altura propia) / grande.
+    // La frontera chico↔grande es el punto medio entre ambas alturas del panel.
+    const midVh = (drawerSmallVh + DRAWER_LARGE_VH) / 2;
+    if (h < DRAWER_CLOSE_VH * vh) {
+      setExpPanel('none');
       // Congelar el alto en el punto de suelta → el cierre (translateY) baja DESDE ahí, no crece
       // hacia expDrawerH; limpiar tras el slide.
       setDrawerH(h);
       drawerCloseTimer.current = setTimeout(() => setDrawerH(null), 320);
     } else {
+      setExpDrawerSize(h < midVh * vh ? 'small' : 'large');   // el panel NO cambia, solo su tamaño
       setDrawerH(null);   // el alto anima h → expDrawerH (destino)
     }
   };
@@ -990,14 +1015,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           <div className="exp-actions">
             <button
               className={`exp-icon-btn${expPanel === 'queue' ? ' active' : ''}`}
-              onClick={() => setExpPanel(p => (p === 'queue' ? 'none' : 'queue'))}
+              onClick={() => toggleExpPanel('queue')}
               title="Cola"
             >
               <QueueGlyph size={22} />
             </button>
             <button
               className={`exp-icon-btn${expPanel === 'lyrics' ? ' active' : ''}`}
-              onClick={() => setExpPanel(p => (p === 'lyrics' ? 'none' : 'lyrics'))}
+              onClick={() => toggleExpPanel('lyrics')}
               title="Letra"
             >
               <LyricsGlyph size={22} />
@@ -1035,7 +1060,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               onPointerUp={onGrabberUp}
               onPointerCancel={cancelGrabber}
               onLostPointerCapture={cancelGrabber}
-              title="Arrastrar para ajustar (letra / cola / cerrar)"
+              title="Arrastrar para agrandar / achicar / cerrar"
             />
             <div className="exp-drawer-inner">
               {expPanel === 'queue'  && <QueueOverlay onClose={() => setExpPanel('none')} />}
