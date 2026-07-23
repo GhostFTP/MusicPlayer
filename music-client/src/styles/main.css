@@ -4086,7 +4086,15 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .queue-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .queue-kicker { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); font-weight: 600; }
 .queue-shuf { font-size: 12px; color: var(--text-muted); }
-.queue-close { display: flex; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 8px; }
+.queue-close {
+  position: relative;   /* ancla del ::before que amplía el área táctil */
+  display: flex; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 8px;
+}
+/* D3 · Área táctil 44px (piso HIG) sin inflar el glifo (20px) ni el footprint visual del botón
+   (28×28: padding 4 + svg 20): hit-area transparente por ::before, misma técnica que
+   .exp-icon-btn. -8px por lado → 28 + 16 = 44. Sin gate: en desktop tampoco molesta (el botón
+   se ve igual y queda más fácil de acertar); el head-text está a 12px de gap, no lo alcanza. */
+.queue-close::before { content: ''; position: absolute; inset: -8px; }
 .queue-close:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
 
 .queue-body { position: relative; z-index: 1; flex: 1; overflow-y: auto; padding: 0 8px 14px; }
@@ -4097,7 +4105,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex; align-items: center; gap: 12px;
   padding: 7px 10px; border-radius: 10px; cursor: pointer;
 }
-.queue-row:hover { background: rgba(255, 255, 255, .05); }
+/* D5 · El realce por hover SOLO donde hay hover real. En táctil el :hover queda "pegado" tras el
+   tap y dejaba filas resaltadas al azar. Envolver (en vez de anular con hover:none) evita pelearle
+   por especificidad a .queue-row.current, que empata en (0,2,0) y va después. */
+@media (hover: hover) {
+  .queue-row:hover { background: rgba(255, 255, 255, .05); }
+}
 .queue-played { opacity: .42; }
 .queue-row.current { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
 
@@ -4109,8 +4122,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .queue-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .queue-cover-ph { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: rgba(255, 255, 255, .06); color: var(--text-muted); }
 .queue-play { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); color: #fff; font-size: 13px; }
-.queue-row:hover .queue-play { display: flex; }
-.queue-row.current:hover .queue-play { display: none; }   /* la actual no tapa las eq-bars con el play */
+/* D5 · Igual que el realce: el ▶ es una affordance de puntero. En táctil aparecía pegado sobre una
+   fila cualquiera después del tap (y el tap ya salta a la pista, así que no aporta nada). */
+@media (hover: hover) {
+  .queue-row:hover .queue-play { display: flex; }
+  .queue-row.current:hover .queue-play { display: none; }   /* la actual no tapa las eq-bars con el play */
+}
 
 .queue-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .queue-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -4136,6 +4153,33 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .queue-panel { animation: none; }
   .queue-eq i { animation: none; }
   .queue-progress-fill { transition: none; }
+}
+
+/* ── Cola en MÓVIL (<701px) · correcciones de posición y alcance. La regla base viene calibrada
+   para desktop y en móvil quedaba mal en tres puntos:
+
+   D1 (el grave) · `bottom: var(--player-h)` son 80px = la barra de DESKTOP. En móvil abajo hay DOS
+   barras: mini player (--mini-player-h 64) + tabs (--bottom-nav-h 60) + el home indicator. Como el
+   panel es fixed con z-index 255 y esas barras son hijos del grid SIN z-index (no posicionadas), la
+   cola se pintaba encima de los 44px superiores del mini player — le quedaban ~20px de 64 y sus
+   botones de 48 quedaban tapados. El bottom correcto es la suma real de las dos filas del grid,
+   con los mismos tokens que usa `.layout` en su grid-template-rows (nada de números mágicos).
+
+   D2 · El panel arranca en top:0 y el header solo tenía 18px de padding: con notch, el kicker
+   "EN COLA · N PISTAS" y la X quedaban bajo el recorte. Se calca el patrón de .player-expanded
+   —max(env(...), base)— en vez de sumar: el glass sigue cubriendo hasta el borde y solo baja el
+   contenido. El meta viewport ya trae viewport-fit=cover, así que env() actúa de verdad.
+
+   D7 · Aire abajo para el pulgar: 14px dejaban la última fila muy al filo. Afinable.
+
+   Desktop no se toca: este bloque es max-width 700 y el de C2/drawer es min-width 701 — mutuamente
+   excluyentes, sin depender del orden de fuente. ── */
+@media (max-width: 700px) {
+  .queue-panel {
+    bottom: calc(var(--mini-player-h) + var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+  .queue-header { padding-top: max(env(safe-area-inset-top), 18px); }
+  .queue-body   { padding-bottom: 24px; }
 }
 
 /* ── C2 · Desktop (≥701px): la cola es la 3ª columna del grid (.layout--queue), no un overlay.
