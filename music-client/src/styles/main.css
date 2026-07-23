@@ -3779,7 +3779,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      (ancho fijo, centrada); sólo crece la superficie tocable. */
   .exp-art-wrap { margin-top: auto; margin-bottom: 0; padding: 24px 0; }
   .exp-meta     { margin-top: auto; margin-bottom: 28px; }
-  .exp-controls { margin-bottom: 28px; }
+  /* Geometría de la fila de controles como TOKENS: la consume el propio expandido (acá) y
+     también la cola cuando se abre encima de él (bloque de la cola móvil, más abajo). El
+     expandido no ancla los controles con position — cuelgan del flujo — así que la única forma
+     de que la cola sepa dónde terminan es compartir estos dos números. La rama compacta
+     (≤680px de alto) los redefine y todo lo que los consume la sigue solo. */
+  :root { --exp-play-h: 70px; --exp-controls-mb: 28px; }
+  .exp-controls { margin-bottom: var(--exp-controls-mb); }
+  /* Mismo 70px que hoy da la regla base .exp-btn.play, ahora vía token (desktop la sigue
+     pisando con 76px en su propio media query, sin tocar). */
+  .exp-btn.play { width: var(--exp-play-h); height: var(--exp-play-h); }
   /* Volumen fuera en móvil: el volumen del sistema lo mandan los botones físicos
      del teléfono (iOS ignora audio.volume desde el navegador); un slider que a
      veces no responde es peor que ninguno. */
@@ -3953,9 +3962,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-title       { font-size: 18px; }
   .exp-artist      { font-size: 14px; }
   .exp-times       { margin-bottom: 16px; }
-  .exp-controls    { margin-bottom: 20px; gap: 12px; }
+  /* Los mismos 60/20 de siempre, ahora como token: la cola que se abre encima lee estos
+     valores y se acomoda sola en pantallas bajas, sin una segunda fórmula duplicada. */
+  :root            { --exp-play-h: 60px; --exp-controls-mb: 20px; }
+  .exp-controls    { margin-bottom: var(--exp-controls-mb); gap: 12px; }
   .exp-btn         { width: 48px; height: 48px; }
-  .exp-btn.play    { width: 60px; height: 60px; }
+  .exp-btn.play    { width: var(--exp-play-h); height: var(--exp-play-h); }
   .exp-header      { margin-bottom: 16px; min-height: 92px; }
 }
 
@@ -4086,7 +4098,15 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .queue-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .queue-kicker { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); font-weight: 600; }
 .queue-shuf { font-size: 12px; color: var(--text-muted); }
-.queue-close { display: flex; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 8px; }
+.queue-close {
+  position: relative;   /* ancla del ::before que amplía el área táctil */
+  display: flex; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 8px;
+}
+/* D3 · Área táctil 44px (piso HIG) sin inflar el glifo (20px) ni el footprint visual del botón
+   (28×28: padding 4 + svg 20): hit-area transparente por ::before, misma técnica que
+   .exp-icon-btn. -8px por lado → 28 + 16 = 44. Sin gate: en desktop tampoco molesta (el botón
+   se ve igual y queda más fácil de acertar); el head-text está a 12px de gap, no lo alcanza. */
+.queue-close::before { content: ''; position: absolute; inset: -8px; }
 .queue-close:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
 
 .queue-body { position: relative; z-index: 1; flex: 1; overflow-y: auto; padding: 0 8px 14px; }
@@ -4097,7 +4117,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   display: flex; align-items: center; gap: 12px;
   padding: 7px 10px; border-radius: 10px; cursor: pointer;
 }
-.queue-row:hover { background: rgba(255, 255, 255, .05); }
+/* D5 · El realce por hover SOLO donde hay hover real. En táctil el :hover queda "pegado" tras el
+   tap y dejaba filas resaltadas al azar. Envolver (en vez de anular con hover:none) evita pelearle
+   por especificidad a .queue-row.current, que empata en (0,2,0) y va después. */
+@media (hover: hover) {
+  .queue-row:hover { background: rgba(255, 255, 255, .05); }
+}
 .queue-played { opacity: .42; }
 .queue-row.current { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
 
@@ -4109,8 +4134,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .queue-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .queue-cover-ph { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: rgba(255, 255, 255, .06); color: var(--text-muted); }
 .queue-play { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); color: #fff; font-size: 13px; }
-.queue-row:hover .queue-play { display: flex; }
-.queue-row.current:hover .queue-play { display: none; }   /* la actual no tapa las eq-bars con el play */
+/* D5 · Igual que el realce: el ▶ es una affordance de puntero. En táctil aparecía pegado sobre una
+   fila cualquiera después del tap (y el tap ya salta a la pista, así que no aporta nada). */
+@media (hover: hover) {
+  .queue-row:hover .queue-play { display: flex; }
+  .queue-row.current:hover .queue-play { display: none; }   /* la actual no tapa las eq-bars con el play */
+}
 
 .queue-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .queue-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -4136,6 +4165,71 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .queue-panel { animation: none; }
   .queue-eq i { animation: none; }
   .queue-progress-fill { transition: none; }
+}
+
+/* ── Cola en MÓVIL (<701px) · correcciones de posición y alcance. La regla base viene calibrada
+   para desktop y en móvil quedaba mal en tres puntos:
+
+   D1 (el grave) · `bottom: var(--player-h)` son 80px = la barra de DESKTOP. En móvil abajo hay DOS
+   barras: mini player (--mini-player-h 64) + tabs (--bottom-nav-h 60) + el home indicator. Como el
+   panel es fixed con z-index 255 y esas barras son hijos del grid SIN z-index (no posicionadas), la
+   cola se pintaba encima de los 44px superiores del mini player — le quedaban ~20px de 64 y sus
+   botones de 48 quedaban tapados. El bottom correcto es la suma real de las dos filas del grid,
+   con los mismos tokens que usa `.layout` en su grid-template-rows (nada de números mágicos).
+
+   D2 · El panel arranca en top:0 y el header solo tenía 18px de padding: con notch, el kicker
+   "EN COLA · N PISTAS" y la X quedaban bajo el recorte. Se calca el patrón de .player-expanded
+   —max(env(...), base)— en vez de sumar: el glass sigue cubriendo hasta el borde y solo baja el
+   contenido. El meta viewport ya trae viewport-fit=cover, así que env() actúa de verdad.
+
+   D7 · Aire abajo para el pulgar: 14px dejaban la última fila muy al filo. Afinable.
+
+   Desktop no se toca: este bloque es max-width 700 y el de C2/drawer es min-width 701 — mutuamente
+   excluyentes, sin depender del orden de fuente. ── */
+@media (max-width: 700px) {
+  .queue-panel {
+    bottom: calc(var(--mini-player-h) + var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+  .queue-header { padding-top: max(env(safe-area-inset-top), 18px); }
+  .queue-body   { padding-bottom: 24px; }
+
+  /* Cola abierta DESDE EL EXPANDIDO · el bottom de arriba describe las dos barras de la vista
+     normal, y con el expandido abierto esas barras no se ven: .player-expanded es inset:0 z200 y
+     las tapa por completo (son hijos del grid, sin z-index). Lo que queda debajo de la cola es la
+     fila de controles del expandido, así que el corte tiene que salir de SU geometría. Con los
+     valores viejos el borde inferior caía a ~2px del tope del play (70+28+24 = 122 contra 124):
+     no lo tapaba, pero quedaba rasante y se leía como recortado.
+
+     El gancho es CSS puro: .player-expanded solo existe en el DOM mientras el expandido está
+     abierto, y es hermano ANTERIOR de .queue-panel (Layout monta <Player> —un fragment que lo
+     incluye— antes que <QueueOverlay>). El selector se enciende y se apaga solo: sin expandido no
+     matchea y rige el bottom de las barras de arriba, que es el caso ya validado.
+
+     Una sola fórmula para las dos ramas: en pantallas bajas los tokens valen 60/20 y esto se
+     reacomoda solo. Los 10px son el aire — único número a ojo, afinable. ── */
+  .player-expanded ~ .queue-panel {
+    bottom: calc(var(--exp-play-h) + var(--exp-controls-mb) + max(env(safe-area-inset-bottom), 24px) + 10px);
+  }
+
+  /* A · El header se comía el kicker y la X. No lo recorta nada del CSS —el header conserva sus
+     ~58px (nada lo comprime: .queue-body es flex 1 1 0% con overflow auto, así que su min-height
+     auto vale 0 y sobra espacio libre)—: lo que tapa es la BARRA DE ESTADO del sistema. El panel
+     llega a top:0 y el contenido arrancaba a 18px, o sea dentro de esa franja; por eso se cortaban
+     las dos cosas a la vez estando en extremos opuestos (hora a la izquierda sobre el kicker,
+     batería/señal a la derecha sobre la X). En hardware con notch no se nota porque
+     env(safe-area-inset-top) ≈ 59px gana el max() y baja el contenido solo; en emulación env()
+     vale 0 y el max() caía a los 18px. Subir el PISO del max() arregla los dos mundos: con notch
+     sigue ganando env() (≥44 en todos), sin notch garantiza aire bajo la barra de estado. Se
+     aplica solo acá para no mover la vista normal, que ya está validada. */
+  .player-expanded ~ .queue-panel .queue-header {
+    padding-top: max(env(safe-area-inset-top), 44px);
+  }
+
+  /* B · El vacío entre la última pista y los controles se sumaba de dos lados: el padding-bottom
+     de 24px del cuerpo (pensado para la vista normal, donde abajo hay barras y el pulgar necesita
+     alcance) MÁS el aire del bottom. Acá abajo no hay barras sino los controles del expandido, que
+     ya traen su propio colchón, así que el cuerpo cede su padding y el aire lo da el gap. */
+  .player-expanded ~ .queue-panel .queue-body { padding-bottom: 10px; }
 }
 
 /* ── C2 · Desktop (≥701px): la cola es la 3ª columna del grid (.layout--queue), no un overlay.

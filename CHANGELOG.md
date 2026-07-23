@@ -3,6 +3,22 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.8.1] - 2026-07-22
+
+### Corregido
+- **La cola ya no tapa el reproductor en el teléfono**: la lista termina por encima
+  de los controles y de las pestañas, así que los botones de reproducción quedan
+  siempre a la vista.
+- **La cola respeta el borde de la pantalla**: el título y el botón de cerrar ya no
+  quedan por debajo de la barra de estado del teléfono.
+- **Botón de cerrar más fácil de tocar**: el área táctil creció al tamaño
+  recomendado, sin cambiar cómo se ve.
+- **Se acabaron las filas resaltadas al azar**: en pantallas táctiles ya no queda
+  "pegado" el resaltado ni el botón de reproducir sobre una pista cualquiera
+  después de tocarla.
+- **Mejor espaciado en la cola**: más aire para alcanzar la última pista con el
+  pulgar y menos hueco vacío cuando la cola se abre sobre la canción.
+
 ## [1.8.0] - 2026-07-22
 
 ### Añadido
