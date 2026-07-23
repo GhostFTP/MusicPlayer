@@ -4206,10 +4206,30 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      matchea y rige el bottom de las barras de arriba, que es el caso ya validado.
 
      Una sola fórmula para las dos ramas: en pantallas bajas los tokens valen 60/20 y esto se
-     reacomoda solo. Los 14px son el aire — único número a ojo, afinable. ── */
+     reacomoda solo. Los 10px son el aire — único número a ojo, afinable. ── */
   .player-expanded ~ .queue-panel {
-    bottom: calc(var(--exp-play-h) + var(--exp-controls-mb) + max(env(safe-area-inset-bottom), 24px) + 14px);
+    bottom: calc(var(--exp-play-h) + var(--exp-controls-mb) + max(env(safe-area-inset-bottom), 24px) + 10px);
   }
+
+  /* A · El header se comía el kicker y la X. No lo recorta nada del CSS —el header conserva sus
+     ~58px (nada lo comprime: .queue-body es flex 1 1 0% con overflow auto, así que su min-height
+     auto vale 0 y sobra espacio libre)—: lo que tapa es la BARRA DE ESTADO del sistema. El panel
+     llega a top:0 y el contenido arrancaba a 18px, o sea dentro de esa franja; por eso se cortaban
+     las dos cosas a la vez estando en extremos opuestos (hora a la izquierda sobre el kicker,
+     batería/señal a la derecha sobre la X). En hardware con notch no se nota porque
+     env(safe-area-inset-top) ≈ 59px gana el max() y baja el contenido solo; en emulación env()
+     vale 0 y el max() caía a los 18px. Subir el PISO del max() arregla los dos mundos: con notch
+     sigue ganando env() (≥44 en todos), sin notch garantiza aire bajo la barra de estado. Se
+     aplica solo acá para no mover la vista normal, que ya está validada. */
+  .player-expanded ~ .queue-panel .queue-header {
+    padding-top: max(env(safe-area-inset-top), 44px);
+  }
+
+  /* B · El vacío entre la última pista y los controles se sumaba de dos lados: el padding-bottom
+     de 24px del cuerpo (pensado para la vista normal, donde abajo hay barras y el pulgar necesita
+     alcance) MÁS el aire del bottom. Acá abajo no hay barras sino los controles del expandido, que
+     ya traen su propio colchón, así que el cuerpo cede su padding y el aire lo da el gap. */
+  .player-expanded ~ .queue-panel .queue-body { padding-bottom: 10px; }
 }
 
 /* ── C2 · Desktop (≥701px): la cola es la 3ª columna del grid (.layout--queue), no un overlay.
