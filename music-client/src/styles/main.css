@@ -3779,7 +3779,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      (ancho fijo, centrada); sólo crece la superficie tocable. */
   .exp-art-wrap { margin-top: auto; margin-bottom: 0; padding: 24px 0; }
   .exp-meta     { margin-top: auto; margin-bottom: 28px; }
-  .exp-controls { margin-bottom: 28px; }
+  /* Geometría de la fila de controles como TOKENS: la consume el propio expandido (acá) y
+     también la cola cuando se abre encima de él (bloque de la cola móvil, más abajo). El
+     expandido no ancla los controles con position — cuelgan del flujo — así que la única forma
+     de que la cola sepa dónde terminan es compartir estos dos números. La rama compacta
+     (≤680px de alto) los redefine y todo lo que los consume la sigue solo. */
+  :root { --exp-play-h: 70px; --exp-controls-mb: 28px; }
+  .exp-controls { margin-bottom: var(--exp-controls-mb); }
+  /* Mismo 70px que hoy da la regla base .exp-btn.play, ahora vía token (desktop la sigue
+     pisando con 76px en su propio media query, sin tocar). */
+  .exp-btn.play { width: var(--exp-play-h); height: var(--exp-play-h); }
   /* Volumen fuera en móvil: el volumen del sistema lo mandan los botones físicos
      del teléfono (iOS ignora audio.volume desde el navegador); un slider que a
      veces no responde es peor que ninguno. */
@@ -3953,9 +3962,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-title       { font-size: 18px; }
   .exp-artist      { font-size: 14px; }
   .exp-times       { margin-bottom: 16px; }
-  .exp-controls    { margin-bottom: 20px; gap: 12px; }
+  /* Los mismos 60/20 de siempre, ahora como token: la cola que se abre encima lee estos
+     valores y se acomoda sola en pantallas bajas, sin una segunda fórmula duplicada. */
+  :root            { --exp-play-h: 60px; --exp-controls-mb: 20px; }
+  .exp-controls    { margin-bottom: var(--exp-controls-mb); gap: 12px; }
   .exp-btn         { width: 48px; height: 48px; }
-  .exp-btn.play    { width: 60px; height: 60px; }
+  .exp-btn.play    { width: var(--exp-play-h); height: var(--exp-play-h); }
   .exp-header      { margin-bottom: 16px; min-height: 92px; }
 }
 
@@ -4180,6 +4192,24 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   }
   .queue-header { padding-top: max(env(safe-area-inset-top), 18px); }
   .queue-body   { padding-bottom: 24px; }
+
+  /* Cola abierta DESDE EL EXPANDIDO · el bottom de arriba describe las dos barras de la vista
+     normal, y con el expandido abierto esas barras no se ven: .player-expanded es inset:0 z200 y
+     las tapa por completo (son hijos del grid, sin z-index). Lo que queda debajo de la cola es la
+     fila de controles del expandido, así que el corte tiene que salir de SU geometría. Con los
+     valores viejos el borde inferior caía a ~2px del tope del play (70+28+24 = 122 contra 124):
+     no lo tapaba, pero quedaba rasante y se leía como recortado.
+
+     El gancho es CSS puro: .player-expanded solo existe en el DOM mientras el expandido está
+     abierto, y es hermano ANTERIOR de .queue-panel (Layout monta <Player> —un fragment que lo
+     incluye— antes que <QueueOverlay>). El selector se enciende y se apaga solo: sin expandido no
+     matchea y rige el bottom de las barras de arriba, que es el caso ya validado.
+
+     Una sola fórmula para las dos ramas: en pantallas bajas los tokens valen 60/20 y esto se
+     reacomoda solo. Los 14px son el aire — único número a ojo, afinable. ── */
+  .player-expanded ~ .queue-panel {
+    bottom: calc(var(--exp-play-h) + var(--exp-controls-mb) + max(env(safe-area-inset-bottom), 24px) + 14px);
+  }
 }
 
 /* ── C2 · Desktop (≥701px): la cola es la 3ª columna del grid (.layout--queue), no un overlay.
