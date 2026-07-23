@@ -149,11 +149,12 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // M3a: arrastre de cierre de la hoja de la cola (MÓVIL). Estado propio, separado del sheet del
   // expandido: son dos gestos distintos sobre superficies distintas y no deben compartir fase.
   const [qDragY, setQDragY] = useState(0);    // desplazamiento vertical de la hoja durante el drag
-  const [qSheet, setQSheet] = useState('idle');   // idle | drag | return | closing
-  const qGesture = useRef(null);              // { x0, y0, dir, by, lastY, lastT, vy } | null
-  const qReturnTimer = useRef(null);          // timer del snap-back
-  const qCloseDur = useRef(DUR_CLOSE);        // duraciones en curso (las leen los estilos)
-  const qBackDur = useRef(DUR_BACK_MAX);
+  const [qSheet, setQSheet] = useState('idle');   // idle | drag | snap | closing
+  const qGesture = useRef(null);              // { x0, y0, dir, by, lastY, lastT, vy, delta, maxUp } | null
+  const qReturnTimer = useRef(null);          // timer del snap
+  const qCloseDur = useRef(DUR_CLOSE);        // duración del cierre en curso (la lee el estilo)
+  const qBaseH = useRef(0);                   // alto de la hoja al empezar el arrastre (M3b)
+  const qSnap = useRef(null);                 // estilo destino del snap, ya resuelto (M3b)
   const drawerRef = useRef(null);             // nodo de la hoja (alto real para el momentum)
   // showQueue vive en Layout (C1: la cola pasa a ser hija de .layout, futura columna del grid
   // en desktop). Llega por prop y se usa igual acá (botones, dismissTop, layerDepth, hidden).
@@ -846,17 +847,50 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   //    (regla dura #3 de nav-lab); el popstate no se toca.
   const cancelQueueReturn = () => {
     if (qReturnTimer.current) { clearTimeout(qReturnTimer.current); qReturnTimer.current = null; }
-    setQSheet(s => (s === 'return' ? 'idle' : s));
+    setQSheet(s => (s === 'snap' ? 'idle' : s));
   };
-  // Vuelta con spring si no se alcanzó el umbral, con duración proporcional a lo recorrido.
-  const queueBack = () => {
-    if (reduced) { setQSheet('idle'); setQDragY(0); return; }
-    const dur = Math.round(Math.min(DUR_BACK_MAX, Math.max(DUR_BACK_MIN, qDragY * 2)));
-    qBackDur.current = dur;
-    setQSheet('return');
-    setQDragY(0);
+  // M3b · Distancia entre los dos destinos de tamaño. Sale de los DOS tokens reales del CSS, no de
+  // un número escrito acá: si mañana se recalibra --exp-song-h, el gesto lo sigue solo. Si por lo
+  // que fuera no se pudieran leer, delta 0 → estirar queda inerte y el gesto se degrada al cierre
+  // de M3a, nunca a algo roto.
+  const readSongDelta = () => {
+    const cs = getComputedStyle(document.documentElement);
+    const small = parseFloat(cs.getPropertyValue('--exp-song-h'));
+    const large = parseFloat(cs.getPropertyValue('--exp-song-h-large'));
+    return Number.isFinite(small) && Number.isFinite(large) ? Math.max(0, small - large) : 0;
+  };
+  // M3b · Snap a un TAMAÑO (chica o grande), con spring y duración proporcional a lo que falta.
+  //
+  // Por qué hay DOS mecanismos y no uno: la hoja está anclada abajo (bottom:0). Moverla con
+  // transform arrastra las DOS aristas, así que sirve para bajarla (la base se sale de pantalla y
+  // el overflow del expandido la recorta) pero NO para estirarla — al subirla despegaría la base
+  // del borde inferior y dejaría un hueco. Estirar, entonces, es crecer de ALTO con la base
+  // clavada (top:auto + height). En dy = 0 los dos dan el mismo resultado visual, así que la
+  // discontinuidad es de mecanismo, no de imagen.
+  //
+  // El truco para que el commit no salte: la geometría real NO cambia durante la animación — se
+  // anima hasta la posición/alto del destino y recién al terminar se COMMITEA el tamaño (que mueve
+  // el top vía --exp-song-h) limpiando el estilo inline. En ese frame la imagen es idéntica, así
+  // que el intercambio es invisible. Y la canción cambia de composición ahí, no a mitad del
+  // arrastre: "se ajusta al soltar", igual que E2d/E2e en desktop.
+  const snapQueue = (dest, delta) => {
+    const commit = () => { setExpDrawerSize(dest); setQSheet('idle'); setQDragY(0); qSnap.current = null; };
+    if (reduced) { commit(); return; }
+    const big = expDrawerSize === 'large';
+    const hSmall = big ? qBaseH.current - delta : qBaseH.current;
+    const targetH = dest === 'large' ? hSmall + delta : hSmall;
+    const stretching = qDragY < 0;                       // el dedo fue hacia ARRIBA → modo alto
+    const nowH = qBaseH.current - qDragY;                // alto visible en este momento
+    const targetY = dest === expDrawerSize ? 0 : delta;  // (bajar de grande a chica; subir va por alto)
+    const dist = stretching ? Math.abs(nowH - targetH) : Math.abs(qDragY - targetY);
+    const dur = Math.round(Math.min(DUR_BACK_MAX, Math.max(DUR_BACK_MIN, dist * 2)));
+    const ease = 'cubic-bezier(.34, 1.42, .6, 1)';
+    qSnap.current = stretching
+      ? { top: 'auto', height: `${targetH}px`, transition: `height ${dur}ms ${ease}` }
+      : { transform: `translateY(${targetY}px)`, transition: `transform ${dur}ms ${ease}` };
+    setQSheet('snap');
     clearTimeout(qReturnTimer.current);
-    qReturnTimer.current = setTimeout(() => { qReturnTimer.current = null; setQSheet('idle'); }, dur + 40);
+    qReturnTimer.current = setTimeout(() => { qReturnTimer.current = null; commit(); }, dur + 20);
   };
   // Cierre con momentum: la duración continúa la velocidad del flick (distancia restante / vy,
   // con los mismos clamps del sheet). La hoja baja su propio alto (translateY 100%) y recién al
@@ -877,7 +911,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     if (!e.target.closest?.('.queue-header, .exp-drawer-grabber')) return;
     if (e.target.closest?.('button, a, input, [role="button"]')) return;   // la X no arranca drag
     cancelQueueReturn();      // reintento rápido tras un rebote: no congelar el drag nuevo
-    qGesture.current = { x0: e.clientX, y0: e.clientY, dir: null, by: e.clientY, lastY: e.clientY, lastT: e.timeStamp, vy: 0 };
+    // maxUp: cuánto se puede estirar hacia arriba desde el tamaño actual. Si ya está grande, 0
+    // (no hay nada más alto) → el arrastre hacia arriba queda topado, sin rubber.
+    const delta = readSongDelta();
+    qBaseH.current = drawerRef.current?.offsetHeight || 0;   // base del modo "crecer de alto"
+    qGesture.current = {
+      x0: e.clientX, y0: e.clientY, dir: null, by: e.clientY, lastY: e.clientY, lastT: e.timeStamp, vy: 0,
+      delta, maxUp: expDrawerSize === 'large' ? 0 : delta,
+    };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
   const onQueueDragMove = (e) => {
@@ -886,7 +927,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     const dx = e.clientX - g.x0;
     const dy = e.clientY - g.y0;
     if (g.dir === null) {
-      if (dy < AXIS_DIST || dy < Math.abs(dx) * AXIS_DOM) return;   // indeciso, o no es un cierre
+      // M3b: el eje vertical ahora vale en LOS DOS sentidos (abajo cierra, arriba estira), así que
+      // se mide el valor absoluto. La dominancia sobre el horizontal se exige igual.
+      const ady = Math.abs(dy);
+      if (ady < AXIS_DIST || ady < Math.abs(dx) * AXIS_DOM) return;  // indeciso, o es horizontal
       g.dir = 'y';
       g.by = e.clientY;                                             // re-base del offset renderizado
       g.lastY = e.clientY; g.lastT = e.timeStamp;                   // velocidad desde el fijado
@@ -894,34 +938,66 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     }
     const dt = e.timeStamp - g.lastT;
     if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
-    setQDragY(Math.max(0, e.clientY - g.by));                       // sólo hacia abajo
+    // Hacia abajo sin tope (más allá de "chica" se entra en zona de cierre); hacia arriba, topado
+    // en el tamaño grande, sin rubber. El signo decide el mecanismo en drawerStyle: bajar mueve la
+    // hoja entera, subir la hace crecer de alto (ver snapQueue).
+    setQDragY(Math.max(-g.maxUp, e.clientY - g.by));
   };
+  // M3b · Snap a TRES destinos: cerrar / chica / grande. Los umbrales salen de las dos alturas
+  // reales (delta), no de números mágicos: la frontera chica↔grande es el punto medio entre las
+  // dos, y para cerrar hay que pasarse CLOSE_DIST por DEBAJO de donde queda "chica". Como el
+  // origen del arrastre es la posición actual, "chica" está en 0 si ya era chica, o en +delta si
+  // venía de grande. La velocidad manda sobre la posición (mismo criterio que el sheet): un flick
+  // mueve UN escalón — grande→chica, chica→cerrar — y hacia arriba lleva a grande.
   const onQueueDragUp = (e) => {
     const g = qGesture.current;
     qGesture.current = null;
     if (!g || g.dir !== 'y') return;
-    const dy = Math.max(0, e.clientY - g.y0);                       // umbral desde el down
-    const flick = g.vy > CLOSE_VEL && dy > CLOSE_MIN;
-    if (dy >= CLOSE_DIST || flick) closeQueueSheet(g.vy);
-    else queueBack();
+    const dy = Math.max(-g.maxUp, e.clientY - g.y0);   // umbral desde el down, con el mismo tope
+    const d = g.delta;                                  // separación real entre los dos tamaños
+    const big = expDrawerSize === 'large';
+    const smallAt = big ? d : 0;                        // dónde cae "chica" en coordenadas del gesto
+    const flickDown = g.vy >  CLOSE_VEL && dy >  CLOSE_MIN;
+    const flickUp   = g.vy < -CLOSE_VEL && dy < -CLOSE_MIN;
+
+    let dest;
+    if (d > 0 && flickUp)                     dest = 'large';
+    else if (flickDown)                       dest = big ? 'small' : 'close';
+    else if (dy >= smallAt + CLOSE_DIST)      dest = 'close';
+    else if (d > 0 && dy <= smallAt - d / 2)  dest = 'large';
+    else                                      dest = 'small';
+
+    if (dest === 'close') closeQueueSheet(g.vy);
+    else snapQueue(dest, d);
   };
-  // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
+  // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias — vuelve al
+  // tamaño en el que estaba, sin cambiarlo.
   const cancelQueueDrag = () => {
     const g = qGesture.current;
     if (!g) return;
     const wasY = g.dir === 'y';
     qGesture.current = null;
-    if (wasY) queueBack();
+    if (wasY) snapQueue(expDrawerSize, g.delta);
   };
   // Estilo de la hoja. En DESKTOP se devuelve exactamente lo de siempre (alto por panel × tamaño,
   // o el px en vivo del grabber) — el arrastre de cierre es móvil y no lo roza. En móvil el alto
   // lo pone el CSS y acá sólo viaja el transform del gesto; en reposo no se emite nada y manda la
   // clase .open del CSS (incluida su transición de entrada/salida).
+  // M3b · La hoja grande en MÓVIL. Sólo acá: en desktop expDrawerSize ya significa otra cosa (el
+  // alto del drawer por style inline) y ninguna regla mira esta clase, pero se gatea igual para
+  // que el DOM no mienta.
+  const expBigDrawer = isMobile && expPanel !== 'none' && expDrawerSize === 'large';
   const drawerStyle = () => {
     if (!isMobile) return { height: drawerH != null ? `${drawerH}px` : expDrawerH };
-    if (qSheet === 'drag')    return { transform: `translateY(${qDragY}px)`, transition: 'none', willChange: 'transform' };
+    // Arrastre: hacia ABAJO se mueve entera (transform, la base se recorta fuera de pantalla);
+    // hacia ARRIBA crece de alto con la base clavada (ver snapQueue para el porqué).
+    if (qSheet === 'drag') {
+      return qDragY < 0
+        ? { top: 'auto', height: `${qBaseH.current - qDragY}px`, transition: 'none', willChange: 'height' }
+        : { transform: `translateY(${qDragY}px)`, transition: 'none', willChange: 'transform' };
+    }
     if (qSheet === 'closing') return { transform: 'translateY(100%)', transition: `transform ${qCloseDur.current}ms cubic-bezier(.22, 1, .36, 1)` };
-    if (qSheet === 'return')  return { transform: 'translateY(0)', transition: `transform ${qBackDur.current}ms cubic-bezier(.34, 1.42, .6, 1)` };
+    if (qSheet === 'snap')    return qSnap.current ?? undefined;
     return drawerH != null ? { height: `${drawerH}px` } : undefined;
   };
 
@@ -966,7 +1042,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           nunca queda huérfano. pointer-events: none en CSS. */}
       {expanded && <div className="exp-scrim" style={scrimStyle()} aria-hidden="true" />}
       {expanded && (
-        <div className={`player-expanded${expPanel !== 'none' ? ' exp-has-drawer' : ''}`} style={sheetStyle()}>
+        <div className={`player-expanded${expPanel !== 'none' ? ' exp-has-drawer' : ''}${expBigDrawer ? ' exp-drawer-large' : ''}`} style={sheetStyle()}>
           {/* Fondo: carátula actual difuminada + overlay oscuro. key → refade al
               cambiar de canción. aria-hidden: decorativo. */}
           {currentTrack?.cover_path && (

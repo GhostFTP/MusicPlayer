@@ -2951,23 +2951,28 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    real no entró y, con overflow:hidden, no entrar significa RECORTARSE (carátula cortada al medio,
    controles desaparecidos). El enfoque de "que quepa" se descarta entero: con la hoja abierta la
    canción pasa a una composición compacta propia de alto fijo y la hoja toma el resto — nadie
-   compite por el espacio. Los dos únicos números que quedan (--exp-header-h, --exp-compact-h) son
+   compite por el espacio. Los números que quedan (--exp-header-h, --exp-song-h[-large]) son
    ALTOS DECLARADOS, no estimaciones: el contenido se acomoda a ellos y no al revés. ── */
 @media (max-width: 700px) {
   :root {
     --exp-header-h:  140px;   /* franja de agarre del swipe-down (mobile-lab) */
-    /* Alto FIJO del bloque de la canción con la hoja abierta (M1c). M1h · 172 → 316: la hoja bajó
-       en M1e/f/g y quedaban ~156px muertos entre el bloque y su borde; el bloque los absorbe.
-       OJO al tocarlo: --exp-compact-h + --exp-drawer-gap es el presupuesto entre el header y la
-       hoja. Si querés cambiar el TAMAÑO del bloque sin mover la hoja, los dos se compensan
-       (316 + 12 = 172 + 156 = 328). Si querés mover la hoja, cambiá el gap solo. */
-    --exp-compact-h: 316px;
+    /* Alto FIJO del bloque de la canción con la hoja abierta. DOS valores, uno por tamaño de hoja
+       (M3b): con la hoja CHICA la canción se ve entera (composición vertical de M1h, portada
+       grande); con la hoja GRANDE se compacta a la composición de M1c (miniatura + título al lado)
+       para cederle el alto. El intercambio lo hace .exp-drawer-large redefiniendo --exp-song-h.
+       Los dos son ALTOS DECLARADOS, no estimaciones: el contenido se acomoda a ellos. Y de los dos
+       sale TODO lo demás —el alto del bloque y el borde superior de la hoja— así que la geometría
+       nunca puede pelearse consigo misma.
+       ⚠️ Tienen que ser longitudes PLANAS (nada de calc): el gesto las lee con parseFloat para
+       saber cuánto separa a los dos destinos del snap. */
+    --exp-song-h:       316px;
+    --exp-song-h-large: 172px;
     /* M1d · aire entre el bloque compacto y la hoja. Es el knob para subir/bajar la hoja: como su
        alto es DERIVADO (top calculado, bottom 0), no hay un "--exp-drawer-h" que tocar — se corre
        el borde superior y el alto se acomoda solo. Afinable a ojo.
        M1e · 44 → 88 (otro escalón igual, a pedido de la prueba de Oscar). M1f · 88 → 132 (otro
        más). M1g · 132 → 156 (escalón chico, +24: Oscar pidió "un poco más" y no otro salto).
-       M1h · 156 → 12: la hoja NO se mueve, el espacio se lo lleva --exp-compact-h (ver ahí).
+       M1h · 156 → 12: la hoja NO se mueve, el espacio se lo lleva --exp-song-h (ver ahí).
        Bajar la hoja no puede recortar nada: el bloque de arriba tiene alto fijo y sólo cede la
        hoja, que scrollea. */
     --exp-drawer-gap: 12px;
@@ -3021,7 +3026,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
        `top` se mide desde la caja de padding (que empieza ARRIBA del padding-top), por eso el
        primer sumando. Con top+bottom fijos y height:auto no hay número de alto que pueda pelearse
        con el contenido: es la raíz por la que M1b recortaba. */
-    top: calc(max(env(safe-area-inset-top), 20px) + var(--exp-header-h) + var(--exp-compact-h) + var(--exp-drawer-gap));
+    top: calc(max(env(safe-area-inset-top), 20px) + var(--exp-header-h) + var(--exp-song-h) + var(--exp-drawer-gap));
     height: auto;
     z-index: 2;
     background: #0d0d0d;                          /* hoja sólida, sin blur (igual que el desktop) */
@@ -3100,7 +3105,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      apretarse: es recortarse (carátula cortada al medio, controles desaparecidos).
 
      Acá el bloque deja de ser el expandido y pasa a ser una composición propia de ALTO FIJO
-     (--exp-compact-h) con sólo lo esencial — como Spotify/Apple Music al abrir la cola. La hoja
+     (--exp-song-h) con sólo lo esencial — como Spotify/Apple Music al abrir la cola. La hoja
      toma exactamente el resto (top calculado, bottom 0). NADA compite: sin auto-margins y sin
      presupuesto que pueda fallar, el recorte deja de ser posible POR CONSTRUCCIÓN.
 
@@ -3135,7 +3140,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     align-content: start;
     row-gap: 12px;
     flex: none;
-    height: var(--exp-compact-h);
+    height: var(--exp-song-h);
     /* Sin safe-area abajo: acá termina el bloque, no la pantalla — el home indicator lo respeta
        el cuerpo de la hoja, que es quien apoya en el borde. */
     padding: 0 max(env(safe-area-inset-right), 28px) 0 max(env(safe-area-inset-left), 28px);
@@ -3177,6 +3182,52 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-expanded.exp-has-drawer .exp-controls { margin: 0; gap: 12px; }
   .player-expanded.exp-has-drawer .exp-controls .exp-btn      { width: 44px; height: 44px; }
   .player-expanded.exp-has-drawer .exp-controls .exp-btn.play { width: 60px; height: 60px; }
+
+  /* ── M3b · HOJA GRANDE: la canción se compacta ────────────────────────────────────────────
+     Al estirar la hoja hacia arriba, el bloque de la canción vuelve a la composición de M1c
+     —miniatura + título al lado, progreso, controles esenciales— para cederle el alto. NO es una
+     composición nueva: es exactamente la que se diseñó para este caso y que M1h reemplazó cuando
+     el bloque tuvo espacio de sobra. Las dos conviven ahora, una por tamaño de hoja.
+
+     Una sola línea hace la geometría: redefinir --exp-song-h en el subárbol. El alto del bloque y
+     el borde superior de la hoja salen los dos de ese token, así que se mueven juntos y no hay
+     forma de que queden desincronizados.
+
+     Alto: 64 (miniatura) + 10 + 22 (progreso) + 10 + 56 (play) = 162 dentro de los 172 → ~10px de
+     holgura abajo. Mismo determinismo que el otro estado. ── */
+  .player-expanded.exp-drawer-large { --exp-song-h: var(--exp-song-h-large); }
+
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-body {
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 14px; row-gap: 10px;
+  }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-art-wrap {
+    grid-column: 1; grid-row: 1;
+    justify-content: flex-start;
+  }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-art,
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-art-placeholder {
+    width: 64px; border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .55);
+  }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-art-placeholder { font-size: 26px; }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-meta {
+    grid-column: 2; grid-row: 1;
+    align-self: center;
+  }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-title  { font-size: 17px; }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-artist { font-size: 14px; }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-progress { grid-column: 1 / -1; grid-row: 2; }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-controls {
+    grid-column: 1 / -1; grid-row: 3;
+    gap: 28px;
+  }
+  /* Controles ESENCIALES en este estado: shuffle y repeat salen (en la fila chica compiten por el
+     ancho con los tres que importan). Vuelven al volver a hoja chica. */
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-shuffle,
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-repeat { display: none; }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-controls .exp-btn      { width: 48px; height: 48px; }
+  .player-expanded.exp-has-drawer.exp-drawer-large .exp-controls .exp-btn.play { width: 56px; height: 56px; }
 }
 /* M1c · el paso normal↔compacto es INSTANTÁNEO a propósito. Lo que cambia entre los dos estados
    es la caja (flex→grid, alto fijo, ítems reubicados): nada de eso es animable, y animar sólo el
