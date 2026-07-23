@@ -671,16 +671,20 @@ button, input, select, textarea { font-family: inherit; }
    · .track-disc-header (un td con colspan) → block full-width; el colspan se ignora solo en block.
    · la celda de título NO tiene clase → se toma por posición (nth-child(2), estable con/sin # visible).
 
-   MÓVIL (≤700px) NO se toca: gateado a ≥701px. En el teléfono sigue rigiendo el bloque móvil de más
-   abajo (columnas ocultas + chip inline), que ya funcionaba; el gate ≥701 además corrige el exceso
-   de L1, que sin querer ponía Álbum en modo lista en móvil.
+   MÓVIL (≤700px) TAMBIÉN usa el modo lista. Antes el teléfono compactaba escondiendo columnas sobre
+   table-layout:fixed (bloque móvil de más abajo), y a ese ancho el Título COLAPSABA (los anchos de
+   las columnas ocultas no se reclaman limpio en fixed-layout) y el chip inline DESBORDABA sobre la
+   duración — bug PRE-EXISTENTE, no lo introdujo este frente (mobile.css intacto desde antes). El
+   modo lista escapa de fixed (Título flex:1, no colapsa) y apaga el chip, así que arregla el
+   teléfono con el mismo patrón. El bloque móvil de abajo queda como está: sus reglas de columna/chip
+   las gana el modo lista por especificidad, y sus ajustes propios (área táctil, carátula 34px) siguen.
 
    DOS disparadores, duplicados (CSS no tiene mixins):
-   1. (min-width:701px) and (max-width:1024px): ventana chica / 150% zoom, sin cola.
-   2. .layout--queue @ (701–1344px): la cola roba --queue-w (320px) SIN cambiar el viewport, así que
-      el @media de viewport no la ve. 1344 = 1024 + 320. ⚠️ Si cambia --queue-w (hoy 320px) hay que
+   1. (max-width:1024px): ventana chica / 150% zoom / móvil, sin cola.
+   2. .layout--queue @ (max-width:1344px): la cola roba --queue-w (320px) SIN cambiar el viewport, así
+      que el @media de viewport no la ve. 1344 = 1024 + 320. ⚠️ Si cambia --queue-w (hoy 320px) hay que
       recalcular este 1344 — el contra conocido de no usar container queries. ── */
-@media (min-width: 701px) and (max-width: 1024px) {
+@media (max-width: 1024px) {
   .track-table { display: block; }
   .track-table thead { display: none; }
   .track-table tbody { display: block; }
@@ -694,10 +698,13 @@ button, input, select, textarea { font-family: inherit; }
   .track-table .track-row td.col-album,
   .track-table .track-row td.col-quality,
   .track-table .track-row td.col-actions { display: none; }
+  /* El bloque móvil ≤700 enciende el chip inline; en modo lista NO va (desborda, y la calidad se
+     consulta desde Info). Gana por especificidad (0,4,0 > los 0,2,0 del bloque móvil). */
+  .track-table .track-row .quality-chip.chip-inline { display: none; }
   .track-table .track-row:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, .035); }
   .track-table .track-disc-header td { display: block; width: auto; padding: 12px 8px 4px; }
 }
-@media (min-width: 701px) and (max-width: 1344px) {
+@media (max-width: 1344px) {
   .layout--queue .track-table { display: block; }
   .layout--queue .track-table thead { display: none; }
   .layout--queue .track-table tbody { display: block; }
@@ -711,6 +718,7 @@ button, input, select, textarea { font-family: inherit; }
   .layout--queue .track-table .track-row td.col-album,
   .layout--queue .track-table .track-row td.col-quality,
   .layout--queue .track-table .track-row td.col-actions { display: none; }
+  .layout--queue .track-table .track-row .quality-chip.chip-inline { display: none; }
   .layout--queue .track-table .track-row:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, .035); }
   .layout--queue .track-table .track-disc-header td { display: block; width: auto; padding: 12px 8px 4px; }
 }
