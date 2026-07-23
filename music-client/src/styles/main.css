@@ -436,6 +436,13 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text-muted);
   padding: 0 10px 11px;
   border-bottom: 1px solid var(--border);
+  /* Los rótulos del thead nunca desbordan sobre la columna vecina cuando una queda angosta (la
+     causa del "TÍTULARTISTA" con la cola abierta). Antes vivía SÓLO en .library-tracks; ahora en
+     la base → cubre las cuatro vistas (Biblioteca, Álbum, Género, Playlists). A ancho normal es
+     inocuo: las columnas sobran y el ellipsis no dispara. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Columnas — anchos para una alineación limpia */
@@ -634,32 +641,56 @@ button, input, select, textarea { font-family: inherit; }
   gap: 12px;
 }
 
-/* ── BIBLIOTECA: tabla SCOPEADA (.library-tracks) ─────────────
-   Fix del solapamiento a 150% zoom / anchos 701–1024 SIN tocar la base
-   compartida .track-table (que usan Álbum/Playlist/Género/Año vía TrackTable):
-   TODO cuelga de .library-tracks, ninguna regla compartida se modifica. */
+/* ── COMPACTACIÓN de la tabla cuando falta ancho ──────────────────────────────
+   La tabla (table-layout:fixed) reparte: num/calidad/tiempo/acciones = 278px fijos
+   + Artista/Álbum a 22% cada uno + Título = el resto. Cuando el ancho disponible
+   cae, Título se aplasta hacia cero: la carátula (40px, flex-shrink:0) llena la
+   celda y el nombre queda tapado por la columna vecina. Se ataca ocultando las
+   columnas menos importantes y bajando la calidad al chip inline bajo el título.
+   El dato nunca se pierde: el artista SIEMPRE aparece en .track-sub bajo el título.
 
-/* Insurance: los rótulos del thead de Biblioteca nunca desbordan a la columna
-   vecina (por si una columna queda angosta). Scopeado — el thead global no cambia. */
-.library-tracks thead th {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
+   Matiz por vista (qué se sacrifica primero):
+   · Álbum (.track-table--no-album): Artista es redundante —todas las pistas son del
+     mismo artista— así que se oculta ESA. La columna Álbum ya no existe acá.
+   · Género + Playlists (.track-table pelada): ahí el Artista SÍ aporta → se sacrifican
+     Álbum y Calidad, y se conserva la columna Artista mientras haya ancho.
+   · Biblioteca (.library-tracks): su receta de siempre — Artista + Álbum + Calidad.
 
-/* Por debajo de ~1024px (incluye 150% zoom en laptops) las columnas fijas
-   (num/calidad/tiempo/acciones = 278px) + Artista/Álbum (22%+22%) aplastan la
-   columna Título+carátula hacia cero → la carátula (40px, flex-shrink:0) y los
-   <th> (sin ellipsis) desbordan sobre Artista y se solapan. Reusamos la MISMA
-   receta compacta que la base ya aplica a ≤700px, pero SCOPEADA a Biblioteca:
-   ocultamos Artista/Álbum/Calidad y movemos la calidad al chip inline bajo el
-   título. El artista sigue visible en .track-sub → no se pierde dato; el Título
-   se lleva el ancho y trunca limpio con "…". */
+   DOS disparadores, misma receta duplicada (CSS no tiene mixins):
+   1. @media (max-width: 1024px): ancho de VENTANA chico (incluye 150% zoom en laptops).
+   2. .layout--queue @ ≤1344px: la cola abierta roba --queue-w (320px) de ancho SIN
+      cambiar el viewport, así que el @media de arriba —que mide viewport— no la ve.
+      1344 = 1024 + 320: con la cola abierta y el viewport bajo 1344, el ancho REAL de
+      la tabla iguala al de 1024 sin cola. ⚠️ Si cambia --queue-w (hoy 320px) hay que
+      recalcular este 1344 — es el contra conocido de no usar container queries. */
 @media (max-width: 1024px) {
+  /* Álbum: sacrifica Artista */
+  .track-table--no-album .col-artist { display: none; }
+
+  /* Género + Playlists: sacrifican Álbum + Calidad, conservan Artista */
+  .track-table:not(.track-table--no-album):not(.library-tracks) .col-album,
+  .track-table:not(.track-table--no-album):not(.library-tracks) .col-quality { display: none; }
+  .track-table:not(.track-table--no-album):not(.library-tracks) .quality-chip.chip-inline { display: inline-flex; }
+
+  /* Biblioteca: receta de siempre */
   .library-tracks .col-artist,
   .library-tracks .col-album,
   .library-tracks .col-quality { display: none; }
   .library-tracks .quality-chip.chip-inline { display: inline-flex; }
+}
+
+/* Misma receta, disparada por la COLA abierta (ver el 1344 arriba). */
+@media (max-width: 1344px) {
+  .layout--queue .track-table--no-album .col-artist { display: none; }
+
+  .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .col-album,
+  .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .col-quality { display: none; }
+  .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .quality-chip.chip-inline { display: inline-flex; }
+
+  .layout--queue .library-tracks .col-artist,
+  .layout--queue .library-tracks .col-album,
+  .layout--queue .library-tracks .col-quality { display: none; }
+  .layout--queue .library-tracks .quality-chip.chip-inline { display: inline-flex; }
 }
 
 /* ── ALBUM GRID ─────────────────────────── */
