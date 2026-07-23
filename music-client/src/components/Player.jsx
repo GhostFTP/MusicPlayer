@@ -402,6 +402,16 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
         g.lastX = e.clientX; g.lastT = e.timeStamp;        // velocidad medida desde el fijado
         setMotion({ mode: 'drag' });
       } else if (dy >= AXIS_DIST && dy >= ax * AXIS_DOM) {
+        // M2 · Con la hoja de la cola abierta en MÓVIL, la rama de CIERRE de la carátula queda
+        // INERTE. Si no, un swipe-down acá cerraría el expandido entero con la cola encima —
+        // "cierro todo de un manotazo"— y eso viola el orden de la escalera de nav-lab, que cierra
+        // primero lo de más arriba (expPanel antes que expanded, dismissTop). Con la cola cerrada
+        // no cambia nada, y el asa del header sigue cerrando el expandido como siempre (es la
+        // superficie correcta para eso). Gateado a móvil: en desktop el drawer es otra cosa y su
+        // comportamiento no se toca.
+        // Se sale sin fijar eje —no se marca un eje muerto— así que el gesto sigue vivo y puede
+        // resolverse como horizontal: Oscar quiere poder cambiar de canción con la cola abierta.
+        if (isMobile && expPanel !== 'none') return;
         g.dir = 'close';                                   // vertical hacia abajo → cerrar
         g.by = e.clientY;
         g.lastY = e.clientY; g.lastT = e.timeStamp;
