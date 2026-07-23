@@ -641,125 +641,78 @@ button, input, select, textarea { font-family: inherit; }
   gap: 12px;
 }
 
-/* ── COMPACTACIÓN de la tabla cuando falta ancho ──────────────────────────────
-   La tabla (table-layout:fixed) reparte: num/calidad/tiempo/acciones = 278px FIJOS
-   + Artista/Álbum a 22% cada uno + Título = el resto (Título es la única columna sin
-   ancho declarado). Cuando el ancho cae, Título se aplasta y el nombre queda tapado.
-   Se ataca ocultando las columnas menos importantes; el dato no se pierde: el artista
-   SIEMPRE está en .track-sub bajo el título, y donde se oculta Calidad su chip baja
-   inline (.chip-inline) junto al título.
-
-   ⚠️ NOTA (regresión revertida): en Álbum se intentó soltar TAMBIÉN Calidad para dar
-   más ancho al título, pero eso obliga a mostrar el chip inline, y el chip
-   (.quality-chip: flex-shrink:0 + white-space:nowrap, y ningún ancestro lo recorta)
-   DESBORDA sobre la duración cuando el título está angosto — nunca se estiló para el
-   detalle de Álbum, sólo para móvil/Biblioteca. Así que acá Álbum oculta SÓLO Artista
-   y el título trunca con "…": imperfecto pero estable. Reabrir sólo con un estilo de
-   chip inline probado en dispositivo (o clamp real del chip) para este contexto.
-
-   Matiz por vista (qué se sacrifica):
-   · Álbum (.track-table--no-album): Artista (redundante, todas del mismo artista). El
-     título trunca; Calidad se conserva como columna (ver la NOTA de arriba).
-   · Género + Playlists (.track-table pelada): Álbum + Calidad; se conserva Artista.
-   · Biblioteca (.library-tracks): su receta de siempre — Artista + Álbum + Calidad.
-
-   DOS disparadores, misma receta duplicada (CSS no tiene mixins):
-   1. @media (max-width: 1024px): ancho de VENTANA chico (incluye 150% zoom en laptops).
-   2. .layout--queue @ ≤1344px: la cola abierta roba --queue-w (320px) de ancho SIN
-      cambiar el viewport, así que el @media de arriba —que mide viewport— no la ve.
-      1344 = 1024 + 320: con la cola abierta y el viewport bajo 1344, el ancho REAL de
-      la tabla iguala al de 1024 sin cola. ⚠️ Si cambia --queue-w (hoy 320px) hay que
-      recalcular este 1344 — es el contra conocido de no usar container queries. */
-@media (max-width: 1024px) {
-  /* Álbum: sacrifica SÓLO Artista (Calidad se conserva — ver la NOTA del banner) */
-  .track-table--no-album .col-artist { display: none; }
-
-  /* Género + Playlists: sacrifican Álbum + Calidad, conservan Artista */
-  .track-table:not(.track-table--no-album):not(.library-tracks) .col-album,
-  .track-table:not(.track-table--no-album):not(.library-tracks) .col-quality { display: none; }
-  .track-table:not(.track-table--no-album):not(.library-tracks) .quality-chip.chip-inline { display: inline-flex; }
-
-  /* Biblioteca: receta de siempre */
-  .library-tracks .col-artist,
-  .library-tracks .col-album,
-  .library-tracks .col-quality { display: none; }
-  .library-tracks .quality-chip.chip-inline { display: inline-flex; }
-}
-
-/* Misma receta, disparada por la COLA abierta (ver el 1344 arriba). */
-@media (max-width: 1344px) {
-  .layout--queue .track-table--no-album .col-artist { display: none; }
-
-  .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .col-album,
-  .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .col-quality { display: none; }
-  .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .quality-chip.chip-inline { display: inline-flex; }
-
-  .layout--queue .library-tracks .col-artist,
-  .layout--queue .library-tracks .col-album,
-  .layout--queue .library-tracks .col-quality { display: none; }
-  .layout--queue .library-tracks .quality-chip.chip-inline { display: inline-flex; }
-}
-
-/* ── L1 · MODO LISTA (sólo Álbum) cuando la tabla no cabe ──────────────────────────────────
-   A ~360px de ancho (Oscar: viewport ~960 con la cola) un layout de columnas no entra: los 278px
-   fijos + la carátula no dejan nada para el título, se sacrifique la columna que se sacrifique. En
-   vez de seguir escondiendo columnas, la fila se vuelve LISTA —como la fila de la cola, que a 320px
-   muestra título+artista+duración sin drama— porque es flex-que-encoge, no columnas de ancho
-   reservado. El título es flex:1 y trunca; nada compite por ancho fijo.
+/* ── MODO LISTA cuando la tabla no cabe (compacta las 4 vistas) ────────────────────────────────
+   La tabla (table-layout:fixed) reserva 278px FIJOS (num/calidad/tiempo/acciones) + Artista/Álbum
+   a 22% + carátula 40px. A ~360px de ancho (viewport ~960 con la cola abierta) eso no deja NADA
+   para el título, se esconda la columna que se esconda — por eso los intentos de compactar por
+   columnas fallaban. La salida es estructural: la fila deja de ser columnas y se vuelve LISTA,
+   como la fila de la cola que a 320px muestra título+artista+duración sin drama, porque es
+   flex-que-encoge en vez de columnas de ancho reservado. El título es flex:1 y trunca; nada
+   compite por ancho fijo.
 
    Reusa la estructura que YA existe: la celda de título (.track-info-cell) es carátula + texto
-   apilado (título / artista). Sólo hay que exponerla: tr→flex, esa celda flex:1, duración a la
-   derecha, el resto oculto. Jerarquía resultante = la de la cola:
+   apilado (título / artista). Sólo se expone: tr→flex, esa celda flex:1, duración a la derecha, el
+   # a la izquierda (importa el orden), el resto oculto. Jerarquía = la de la cola:
       [carátula 40]  Título de la canción            3:42
                      Artista
+   Qué se PIERDE vs. tabla: las columnas Artista/Álbum/Calidad y la alineación. El artista pasa a la
+   2ª línea; la CALIDAD no se muestra (el chip inline queda apagado → sin riesgo de desborde, que
+   fue la regresión de los intentos por columnas). Se consulta desde el panel Info.
 
-   Puntos finicky del override de tabla, resueltos:
+   Cubre las CUATRO vistas — todas comparten .track-row / .col-* / .track-info-cell. Álbum no tiene
+   columna Álbum; las otras tres sí, por eso se oculta .col-album también (en Álbum no matchea nada).
+
+   Puntos finicky del override, resueltos:
    · display:block en table/thead/tbody/tr → table-layout:fixed y los .col-*{width} quedan INERTES
-     (sólo rigen sobre display:table/table-cell). Por eso hay que re-poner width:auto en las celdas
-     que se conservan (num/tiempo): si no, arrastrarían sus 44/64px como ancho de bloque.
-   · border-collapse deja de importar (no hay formato de tabla); las líneas se re-hacen a mano como
-     borde inferior de la FILA, no del td.
-   · el padding de td se resetea a 0 y el espaciado lo da la fila (flex gap + padding), como la cola.
+     (sólo rigen sobre display:table/table-cell): se re-pone width:auto en num/tiempo, si no
+     arrastran sus 44/64px como ancho de bloque.
+   · border-collapse deja de importar; las líneas se rehacen a mano como borde inferior de la FILA.
+   · el padding de td se resetea a 0; el espaciado lo da la fila (flex gap + padding), como la cola.
    · .track-disc-header (un td con colspan) → block full-width; el colspan se ignora solo en block.
-   · la celda de título NO tiene clase → se toma por posición (nth-child(2), estable con o sin # visible).
+   · la celda de título NO tiene clase → se toma por posición (nth-child(2), estable con/sin # visible).
 
-   Trigger: el MISMO que la compactación (≤1024 viewport / ≤1344 con .layout--queue). Con la cola
-   cerrada y a ancho normal no dispara → la tabla de Álbum queda idéntica a hoy. Es SÓLO Álbum
-   (.track-table--no-album) como prueba del patrón; las otras 3 vistas son L2. La regla vieja
-   `.track-table--no-album .col-artist{display:none}` de la compactación queda redundante acá (el
-   modo lista ya oculta esa columna) pero es inocua — se limpia al generalizar en L2.
-   Duplicado en dos @media (CSS no tiene mixins), como el resto del bloque de compactación. ── */
-@media (max-width: 1024px) {
-  .track-table--no-album { display: block; }
-  .track-table--no-album thead { display: none; }
-  .track-table--no-album tbody { display: block; }
-  .track-table--no-album tr { display: block; }
-  .track-table--no-album .track-row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; }
-  .track-table--no-album .track-row td { display: block; width: auto; padding: 0; border: none; }
-  .track-table--no-album .track-row td:nth-child(2) { flex: 1; min-width: 0; }       /* celda de título */
-  .track-table--no-album .track-row td.col-num  { flex: none; }                      /* # a la izquierda */
-  .track-table--no-album .track-row td.col-time { flex: none; text-align: right; }   /* duración a la derecha */
-  .track-table--no-album .track-row td.col-artist,
-  .track-table--no-album .track-row td.col-quality,
-  .track-table--no-album .track-row td.col-actions { display: none; }
-  .track-table--no-album .track-row:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, .035); }
-  .track-table--no-album .track-disc-header td { display: block; width: auto; padding: 12px 8px 4px; }
+   MÓVIL (≤700px) NO se toca: gateado a ≥701px. En el teléfono sigue rigiendo el bloque móvil de más
+   abajo (columnas ocultas + chip inline), que ya funcionaba; el gate ≥701 además corrige el exceso
+   de L1, que sin querer ponía Álbum en modo lista en móvil.
+
+   DOS disparadores, duplicados (CSS no tiene mixins):
+   1. (min-width:701px) and (max-width:1024px): ventana chica / 150% zoom, sin cola.
+   2. .layout--queue @ (701–1344px): la cola roba --queue-w (320px) SIN cambiar el viewport, así que
+      el @media de viewport no la ve. 1344 = 1024 + 320. ⚠️ Si cambia --queue-w (hoy 320px) hay que
+      recalcular este 1344 — el contra conocido de no usar container queries. ── */
+@media (min-width: 701px) and (max-width: 1024px) {
+  .track-table { display: block; }
+  .track-table thead { display: none; }
+  .track-table tbody { display: block; }
+  .track-table tr { display: block; }
+  .track-table .track-row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; }
+  .track-table .track-row td { display: block; width: auto; padding: 0; border: none; }
+  .track-table .track-row td:nth-child(2) { flex: 1; min-width: 0; }       /* celda de título */
+  .track-table .track-row td.col-num  { flex: none; }                      /* # a la izquierda */
+  .track-table .track-row td.col-time { flex: none; text-align: right; }   /* duración a la derecha */
+  .track-table .track-row td.col-artist,
+  .track-table .track-row td.col-album,
+  .track-table .track-row td.col-quality,
+  .track-table .track-row td.col-actions { display: none; }
+  .track-table .track-row:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, .035); }
+  .track-table .track-disc-header td { display: block; width: auto; padding: 12px 8px 4px; }
 }
-@media (max-width: 1344px) {
-  .layout--queue .track-table--no-album { display: block; }
-  .layout--queue .track-table--no-album thead { display: none; }
-  .layout--queue .track-table--no-album tbody { display: block; }
-  .layout--queue .track-table--no-album tr { display: block; }
-  .layout--queue .track-table--no-album .track-row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; }
-  .layout--queue .track-table--no-album .track-row td { display: block; width: auto; padding: 0; border: none; }
-  .layout--queue .track-table--no-album .track-row td:nth-child(2) { flex: 1; min-width: 0; }
-  .layout--queue .track-table--no-album .track-row td.col-num  { flex: none; }
-  .layout--queue .track-table--no-album .track-row td.col-time { flex: none; text-align: right; }
-  .layout--queue .track-table--no-album .track-row td.col-artist,
-  .layout--queue .track-table--no-album .track-row td.col-quality,
-  .layout--queue .track-table--no-album .track-row td.col-actions { display: none; }
-  .layout--queue .track-table--no-album .track-row:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, .035); }
-  .layout--queue .track-table--no-album .track-disc-header td { display: block; width: auto; padding: 12px 8px 4px; }
+@media (min-width: 701px) and (max-width: 1344px) {
+  .layout--queue .track-table { display: block; }
+  .layout--queue .track-table thead { display: none; }
+  .layout--queue .track-table tbody { display: block; }
+  .layout--queue .track-table tr { display: block; }
+  .layout--queue .track-table .track-row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; }
+  .layout--queue .track-table .track-row td { display: block; width: auto; padding: 0; border: none; }
+  .layout--queue .track-table .track-row td:nth-child(2) { flex: 1; min-width: 0; }
+  .layout--queue .track-table .track-row td.col-num  { flex: none; }
+  .layout--queue .track-table .track-row td.col-time { flex: none; text-align: right; }
+  .layout--queue .track-table .track-row td.col-artist,
+  .layout--queue .track-table .track-row td.col-album,
+  .layout--queue .track-table .track-row td.col-quality,
+  .layout--queue .track-table .track-row td.col-actions { display: none; }
+  .layout--queue .track-table .track-row:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, .035); }
+  .layout--queue .track-table .track-disc-header td { display: block; width: auto; padding: 12px 8px 4px; }
 }
 
 /* ── ALBUM GRID ─────────────────────────── */
