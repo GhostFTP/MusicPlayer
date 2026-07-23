@@ -643,21 +643,24 @@ button, input, select, textarea { font-family: inherit; }
 
 /* ── COMPACTACIÓN de la tabla cuando falta ancho ──────────────────────────────
    La tabla (table-layout:fixed) reparte: num/calidad/tiempo/acciones = 278px FIJOS
-   + Artista/Álbum a 22% cada uno + Título = el resto. Título es la ÚNICA columna sin
-   ancho declarado → en fixed-layout es la que absorbe todo el sobrante. Por eso el
-   ancho liberado al ocultar una columna SÍ va a Título; lo que lo ahogaba no era la
-   redistribución sino los px FIJOS que quedaban: con la tabla en ~360px, los 278px
-   fijos dejan a Título ~82px ("Arc…"). La cura es soltar también los fijos que no
-   son esenciales —Calidad (124px)— cuya info NO se pierde: viaja al chip inline bajo
-   el título. El artista tampoco se pierde: SIEMPRE está en .track-sub bajo el título.
+   + Artista/Álbum a 22% cada uno + Título = el resto (Título es la única columna sin
+   ancho declarado). Cuando el ancho cae, Título se aplasta y el nombre queda tapado.
+   Se ataca ocultando las columnas menos importantes; el dato no se pierde: el artista
+   SIEMPRE está en .track-sub bajo el título, y donde se oculta Calidad su chip baja
+   inline (.chip-inline) junto al título.
 
-   Prioridad: que se LEA el nombre de la canción. Todo lo demás cede antes que Título.
+   ⚠️ NOTA (regresión revertida): en Álbum se intentó soltar TAMBIÉN Calidad para dar
+   más ancho al título, pero eso obliga a mostrar el chip inline, y el chip
+   (.quality-chip: flex-shrink:0 + white-space:nowrap, y ningún ancestro lo recorta)
+   DESBORDA sobre la duración cuando el título está angosto — nunca se estiló para el
+   detalle de Álbum, sólo para móvil/Biblioteca. Así que acá Álbum oculta SÓLO Artista
+   y el título trunca con "…": imperfecto pero estable. Reabrir sólo con un estilo de
+   chip inline probado en dispositivo (o clamp real del chip) para este contexto.
 
    Matiz por vista (qué se sacrifica):
-   · Álbum (.track-table--no-album): Artista (redundante, todas las pistas del mismo
-     artista) + Calidad → Título se queda con 100% − 154px. Álbum ya no existe acá.
-   · Género + Playlists (.track-table pelada): Álbum + Calidad; se conserva Artista
-     (ahí sí aporta). Título = 78% − 154px.
+   · Álbum (.track-table--no-album): Artista (redundante, todas del mismo artista). El
+     título trunca; Calidad se conserva como columna (ver la NOTA de arriba).
+   · Género + Playlists (.track-table pelada): Álbum + Calidad; se conserva Artista.
    · Biblioteca (.library-tracks): su receta de siempre — Artista + Álbum + Calidad.
 
    DOS disparadores, misma receta duplicada (CSS no tiene mixins):
@@ -668,10 +671,8 @@ button, input, select, textarea { font-family: inherit; }
       la tabla iguala al de 1024 sin cola. ⚠️ Si cambia --queue-w (hoy 320px) hay que
       recalcular este 1344 — es el contra conocido de no usar container queries. */
 @media (max-width: 1024px) {
-  /* Álbum: sacrifica Artista + Calidad (la calidad baja al chip inline) */
-  .track-table--no-album .col-artist,
-  .track-table--no-album .col-quality { display: none; }
-  .track-table--no-album .quality-chip.chip-inline { display: inline-flex; }
+  /* Álbum: sacrifica SÓLO Artista (Calidad se conserva — ver la NOTA del banner) */
+  .track-table--no-album .col-artist { display: none; }
 
   /* Género + Playlists: sacrifican Álbum + Calidad, conservan Artista */
   .track-table:not(.track-table--no-album):not(.library-tracks) .col-album,
@@ -687,9 +688,7 @@ button, input, select, textarea { font-family: inherit; }
 
 /* Misma receta, disparada por la COLA abierta (ver el 1344 arriba). */
 @media (max-width: 1344px) {
-  .layout--queue .track-table--no-album .col-artist,
-  .layout--queue .track-table--no-album .col-quality { display: none; }
-  .layout--queue .track-table--no-album .quality-chip.chip-inline { display: inline-flex; }
+  .layout--queue .track-table--no-album .col-artist { display: none; }
 
   .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .col-album,
   .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .col-quality { display: none; }
