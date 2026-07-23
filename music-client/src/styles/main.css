@@ -2908,6 +2908,277 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-drawer { transition: none; }
 }
 
+/* ── M1 · El drawer del expandido en MÓVIL (≤700px): la cola deja de ser un overlay top:0 que
+   tapa todo y pasa a ser una hoja anclada abajo que CONVIVE con la canción. El bloque desktop de
+   arriba NO se toca: los dos son mutuamente excluyentes por breakpoint (mismo patrón que usa
+   .queue-panel para C2 vs móvil). Diferencias deliberadas con el desktop:
+
+   · UNA sola altura, y ni siquiera elegida: DERIVADA. Nada de small/large (dos alturas son
+     lenguaje de mouse, y el arrastre que las elegiría no existe hasta M3) y nada de un vh fijo:
+     desde M1c la hoja arranca bajo el bloque compacto y apoya en el borde, así que su alto es
+     "lo que queda". Ver el bloque M1c más abajo.
+   · Apoyada en el borde inferior (bottom: 0). M1 la había anclado ARRIBA de la fila de controles
+     —reusando la fórmula de v1.8.1— para no tapar el play; el resultado fue peor: los controles
+     quedaban asomando por DEBAJO de la hoja, leídos como sueltos y desconectados de la canción.
+     M1b invierte el criterio: la hoja apoya limpia en el borde y el bloque canción+controles se
+     compacta ENTERO arriba de ella. El play/pausa sigue visible y alcanzable —que es lo que
+     v1.8.1 protegía— pero ahora del lado correcto de la hoja.
+   · El expandido móvil deja de scrollear (overflow:hidden, abajo). Es la respuesta al gotcha del
+     diagnóstico: .exp-drawer es `absolute` dentro de un contenedor scrolleable, así que con
+     scroll vivo se iría con él; y estacionado fuera de la vista agregaría scroll fantasma bajo
+     el borde. La otra opción (position:fixed) es PEOR acá: .player-expanded recibe un transform
+     inline durante el swipe-down (sheetStyle), y un ancestro transformado se vuelve el bloque
+     contenedor de los fixed → el drawer saltaría a la caja de padding del sheet en el primer
+     frame del arrastre.
+   · El grabber queda VISIBLE pero inerte (su handler ya está gateado a ≥701px en Player.jsx):
+     es la señal de "esto es una hoja", y M3 lo activa. Se le apaga la hit-area ampliada para que
+     no se coma toques que hoy no hacen nada.
+
+   M1b · EL PADDING LATERAL SALE DE .player-expanded Y PASA A SUS HIJOS. Es la corrección de raíz
+   del recorte y del descuadre: mientras el padding viva en el contenedor, el drawer —`absolute`
+   contra la CAJA DE PADDING y recortado por overflow:hidden— queda encerrado ahí adentro. No
+   puede llegar al filo, cualquier desajuste horizontal se recorta sin poder sangrar, y es la
+   misma raíz que el bug de alineación de E2b en desktop ("N COLA", main.css:2870). Con el padding
+   en los hijos, la caja contenedora del drawer pasa a ser el ANCHO COMPLETO del viewport: la hoja
+   va de filo a filo, simétrica por construcción, y nada se recorta. Efecto secundario buscado:
+   .exp-body vuelve a generar caja (deja de ser display:contents), que era la razón por la que
+   songLift no hacía nada en móvil.
+   El padding-BOTTOM también baja a .exp-body, para que el drawer pueda apoyar en `bottom: 0` sin
+   valores negativos (que overflow:hidden recortaría) y quede rasante al borde de la pantalla.
+
+   M1c · SE ABANDONA EL CALIBRADO POR PRESUPUESTO. M1b intentaba que el expandido completo entrara
+   arriba achicándolo con números afinados sobre un presupuesto de 390×844 en papel; en un teléfono
+   real no entró y, con overflow:hidden, no entrar significa RECORTARSE (carátula cortada al medio,
+   controles desaparecidos). El enfoque de "que quepa" se descarta entero: con la hoja abierta la
+   canción pasa a una composición compacta propia de alto fijo y la hoja toma el resto — nadie
+   compite por el espacio. Los dos únicos números que quedan (--exp-header-h, --exp-compact-h) son
+   ALTOS DECLARADOS, no estimaciones: el contenido se acomoda a ellos y no al revés. ── */
+@media (max-width: 700px) {
+  :root {
+    --exp-header-h:  140px;   /* franja de agarre del swipe-down (mobile-lab) */
+    /* Alto FIJO del bloque de la canción con la hoja abierta (M1c). M1h · 172 → 316: la hoja bajó
+       en M1e/f/g y quedaban ~156px muertos entre el bloque y su borde; el bloque los absorbe.
+       OJO al tocarlo: --exp-compact-h + --exp-drawer-gap es el presupuesto entre el header y la
+       hoja. Si querés cambiar el TAMAÑO del bloque sin mover la hoja, los dos se compensan
+       (316 + 12 = 172 + 156 = 328). Si querés mover la hoja, cambiá el gap solo. */
+    --exp-compact-h: 316px;
+    /* M1d · aire entre el bloque compacto y la hoja. Es el knob para subir/bajar la hoja: como su
+       alto es DERIVADO (top calculado, bottom 0), no hay un "--exp-drawer-h" que tocar — se corre
+       el borde superior y el alto se acomoda solo. Afinable a ojo.
+       M1e · 44 → 88 (otro escalón igual, a pedido de la prueba de Oscar). M1f · 88 → 132 (otro
+       más). M1g · 132 → 156 (escalón chico, +24: Oscar pidió "un poco más" y no otro salto).
+       M1h · 156 → 12: la hoja NO se mueve, el espacio se lo lleva --exp-compact-h (ver ahí).
+       Bajar la hoja no puede recortar nada: el bloque de arriba tiene alto fijo y sólo cede la
+       hoja, que scrollea. */
+    --exp-drawer-gap: 12px;
+  }
+
+  /* El contenedor conserva SÓLO el padding superior (notch). Los laterales y el inferior pasan a
+     .exp-header y .exp-body — ver el banner. overflow:hidden: sin esto el drawer se va con el
+     scroll y el drawer estacionado agrega scroll fantasma.
+     Con la hoja ABIERTA este overflow ya no puede morder: desde M1c el bloque de arriba tiene alto
+     fijo y la hoja toma el resto, así que no hay nada que desborde. Con la hoja CERRADA rige el
+     expandido normal, donde en una pantalla muy baja el contenido se recorta en vez de scrollear
+     — la rama de ≤680px de alto es la mitigación que ya existía.
+     .exp-bg no se entera: es `fixed`, va contra el viewport, no contra la caja de padding. */
+  .player-expanded {
+    padding: max(env(safe-area-inset-top), 20px) 0 0;
+    overflow: hidden;
+  }
+  /* Safe-area HORIZONTAL. Hasta acá el proyecto sólo contemplaba env() arriba y abajo: los 28px
+     laterales eran fijos (ver mobile-lab, "env() se usa hoy en exactamente 2 lugares"). En un
+     teléfono con notch EN HORIZONTAL el recorte del sistema come ~44px de un lado y el home
+     indicator deja aire del otro → el contenido pegado a 28px queda debajo del recorte de ese
+     lado y sobra margen del opuesto: exactamente "se corta a la izquierda y sobra a la derecha".
+     El meta viewport ya trae viewport-fit=cover (index.html:5), así que env() actúa de verdad.
+     max(env(), base) mantiene los 28px de siempre en vertical/sin notch. */
+  .exp-header {
+    padding-left: max(env(safe-area-inset-left), 28px);
+    padding-right: max(env(safe-area-inset-right), 28px);
+  }
+  /* Especificidad (0,2,0) a propósito: la regla base `.exp-body { display: contents }` está MÁS
+     ABAJO en el archivo (main.css:3131) y con (0,1,0) le ganaría por orden de fuente.
+     flex:1 + column reproduce exactamente el reparto de espacio de antes: los auto-margins de
+     .exp-art-wrap/.exp-meta ahora reparten dentro de .exp-body, que ocupa justo el hueco que
+     antes repartía .player-expanded. Layout con el drawer CERRADO: idéntico al de hoy. */
+  .player-expanded .exp-body {
+    display: flex; flex-direction: column;
+    flex: 1; min-height: 0;
+    padding: 0 max(env(safe-area-inset-right), 28px)
+             max(env(safe-area-inset-bottom), 24px)
+             max(env(safe-area-inset-left), 28px);
+  }
+
+  .exp-drawer {
+    display: flex; flex-direction: column;
+    /* Se queda `absolute` (NO fixed — ver el banner), pero ahora su caja contenedora abarca el
+       ancho completo: de filo a filo, y apoyada en el borde inferior real. Hoja rasante con radio
+       sólo arriba, igual que el desktop — nada de tarjeta flotante. */
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    /* M1c · el alto NO se elige: sale de lo que queda. El borde superior arranca justo debajo del
+       bloque compacto y el inferior apoya en la pantalla → la hoja toma exactamente el resto.
+       `top` se mide desde la caja de padding (que empieza ARRIBA del padding-top), por eso el
+       primer sumando. Con top+bottom fijos y height:auto no hay número de alto que pueda pelearse
+       con el contenido: es la raíz por la que M1b recortaba. */
+    top: calc(max(env(safe-area-inset-top), 20px) + var(--exp-header-h) + var(--exp-compact-h) + var(--exp-drawer-gap));
+    height: auto;
+    z-index: 2;
+    background: #0d0d0d;                          /* hoja sólida, sin blur (igual que el desktop) */
+    border: 1px solid var(--border); border-bottom: none;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, .55);
+    overflow: hidden;
+    transform: translateY(100%);                  /* estacionada bajo el borde inferior */
+    transition: transform .3s cubic-bezier(.22, 1, .36, 1);
+    will-change: transform;
+  }
+  .exp-drawer.open { transform: translateY(0); }
+
+  /* Grabber: indicador visual de "hoja", sin función hasta M3 → sin hit-area ampliada (no debe
+     comerse 28px de toques muertos sobre el header de la cola) y sin cursor de arrastre. */
+  .exp-drawer-grabber {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    width: 40px; height: 4px; border-radius: 2px; z-index: 3;
+    background: rgba(255, 255, 255, .22);
+  }
+  .exp-drawer-grabber::before { content: none; }
+
+  .exp-drawer-inner { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+
+  /* Contenido REUSADO tal cual (QueueOverlay, sin tocar el componente), adaptado por CSS — mismo
+     patrón que el desktop. Gana por especificidad (0,2,0) al bloque móvil de .queue-panel, sin
+     depender del orden de fuente. */
+  .exp-drawer .queue-panel {
+    position: static; inset: auto; z-index: auto;
+    flex: 1; min-height: 0; width: 100%;
+    background: none; border: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    animation: none;                              /* el que entra es el drawer, no el panel */
+  }
+  .exp-drawer .queue-bg { display: none; }
+  /* Acá el header NO está contra la barra de estado (la hoja arranca a media pantalla): fuera el
+     safe-area-top del bloque móvil, y aire arriba para no chocar con el grabber. Los laterales
+     vuelven a los 18px de la regla base ahora que la hoja tiene el ancho completo. */
+  /* M1d · fallback SIN env() PRIMERO y mejora progresiva después. Si un navegador no parsea
+     max() con env(), descarta la declaración entera — escrito como estaba (un único shorthand con
+     env() adentro) eso dejaba al header sin ningún inset propio. Con el fallback delante, los
+     18px sobreviven pase lo que pase. No es teoría ociosa: el target Chrome 87 del R4 sigue
+     siendo un pendiente abierto en CLAUDE.md.
+     Los 18px no son arbitrarios: alinean el kicker con el texto de las filas (8 del cuerpo + 10
+     de la fila = 18). */
+  .exp-drawer .queue-header {
+    padding: 20px 18px 10px;
+    padding-left:  max(env(safe-area-inset-left), 18px);
+    padding-right: max(env(safe-area-inset-right), 18px);
+  }
+  /* Si el texto no entrara, que trunque limpio por la derecha en vez de hacer cualquier cosa
+     contra el filo. El kicker no envolvía nunca; la línea de aleatorio sí podía irse a dos
+     renglones y ahora trunca — en una hoja compacta se lee mejor así. */
+  .exp-drawer .queue-kicker,
+  .exp-drawer .queue-shuf { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* La hoja va de filo a filo y apoya en el borde real → su contenido es el que tiene que
+     respetar los recortes del sistema por los tres lados (mismo criterio que el header). */
+  .exp-drawer .queue-body {
+    padding: 0 8px 12px;                                       /* fallback sin env(), ver arriba */
+    padding-left: max(env(safe-area-inset-left), 8px);
+    padding-right: max(env(safe-area-inset-right), 8px);
+    padding-bottom: max(env(safe-area-inset-bottom), 12px);
+  }
+
+  /* ── M1c · Composición COMPACTA de la canción con la hoja abierta ──────────────────────────
+     CAMBIO DE ENFOQUE respecto de M1b, no un ajuste de números. Ahí el bloque de arriba seguía
+     siendo "el expandido achicado" y se calibraban tamaños hasta que entrara. Falló porque el
+     bloque COMPETÍA por el alto contra la hoja y, con overflow:hidden, perder esa pelea no es
+     apretarse: es recortarse (carátula cortada al medio, controles desaparecidos).
+
+     Acá el bloque deja de ser el expandido y pasa a ser una composición propia de ALTO FIJO
+     (--exp-compact-h) con sólo lo esencial — como Spotify/Apple Music al abrir la cola. La hoja
+     toma exactamente el resto (top calculado, bottom 0). NADA compite: sin auto-margins y sin
+     presupuesto que pueda fallar, el recorte deja de ser posible POR CONSTRUCCIÓN.
+
+     M1h · VUELVE A SER VERTICAL. La fila horizontal [miniatura | título] era la respuesta correcta
+     a 172px de alto; con 316 ya no: una miniatura de 64px al costado deja el resto del bloque
+     vacío. Con este presupuesto entra la composición de siempre —carátula, título debajo,
+     progreso, controles— sólo que a escala reducida. Grilla de UNA columna, sin ubicación
+     explícita: los ítems se auto-colocan en orden de DOM, que ya es el correcto.
+        [        carátula (centrada)       ]
+        [        título / artista          ]
+        [       barra de progreso          ]
+        [ shuffle · ‹ · play · › · repeat  ]
+     Ojo con el parecido: esto se PARECE al expandido normal, que es lo que M1b intentaba y falló.
+     La diferencia es la que hace que funcione: alto FIJO, tamaños declarados, cero auto-margins.
+     El bloque no negocia espacio con la hoja — declara el suyo y la hoja toma el resto.
+
+     QUÉ SE OCULTA ahora: badges de calidad, tiempos (transcurrido/total) y género. VUELVEN shuffle
+     y repeat: en una fila de controles no cuestan alto —el alto lo fija el botón de play— así que
+     entran gratis y el bloque se lee como un reproductor completo. Los tiempos siguen afuera a
+     propósito: costaban ~19px que la carátula aprovecha mejor. Calidad y género siguen afuera
+     porque comparten renglón con el artista y, para dejarlos entrar, habría que permitir que el
+     subtítulo envuelva — y ahí se pierde el alto determinista. Nada se desmonta: es CSS.
+
+     Alto: 140 (carátula) + 12 + 47 (título+artista) + 12 + 22 (progreso) + 12 + 60 (play) = 305,
+     dentro de los 316 del token → ~11px de holgura abajo (align-content:start). El título y el
+     artista siguen a UNA línea con ellipsis: sin eso un título largo envolvería y el alto dejaría
+     de ser determinista, que es justamente lo que no se puede perder. ── */
+  .player-expanded.exp-has-drawer .exp-header { margin-bottom: 0; }
+  .player-expanded.exp-has-drawer .exp-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    row-gap: 12px;
+    flex: none;
+    height: var(--exp-compact-h);
+    /* Sin safe-area abajo: acá termina el bloque, no la pantalla — el home indicator lo respeta
+       el cuerpo de la hoja, que es quien apoya en el borde. */
+    padding: 0 max(env(safe-area-inset-right), 28px) 0 max(env(safe-area-inset-left), 28px);
+  }
+
+  /* Carátula centrada. El vw la achica sola en pantallas angostas; el tope de 140 es el que cierra
+     el presupuesto de arriba. De paso el gesto de carátula recupera superficie (era de 64px en
+     M1c) — no toco los handlers, es M2, pero queda anotado. */
+  .player-expanded.exp-has-drawer .exp-art-wrap {
+    margin: 0; padding: 0;
+    justify-content: center; align-items: center;
+  }
+  .player-expanded.exp-has-drawer .exp-art,
+  .player-expanded.exp-has-drawer .exp-art-placeholder {
+    width: min(40vw, 140px); border-radius: 12px;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, .6);
+  }
+  .player-expanded.exp-has-drawer .exp-art-placeholder { font-size: 40px; }
+
+  /* Título y artista DEBAJO, alineados a la izquierda como en el expandido normal (no centrados:
+     así el cambio al abrir/cerrar la hoja no reacomoda el eje del texto). */
+  .player-expanded.exp-has-drawer .exp-meta { margin: 0; min-width: 0; }
+  .player-expanded.exp-has-drawer .exp-title {
+    font-size: 19px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .player-expanded.exp-has-drawer .exp-subline { flex-wrap: nowrap; margin-top: 2px; }
+  .player-expanded.exp-has-drawer .exp-artist {
+    font-size: 15px; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .player-expanded.exp-has-drawer .exp-genre,
+  .player-expanded.exp-has-drawer .exp-subline .player-quality,
+  .player-expanded.exp-has-drawer .exp-times { display: none; }
+
+  .player-expanded.exp-has-drawer .exp-progress { margin: 0; }
+  /* Los 5 controles. El alto de la fila lo fija el play; los .exp-btn pueden encogerse (min-width
+     auto = el glifo) así que en pantallas angostas la fila se aprieta en vez de desbordar. */
+  .player-expanded.exp-has-drawer .exp-controls { margin: 0; gap: 12px; }
+  .player-expanded.exp-has-drawer .exp-controls .exp-btn      { width: 44px; height: 44px; }
+  .player-expanded.exp-has-drawer .exp-controls .exp-btn.play { width: 60px; height: 60px; }
+}
+/* M1c · el paso normal↔compacto es INSTANTÁNEO a propósito. Lo que cambia entre los dos estados
+   es la caja (flex→grid, alto fijo, ítems reubicados): nada de eso es animable, y animar sólo el
+   ancho de la carátula mientras el resto salta era exactamente "animado a medias" — se quitó esa
+   transición. Lo único que se mueve es el slide de la hoja, que ya estaba y sigue igual. */
+@media (max-width: 700px) and (prefers-reduced-motion: reduce) {
+  .exp-drawer { transition: none; }
+}
+
 .exp-header {
   display: flex;
   align-items: center;
@@ -3752,7 +4023,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      Info, +) siguen funcionando y ocupan sólo la fila superior (~44px); el resto de la
      franja queda libre para arrancar el drag. Se subió de 100 a 140 para que no haya
      que "apuntar" y para compensar el área táctil ampliada de los botones (O2b). */
-  .exp-header { touch-action: none; min-height: 140px; align-items: flex-start; }
+  /* M1c: los 140px de siempre, ahora vía token. La hoja de la cola calcula su borde superior a
+     partir de él (top = padding-top + header + bloque compacto), así que el alto de la franja no
+     puede vivir como número suelto en dos lados. La rama de pantallas bajas lo redefine. */
+  .exp-header { touch-action: none; min-height: var(--exp-header-h); align-items: flex-start; }
 
   .player-bar .player-track { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .player-bar .player-art   { width: 40px; height: 40px; border-radius: 4px; }
@@ -3968,7 +4242,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .exp-controls    { margin-bottom: var(--exp-controls-mb); gap: 12px; }
   .exp-btn         { width: 48px; height: 48px; }
   .exp-btn.play    { width: var(--exp-play-h); height: var(--exp-play-h); }
-  .exp-header      { margin-bottom: 16px; min-height: 92px; }
+  /* M1c: la franja baja a 92 también por token — si no, la hoja de la cola seguiría calculando su
+     borde superior con 140 y quedaría un hueco de 48px entre el bloque compacto y la hoja. */
+  :root            { --exp-header-h: 92px; }
+  .exp-header      { margin-bottom: 16px; }
 }
 
 /* Tablets (701–1024px) */

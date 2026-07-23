@@ -160,6 +160,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   const [dragX, setDragX]     = useState(0);                // desplazamiento crudo durante el arrastre
   const [motion, setMotion]   = useState({ mode: 'idle' }); // idle | drag | out | in | return
   const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  // M1: ¿estamos en el régimen móvil? REACTIVO (no lectura puntual como en los handlers): lo
+  // consume el RENDER del drawer — en móvil el alto lo pone el CSS (una sola altura), así que el
+  // style inline con expDrawerH NO se emite ahí. Mismo patrón/listener que `reduced`.
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia?.('(max-width: 700px)').matches ?? false);
   const [coverTrack, setCoverTrack] = useState(currentTrack); // carátula visible (difiere de currentTrack durante la animación)
   const gesture   = useRef(null);          // gesto en curso: { x0, y0, dir, bx, by, lastX, lastY, lastT, vx, vy } | null
   const busy      = useRef(false);         // animación de salida/entrada en curso → ignora gestos nuevos
@@ -286,6 +290,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     const on = () => setReduced(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
+  // Régimen móvil en vivo (M1): cruzar el breakpoint 700/701 con el drawer abierto tiene que
+  // cambiar de geometría sin recargar (el QA de mobile-lab lo pide explícitamente).
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 700px)');
+    const on = () => setIsMobile(mq.matches);
     mq.addEventListener?.('change', on);
     return () => mq.removeEventListener?.('change', on);
   }, []);
@@ -829,7 +841,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           nunca queda huérfano. pointer-events: none en CSS. */}
       {expanded && <div className="exp-scrim" style={scrimStyle()} aria-hidden="true" />}
       {expanded && (
-        <div className="player-expanded" style={sheetStyle()}>
+        <div className={`player-expanded${expPanel !== 'none' ? ' exp-has-drawer' : ''}`} style={sheetStyle()}>
           {/* Fondo: carátula actual difuminada + overlay oscuro. key → refade al
               cambiar de canción. aria-hidden: decorativo. */}
           {currentTrack?.cover_path && (
@@ -852,9 +864,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               <ChevronDown /> Ahora reproduciendo
             </button>
             <div className="exp-head-actions">
+              {/* M1 · Esta fila de acciones es MÓVIL (.exp-head-actions es display:none en ≥701px,
+                  main.css:3220). La Cola pasa de showQueue (overlay top:0 que tapaba todo) a
+                  expPanel — la MISMA vía que el drawer desktop → hereda gratis la escalera
+                  (dismissTop) y el guardia de historial (layerDepth), sin peldaño nuevo.
+                  La mini barra sigue en showQueue hasta M4. */}
               <button
-                className={`exp-icon-btn${showQueue ? ' active' : ''}`}
-                onClick={() => setShowQueue(v => !v)}
+                className={`exp-icon-btn${expPanel === 'queue' ? ' active' : ''}`}
+                onClick={() => toggleExpPanel('queue')}
                 title="Cola"
               >
                 <QueueGlyph size={22} />
@@ -882,9 +899,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
 
           {/* Cuerpo: en desktop dos columnas (carátula | info); en móvil los
               wrappers son display:contents y el layout de columna queda igual.
-              E2d: con el drawer abierto SUBE (transform) para dejarle aire al drawer. Desktop-only
-              (en móvil display:contents ignora el transform); la transición vive en el CSS. */}
-          <div className={`exp-body${expPanel === 'lyrics' ? ' exp-lyrics-compact' : ''}`} style={{ transform: `translateY(${songLift})` }}>
+              E2d: con el drawer abierto SUBE (transform) para dejarle aire al drawer. Desktop-only;
+              la transición vive en el CSS.
+              M1b · el transform se OMITE en móvil, ahora a propósito y no por accidente: hasta M1b
+              .exp-body era display:contents ahí y el translateY era un no-op silencioso; M1b le
+              devolvió la caja (necesario para que el drawer salga de la caja de padding), así que
+              el lift de desktop empezaría a aplicarse de verdad y despegaría el bloque hacia
+              arriba. En móvil el reacomodo lo hace el compactado por tamaño (.exp-has-drawer). */}
+          <div className={`exp-body${expPanel === 'lyrics' ? ' exp-lyrics-compact' : ''}`} style={isMobile ? undefined : { transform: `translateY(${songLift})` }}>
             <div className="exp-col-art">
               <div
                 ref={artRef}
@@ -954,8 +976,12 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           </div>
 
           <div className="exp-controls">
+            {/* M1c · exp-shuffle/exp-repeat: clases SOLO para poder seleccionarlos. La composición
+                compacta del expandido móvil (con la hoja de la cola abierta) los oculta, y hasta
+                ahora eran los dos únicos .exp-btn sin identidad propia — ocultarlos exigía
+                :first-child/:last-child, que se rompe si cambia el orden. Inertes en desktop. */}
             <button
-              className={`exp-btn${shuffle ? ' active' : ''}`}
+              className={`exp-btn exp-shuffle${shuffle ? ' active' : ''}`}
               onClick={() => { toggleShuffle(); setShuffleSpin(true); }}
               aria-pressed={shuffle}
               title={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
@@ -979,7 +1005,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               <NextIcon size={28} />
             </button>
             <button
-              className={`exp-btn${repeat !== 'off' ? ' active' : ''}`}
+              className={`exp-btn exp-repeat${repeat !== 'off' ? ' active' : ''}`}
               onClick={() => { cycleRepeat(); setRepeatSpin(true); }}
               aria-pressed={repeat !== 'off'}
               title={repeatTitle}
@@ -1053,10 +1079,18 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               del expandido (z 200) → z local 2, bajo Letra(250)/Info(300). Desktop-only. Contenido:
               se REUSAN QueueOverlay (cola) y LyricsPanel (letra) montados en .exp-drawer-inner y
               adaptados por CSS. Se montan SOLO con su panel activo (nada corriendo con el drawer
-              cerrado). Cierre: la X propia de cada panel (onClose → expPanel='none') + Esc/atrás. ── */}
+              cerrado). Cierre: la X propia de cada panel (onClose → expPanel='none') + Esc/atrás.
+
+              M1 · Ahora también MÓVIL (la cola; la letra móvil sigue inmersiva por showLyrics).
+              El alto inline de acá abajo es de DESKTOP (panel × tamaño, y el px en vivo del
+              grabber): en móvil hay UNA sola altura y la pone el CSS (--exp-drawer-h), así que
+              el style se omite — si no, el inline le ganaría al stylesheet y el drawer móvil
+              mediría los 38vh del 'small' de la cola. `drawerH` sólo puede ser != null en
+              desktop (el grabber está gateado a ≥701px), pero se respeta igual por si el ancho
+              cruza el breakpoint a mitad de arrastre. ── */}
           <div
             className={`exp-drawer${expPanel !== 'none' ? ' open' : ''}${drawerDragging ? ' dragging' : ''}`}
-            style={{ height: drawerH != null ? `${drawerH}px` : expDrawerH }}
+            style={isMobile && drawerH == null ? undefined : { height: drawerH != null ? `${drawerH}px` : expDrawerH }}
             aria-hidden={expPanel === 'none'}
           >
             <span
