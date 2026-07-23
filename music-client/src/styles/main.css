@@ -642,18 +642,22 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 /* ── COMPACTACIÓN de la tabla cuando falta ancho ──────────────────────────────
-   La tabla (table-layout:fixed) reparte: num/calidad/tiempo/acciones = 278px fijos
-   + Artista/Álbum a 22% cada uno + Título = el resto. Cuando el ancho disponible
-   cae, Título se aplasta hacia cero: la carátula (40px, flex-shrink:0) llena la
-   celda y el nombre queda tapado por la columna vecina. Se ataca ocultando las
-   columnas menos importantes y bajando la calidad al chip inline bajo el título.
-   El dato nunca se pierde: el artista SIEMPRE aparece en .track-sub bajo el título.
+   La tabla (table-layout:fixed) reparte: num/calidad/tiempo/acciones = 278px FIJOS
+   + Artista/Álbum a 22% cada uno + Título = el resto. Título es la ÚNICA columna sin
+   ancho declarado → en fixed-layout es la que absorbe todo el sobrante. Por eso el
+   ancho liberado al ocultar una columna SÍ va a Título; lo que lo ahogaba no era la
+   redistribución sino los px FIJOS que quedaban: con la tabla en ~360px, los 278px
+   fijos dejan a Título ~82px ("Arc…"). La cura es soltar también los fijos que no
+   son esenciales —Calidad (124px)— cuya info NO se pierde: viaja al chip inline bajo
+   el título. El artista tampoco se pierde: SIEMPRE está en .track-sub bajo el título.
 
-   Matiz por vista (qué se sacrifica primero):
-   · Álbum (.track-table--no-album): Artista es redundante —todas las pistas son del
-     mismo artista— así que se oculta ESA. La columna Álbum ya no existe acá.
-   · Género + Playlists (.track-table pelada): ahí el Artista SÍ aporta → se sacrifican
-     Álbum y Calidad, y se conserva la columna Artista mientras haya ancho.
+   Prioridad: que se LEA el nombre de la canción. Todo lo demás cede antes que Título.
+
+   Matiz por vista (qué se sacrifica):
+   · Álbum (.track-table--no-album): Artista (redundante, todas las pistas del mismo
+     artista) + Calidad → Título se queda con 100% − 154px. Álbum ya no existe acá.
+   · Género + Playlists (.track-table pelada): Álbum + Calidad; se conserva Artista
+     (ahí sí aporta). Título = 78% − 154px.
    · Biblioteca (.library-tracks): su receta de siempre — Artista + Álbum + Calidad.
 
    DOS disparadores, misma receta duplicada (CSS no tiene mixins):
@@ -664,8 +668,10 @@ button, input, select, textarea { font-family: inherit; }
       la tabla iguala al de 1024 sin cola. ⚠️ Si cambia --queue-w (hoy 320px) hay que
       recalcular este 1344 — es el contra conocido de no usar container queries. */
 @media (max-width: 1024px) {
-  /* Álbum: sacrifica Artista */
-  .track-table--no-album .col-artist { display: none; }
+  /* Álbum: sacrifica Artista + Calidad (la calidad baja al chip inline) */
+  .track-table--no-album .col-artist,
+  .track-table--no-album .col-quality { display: none; }
+  .track-table--no-album .quality-chip.chip-inline { display: inline-flex; }
 
   /* Género + Playlists: sacrifican Álbum + Calidad, conservan Artista */
   .track-table:not(.track-table--no-album):not(.library-tracks) .col-album,
@@ -681,7 +687,9 @@ button, input, select, textarea { font-family: inherit; }
 
 /* Misma receta, disparada por la COLA abierta (ver el 1344 arriba). */
 @media (max-width: 1344px) {
-  .layout--queue .track-table--no-album .col-artist { display: none; }
+  .layout--queue .track-table--no-album .col-artist,
+  .layout--queue .track-table--no-album .col-quality { display: none; }
+  .layout--queue .track-table--no-album .quality-chip.chip-inline { display: inline-flex; }
 
   .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .col-album,
   .layout--queue .track-table:not(.track-table--no-album):not(.library-tracks) .col-quality { display: none; }
@@ -862,6 +870,21 @@ button, input, select, textarea { font-family: inherit; }
   margin-bottom: 6px;
 }
 .detail-title { font-size: 28px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 4px; }
+/* Con la cola abierta el hero se angosta y un título largo ("Origins (Original Soundtrack)")
+   se partía en 3+ líneas y desarmaba el bloque. Con la cola abierta se limita a 2 líneas con
+   "…". Scopeado a .layout--queue: a ancho normal el título fluye como siempre. -webkit-line-clamp
+   es viejo y universal (Chrome 6+), no roza el pendiente de Chrome-87 del R4. Cubre los detalles
+   que usan .detail-hero (Álbum/Artista/Género/Año).
+   Gateado a ≥701px: en móvil .layout--queue también se prende (la mini barra abre showQueue hasta
+   M4), pero ahí la cola es el overlay full-screen que tapa el hero — el clamp no debe tocar móvil. */
+@media (min-width: 701px) {
+  .layout--queue .detail-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
 .detail-sub   { color: var(--text-muted); font-size: 15px; }
 .detail-meta  { color: var(--text-muted); font-size: 13px; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .detail-play  { margin-top: 16px; display: inline-flex; align-items: center; gap: 6px; }
