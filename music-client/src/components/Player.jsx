@@ -146,6 +146,15 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   const [drawerDragging, setDrawerDragging] = useState(false);
   const drawerGrab = useRef(null);            // gesto del grabber en curso | null
   const drawerCloseTimer = useRef(null);      // limpieza del alto congelado tras el slide de cierre
+  // M3a: arrastre de cierre de la hoja de la cola (MÓVIL). Estado propio, separado del sheet del
+  // expandido: son dos gestos distintos sobre superficies distintas y no deben compartir fase.
+  const [qDragY, setQDragY] = useState(0);    // desplazamiento vertical de la hoja durante el drag
+  const [qSheet, setQSheet] = useState('idle');   // idle | drag | return | closing
+  const qGesture = useRef(null);              // { x0, y0, dir, by, lastY, lastT, vy } | null
+  const qReturnTimer = useRef(null);          // timer del snap-back
+  const qCloseDur = useRef(DUR_CLOSE);        // duraciones en curso (las leen los estilos)
+  const qBackDur = useRef(DUR_BACK_MAX);
+  const drawerRef = useRef(null);             // nodo de la hoja (alto real para el momentum)
   // showQueue vive en Layout (C1: la cola pasa a ser hija de .layout, futura columna del grid
   // en desktop). Llega por prop y se usa igual acá (botones, dismissTop, layerDepth, hidden).
   const [shufflePhrase, setShufflePhrase] = useState('');
@@ -231,6 +240,17 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // El panel del expandido solo existe mientras el expandido está montado: al cerrarse (por
   // cualquier vía — botón, Esc, gesto, navegar) se resetea a 'none'. Evita que quede "colgado".
   useEffect(() => { if (!expanded) setExpPanel('none'); }, [expanded]);
+
+  // M3a: si la hoja se cierra por CUALQUIER otra vía (la X, Esc, el atrás, cerrar el expandido),
+  // el arrastre no puede quedar a medio camino: se corta el gesto y se limpia su fase. Sin esto,
+  // reabrir la cola podría arrancar con un transform viejo aplicado.
+  useEffect(() => {
+    if (expPanel !== 'none') return;
+    qGesture.current = null;
+    clearTimeout(qReturnTimer.current); qReturnTimer.current = null;
+    setQSheet('idle'); setQDragY(0);
+  }, [expPanel]);
+  useEffect(() => () => clearTimeout(qReturnTimer.current), []);
 
   // E2h-1: cancelar el drag del grabber si la ventana pierde foco; limpiar el timer de cierre.
   useEffect(() => {
@@ -347,7 +367,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     else { setMotion({ mode: 'idle' }); setDragX(0); }
   };
   useEffect(() => {
-    const onBlur = () => { cancelGesture(); cancelSheet(); };
+    const onBlur = () => { cancelGesture(); cancelSheet(); cancelQueueDrag(); };
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
   });
@@ -810,6 +830,101 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     setDrawerH(null);   // revertir al committed, sin snap
   };
 
+  // ── M3a · Arrastrar la hoja de la cola hacia abajo para CERRARLA (móvil) ────────────────────
+  // Calca la física del swipe-down del expandido —la que el usuario ya tiene en el dedo—: eje por
+  // distancia + dominancia, seguimiento 1:1 hacia abajo, re-base al fijar el eje (el drag arranca
+  // en 0 sin salto) con los UMBRALES medidos desde el origen del down, velocidad suavizada,
+  // snap-back con spring y cierre con momentum. Constantes compartidas (CLOSE_*, AXIS_*, DUR_*):
+  // mismo feel, cero números nuevos.
+  //
+  // Tres diferencias deliberadas con el sheet:
+  //  · Los handlers van en .exp-drawer (el contenedor) y filtran por target. La zona de agarre es
+  //    el header de la cola, pero ese nodo lo pinta QueueOverlay y ese componente no se toca.
+  //  · SÓLO agarran el header y el grabber. El cuerpo de la lista scrollea nativo → la colisión
+  //    scroll-vs-drag no se administra: no existe.
+  //  · El destino es setExpPanel('none'), la misma vía que dismissTop. NUNCA history.back()
+  //    (regla dura #3 de nav-lab); el popstate no se toca.
+  const cancelQueueReturn = () => {
+    if (qReturnTimer.current) { clearTimeout(qReturnTimer.current); qReturnTimer.current = null; }
+    setQSheet(s => (s === 'return' ? 'idle' : s));
+  };
+  // Vuelta con spring si no se alcanzó el umbral, con duración proporcional a lo recorrido.
+  const queueBack = () => {
+    if (reduced) { setQSheet('idle'); setQDragY(0); return; }
+    const dur = Math.round(Math.min(DUR_BACK_MAX, Math.max(DUR_BACK_MIN, qDragY * 2)));
+    qBackDur.current = dur;
+    setQSheet('return');
+    setQDragY(0);
+    clearTimeout(qReturnTimer.current);
+    qReturnTimer.current = setTimeout(() => { qReturnTimer.current = null; setQSheet('idle'); }, dur + 40);
+  };
+  // Cierre con momentum: la duración continúa la velocidad del flick (distancia restante / vy,
+  // con los mismos clamps del sheet). La hoja baja su propio alto (translateY 100%) y recién al
+  // final se desmonta el panel.
+  const closeQueueSheet = (vy = 0) => {
+    if (reduced) { setExpPanel('none'); setQSheet('idle'); setQDragY(0); return; }
+    const h = drawerRef.current?.offsetHeight || 320;
+    const remaining = Math.max(0, h - qDragY);
+    const dur = Math.round(Math.min(DUR_CLOSE, Math.max(DUR_CLOSE_MIN, vy > 0 ? remaining / vy : DUR_CLOSE)));
+    qCloseDur.current = dur;
+    setQSheet('closing');
+    timers.current.push(setTimeout(() => setExpPanel('none'), dur));
+  };
+  const onQueueDragDown = (e) => {
+    if (!isMobile || expPanel === 'none' || qSheet === 'closing') return;
+    // Sólo el header de la cola y el grabber son asa. Todo lo demás (el cuerpo de la lista) cae
+    // acá por burbujeo y sale sin capturar el puntero → el scroll nativo sigue intacto.
+    if (!e.target.closest?.('.queue-header, .exp-drawer-grabber')) return;
+    if (e.target.closest?.('button, a, input, [role="button"]')) return;   // la X no arranca drag
+    cancelQueueReturn();      // reintento rápido tras un rebote: no congelar el drag nuevo
+    qGesture.current = { x0: e.clientX, y0: e.clientY, dir: null, by: e.clientY, lastY: e.clientY, lastT: e.timeStamp, vy: 0 };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  };
+  const onQueueDragMove = (e) => {
+    const g = qGesture.current;
+    if (!g) return;
+    const dx = e.clientX - g.x0;
+    const dy = e.clientY - g.y0;
+    if (g.dir === null) {
+      if (dy < AXIS_DIST || dy < Math.abs(dx) * AXIS_DOM) return;   // indeciso, o no es un cierre
+      g.dir = 'y';
+      g.by = e.clientY;                                             // re-base del offset renderizado
+      g.lastY = e.clientY; g.lastT = e.timeStamp;                   // velocidad desde el fijado
+      setQSheet('drag');
+    }
+    const dt = e.timeStamp - g.lastT;
+    if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
+    setQDragY(Math.max(0, e.clientY - g.by));                       // sólo hacia abajo
+  };
+  const onQueueDragUp = (e) => {
+    const g = qGesture.current;
+    qGesture.current = null;
+    if (!g || g.dir !== 'y') return;
+    const dy = Math.max(0, e.clientY - g.y0);                       // umbral desde el down
+    const flick = g.vy > CLOSE_VEL && dy > CLOSE_MIN;
+    if (dy >= CLOSE_DIST || flick) closeQueueSheet(g.vy);
+    else queueBack();
+  };
+  // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias.
+  const cancelQueueDrag = () => {
+    const g = qGesture.current;
+    if (!g) return;
+    const wasY = g.dir === 'y';
+    qGesture.current = null;
+    if (wasY) queueBack();
+  };
+  // Estilo de la hoja. En DESKTOP se devuelve exactamente lo de siempre (alto por panel × tamaño,
+  // o el px en vivo del grabber) — el arrastre de cierre es móvil y no lo roza. En móvil el alto
+  // lo pone el CSS y acá sólo viaja el transform del gesto; en reposo no se emite nada y manda la
+  // clase .open del CSS (incluida su transición de entrada/salida).
+  const drawerStyle = () => {
+    if (!isMobile) return { height: drawerH != null ? `${drawerH}px` : expDrawerH };
+    if (qSheet === 'drag')    return { transform: `translateY(${qDragY}px)`, transition: 'none', willChange: 'transform' };
+    if (qSheet === 'closing') return { transform: 'translateY(100%)', transition: `transform ${qCloseDur.current}ms cubic-bezier(.22, 1, .36, 1)` };
+    if (qSheet === 'return')  return { transform: 'translateY(0)', transition: `transform ${qBackDur.current}ms cubic-bezier(.34, 1.42, .6, 1)` };
+    return drawerH != null ? { height: `${drawerH}px` } : undefined;
+  };
+
   return (
     <>
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
@@ -1097,11 +1212,22 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               el style se omite — si no, el inline le ganaría al stylesheet y el drawer móvil
               mediría los 38vh del 'small' de la cola. `drawerH` sólo puede ser != null en
               desktop (el grabber está gateado a ≥701px), pero se respeta igual por si el ancho
-              cruza el breakpoint a mitad de arrastre. ── */}
+              cruza el breakpoint a mitad de arrastre.
+
+              M3a · el arrastre de cierre (móvil) escucha en el CONTENEDOR y filtra por target: la
+              zona de agarre real es el header de la cola, y ese nodo lo pinta QueueOverlay (que no
+              se toca). En desktop los handlers salen en el primer if (gate isMobile) y el grabber
+              conserva intacto su arrastre de redimensionado. ── */}
           <div
+            ref={drawerRef}
             className={`exp-drawer${expPanel !== 'none' ? ' open' : ''}${drawerDragging ? ' dragging' : ''}`}
-            style={isMobile && drawerH == null ? undefined : { height: drawerH != null ? `${drawerH}px` : expDrawerH }}
+            style={drawerStyle()}
             aria-hidden={expPanel === 'none'}
+            onPointerDown={onQueueDragDown}
+            onPointerMove={onQueueDragMove}
+            onPointerUp={onQueueDragUp}
+            onPointerCancel={cancelQueueDrag}
+            onLostPointerCapture={cancelQueueDrag}
           >
             <span
               className="exp-drawer-grabber"
