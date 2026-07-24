@@ -3,6 +3,26 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.9.0] - 2026-07-23
+
+### Añadido
+- **La cola en el teléfono ahora es una hoja que convive con la canción**: sube desde
+  abajo y deja ver la canción arriba, en vez de tapar toda la pantalla. La arrastrás
+  hacia arriba para agrandarla y hacia abajo para achicarla o cerrarla.
+- **Las listas de canciones se adaptan cuando hay poco espacio**: con la ventana
+  angosta o la cola abierta al costado, la lista se reacomoda —carátula, título y
+  artista apilados— para que el nombre de la canción se lea siempre completo, en vez
+  de cortarse a unas pocas letras.
+
+### Cambiado
+- **La cola del teléfono es una sola**: se abre igual desde la barra de abajo que
+  desde el reproductor ampliado (antes cambiaba de forma según por dónde la abrieras).
+
+### Corregido
+- **En el teléfono ya se leen bien las listas de canciones**: antes el nombre de la
+  canción no se veía —quedaba sólo la carátula— y el dato de calidad se encimaba con
+  la duración.
+
 ## [1.8.1] - 2026-07-22
 
 ### Corregido
