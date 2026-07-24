@@ -692,7 +692,7 @@ button, input, select, textarea { font-family: inherit; }
   .track-table .track-row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; }
   .track-table .track-row td { display: block; width: auto; padding: 0; border: none; }
   .track-table .track-row td:nth-child(2) { flex: 1; min-width: 0; }       /* celda de título */
-  .track-table .track-row td.col-num  { flex: none; }                      /* # a la izquierda */
+  .track-table .track-row td.col-num  { flex: none; padding-left: 8px; }   /* # a la izquierda, con aire */
   .track-table .track-row td.col-time { flex: none; text-align: right; }   /* duración a la derecha */
   .track-table .track-row td.col-artist,
   .track-table .track-row td.col-album,
@@ -702,6 +702,12 @@ button, input, select, textarea { font-family: inherit; }
      consulta desde Info). Gana por especificidad (0,4,0 > los 0,2,0 del bloque móvil). */
   .track-table .track-row .quality-chip.chip-inline { display: none; }
   .track-table .track-row:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, .035); }
+  /* Fila activa: la barra de acento pasa a la FILA (marca su borde). En la tabla vivía en la celda
+     # con inset 3px, pero en lista esa celda queda 8px adentro por el padding de la fila y la barra
+     se pegaba al ▶. Ahora la barra está en el borde y el ▶/# gana aire con el padding-left del #.
+     Sólo modo lista: en tabla la barra sigue en la celda #, intacta. */
+  .track-table .track-row.playing { box-shadow: inset 3px 0 0 var(--accent); }
+  .track-table .track-row.playing td.col-num { box-shadow: none; }
   .track-table .track-disc-header td { display: block; width: auto; padding: 12px 8px 4px; }
 }
 @media (max-width: 1344px) {
@@ -712,7 +718,7 @@ button, input, select, textarea { font-family: inherit; }
   .layout--queue .track-table .track-row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; }
   .layout--queue .track-table .track-row td { display: block; width: auto; padding: 0; border: none; }
   .layout--queue .track-table .track-row td:nth-child(2) { flex: 1; min-width: 0; }
-  .layout--queue .track-table .track-row td.col-num  { flex: none; }
+  .layout--queue .track-table .track-row td.col-num  { flex: none; padding-left: 8px; }
   .layout--queue .track-table .track-row td.col-time { flex: none; text-align: right; }
   .layout--queue .track-table .track-row td.col-artist,
   .layout--queue .track-table .track-row td.col-album,
@@ -720,6 +726,8 @@ button, input, select, textarea { font-family: inherit; }
   .layout--queue .track-table .track-row td.col-actions { display: none; }
   .layout--queue .track-table .track-row .quality-chip.chip-inline { display: none; }
   .layout--queue .track-table .track-row:not(:last-child) { border-bottom: 1px solid rgba(255, 255, 255, .035); }
+  .layout--queue .track-table .track-row.playing { box-shadow: inset 3px 0 0 var(--accent); }
+  .layout--queue .track-table .track-row.playing td.col-num { box-shadow: none; }
   .layout--queue .track-table .track-disc-header td { display: block; width: auto; padding: 12px 8px 4px; }
 }
 
