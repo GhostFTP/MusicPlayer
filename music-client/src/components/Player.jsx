@@ -669,6 +669,21 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     setExpanded(true);
   };
 
+  // M4 · Cola desde la MINI BARRA (móvil): promueve al expandido y abre el DRAWER (expPanel) — la
+  // MISMA cola que el header del expandido, no el viejo overlay showQueue (retirado en móvil, ver
+  // el bloque de la cola en main.css). Mismo movimiento que openNowPlaying con la Letra. Cierra la
+  // Letra si estaba abierta: la cola manda y si no la Letra (z 250) taparía el drawer (z 200).
+  // setExpanded(true) + setExpPanel en el mismo batch: el efecto que resetea expPanel corre con
+  // `expanded` YA true (su dep), así que no lo pisa. No toca showQueue (columna desktop) ni el
+  // popstate — el cierre sale por la escalera (dismissTop: expPanel antes que expanded).
+  const openQueueMobile = (e) => {
+    e.stopPropagation();
+    setShowLyrics(false);
+    setExpDrawerSize('small');
+    setExpanded(true);
+    setExpPanel('queue');
+  };
+
   // Toggle de la Letra desde el EXPANDIDO: abre directo en inmersivo (full-bleed
   // sobre el expandido, que queda montado detrás).
   const toggleLyricsExpanded = () => {
@@ -1515,11 +1530,12 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             Cola en la barra móvil (antes solo se abría desde el expandido, un paso de más);
             el acceso desde el expandido móvil sigue igual. */}
         <div className="player-mini-controls">
+          {/* M4 · abre el drawer (expPanel) promoviendo al expandido, no el overlay showQueue.
+              Es un lanzador: al abrir, el expandido tapa la mini barra, así que no hace de toggle. */}
           <button
-            className={`mini-btn queue-mini${showQueue ? ' active' : ''}`}
-            onClick={e => { e.stopPropagation(); setShowQueue(v => !v); }}
+            className="mini-btn queue-mini"
+            onClick={openQueueMobile}
             title="Cola"
-            aria-pressed={showQueue}
           >
             <QueueGlyph size={22} />
           </button>
