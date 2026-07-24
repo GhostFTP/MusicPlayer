@@ -22,8 +22,11 @@ export default function TrackTable({ tracks, showAlbum = true }) {
   const discOf = (t) => t.disc_number ?? 1;
   const showDiscHeaders = new Set(tracks.map(discOf)).size > 1;
 
+  // `track-table--no-album`: refleja un hecho estructural real (esta tabla NO tiene columna Álbum,
+  // porque el contexto YA es un álbum). Lo usa la compactación con la cola abierta para sacrificar
+  // primero Artista —redundante acá, todas las pistas son del mismo artista— en vez de Álbum.
   return (
-    <table className="track-table">
+    <table className={`track-table${showAlbum ? '' : ' track-table--no-album'}`}>
       <thead>
         <tr>
           <th className="col-num">#</th>

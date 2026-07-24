@@ -146,6 +146,16 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   const [drawerDragging, setDrawerDragging] = useState(false);
   const drawerGrab = useRef(null);            // gesto del grabber en curso | null
   const drawerCloseTimer = useRef(null);      // limpieza del alto congelado tras el slide de cierre
+  // M3a: arrastre de cierre de la hoja de la cola (MÓVIL). Estado propio, separado del sheet del
+  // expandido: son dos gestos distintos sobre superficies distintas y no deben compartir fase.
+  const [qDragY, setQDragY] = useState(0);    // desplazamiento vertical de la hoja durante el drag
+  const [qSheet, setQSheet] = useState('idle');   // idle | drag | snap | closing
+  const qGesture = useRef(null);              // { x0, y0, dir, by, lastY, lastT, vy, delta, maxUp } | null
+  const qReturnTimer = useRef(null);          // timer del snap
+  const qCloseDur = useRef(DUR_CLOSE);        // duración del cierre en curso (la lee el estilo)
+  const qBaseH = useRef(0);                   // alto de la hoja al empezar el arrastre (M3b)
+  const qSnap = useRef(null);                 // estilo destino del snap, ya resuelto (M3b)
+  const drawerRef = useRef(null);             // nodo de la hoja (alto real para el momentum)
   // showQueue vive en Layout (C1: la cola pasa a ser hija de .layout, futura columna del grid
   // en desktop). Llega por prop y se usa igual acá (botones, dismissTop, layerDepth, hidden).
   const [shufflePhrase, setShufflePhrase] = useState('');
@@ -160,6 +170,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   const [dragX, setDragX]     = useState(0);                // desplazamiento crudo durante el arrastre
   const [motion, setMotion]   = useState({ mode: 'idle' }); // idle | drag | out | in | return
   const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  // M1: ¿estamos en el régimen móvil? REACTIVO (no lectura puntual como en los handlers): lo
+  // consume el RENDER del drawer — en móvil el alto lo pone el CSS (una sola altura), así que el
+  // style inline con expDrawerH NO se emite ahí. Mismo patrón/listener que `reduced`.
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia?.('(max-width: 700px)').matches ?? false);
   const [coverTrack, setCoverTrack] = useState(currentTrack); // carátula visible (difiere de currentTrack durante la animación)
   const gesture   = useRef(null);          // gesto en curso: { x0, y0, dir, bx, by, lastX, lastY, lastT, vx, vy } | null
   const busy      = useRef(false);         // animación de salida/entrada en curso → ignora gestos nuevos
@@ -228,6 +242,17 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // cualquier vía — botón, Esc, gesto, navegar) se resetea a 'none'. Evita que quede "colgado".
   useEffect(() => { if (!expanded) setExpPanel('none'); }, [expanded]);
 
+  // M3a: si la hoja se cierra por CUALQUIER otra vía (la X, Esc, el atrás, cerrar el expandido),
+  // el arrastre no puede quedar a medio camino: se corta el gesto y se limpia su fase. Sin esto,
+  // reabrir la cola podría arrancar con un transform viejo aplicado.
+  useEffect(() => {
+    if (expPanel !== 'none') return;
+    qGesture.current = null;
+    clearTimeout(qReturnTimer.current); qReturnTimer.current = null;
+    setQSheet('idle'); setQDragY(0);
+  }, [expPanel]);
+  useEffect(() => () => clearTimeout(qReturnTimer.current), []);
+
   // E2h-1: cancelar el drag del grabber si la ventana pierde foco; limpiar el timer de cierre.
   useEffect(() => {
     const onBlur = () => {
@@ -289,6 +314,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     mq.addEventListener?.('change', on);
     return () => mq.removeEventListener?.('change', on);
   }, []);
+  // Régimen móvil en vivo (M1): cruzar el breakpoint 700/701 con el drawer abierto tiene que
+  // cambiar de geometría sin recargar (el QA de mobile-lab lo pide explícitamente).
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 700px)');
+    const on = () => setIsMobile(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
 
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   const clearReturnTimers = () => {
@@ -335,7 +368,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     else { setMotion({ mode: 'idle' }); setDragX(0); }
   };
   useEffect(() => {
-    const onBlur = () => { cancelGesture(); cancelSheet(); };
+    const onBlur = () => { cancelGesture(); cancelSheet(); cancelQueueDrag(); };
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
   });
@@ -390,6 +423,16 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
         g.lastX = e.clientX; g.lastT = e.timeStamp;        // velocidad medida desde el fijado
         setMotion({ mode: 'drag' });
       } else if (dy >= AXIS_DIST && dy >= ax * AXIS_DOM) {
+        // M2 · Con la hoja de la cola abierta en MÓVIL, la rama de CIERRE de la carátula queda
+        // INERTE. Si no, un swipe-down acá cerraría el expandido entero con la cola encima —
+        // "cierro todo de un manotazo"— y eso viola el orden de la escalera de nav-lab, que cierra
+        // primero lo de más arriba (expPanel antes que expanded, dismissTop). Con la cola cerrada
+        // no cambia nada, y el asa del header sigue cerrando el expandido como siempre (es la
+        // superficie correcta para eso). Gateado a móvil: en desktop el drawer es otra cosa y su
+        // comportamiento no se toca.
+        // Se sale sin fijar eje —no se marca un eje muerto— así que el gesto sigue vivo y puede
+        // resolverse como horizontal: Oscar quiere poder cambiar de canción con la cola abierta.
+        if (isMobile && expPanel !== 'none') return;
         g.dir = 'close';                                   // vertical hacia abajo → cerrar
         g.by = e.clientY;
         g.lastY = e.clientY; g.lastT = e.timeStamp;
@@ -626,6 +669,21 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     setExpanded(true);
   };
 
+  // M4 · Cola desde la MINI BARRA (móvil): promueve al expandido y abre el DRAWER (expPanel) — la
+  // MISMA cola que el header del expandido, no el viejo overlay showQueue (retirado en móvil, ver
+  // el bloque de la cola en main.css). Mismo movimiento que openNowPlaying con la Letra. Cierra la
+  // Letra si estaba abierta: la cola manda y si no la Letra (z 250) taparía el drawer (z 200).
+  // setExpanded(true) + setExpPanel en el mismo batch: el efecto que resetea expPanel corre con
+  // `expanded` YA true (su dep), así que no lo pisa. No toca showQueue (columna desktop) ni el
+  // popstate — el cierre sale por la escalera (dismissTop: expPanel antes que expanded).
+  const openQueueMobile = (e) => {
+    e.stopPropagation();
+    setShowLyrics(false);
+    setExpDrawerSize('small');
+    setExpanded(true);
+    setExpPanel('queue');
+  };
+
   // Toggle de la Letra desde el EXPANDIDO: abre directo en inmersivo (full-bleed
   // sobre el expandido, que queda montado detrás).
   const toggleLyricsExpanded = () => {
@@ -788,6 +846,176 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     setDrawerH(null);   // revertir al committed, sin snap
   };
 
+  // ── M3a · Arrastrar la hoja de la cola hacia abajo para CERRARLA (móvil) ────────────────────
+  // Calca la física del swipe-down del expandido —la que el usuario ya tiene en el dedo—: eje por
+  // distancia + dominancia, seguimiento 1:1 hacia abajo, re-base al fijar el eje (el drag arranca
+  // en 0 sin salto) con los UMBRALES medidos desde el origen del down, velocidad suavizada,
+  // snap-back con spring y cierre con momentum. Constantes compartidas (CLOSE_*, AXIS_*, DUR_*):
+  // mismo feel, cero números nuevos.
+  //
+  // Tres diferencias deliberadas con el sheet:
+  //  · Los handlers van en .exp-drawer (el contenedor) y filtran por target. La zona de agarre es
+  //    el header de la cola, pero ese nodo lo pinta QueueOverlay y ese componente no se toca.
+  //  · SÓLO agarran el header y el grabber. El cuerpo de la lista scrollea nativo → la colisión
+  //    scroll-vs-drag no se administra: no existe.
+  //  · El destino es setExpPanel('none'), la misma vía que dismissTop. NUNCA history.back()
+  //    (regla dura #3 de nav-lab); el popstate no se toca.
+  const cancelQueueReturn = () => {
+    if (qReturnTimer.current) { clearTimeout(qReturnTimer.current); qReturnTimer.current = null; }
+    setQSheet(s => (s === 'snap' ? 'idle' : s));
+  };
+  // M3b · Distancia entre los dos destinos de tamaño. Sale de los DOS tokens reales del CSS, no de
+  // un número escrito acá: si mañana se recalibra --exp-song-h, el gesto lo sigue solo. Si por lo
+  // que fuera no se pudieran leer, delta 0 → estirar queda inerte y el gesto se degrada al cierre
+  // de M3a, nunca a algo roto.
+  const readSongDelta = () => {
+    const cs = getComputedStyle(document.documentElement);
+    const small = parseFloat(cs.getPropertyValue('--exp-song-h'));
+    const large = parseFloat(cs.getPropertyValue('--exp-song-h-large'));
+    return Number.isFinite(small) && Number.isFinite(large) ? Math.max(0, small - large) : 0;
+  };
+  // M3b · Snap a un TAMAÑO (chica o grande), con spring y duración proporcional a lo que falta.
+  //
+  // Por qué hay DOS mecanismos y no uno: la hoja está anclada abajo (bottom:0). Moverla con
+  // transform arrastra las DOS aristas, así que sirve para bajarla (la base se sale de pantalla y
+  // el overflow del expandido la recorta) pero NO para estirarla — al subirla despegaría la base
+  // del borde inferior y dejaría un hueco. Estirar, entonces, es crecer de ALTO con la base
+  // clavada (top:auto + height). En dy = 0 los dos dan el mismo resultado visual, así que la
+  // discontinuidad es de mecanismo, no de imagen.
+  //
+  // El truco para que el commit no salte: la geometría real NO cambia durante la animación — se
+  // anima hasta la posición/alto del destino y recién al terminar se COMMITEA el tamaño (que mueve
+  // el top vía --exp-song-h) limpiando el estilo inline. En ese frame la imagen es idéntica, así
+  // que el intercambio es invisible. Y la canción cambia de composición ahí, no a mitad del
+  // arrastre: "se ajusta al soltar", igual que E2d/E2e en desktop.
+  const snapQueue = (dest, delta) => {
+    const commit = () => { setExpDrawerSize(dest); setQSheet('idle'); setQDragY(0); qSnap.current = null; };
+    if (reduced) { commit(); return; }
+    const big = expDrawerSize === 'large';
+    const hSmall = big ? qBaseH.current - delta : qBaseH.current;
+    const targetH = dest === 'large' ? hSmall + delta : hSmall;
+    const stretching = qDragY < 0;                       // el dedo fue hacia ARRIBA → modo alto
+    const nowH = qBaseH.current - qDragY;                // alto visible en este momento
+    const targetY = dest === expDrawerSize ? 0 : delta;  // (bajar de grande a chica; subir va por alto)
+    const dist = stretching ? Math.abs(nowH - targetH) : Math.abs(qDragY - targetY);
+    const dur = Math.round(Math.min(DUR_BACK_MAX, Math.max(DUR_BACK_MIN, dist * 2)));
+    const ease = 'cubic-bezier(.34, 1.42, .6, 1)';
+    qSnap.current = stretching
+      ? { top: 'auto', height: `${targetH}px`, transition: `height ${dur}ms ${ease}` }
+      : { transform: `translateY(${targetY}px)`, transition: `transform ${dur}ms ${ease}` };
+    setQSheet('snap');
+    clearTimeout(qReturnTimer.current);
+    qReturnTimer.current = setTimeout(() => { qReturnTimer.current = null; commit(); }, dur + 20);
+  };
+  // Cierre con momentum: la duración continúa la velocidad del flick (distancia restante / vy,
+  // con los mismos clamps del sheet). La hoja baja su propio alto (translateY 100%) y recién al
+  // final se desmonta el panel.
+  const closeQueueSheet = (vy = 0) => {
+    if (reduced) { setExpPanel('none'); setQSheet('idle'); setQDragY(0); return; }
+    const h = drawerRef.current?.offsetHeight || 320;
+    const remaining = Math.max(0, h - qDragY);
+    const dur = Math.round(Math.min(DUR_CLOSE, Math.max(DUR_CLOSE_MIN, vy > 0 ? remaining / vy : DUR_CLOSE)));
+    qCloseDur.current = dur;
+    setQSheet('closing');
+    timers.current.push(setTimeout(() => setExpPanel('none'), dur));
+  };
+  const onQueueDragDown = (e) => {
+    if (!isMobile || expPanel === 'none' || qSheet === 'closing') return;
+    // Sólo el header de la cola y el grabber son asa. Todo lo demás (el cuerpo de la lista) cae
+    // acá por burbujeo y sale sin capturar el puntero → el scroll nativo sigue intacto.
+    if (!e.target.closest?.('.queue-header, .exp-drawer-grabber')) return;
+    if (e.target.closest?.('button, a, input, [role="button"]')) return;   // la X no arranca drag
+    cancelQueueReturn();      // reintento rápido tras un rebote: no congelar el drag nuevo
+    // maxUp: cuánto se puede estirar hacia arriba desde el tamaño actual. Si ya está grande, 0
+    // (no hay nada más alto) → el arrastre hacia arriba queda topado, sin rubber.
+    const delta = readSongDelta();
+    qBaseH.current = drawerRef.current?.offsetHeight || 0;   // base del modo "crecer de alto"
+    qGesture.current = {
+      x0: e.clientX, y0: e.clientY, dir: null, by: e.clientY, lastY: e.clientY, lastT: e.timeStamp, vy: 0,
+      delta, maxUp: expDrawerSize === 'large' ? 0 : delta,
+    };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  };
+  const onQueueDragMove = (e) => {
+    const g = qGesture.current;
+    if (!g) return;
+    const dx = e.clientX - g.x0;
+    const dy = e.clientY - g.y0;
+    if (g.dir === null) {
+      // M3b: el eje vertical ahora vale en LOS DOS sentidos (abajo cierra, arriba estira), así que
+      // se mide el valor absoluto. La dominancia sobre el horizontal se exige igual.
+      const ady = Math.abs(dy);
+      if (ady < AXIS_DIST || ady < Math.abs(dx) * AXIS_DOM) return;  // indeciso, o es horizontal
+      g.dir = 'y';
+      g.by = e.clientY;                                             // re-base del offset renderizado
+      g.lastY = e.clientY; g.lastT = e.timeStamp;                   // velocidad desde el fijado
+      setQSheet('drag');
+    }
+    const dt = e.timeStamp - g.lastT;
+    if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
+    // Hacia abajo sin tope (más allá de "chica" se entra en zona de cierre); hacia arriba, topado
+    // en el tamaño grande, sin rubber. El signo decide el mecanismo en drawerStyle: bajar mueve la
+    // hoja entera, subir la hace crecer de alto (ver snapQueue).
+    setQDragY(Math.max(-g.maxUp, e.clientY - g.by));
+  };
+  // M3b · Snap a TRES destinos: cerrar / chica / grande. Los umbrales salen de las dos alturas
+  // reales (delta), no de números mágicos: la frontera chica↔grande es el punto medio entre las
+  // dos, y para cerrar hay que pasarse CLOSE_DIST por DEBAJO de donde queda "chica". Como el
+  // origen del arrastre es la posición actual, "chica" está en 0 si ya era chica, o en +delta si
+  // venía de grande. La velocidad manda sobre la posición (mismo criterio que el sheet): un flick
+  // mueve UN escalón — grande→chica, chica→cerrar — y hacia arriba lleva a grande.
+  const onQueueDragUp = (e) => {
+    const g = qGesture.current;
+    qGesture.current = null;
+    if (!g || g.dir !== 'y') return;
+    const dy = Math.max(-g.maxUp, e.clientY - g.y0);   // umbral desde el down, con el mismo tope
+    const d = g.delta;                                  // separación real entre los dos tamaños
+    const big = expDrawerSize === 'large';
+    const smallAt = big ? d : 0;                        // dónde cae "chica" en coordenadas del gesto
+    const flickDown = g.vy >  CLOSE_VEL && dy >  CLOSE_MIN;
+    const flickUp   = g.vy < -CLOSE_VEL && dy < -CLOSE_MIN;
+
+    let dest;
+    if (d > 0 && flickUp)                     dest = 'large';
+    else if (flickDown)                       dest = big ? 'small' : 'close';
+    else if (dy >= smallAt + CLOSE_DIST)      dest = 'close';
+    else if (d > 0 && dy <= smallAt - d / 2)  dest = 'large';
+    else                                      dest = 'small';
+
+    if (dest === 'close') closeQueueSheet(g.vy);
+    else snapQueue(dest, d);
+  };
+  // Cancelación limpia (pointercancel / captura perdida / blur): nunca a medias — vuelve al
+  // tamaño en el que estaba, sin cambiarlo.
+  const cancelQueueDrag = () => {
+    const g = qGesture.current;
+    if (!g) return;
+    const wasY = g.dir === 'y';
+    qGesture.current = null;
+    if (wasY) snapQueue(expDrawerSize, g.delta);
+  };
+  // Estilo de la hoja. En DESKTOP se devuelve exactamente lo de siempre (alto por panel × tamaño,
+  // o el px en vivo del grabber) — el arrastre de cierre es móvil y no lo roza. En móvil el alto
+  // lo pone el CSS y acá sólo viaja el transform del gesto; en reposo no se emite nada y manda la
+  // clase .open del CSS (incluida su transición de entrada/salida).
+  // M3b · La hoja grande en MÓVIL. Sólo acá: en desktop expDrawerSize ya significa otra cosa (el
+  // alto del drawer por style inline) y ninguna regla mira esta clase, pero se gatea igual para
+  // que el DOM no mienta.
+  const expBigDrawer = isMobile && expPanel !== 'none' && expDrawerSize === 'large';
+  const drawerStyle = () => {
+    if (!isMobile) return { height: drawerH != null ? `${drawerH}px` : expDrawerH };
+    // Arrastre: hacia ABAJO se mueve entera (transform, la base se recorta fuera de pantalla);
+    // hacia ARRIBA crece de alto con la base clavada (ver snapQueue para el porqué).
+    if (qSheet === 'drag') {
+      return qDragY < 0
+        ? { top: 'auto', height: `${qBaseH.current - qDragY}px`, transition: 'none', willChange: 'height' }
+        : { transform: `translateY(${qDragY}px)`, transition: 'none', willChange: 'transform' };
+    }
+    if (qSheet === 'closing') return { transform: 'translateY(100%)', transition: `transform ${qCloseDur.current}ms cubic-bezier(.22, 1, .36, 1)` };
+    if (qSheet === 'snap')    return qSnap.current ?? undefined;
+    return drawerH != null ? { height: `${drawerH}px` } : undefined;
+  };
+
   return (
     <>
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
@@ -829,7 +1057,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           nunca queda huérfano. pointer-events: none en CSS. */}
       {expanded && <div className="exp-scrim" style={scrimStyle()} aria-hidden="true" />}
       {expanded && (
-        <div className="player-expanded" style={sheetStyle()}>
+        <div className={`player-expanded${expPanel !== 'none' ? ' exp-has-drawer' : ''}${expBigDrawer ? ' exp-drawer-large' : ''}`} style={sheetStyle()}>
           {/* Fondo: carátula actual difuminada + overlay oscuro. key → refade al
               cambiar de canción. aria-hidden: decorativo. */}
           {currentTrack?.cover_path && (
@@ -852,9 +1080,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               <ChevronDown /> Ahora reproduciendo
             </button>
             <div className="exp-head-actions">
+              {/* M1 · Esta fila de acciones es MÓVIL (.exp-head-actions es display:none en ≥701px,
+                  main.css:3220). La Cola pasa de showQueue (overlay top:0 que tapaba todo) a
+                  expPanel — la MISMA vía que el drawer desktop → hereda gratis la escalera
+                  (dismissTop) y el guardia de historial (layerDepth), sin peldaño nuevo.
+                  La mini barra sigue en showQueue hasta M4. */}
               <button
-                className={`exp-icon-btn${showQueue ? ' active' : ''}`}
-                onClick={() => setShowQueue(v => !v)}
+                className={`exp-icon-btn${expPanel === 'queue' ? ' active' : ''}`}
+                onClick={() => toggleExpPanel('queue')}
                 title="Cola"
               >
                 <QueueGlyph size={22} />
@@ -882,9 +1115,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
 
           {/* Cuerpo: en desktop dos columnas (carátula | info); en móvil los
               wrappers son display:contents y el layout de columna queda igual.
-              E2d: con el drawer abierto SUBE (transform) para dejarle aire al drawer. Desktop-only
-              (en móvil display:contents ignora el transform); la transición vive en el CSS. */}
-          <div className={`exp-body${expPanel === 'lyrics' ? ' exp-lyrics-compact' : ''}`} style={{ transform: `translateY(${songLift})` }}>
+              E2d: con el drawer abierto SUBE (transform) para dejarle aire al drawer. Desktop-only;
+              la transición vive en el CSS.
+              M1b · el transform se OMITE en móvil, ahora a propósito y no por accidente: hasta M1b
+              .exp-body era display:contents ahí y el translateY era un no-op silencioso; M1b le
+              devolvió la caja (necesario para que el drawer salga de la caja de padding), así que
+              el lift de desktop empezaría a aplicarse de verdad y despegaría el bloque hacia
+              arriba. En móvil el reacomodo lo hace el compactado por tamaño (.exp-has-drawer). */}
+          <div className={`exp-body${expPanel === 'lyrics' ? ' exp-lyrics-compact' : ''}`} style={isMobile ? undefined : { transform: `translateY(${songLift})` }}>
             <div className="exp-col-art">
               <div
                 ref={artRef}
@@ -954,8 +1192,12 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           </div>
 
           <div className="exp-controls">
+            {/* M1c · exp-shuffle/exp-repeat: clases SOLO para poder seleccionarlos. La composición
+                compacta del expandido móvil (con la hoja de la cola abierta) los oculta, y hasta
+                ahora eran los dos únicos .exp-btn sin identidad propia — ocultarlos exigía
+                :first-child/:last-child, que se rompe si cambia el orden. Inertes en desktop. */}
             <button
-              className={`exp-btn${shuffle ? ' active' : ''}`}
+              className={`exp-btn exp-shuffle${shuffle ? ' active' : ''}`}
               onClick={() => { toggleShuffle(); setShuffleSpin(true); }}
               aria-pressed={shuffle}
               title={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
@@ -979,7 +1221,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               <NextIcon size={28} />
             </button>
             <button
-              className={`exp-btn${repeat !== 'off' ? ' active' : ''}`}
+              className={`exp-btn exp-repeat${repeat !== 'off' ? ' active' : ''}`}
               onClick={() => { cycleRepeat(); setRepeatSpin(true); }}
               aria-pressed={repeat !== 'off'}
               title={repeatTitle}
@@ -1053,11 +1295,30 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               del expandido (z 200) → z local 2, bajo Letra(250)/Info(300). Desktop-only. Contenido:
               se REUSAN QueueOverlay (cola) y LyricsPanel (letra) montados en .exp-drawer-inner y
               adaptados por CSS. Se montan SOLO con su panel activo (nada corriendo con el drawer
-              cerrado). Cierre: la X propia de cada panel (onClose → expPanel='none') + Esc/atrás. ── */}
+              cerrado). Cierre: la X propia de cada panel (onClose → expPanel='none') + Esc/atrás.
+
+              M1 · Ahora también MÓVIL (la cola; la letra móvil sigue inmersiva por showLyrics).
+              El alto inline de acá abajo es de DESKTOP (panel × tamaño, y el px en vivo del
+              grabber): en móvil hay UNA sola altura y la pone el CSS (--exp-drawer-h), así que
+              el style se omite — si no, el inline le ganaría al stylesheet y el drawer móvil
+              mediría los 38vh del 'small' de la cola. `drawerH` sólo puede ser != null en
+              desktop (el grabber está gateado a ≥701px), pero se respeta igual por si el ancho
+              cruza el breakpoint a mitad de arrastre.
+
+              M3a · el arrastre de cierre (móvil) escucha en el CONTENEDOR y filtra por target: la
+              zona de agarre real es el header de la cola, y ese nodo lo pinta QueueOverlay (que no
+              se toca). En desktop los handlers salen en el primer if (gate isMobile) y el grabber
+              conserva intacto su arrastre de redimensionado. ── */}
           <div
+            ref={drawerRef}
             className={`exp-drawer${expPanel !== 'none' ? ' open' : ''}${drawerDragging ? ' dragging' : ''}`}
-            style={{ height: drawerH != null ? `${drawerH}px` : expDrawerH }}
+            style={drawerStyle()}
             aria-hidden={expPanel === 'none'}
+            onPointerDown={onQueueDragDown}
+            onPointerMove={onQueueDragMove}
+            onPointerUp={onQueueDragUp}
+            onPointerCancel={cancelQueueDrag}
+            onLostPointerCapture={cancelQueueDrag}
           >
             <span
               className="exp-drawer-grabber"
@@ -1269,11 +1530,12 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             Cola en la barra móvil (antes solo se abría desde el expandido, un paso de más);
             el acceso desde el expandido móvil sigue igual. */}
         <div className="player-mini-controls">
+          {/* M4 · abre el drawer (expPanel) promoviendo al expandido, no el overlay showQueue.
+              Es un lanzador: al abrir, el expandido tapa la mini barra, así que no hace de toggle. */}
           <button
-            className={`mini-btn queue-mini${showQueue ? ' active' : ''}`}
-            onClick={e => { e.stopPropagation(); setShowQueue(v => !v); }}
+            className="mini-btn queue-mini"
+            onClick={openQueueMobile}
             title="Cola"
-            aria-pressed={showQueue}
           >
             <QueueGlyph size={22} />
           </button>

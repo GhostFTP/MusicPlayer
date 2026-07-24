@@ -35,7 +35,7 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - Las animaciones respetan `prefers-reduced-motion`.
 
 ## Estado actual
-- **Producción va en `v1.7.0`** (tag `v1.7.0` → merge `111821b`, desplegado el 2026-07-19). El
+- **Producción va en `v1.8.1`** (tag `v1.8.1` → merge `0746c01`, desplegado el 2026-07-22). El
   tag más reciente **es** la versión en producción: `main` con auto-deploy
   despliega directo. Para saber la versión real, **leé el tope de `CHANGELOG.md` o
   `git tag --sort=-v:refname | head -1`** — no confíes en versiones citadas en docs o memoria.
@@ -69,6 +69,13 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   playlist) tiene su propia URL; deep-linking, F5 restaura, atrás/adelante del navegador.
   Routing **a mano** sobre la History API (sin react-router). Contrato as-built:
   `.claude/skills/nav-lab/SKILL.md`.
+- **Cola de reproducción (v1.8.0/v1.8.1)** — la cola es **estado** en `PlayerContext` con motor
+  por `_qid` (no un ref), con `addToQueue`/`playAfterCurrent` + `forcedNext`. En desktop se abre
+  como **columna lateral** montada en `.layout`; en móvil, como overlay del player. El **expandido
+  desktop** se rediseñó alrededor de un **drawer único** (`expPanel`: cola o letra) con grabber
+  arrastrable que ajusta el **tamaño** del panel. v1.8.1 arregló la cola en el teléfono (no tapa
+  el mini player, respeta la barra de estado, toque y espaciado). Contrato:
+  `.claude/skills/actions-lab/SKILL.md` — no duplicar acá.
 - Env vars (según `docker-compose.yml`): `NODE_ENV`, `PORT`, `MUSIC_DIR`, `JWT_SECRET`,
   `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
@@ -76,11 +83,15 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 
 ## Estado de ramas — nada sin mergear
 
-Por primera vez en mucho tiempo **no hay trabajo pendiente de desplegar**: todo lo
-desarrollado ya salió en producción — Artistas Retrato/Prisma + discos dobles (v1.6.0),
-Ajustes/cerrar sesión + registro cerrado (v1.6.1), botón Google (v1.6.2) y routing Modelo 2
-(v1.7.0). `feature/sonorarev-integration` arranca limpio para lo próximo. La versión real
-siempre sale del tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head -1`.
+**No hay features pendientes de desplegar**: todo lo desarrollado ya salió en producción —
+Artistas Retrato/Prisma + discos dobles (v1.6.0), Ajustes/cerrar sesión + registro cerrado
+(v1.6.1), botón Google (v1.6.2), routing Modelo 2 (v1.7.0) y cola de reproducción + rediseño
+del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1).
+`feature/sonorarev-integration` arranca limpio para lo próximo — lo único que tiene fuera de
+`main` es este mismo commit de docs, que entra en la próxima tanda. Ojo: la feature branch
+**no se pushea** (queda muy por delante de `origin/feature/sonorarev-integration`); lo que
+viaja a `origin` es `main` + tags. La versión real siempre sale del tope de `CHANGELOG.md` o
+`git tag --sort=-v:refname | head -1`.
 
 ## Pendientes conocidos
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
@@ -104,4 +115,4 @@ siempre sale del tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head -1`.
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-19 (v1.7.0 DESPLEGADO — routing Modelo 2 en producción; CLAUDE.md al día: producción = v1.7.0, nada sin mergear, features v1.6.x/v1.7.0 reflejadas)._
+_Última actualización: 2026-07-22 (v1.8.0 + v1.8.1 DESPLEGADOS y tagueados — cola de reproducción y expandido desktop en producción; CLAUDE.md al día: producción = v1.8.1, nada sin mergear)._
