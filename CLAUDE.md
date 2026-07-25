@@ -35,10 +35,12 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - Las animaciones respetan `prefers-reduced-motion`.
 
 ## Estado actual
-- **Producción va en `v1.8.1`** (tag `v1.8.1` → merge `0746c01`, desplegado el 2026-07-22). El
+- **Producción va en `v1.9.0`** (tag `v1.9.0` → merge `9d34a7f`, desplegado el 2026-07-23). El
   tag más reciente **es** la versión en producción: `main` con auto-deploy
-  despliega directo. Para saber la versión real, **leé el tope de `CHANGELOG.md` o
-  `git tag --sort=-v:refname | head -1`** — no confíes en versiones citadas en docs o memoria.
+  despliega directo. Los tags `v1.9.0`, `v1.8.1` y `v1.8.0` están creados y **pusheados a
+  `origin`** — el tag más reciente vuelve a coincidir con prod. Para saber la versión real,
+  **leé el tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head -1`** — no confíes en
+  versiones citadas en docs o memoria.
 - En producción en **https://sonorarev.com** (servidor X99, Dokploy, túnel Cloudflare *Healthy*).
 - Auth: Cloudflare Access + Google SSO; auto-login SSO→JWT **desplegado y funcionando**
   (commit `d7a23b6`), con login usuario/contraseña como fallback local. **Registro cerrado**
@@ -69,13 +71,31 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   playlist) tiene su propia URL; deep-linking, F5 restaura, atrás/adelante del navegador.
   Routing **a mano** sobre la History API (sin react-router). Contrato as-built:
   `.claude/skills/nav-lab/SKILL.md`.
-- **Cola de reproducción (v1.8.0/v1.8.1)** — la cola es **estado** en `PlayerContext` con motor
+- **Cola de reproducción (v1.8.0 → v1.9.0)** — la cola es **estado** en `PlayerContext` con motor
   por `_qid` (no un ref), con `addToQueue`/`playAfterCurrent` + `forcedNext`. En desktop se abre
-  como **columna lateral** montada en `.layout`; en móvil, como overlay del player. El **expandido
+  como **columna lateral** montada en `.layout` (`showQueue` → `.layout--queue`), y el **expandido
   desktop** se rediseñó alrededor de un **drawer único** (`expPanel`: cola o letra) con grabber
   arrastrable que ajusta el **tamaño** del panel. v1.8.1 arregló la cola en el teléfono (no tapa
-  el mini player, respeta la barra de estado, toque y espaciado). Contrato:
-  `.claude/skills/actions-lab/SKILL.md` — no duplicar acá.
+  el mini player, respeta la barra de estado, toque y espaciado).
+- **Cola móvil = hoja arrastrable (v1.9.0)** — en el teléfono la cola dejó de ser un overlay
+  full-screen: es una **hoja anclada abajo que convive con la canción**, sube desde abajo y se
+  **arrastra** para agrandarla o cerrarla, con **dos alturas** (al estirar, el bloque de la
+  canción pasa a su composición compacta y le cede el alto). Es la **contraparte móvil del
+  drawer de desktop**: misma vía (`expPanel`), así que hereda la escalera `dismissTop` de
+  nav-lab sin peldaño nuevo. Y es **una sola cola**: la mini barra ya no abre el overlay viejo
+  sino que promueve al expandido y abre ahí el mismo drawer → `showQueue` **ya sólo existe en
+  desktop**. Contrato del motor: `.claude/skills/actions-lab/SKILL.md`; gestos:
+  `.claude/skills/mobile-lab/SKILL.md` — no duplicar acá. ⚠️ Ojo: **las dos skills están al día
+  hasta v1.8.0** (la numeración de releases de actions-lab quedó vieja: da v1.9.0 por "menú
+  contextual"); el drawer móvil todavía no se volcó ahí.
+- **Listas de canciones que se adaptan al ancho (v1.9.0)** — cuando falta ancho, la tabla de
+  pistas **reflowea a modo lista** (carátula + título/artista, sin columnas) en las **cuatro
+  vistas** (Álbum, Género, Playlists, Biblioteca) y también en **móvil**. Dispara **por CSS**,
+  con dos triggers duplicados en `main.css` (no hay container queries): `(max-width:1024px)` y
+  `.layout--queue @ (max-width:1344px)` — la cola roba `--queue-w` (320px) **sin** cambiar el
+  viewport, y `1344 = 1024 + 320`; ⚠️ **si cambia `--queue-w` hay que recalcular ese 1344**. En
+  modo lista **no se muestra la calidad** (el chip inline desbordaba sobre la duración): se
+  consulta desde **Info**. Es el trade del patrón, no un olvido.
 - Env vars (según `docker-compose.yml`): `NODE_ENV`, `PORT`, `MUSIC_DIR`, `JWT_SECRET`,
   `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
@@ -85,13 +105,16 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 
 **No hay features pendientes de desplegar**: todo lo desarrollado ya salió en producción —
 Artistas Retrato/Prisma + discos dobles (v1.6.0), Ajustes/cerrar sesión + registro cerrado
-(v1.6.1), botón Google (v1.6.2), routing Modelo 2 (v1.7.0) y cola de reproducción + rediseño
-del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1).
+(v1.6.1), botón Google (v1.6.2), routing Modelo 2 (v1.7.0), cola de reproducción + rediseño
+del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1) y cola móvil como hoja
+arrastrable + listas que se adaptan al ancho (v1.9.0).
 `feature/sonorarev-integration` arranca limpio para lo próximo — lo único que tiene fuera de
-`main` es este mismo commit de docs, que entra en la próxima tanda. Ojo: la feature branch
-**no se pushea** (queda muy por delante de `origin/feature/sonorarev-integration`); lo que
-viaja a `origin` es `main` + tags. La versión real siempre sale del tope de `CHANGELOG.md` o
-`git tag --sort=-v:refname | head -1`.
+`main` es este mismo commit de docs, que entra en la próxima tanda. **Este archivo siempre va
+un release atrás por construcción**: su commit de docs viaja *dentro* de la tanda siguiente
+(el de post-v1.8.1 salió con v1.9.0), así que después de cada release hay que releerlo contra
+los tags. Ojo: la feature branch **no se pushea** (queda muy por delante de
+`origin/feature/sonorarev-integration`); lo que viaja a `origin` es `main` + tags. La versión
+real siempre sale del tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head -1`.
 
 ## Pendientes conocidos
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
@@ -115,4 +138,4 @@ viaja a `origin` es `main` + tags. La versión real siempre sale del tope de `CH
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-22 (v1.8.0 + v1.8.1 DESPLEGADOS y tagueados — cola de reproducción y expandido desktop en producción; CLAUDE.md al día: producción = v1.8.1, nada sin mergear)._
+_Última actualización: 2026-07-25 (v1.9.0 DESPLEGADO y tagueado el 2026-07-23 — cola móvil como hoja arrastrable y listas de canciones que se adaptan al ancho, en producción; CLAUDE.md al día: producción = v1.9.0, nada sin mergear)._
