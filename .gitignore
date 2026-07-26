@@ -24,3 +24,10 @@ Thumbs.db
 
 # Claude Code — permisos locales (no debe subirse; se trackeaba por error)
 .claude/settings.local.json
+
+# Tooling local de verificación visual (Playwright headless, .claude/tools/snap).
+# El SCRIPT sí se versiona; sus dependencias, binarios y salidas NO.
+# (node_modules/ ya está cubierto arriba; se repite por claridad.)
+.claude/tools/snap/node_modules/
+.claude/tools/snap/shots/
+.claude/tools/snap/package-lock.json
