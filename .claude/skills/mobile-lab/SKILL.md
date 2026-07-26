@@ -7,21 +7,68 @@ description: Estándar móvil de SonoraRev (breakpoints, safe-areas iOS, touch t
 
 Fuente de verdad de la experiencia móvil y de los gestos. Antes de opinar o
 tocar, **inspeccioná los archivos reales** — este mapa dice dónde vive cada cosa
-y qué NO se puede romper. Los números de línea son orientativos (el código se
-mueve); las constantes y selectores son el ancla.
+y qué NO se puede romper.
+
+> **Sobre las referencias:** este mapa ancla en **constantes, estados y selectores**, no en
+> números de línea. Las líneas se mueven y envejecen mal: la versión previa de esta skill
+> citaba `.player-expanded` en ~1791 cuando vive en ~2882, y hablaba de un "bloque móvil
+> maestro" que no existe. Buscá por nombre.
 
 ## Archivos del sistema
 
 | Archivo | Rol |
 |---|---|
-| `music-client/src/components/Player.jsx` | TODA la maquinaria de gestos (Pointer Events): swipe horizontal de carátula (cambiar pista) y swipe-down de cierre del expandido. Constantes de física ~líneas 63-99; handlers de carátula ~290-360; handlers del sheet ~416-462; estilos del sheet/scrim ~465-510 |
-| `music-client/src/styles/main.css` | Media queries, safe-areas, touch-action, ramas reduced-motion. Bloque móvil maestro `@media (max-width: 700px)` ~2560; desktop del expandido `@media (min-width: 701px)` ~2057; tablet 701-1024 ~2735; scrim del cierre `.exp-scrim` ~1796 |
-| `music-client/index.html` | `<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />` (línea 5). El `viewport-fit=cover` **ya está** — es lo que habilita `env()` en iOS |
+| `music-client/src/components/Player.jsx` | TODA la maquinaria de gestos (Pointer Events) y el estado del expandido. **Tres** gestos, no dos (ver §Gestos). Constantes de física agrupadas arriba del componente (`DIST_THRESH`/`VEL_THRESH`/`RUBBER_LIMIT`, `CLOSE_DIST`/`CLOSE_VEL`/`CLOSE_MIN`, `AXIS_DIST`/`AXIS_DOM`, `DRAWER_*_VH`). Handlers por prefijo: `onArt*` (carátula), `onSheet*` (cierre del expandido), `onQueueDrag*` (hoja de la cola, móvil), `onGrabber*` (drawer desktop) |
+| `music-client/src/styles/main.css` | Media queries, safe-areas, touch-action, ramas reduced-motion. **No hay un bloque móvil único**: hay ~8 `@media (max-width: 700px)` repartidos por componente (barra, expandido, drawer, layout, campanita…). Buscá el selector, no el bloque |
+| `music-client/index.html` | `<meta … viewport-fit=cover />` (línea 5). El `viewport-fit=cover` **ya está** — es lo que habilita `env()` en iOS |
 | `.claude/tools/snap/snap.mjs` | Verificación visual headless (ver §Snapshots) |
+
+## Arquitectura del expandido móvil (v1.9.0)
+
+El expandido dejó de ser "una pantalla" y pasó a ser **dos zonas**: el bloque de la canción
+arriba y un **drawer** abajo. Entenderlo es requisito para tocar cualquier cosa acá.
+
+**Estado, todo en `Player.jsx`:**
+
+| Estado | Qué es |
+|---|---|
+| `expanded` | el expandido está montado |
+| `expPanel` | `'none' \| 'queue' \| 'lyrics'` — **qué drawer está abierto**. Es el eje del rediseño: un solo drawer, nunca dos |
+| `expDrawerSize` | `'small' \| 'large'` — cuál de los **dos altos declarados** rige |
+| `qSheet` / `qDragY` | fase y desplazamiento del gesto de la hoja **en móvil** (`idle \| drag \| snap \| closing`) |
+| `drawerH` / `drawerDragging` | alto en vivo del grabber **en desktop**. No se mezcla con lo de arriba |
+
+`expBigDrawer = isMobile && expPanel !== 'none' && expDrawerSize === 'large'` es lo que cuelga
+la clase `.exp-drawer-large` en `.player-expanded`.
+
+**Geometría — una sola línea la gobierna.** Los tokens viven en el `@media (max-width:700px)`
+del expandido: `--exp-header-h` 140px, **`--exp-song-h` 316px** / **`--exp-song-h-large` 172px**,
+`--exp-drawer-gap` 12px. El `top` de la hoja se **calcula**:
+
+```
+top: calc(max(env(safe-area-inset-top), 20px) + --exp-header-h + --exp-song-h + --exp-drawer-gap)
+```
+
+y `.player-expanded.exp-drawer-large { --exp-song-h: var(--exp-song-h-large) }` hace **todo** el
+intercambio de tamaño. Por eso el alto del bloque y el borde de la hoja **no pueden**
+desincronizarse: salen del mismo token.
+
+> ⚠️ **El token `--exp-compact-h` ya no existe.** v1.9.0 lo renombró a `--exp-song-h` porque
+> ahora tiene dos valores y el nombre viejo describía sólo uno. Si ves ese nombre en un doc o
+> en una instrucción, está desactualizado.
+
+**La cola es UNA sola entrada.** El overlay full-screen viejo (`showQueue`) se retiró de móvil:
+`showQueue` **ya sólo existe en desktop** (la columna lateral). En el teléfono, tanto el botón
+de la mini barra (`openQueueMobile`) como el del header del expandido (`toggleExpPanel('queue')`)
+llevan **al mismo drawer**. `openQueueMobile` es un **lanzador, no un toggle**: apaga la Letra,
+fija `expDrawerSize='small'`, monta el expandido y abre el panel — al abrir, el expandido tapa
+la mini barra, así que no hay nada que "des-togglear". Como entra por `expPanel`, hereda gratis
+la escalera `dismissTop` de nav-lab (cierra `expPanel` **antes** que `expanded`) y el guardia de
+historial, sin peldaño nuevo. **Ningún `history.back()`**: todos los cierres son `setState`.
 
 ## Breakpoints y layout
 
-- **≤700px = móvil** (bloque maestro ~main.css:2525): `body { overflow: hidden }`,
+- **≤700px = móvil** (repartido en varios bloques por componente): `body { overflow: hidden }`,
   grid de 3 filas `1fr / var(--mini-player-h) / var(--bottom-nav-h)`, sidebar
   oculta. La barra completa se vuelve **mini player** (64px) + **bottom nav** (60px).
   El grid de `.layout` (y `.login-page`) usa **`height: 100dvh`** con fallback
@@ -32,7 +79,7 @@ mueve); las constantes y selectores son el ancla.
 - **≥701px = desktop**: expandido en dos columnas simétricas (carátula | info),
   asas de cierre con `cursor: grab/grabbing` (header, carátula **y** la columna de
   info ambiente — ver Gestos §2).
-- **701-1024px = tablet** (~2701): sidebar 180px, volumen 56px, metadata trunca.
+- **701-1024px = tablet**: sidebar 180px, volumen 56px, metadata trunca.
 - **⚠️ El viewport NO es el contenedor.** Las media queries miden el **viewport**, pero la
   columna de cola de desktop roba `--queue-w` (320px) del **contenedor** sin tocarlo. Por eso
   el contenido puede quedar tan apretado como en una ventana chica y ningún `@media` de
@@ -41,8 +88,8 @@ mueve); las constantes y selectores son el ancla.
   **1344 = 1024 + 320**. Si cambia `--queue-w`, **hay que recalcular ese 1344 a mano**
   (documentado en `main.css:682-686`). Este fue el bug que costó varios intentos: se veía
   "roto a 960px" y el @media de 1024 no disparaba porque el viewport eran 960 + cola.
-- **≤700px y ≤680px de alto** (~2686): rama compacta del expandido.
-- `@media (hover: none)` (~637, ~806): acciones que en desktop aparecen al hover
+- **≤700px y ≤680px de alto**: rama compacta del expandido.
+- `@media (hover: none)`: acciones que en desktop aparecen al hover
   quedan siempre visibles en táctil.
 - Tokens: `--player-h: 80px`, `--mini-player-h: 64px`, `--bottom-nav-h: 60px`.
   z-index canónico: barra (sin z) < campanita 150 < expandido 200 < Letra 250 <
@@ -119,8 +166,7 @@ Trade aceptado: **en modo lista no se muestra la calidad** — se consulta desde
 ## Touch targets
 
 Piso del proyecto: **≥44px** en controles primarios táctiles (HIG de Apple).
-Referencias reales: `.exp-btn` 48×48 (~2695), campanita móvil 40×40 (~2756 — por
-debajo del piso, conocido).
+Referencias reales: `.exp-btn` 48×48, campanita móvil 40×40 (por debajo del piso, conocido).
 
 Los botones del **expandido** y de la **Letra** cumplen el piso con dos técnicas:
 - **Hit-area transparente vía `::before`** (no infla el glifo ni el footprint
@@ -135,7 +181,8 @@ Los botones del **expandido** y de la **Letra** cumplen el piso con dos técnica
 
 ## Gestos del expandido (la física REAL, Player.jsx)
 
-Los dos gestos comparten patrón: **Pointer Events con capture**
+Hoy hay **tres** gestos en móvil (carátula, cierre del expandido, hoja de la cola) más el
+grabber del drawer en desktop. Todos comparten patrón: **Pointer Events con capture**
 (`setPointerCapture` en el down), **eje por distancia + dominancia**
 (`AXIS_DIST` 12px y `AXIS_DOM` 1.3×: gana el primer eje que alcanza 12px con
 dominancia 1.3× sobre el perpendicular; mientras nadie gana se **re-evalúa en
@@ -154,7 +201,7 @@ Desde v1.4.2 la maquinaria es **una sola para táctil y mouse** (sin gate por
 
 ### 1. Swipe horizontal de carátula → cambiar de pista
 
-- Handlers en `.exp-art-wrap` (~Player.jsx:703-710).
+- Handlers en `.exp-art-wrap`.
 - Umbrales: `DIST_THRESH` 80px **o** flick `VEL_THRESH` 0.5 px/ms con mínimo
   `MIN_FLICK` 36px y signo coherente.
 - **Rubber-band**: seguimiento 1:1 hasta `RUBBER_LIMIT` 120px, después
@@ -209,13 +256,57 @@ Desde v1.4.2 la maquinaria es **una sola para táctil y mouse** (sin gate por
   `scrimStyle()`).
 - Estados del sheet: `idle | drag | return | closing`.
 
+### 3. Arrastre de la hoja de la cola (MÓVIL) → cerrar / dos tamaños
+
+Handlers `onQueueDrag{Down,Move,Up}`, estado propio (`qSheet`/`qDragY`), **separado del sheet
+del expandido**: son dos superficies distintas y mezclarlas fue justo lo que no se hizo.
+
+- **Dos sentidos.** Hacia abajo cierra o baja un escalón; hacia arriba estira a `large`. Al
+  soltar hay **tres destinos**: `close` / `small` / `large`.
+- **Dos mecanismos, y la razón importa.** La hoja está anclada abajo, así que moverla con
+  `transform` arrastra las dos aristas: sirve para **bajarla** (la base sale de pantalla y el
+  `overflow` la recorta), pero al **subirla** despegaría la base del borde inferior y dejaría un
+  hueco. Por eso estirar es **crecer de alto con la base clavada**. En `dy = 0` las dos dan la
+  misma imagen → la discontinuidad es de mecanismo, no visual. Costo: el modo alto toca layout
+  por frame, igual que el grabber de desktop.
+- **Umbrales derivados, no escritos.** La frontera chica↔grande es el **punto medio entre los
+  dos altos reales**, leídos del CSS con `parseFloat` sobre los tokens (`g.delta`); cerrar exige
+  pasarse `CLOSE_DIST` por debajo de "chica". Recalibrar las alturas **no** obliga a tocar el
+  gesto, y si no se pudieran leer, estirar queda inerte y el gesto degrada al cierre simple —
+  nunca a algo roto. **La velocidad manda sobre la posición**: un flick mueve un escalón.
+- **El commit del tamaño no salta**: se anima hasta el destino y recién al terminar se aplica el
+  tamaño limpiando el estilo inline, con la imagen idéntica en ese frame. La composición de la
+  canción cambia ahí, **no** a mitad del arrastre.
+- Cancelación limpia por `cancelQueueDrag()`: vuelve al tamaño en el que estaba, sin cambiarlo.
+- `prefers-reduced-motion` resuelve al instante.
+
+### Guard: carátula vs. hoja abierta (no quitarlo)
+
+Con la hoja de la cola abierta en móvil, la rama de **cierre** del swipe de carátula queda
+**inerte**:
+
+```js
+if (isMobile && expPanel !== 'none') return;   // en onArtPointerMove, antes de dir='close'
+```
+
+Sin esto, un swipe-down sobre la carátula cerraría el expandido **entero con la cola encima** —
+"cierro todo de un manotazo"—, violando el orden de la escalera de nav-lab (primero lo de más
+arriba: `expPanel` antes que `expanded`).
+
+Dos sutilezas que hay que preservar si se toca:
+1. **Sale sin fijar eje.** No marca un eje muerto, así que el gesto sigue vivo y puede resolverse
+   como **horizontal** — cambiar de canción con la cola abierta tiene que seguir funcionando.
+2. **Gateado a móvil.** En desktop el drawer es otra cosa y su comportamiento no se toca.
+
+El asa del **header** sigue cerrando el expandido como siempre: es la superficie correcta para eso.
+
 ### Defensas anti-conflicto (no quitarlas)
 
-- `touch-action: none` en `.exp-art-wrap` (~1904) y `.exp-header` móvil
-  (~2595) y desktop (~2077): sin esto el navegador reclama el pan vertical y
+- `touch-action: none` en `.exp-art-wrap` y `.exp-header` móvil
+  y desktop: sin esto el navegador reclama el pan vertical y
   mata el gesto con `pointercancel`.
-- `touch-action: manipulation` en la barra mini (~2585): sin delay de doble-tap.
-- `draggable={false}` en el `<img>` de la carátula (~Player.jsx:712): evita el
+- `touch-action: manipulation` en la barra mini: sin delay de doble-tap.
+- `draggable={false}` en el `<img>` de la carátula: evita el
   drag nativo de imagen con mouse.
 - `user-select: none` en `.exp-header`: es un asa, no texto seleccionable.
 - `.player-expanded`: en **desktop** `overflow-y: auto` (si no cabe, scrollea). En **móvil**
@@ -229,7 +320,7 @@ Desde v1.4.2 la maquinaria es **una sola para táctil y mouse** (sin gate por
 ## Quirks conocidos (reglas duras)
 
 1. **iOS: `audio.volume` es de SOLO LECTURA** desde el navegador. Por eso
-   `.exp-volume { display: none }` en ≤700px (~2583) y el volumen no existe en
+   `.exp-volume { display: none }` en ≤700px y el volumen no existe en
    la barra móvil. **Regla del proyecto: NO reintentar controlar el volumen del
    SO desde el navegador móvil** — los botones físicos mandan. Jamás proponer
    "soluciones" a esto.
@@ -257,13 +348,13 @@ Desde v1.4.2 la maquinaria es **una sola para táctil y mouse** (sin gate por
 
 ## Reduced-motion
 
-`prefers-reduced-motion` se lee en JS (`reduced`, matchMedia en ~Player.jsx:134)
+`prefers-reduced-motion` se lee en JS (`reduced`, matchMedia)
 y en CSS (ramas `@media (prefers-reduced-motion: reduce)` por sección).
 Regla de la casa: **color sí, movimiento no**. En gestos: `sheetBack()` y
 `closeSheet()` resuelven AL INSTANTE (sin animación — el momentum y el scrim
-ni entran en juego); la entrada del expandido (`exp-slide-up`, solo móvil
-~2589) se anula (~1894). El seguimiento del dedo durante el drag NO se suprime
-(es interacción directa, no animación).
+ni entran en juego); el snap y el cierre de la **hoja de la cola** también; la entrada del
+expandido (`exp-slide-up`, solo móvil) se anula. El seguimiento del dedo durante el drag NO se
+suprime (es interacción directa, no animación).
 
 ## Entorno de QA (limitación conocida)
 
@@ -334,13 +425,20 @@ capturas salían del 404 de la otra app **sin un solo error de red**.
    cierra, sin cambiar pista, sin capturar texto/enlaces/sliders/botones);
    reintentar el gesto justo tras un rebote no se congela; el scrim se aclara al
    bajar y nunca intercepta eventos.
-8. **Gesto vs scroll**: `touch-action` presente en las zonas de agarre; el
+8. **Drawer de la cola (móvil)**: se abre igual desde la mini barra que desde el header del
+   expandido, y **es el mismo** (no queda rastro del overlay full-screen). La canción sigue
+   visible arriba. Arrastrar la hoja hacia abajo la achica o la cierra; hacia arriba la estira
+   y la canción pasa a su composición compacta — **sin recortes** en ninguno de los dos
+   tamaños, con el título más largo de la biblioteca. Con la hoja abierta, el swipe-down sobre
+   la **carátula** NO cierra todo, pero el swipe **horizontal** sigue cambiando de canción.
+   Esc / atrás cierran primero la hoja y después el expandido.
+9. **Gesto vs scroll**: `touch-action` presente en las zonas de agarre; el
    scroll interno de paneles (Letra, Info, sheet con contenido largo) no pelea
    con los gestos.
-9. **Volumen móvil**: control ausente en ≤700px; nada intenta setear
+10. **Volumen móvil**: control ausente en ≤700px; nada intenta setear
    `audio.volume` como UX principal en móvil.
-10. **reduced-motion**: cierre/rebote instantáneos, sin `exp-slide-up`, colores y
+11. **reduced-motion**: cierre/rebote instantáneos, sin `exp-slide-up`, colores y
     estados intactos.
-11. **Desktop no roto** (Player.jsx es compartido): drag de cierre con mouse,
+12. **Desktop no roto** (Player.jsx es compartido): drag de cierre con mouse,
     swipe horizontal con mouse, cursor grab/grabbing, clicks/seek/volumen
     intactos tras cualquier cambio de gesto.
