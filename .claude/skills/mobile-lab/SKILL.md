@@ -16,7 +16,8 @@ mueve); las constantes y selectores son el ancla.
 |---|---|
 | `music-client/src/components/Player.jsx` | TODA la maquinaria de gestos (Pointer Events): swipe horizontal de carátula (cambiar pista) y swipe-down de cierre del expandido. Constantes de física ~líneas 63-99; handlers de carátula ~290-360; handlers del sheet ~416-462; estilos del sheet/scrim ~465-510 |
 | `music-client/src/styles/main.css` | Media queries, safe-areas, touch-action, ramas reduced-motion. Bloque móvil maestro `@media (max-width: 700px)` ~2560; desktop del expandido `@media (min-width: 701px)` ~2057; tablet 701-1024 ~2735; scrim del cierre `.exp-scrim` ~1796 |
-| `music-client/index.html` | `<meta name="viewport" content="width=device-width, initial-scale=1.0" />` (línea 5) |
+| `music-client/index.html` | `<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />` (línea 5). El `viewport-fit=cover` **ya está** — es lo que habilita `env()` en iOS |
+| `.claude/tools/snap/snap.mjs` | Verificación visual headless (ver §Snapshots) |
 
 ## Breakpoints y layout
 
@@ -32,6 +33,14 @@ mueve); las constantes y selectores son el ancla.
   asas de cierre con `cursor: grab/grabbing` (header, carátula **y** la columna de
   info ambiente — ver Gestos §2).
 - **701-1024px = tablet** (~2701): sidebar 180px, volumen 56px, metadata trunca.
+- **⚠️ El viewport NO es el contenedor.** Las media queries miden el **viewport**, pero la
+  columna de cola de desktop roba `--queue-w` (320px) del **contenedor** sin tocarlo. Por eso
+  el contenido puede quedar tan apretado como en una ventana chica y ningún `@media` de
+  viewport se entera. La solución del proyecto son **dos disparadores duplicados** (no hay
+  container queries): `(max-width: 1024px)` **y** `.layout--queue @ (max-width: 1344px)`, con
+  **1344 = 1024 + 320**. Si cambia `--queue-w`, **hay que recalcular ese 1344 a mano**
+  (documentado en `main.css:682-686`). Este fue el bug que costó varios intentos: se veía
+  "roto a 960px" y el @media de 1024 no disparaba porque el viewport eran 960 + cola.
 - **≤700px y ≤680px de alto** (~2686): rama compacta del expandido.
 - `@media (hover: none)` (~637, ~806): acciones que en desktop aparecen al hover
   quedan siempre visibles en táctil.
@@ -41,16 +50,71 @@ mueve); las constantes y selectores son el ancla.
 
 ## Safe-areas iOS (notch / home indicator)
 
-`env(safe-area-inset-*)` se usa hoy en **exactamente 2 lugares**:
+`viewport-fit=cover` **está** en el meta (`index.html:5`), así que `env()` actúa en iOS.
+Hoy hay **~23 usos** en `main.css` (creció fuerte en v1.9.0, que sumó los laterales —
+`inset-left/right` — que el proyecto no contemplaba en ningún lado). Los principales:
 
-- `.player-expanded` (~1791): `padding: max(env(safe-area-inset-top), 20px) 28px
-  max(env(safe-area-inset-bottom), 24px)`.
-- `.changelog-bell` móvil (~2754): `top/right: calc(env(safe-area-inset-*) + 14px)`.
+- `.player-expanded`: `padding-top: max(env(safe-area-inset-top), 20px)`.
+- **Drawer de cola móvil**: `.exp-drawer .queue-header` / `.queue-body` (laterales e inferior),
+  y el `top` de la hoja lo **calcula** sumando el inset:
+  `calc(max(env(...-top), 20px) + --exp-header-h + --exp-song-h + --exp-drawer-gap)`.
+- `.bottom-nav`: `padding-bottom: env(safe-area-inset-bottom, 0px)`, y el grid de `.layout`
+  engorda su fila con `calc(--bottom-nav-h + env(...-bottom, 0px))`. **Ya lleva `env()`** —
+  el dato viejo de que "no lo lleva" quedó obsoleto.
+- `.lyrics-panel`, `.changelog-bell`, `.settings-fab`.
 
-La mini barra y el bottom-nav **no** llevan `env()` hoy — si un cambio los toca,
-verificar contra home indicator. Ojo: `env()` requiere `viewport-fit=cover` en el
-meta viewport para actuar en iOS; el meta actual **no lo trae** (dato, no bug:
-decidir con el usuario antes de agregarlo).
+### Los dos mundos de `env()` (regla dura)
+
+**En emulación —DevTools device mode y navegador headless— `env(safe-area-inset-*)` vale 0.**
+Los valores reales sólo existen en hardware con notch. Por eso el patrón del proyecto es
+**siempre `max(env(...), Npx)`, nunca `env()` pelado**: el piso `N` es lo que se ve en
+emulación y en teléfonos sin notch, y el inset gana sólo donde de verdad hay recorte.
+
+Consecuencias prácticas:
+- Un layout que se ve bien en DevTools está validado **sólo en la rama del piso**. La rama
+  con notch —donde el inset supera a `N`— **cambia el presupuesto de alto** (ver el `top`
+  calculado de la hoja, arriba) y **no se puede verificar sin teléfono**.
+- Al elegir el piso `N`, que funcione en **los dos** mundos: ni tan chico que el contenido
+  quede pegado al borde sin notch, ni tan grande que sume al inset y desperdicie alto.
+- El notch es **🔍 PRUEBA FÍSICA** por definición. No hay atajo.
+
+## Patrones de layout (lecciones caras, no reabrir)
+
+### 1. Alto DECLARADO, no presupuesto
+
+Cuando dos bloques compiten por el alto en una caja con `overflow: hidden`, **perder la
+pelea no es apretarse: es recortarse** (carátula cortada al medio, controles que
+desaparecen). Pasó al abrir la cola en móvil: el intento M1b fue "el expandido achicado"
+—que el contenido se acomode a lo que sobre— y falló. La solución (M1c) es al revés:
+
+> El bloque de la canción tiene **alto FIJO declarado** (`--exp-song-h`) y la hoja toma
+> **exactamente el resto** (`top` calculado, `bottom: 0`). Sin auto-margins y sin cuentas
+> que puedan fallar, el recorte deja de ser posible **por construcción**.
+
+Corolarios:
+- Los dos tamaños de la hoja son **dos altos declarados** (`--exp-song-h` 316px /
+  `--exp-song-h-large` 172px), no un cálculo. `.exp-drawer-large` redefine el token y de ahí
+  cuelga **toda** la geometría → el alto del bloque y el borde de la hoja no pueden
+  desincronizarse.
+- Si algo no entra en el alto declarado, **se oculta** (con la hoja abierta se van calidad,
+  tiempos y género). Dejarlos entrar exigiría permitir que el subtítulo envuelva, que es lo
+  único que rompería el determinismo.
+- Verificá la holgura del alto declarado **con el contenido más largo**, no con el promedio.
+
+### 2. Tabla → lista bajo umbral de ancho
+
+Cuando el ancho aprieta, las tablas de pistas **reflowean a modo lista** (`display: block`
+en la tabla, `.track-row` a flex, celda de título `flex: 1; min-width: 0`, truncado con
+`…`) — el mismo patrón que la fila de la cola. Rige en las 4 vistas (Álbum, Género,
+Playlists, Biblioteca) **y en móvil**.
+
+**NO compactar escondiendo columnas sobre `table-layout: fixed`.** Es lo que había antes y
+es un bug: a ancho chico los anchos de las columnas ocultas **no se reclaman limpio**, así
+que el Título colapsaba al ancho de la carátula, y el chip de calidad inline
+(`flex-shrink: 0` + `nowrap`, sin ancestro que lo recorte) **desbordaba sobre la duración**.
+El modo lista escapa de `fixed` y por eso arregla las dos cosas de una.
+
+Trade aceptado: **en modo lista no se muestra la calidad** — se consulta desde Info.
 
 ## Touch targets
 
@@ -154,8 +218,13 @@ Desde v1.4.2 la maquinaria es **una sola para táctil y mouse** (sin gate por
 - `draggable={false}` en el `<img>` de la carátula (~Player.jsx:712): evita el
   drag nativo de imagen con mouse.
 - `user-select: none` en `.exp-header`: es un asa, no texto seleccionable.
-- `.player-expanded` tiene `overflow-y: auto` (~1792): si el contenido no cabe,
-  el sheet scrollea — cualquier cambio de gesto debe convivir con eso.
+- `.player-expanded`: en **desktop** `overflow-y: auto` (si no cabe, scrollea). En **móvil**
+  pasó a `overflow: hidden` (v1.9.0): sin eso la hoja de la cola se va con el scroll y,
+  estacionada fuera de vista, agrega scroll fantasma. `position: fixed` **no** era opción —
+  `.player-expanded` recibe un `transform` durante el swipe-down y un ancestro transformado
+  se vuelve el bloque contenedor de los `fixed`. Con la hoja abierta el `hidden` no puede
+  morder porque rige el alto declarado (ver Patrones §1); con la hoja cerrada, en pantallas
+  muy bajas el contenido se recorta en vez de scrollear — lo mitiga la rama de ≤680px de alto.
 
 ## Quirks conocidos (reglas duras)
 
@@ -204,21 +273,60 @@ prefers-reduced-motion). Todo lo que exija hardware real (haptics, safe-areas
 reales, Safari iOS de verdad, performance táctil) se marca **🔍 REQUIERE PRUEBA
 FÍSICA** con pasos exactos — las hace Oscar en sus dispositivos.
 
+### Snapshots headless (`.claude/tools/snap/`)
+
+Existe tooling propio para **mirar el layout en vez de razonarlo**. Cierra el hueco de
+"razonado, no probado", que es de donde salen las vueltas.
+
+```
+# backend en :3000 y Vite levantado (¡ojo el puerto!, ver abajo)
+cd .claude/tools/snap && node snap.mjs                 # vista por defecto
+cd .claude/tools/snap && node snap.mjs "/albums/Artista/Album"
+SNAP_BASE=http://localhost:5174 node snap.mjs          # si Vite no quedó en 5173
+```
+
+Toma los **tres regímenes** de una y deja un PNG por cada uno en `shots/` (gitignorada):
+**390** (contexto `isMobile`+`hasTouch`, no un viewport achicado) · **960 + cola abierta**
+(el caso del breakpoint de contenedor) · **1440** (referencia, sin triggers). La cola se abre
+con clic real y después se **verifica `.layout--queue` en el DOM** — el clic solo no prueba nada.
+
+Además del PNG mide **flags de layout** en el DOM (overflow horizontal, títulos colapsados o
+recortados, chips que se salen de la fila) y reporta el **régimen activo** — el `display` de
+`.track-table` dice si el modo lista disparó donde debía. Todo va a `shots/report.json`.
+
+Credenciales en `.claude/tools/snap/.env` (gitignoreado), usuario dedicado `snap@local`.
+
+**Límites — qué NO valida:**
+- **`env(safe-area-*)` = 0** (ver §Safe-areas): sólo cubre la rama del piso, nunca la del notch.
+- **Gestos táctiles reales**: arrastre del grabber, flicks, física del snap.
+- **`100dvh` con toolbar dinámica** de Safari/Chrome móvil: en headless el dvh es estático.
+
+Todo eso sigue siendo **🔍 PRUEBA FÍSICA**.
+
+**Trampa del puerto (pasó de verdad):** Vite no usa `strictPort`, así que si 5173 está
+ocupado por otro proyecto se corre al 5174 **y sólo lo dice en su log**. El script tiene un
+preflight que verifica `<title>SonoraRev</title>` antes de abrir el navegador; sin eso, las
+capturas salían del 404 de la otra app **sin un solo error de red**.
+
 ## Checklist QA móvil
 
-1. **Viewports de referencia** (DevTools): 390×844 (iPhone), 360×800 (Android
+1. **Viewports de referencia** (DevTools o `snap.mjs`): 390×844 (iPhone), 360×800 (Android
    chico), 768×1024 (tablet → rama 701-1024). Sin scroll horizontal en ninguno.
 2. **Cruce del breakpoint 700/701**: sin saltos raros ni elementos duplicados
    (mini barra vs barra completa, volumen que aparece/desaparece).
-3. **Safe-areas**: header del expandido bajo el notch, campanita bajo el notch,
-   mini barra/bottom-nav vs home indicator (sabiendo que hoy no llevan `env()`).
-4. **Touch targets ≥44px** en controles primarios del flujo de reproducción
+3. **Ancho de CONTENEDOR, no sólo de viewport**: probar **960px con la cola abierta** —
+   dispara `.layout--queue @ 1344` aunque ningún @media de viewport lo haga. Que la tabla
+   reflowee a lista, el título no colapse y ningún chip desborde sobre la duración.
+4. **Safe-areas**: header del expandido bajo el notch, campanita bajo el notch, mini
+   barra/bottom-nav vs home indicator (hoy **sí** llevan `env()`). Recordá que en emulación
+   `env()` = 0: eso valida el piso, **no** el notch → 🔍 PRUEBA FÍSICA.
+5. **Touch targets ≥44px** en controles primarios del flujo de reproducción
    (incluye Letra/Info y "+" del expandido —hit-area por `::before`— y
    `.lyrics-close`/`.lyrics-toggle` a 44×44).
-5. **Swipe horizontal**: cambia pista a 80px o flick 0.5; rubber después de
+6. **Swipe horizontal**: cambia pista a 80px o flick 0.5; rubber después de
    120px; snap-back si no llega; NUNCA arranca sobre un botón. Sigue funcionando
    en la carátula incluida su nueva banda de `padding` (halo) arriba/abajo.
-6. **Swipe-down**: sigue el dedo 1:1 sin salto en el primer frame; cierra a
+7. **Swipe-down**: sigue el dedo 1:1 sin salto en el primer frame; cierra a
    120px o flick 0.55 (medidos desde el down); el cierre continúa la velocidad
    del flick (momentum, 160-300ms); snap-back con spring proporcional bajo el
    umbral; funciona desde header (franja 140px móvil / 96px desktop), carátula
@@ -226,13 +334,13 @@ FÍSICA** con pasos exactos — las hace Oscar en sus dispositivos.
    cierra, sin cambiar pista, sin capturar texto/enlaces/sliders/botones);
    reintentar el gesto justo tras un rebote no se congela; el scrim se aclara al
    bajar y nunca intercepta eventos.
-7. **Gesto vs scroll**: `touch-action` presente en las zonas de agarre; el
+8. **Gesto vs scroll**: `touch-action` presente en las zonas de agarre; el
    scroll interno de paneles (Letra, Info, sheet con contenido largo) no pelea
    con los gestos.
-8. **Volumen móvil**: control ausente en ≤700px; nada intenta setear
+9. **Volumen móvil**: control ausente en ≤700px; nada intenta setear
    `audio.volume` como UX principal en móvil.
-9. **reduced-motion**: cierre/rebote instantáneos, sin `exp-slide-up`, colores y
-   estados intactos.
-10. **Desktop no roto** (Player.jsx es compartido): drag de cierre con mouse,
+10. **reduced-motion**: cierre/rebote instantáneos, sin `exp-slide-up`, colores y
+    estados intactos.
+11. **Desktop no roto** (Player.jsx es compartido): drag de cierre con mouse,
     swipe horizontal con mouse, cursor grab/grabbing, clicks/seek/volumen
     intactos tras cualquier cambio de gesto.
