@@ -37,6 +37,10 @@ arriba y un **drawer** abajo. Entenderlo es requisito para tocar cualquier cosa 
 | `expDrawerSize` | `'small' \| 'large'` — cuál de los **dos altos declarados** rige |
 | `qSheet` / `qDragY` | fase y desplazamiento del gesto de la hoja **en móvil** (`idle \| drag \| snap \| closing`) |
 | `drawerH` / `drawerDragging` | alto en vivo del grabber **en desktop**. No se mezcla con lo de arriba |
+| `isMobile` | **estado, no una lectura suelta**: `matchMedia('(max-width: 700px)')` con listener, así que cruzar el breakpoint **con el drawer abierto** cambia de geometría sin recargar |
+
+El corte es **≤700px móvil / ≥701px desktop**, en CSS y en JS (no hay ningún `max-width: 701px`
+en `main.css`; el JS usa el mismo `(max-width: 700px)`).
 
 `expBigDrawer = isMobile && expPanel !== 'none' && expDrawerSize === 'large'` es lo que cuelga
 la clase `.exp-drawer-large` en `.player-expanded`.
@@ -370,11 +374,21 @@ Existe tooling propio para **mirar el layout en vez de razonarlo**. Cierra el hu
 "razonado, no probado", que es de donde salen las vueltas.
 
 ```
-# backend en :3000 y Vite levantado (¡ojo el puerto!, ver abajo)
-cd .claude/tools/snap && node snap.mjs                 # vista por defecto
-cd .claude/tools/snap && node snap.mjs "/albums/Artista/Album"
-SNAP_BASE=http://localhost:5174 node snap.mjs          # si Vite no quedó en 5173
+# Requisitos: backend en :3000 y Vite levantado (¡ojo el puerto!, ver abajo)
+cd .claude/tools/snap
+
+node snap.mjs                              # vista por defecto (un álbum de 32 pistas)
+node snap.mjs "/albums/Artista/Album"       # cualquier ruta del Modelo 2
+npm run snap                                # idéntico a `node snap.mjs`
+npm run snap -- "/albums/Artista/Album"     # con ruta, vía npm (ojo el `--`)
+
+SNAP_BASE=http://localhost:5174 node snap.mjs   # si Vite no quedó en 5173
+npm run setup                                   # reinstalar deps + binario de Chromium
 ```
+
+**No hay flags.** La ruta es un **argumento posicional** (`process.argv[2]`); no existen
+`--width` ni `--view`: los tres anchos son fijos y salen siempre los tres juntos. Lo único
+configurable va por **variables de entorno**: `SNAP_BASE`, y las credenciales.
 
 Toma los **tres regímenes** de una y deja un PNG por cada uno en `shots/` (gitignorada):
 **390** (contexto `isMobile`+`hasTouch`, no un viewport achicado) · **960 + cola abierta**
@@ -385,7 +399,12 @@ Además del PNG mide **flags de layout** en el DOM (overflow horizontal, título
 recortados, chips que se salen de la fila) y reporta el **régimen activo** — el `display` de
 `.track-table` dice si el modo lista disparó donde debía. Todo va a `shots/report.json`.
 
-Credenciales en `.claude/tools/snap/.env` (gitignoreado), usuario dedicado `snap@local`.
+**Sesión:** login normal por `POST /api/auth/login`, con `SNAP_USER` / `SNAP_PASS` en
+`.claude/tools/snap/.env` (gitignoreado por la regla `.env` de la raíz). El usuario dedicado es
+**`snap@local`**, creado en la DB local con el registro abierto un momento y vuelto a cerrar
+(`ALLOW_REGISTRATION`). Alternativa: `SNAP_TOKEN` con un JWT ya emitido — pero **tiene que ser
+del backend LOCAL**; uno de producción está firmado con otro secreto y el backend lo rechaza
+con 401 aunque el cliente lo acepte y renderice la app (el cliente sólo mira `exp`, no la firma).
 
 **Límites — qué NO valida:**
 - **`env(safe-area-*)` = 0** (ver §Safe-areas): sólo cubre la rama del piso, nunca la del notch.
