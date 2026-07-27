@@ -1873,9 +1873,37 @@ button, input, select, textarea { font-family: inherit; }
 .ctx-item.tone-nav:hover svg { color: var(--accent); }
 .ctx-item.tone-info:hover { background: var(--amber-dim); color: #fff; }
 .ctx-item.tone-info:hover svg { color: var(--amber); }
+/* Teal = playlist, la identidad que ya tiene el "+" en la barra y el expandido. */
+.ctx-item.tone-playlist:hover { background: rgba(45, 212, 167, .16); color: #fff; }
+.ctx-item.tone-playlist:hover svg { color: var(--teal); }
 .ctx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* El chevron "▸" avisa que ese ítem abre un selector en vez de ejecutar algo. */
+.ctx-item .ctx-chev { margin-left: auto; opacity: .5; }
+.ctx-item:hover .ctx-chev { opacity: .9; }
 
 .ctx-sep { height: 1px; margin: 5px 8px; background: rgba(255, 255, 255, .08); }
+
+/* ── Selector de playlists dentro del propio menú (fase D) ────────────────────
+   El menú no abre un submenú lateral ni un modal: cambia su contenido EN EL MISMO SITIO y
+   se ensancha al ancho del popover del "+" (288px), cuyas clases .ptp-list/.ptp-item/.ptp-new
+   se reusan tal cual. Al crecer, el efecto de posición se vuelve a ejecutar y re-resuelve el
+   flip/clamp con la caja nueva → sigue sin salirse de la pantalla. */
+.ctx-menu--wide { min-width: 288px; }
+
+.ctx-back {
+  width: 100%;
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); font: inherit;
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
+  padding: 4px 8px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);   /* misma cabecera que .ptp-menu-head */
+  transition: color .12s;
+}
+.ctx-back:hover { color: var(--text); }
+
+.ctx-loading { padding: 18px 12px; text-align: center; font-size: 12.5px; color: var(--text-muted); }
 
 /* ── PLAYLIST DETAIL · HERO / TITLE / RENAME ───── */
 

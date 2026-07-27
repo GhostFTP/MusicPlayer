@@ -3,6 +3,7 @@ import { api } from '../api/client.js';
 import EmojiPicker from './EmojiPicker.jsx';
 import { useToast } from './Toast.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
+import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
 
 // Botón "+" por pista: abre un menú para añadirla a una playlist existente
 // o crear una nueva al vuelo. Desde aquí también se pueden RENOMBRAR (con cambio
@@ -41,16 +42,15 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
     };
   }, [open]);
 
+  // El QUÉ (llamada + aviso, incluido el "ya está" en variante warning) vive en
+  // utils/playlistActions.js, compartido con el menú contextual. Acá queda sólo el CÓMO de
+  // este widget: el candado `busy`, cerrar el popover y limpiar el formulario.
   async function addTo(playlist) {
     if (busy) return;
     setBusy(true);
     try {
-      const res = await api.addToPlaylist(playlist.id, trackId);
+      await addTrackToPlaylist(playlist, trackId, toast);
       setOpen(false);
-      // Duplicado → variante warning (ámbar, ⚠️, más grande y dura más): que se
-      // note que NO se añadió de nuevo. La DB ya impedía duplicados.
-      if (res?.already) toast(`Ya está en «${playlist.name}»`, { variant: 'warning' });
-      else toast(`Añadida a «${playlist.name}»`);
     } finally {
       setBusy(false);
     }
@@ -62,12 +62,10 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
     if (!name || busy) return;
     setBusy(true);
     try {
-      const pl = await api.createPlaylist(name, emoji);
-      await api.addToPlaylist(pl.id, trackId);
+      await createPlaylistWithTrack(name, emoji, trackId, toast);
       setNewName('');
       setEmoji('🎵');
       setOpen(false);
-      toast(`Añadida a «${pl.name ?? name}»`);
     } finally {
       setBusy(false);
     }

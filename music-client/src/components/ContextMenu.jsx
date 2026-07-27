@@ -4,6 +4,9 @@ import {
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from './Toast.jsx';
 import { api } from '../api/client.js';
+import EmojiPicker from './EmojiPicker.jsx';
+import { emojiHue } from '../utils/emojiHue.js';
+import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
 
 // ── Menú contextual GLOBAL (actions-lab · dirección visual C, "Lista seca") ──────────────
 //
@@ -32,7 +35,18 @@ import { api } from '../api/client.js';
 
 const ContextMenuCtx = createContext(null);
 
-const MARGIN = 8;   // aire mínimo contra el borde del viewport
+const MARGIN = 8;    // aire mínimo contra el borde del viewport
+const BTN_GAP = 6;   // separación entre el botón "⋯" y el menú que cuelga de él
+
+// Ancla del menú, según qué lo abrió. Con el CURSOR (clic derecho) nace en el punto exacto.
+// Con un BOTÓN (`anchor: 'element'`, el "⋯" de la fila) nace DEBAJO y alineado a su borde
+// derecho; `yUp` es el borde superior del botón, que se usa como base al voltear hacia arriba
+// para que el menú volteado no le caiga encima. El flip y el clamp los resuelve el mismo efecto.
+function anchorOf(e, payload) {
+  if (payload.anchor !== 'element') return { x: e.clientX, y: e.clientY };
+  const r = e.currentTarget.getBoundingClientRect();
+  return { x: r.right, y: r.bottom + BTN_GAP, yUp: r.top - BTN_GAP, alignRight: true };
+}
 
 // Pistas de un álbum / de un artista con los MISMOS parámetros que ya usan las vistas
 // (Albums.openAlbum y el ShuffleButton del hero de Artistas) → el orden que se encola es el
@@ -51,6 +65,18 @@ const MENU_LABEL = {
 export function ContextMenuProvider({ children }) {
   const [menu, setMenu] = useState(null);   // { type, item, x, y } | null — x/y = posición CRUDA del cursor
   const [pos, setPos]   = useState(null);   // posición YA resuelta (flip + clamp), null hasta medir
+  // ── Sub-selector de playlists (fase D) ──────────────────────────────────────────────────
+  // Es un PANEL EN EL MISMO SITIO, no un submenú lateral ni un modal: la caja del menú cambia
+  // su contenido y se ensancha. Elegido porque es lo único que NO pelea con el posicionamiento:
+  // un flyout lateral necesitaría su propio flip relativo al padre (y heredar el lado cuando el
+  // padre ya volteó), y un modal sería un overlay nuevo que habría que meter en la escalera de
+  // nav-lab. Así se reusa TODO lo que ya funciona: mismo ancla, mismo z-index, mismos cierres
+  // (clic afuera, scroll, Esc por la escalera) y el mismo flip — que se vuelve a medir al crecer.
+  const [panel,     setPanel]     = useState(null);    // null = acciones · 'playlist' = selector
+  const [playlists, setPlaylists] = useState(null);    // null = cargando
+  const [newName,   setNewName]   = useState('');
+  const [newEmoji,  setNewEmoji]  = useState('🎵');
+  const [busy,      setBusy]      = useState(false);
   const elRef   = useRef(null);
   const hostRef = useRef({});               // handlers del host (Player): goArtist / goAlbum / openInfo
 
@@ -71,23 +97,41 @@ export function ContextMenuProvider({ children }) {
     e.preventDefault();
     e.stopPropagation();
     setPos(null);                                                   // se recalcula al medir
-    setMenu({ ...payload, x: e.clientX, y: e.clientY });
+    setPanel(null); setPlaylists(null); setNewName(''); setNewEmoji('🎵');   // el menú abre en la raíz
+    setMenu({ ...payload, ...anchorOf(e, payload) });
   }, []);
 
   // Posicionamiento con FLIP: se mide el menú ya montado y, si no cabe hacia abajo/derecha, se
   // abre hacia arriba/izquierda. El clamp final es la red: con un menú más alto que la ventana
   // tampoco cabe volteado, así que se pega al borde. Nunca se sale de la pantalla.
   // useLayoutEffect (no useEffect): corre ANTES del pintado → no hay salto visible.
+  //
+  // Se re-mide también al cambiar de PANEL y al llegar las playlists: el selector ensancha y
+  // alarga la caja, así que la que se voltea/clampa es la caja NUEVA, no la de las acciones.
   useLayoutEffect(() => {
     if (!menu || !elRef.current) return;
     const { offsetWidth: w, offsetHeight: h } = elRef.current;
     const vw = window.innerWidth, vh = window.innerHeight;
-    const flipX = menu.x + w + MARGIN > vw;
+    // `alignRight` lo pide el ancla de BOTÓN (el "⋯"): ahí el menú no nace en el punto clicado
+    // sino alineado al borde derecho del botón, quepa o no. Con el cursor, sólo voltea si hace falta.
+    const flipX = menu.alignRight || menu.x + w + MARGIN > vw;
     const flipY = menu.y + h + MARGIN > vh;
     const x = Math.max(MARGIN, Math.min(flipX ? menu.x - w : menu.x, vw - w - MARGIN));
-    const y = Math.max(MARGIN, Math.min(flipY ? menu.y - h : menu.y, vh - h - MARGIN));
+    // Al voltear hacia arriba se usa `yUp` como BORDE INFERIOR: con el cursor es el mismo punto,
+    // pero con un botón es su borde superior — si no, el menú volteado le taparía el botón.
+    const y = Math.max(MARGIN, Math.min(flipY ? (menu.yUp ?? menu.y) - h : menu.y, vh - h - MARGIN));
     setPos({ x, y, flipX, flipY });
-  }, [menu]);
+  }, [menu, panel, playlists]);
+
+  // Carga las playlists al entrar al selector (no antes: el menú de acciones no las necesita).
+  useEffect(() => {
+    if (panel !== 'playlist') return;
+    let cancelled = false;
+    api.playlists()
+      .then((ps) => { if (!cancelled) setPlaylists(ps); })
+      .catch(() => { if (!cancelled) setPlaylists([]); });
+    return () => { cancelled = true; };
+  }, [panel]);
 
   // Cierres "ambientales". Esc NO está acá a propósito (lo corre la escalera de Player).
   // El scroll se escucha en CAPTURA: el contenido scrollea en .main-content, no en window.
@@ -116,6 +160,26 @@ export function ContextMenuProvider({ children }) {
     } catch { toast('No se pudieron cargar las pistas', { variant: 'warning' }); }
   }, [toast]);
 
+  // ── Selector de playlists: el QUÉ (llamada + aviso) sale de utils/playlistActions.js, el
+  //    mismo módulo que usa el "+". Acá sólo el candado `busy` y cerrar el menú al terminar.
+  const plTrackId = menu?.item?.id;
+  const addToPlaylist = async (pl) => {
+    if (busy || plTrackId == null) return;
+    setBusy(true);
+    try { await addTrackToPlaylist(pl, plTrackId, toast); closeMenu(); }
+    catch { toast('No se pudo añadir a la playlist', { variant: 'warning' }); }
+    finally { setBusy(false); }
+  };
+  const createAndAdd = async (e) => {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name || busy || plTrackId == null) return;
+    setBusy(true);
+    try { await createPlaylistWithTrack(name, newEmoji, plTrackId, toast); closeMenu(); }
+    catch { toast('No se pudo crear la playlist', { variant: 'warning' }); }
+    finally { setBusy(false); }
+  };
+
   // Las acciones que NO aplican se OCULTAN, no se deshabilitan (regla dura de actions-lab: un
   // menú con ítems grises es ruido). `sep: true` = separador ARRIBA de ese ítem.
   //
@@ -137,6 +201,15 @@ export function ContextMenuProvider({ children }) {
       if (host.goArtist && albumArtist) {
         list.push({ id: 'artist', sep: list.length > 0, label: 'Ir al artista', tone: 'nav', icon: <IconArtist />, run: () => host.goArtist(seed) });
       }
+    };
+    // Sólo para ítems que son UNA pista: `api.addToPlaylist` es de a una, así que un álbum o un
+    // artista serían N requests — deuda anotada en actions-lab, fuera de alcance.
+    // `keepOpen` porque no ejecuta nada: cambia el menú al selector, en la misma caja.
+    const pushAddToPlaylist = () => {
+      list.push({
+        id: 'playlist', label: 'Agregar a playlist', tone: 'playlist', icon: <IconPlaylistAdd />,
+        chev: true, keepOpen: true, run: () => setPanel('playlist'),
+      });
     };
     const pushTrackNav = (t) => {
       pushGoArtist(t.album_artist, t);
@@ -162,6 +235,7 @@ export function ContextMenuProvider({ children }) {
           id: 'queue', label: 'Agregar a la cola', tone: 'queue', icon: <IconQueue />,
           run: () => { addToQueue(it); toast('Añadida a la cola'); },
         });
+        pushAddToPlaylist();
         pushTrackNav(it);
         break;
       }
@@ -177,6 +251,7 @@ export function ContextMenuProvider({ children }) {
             run: () => { removeFromQueue(it._qid); toast('Quitada de la cola'); },
           });
         }
+        pushAddToPlaylist();
         pushTrackNav(it);
         break;
       }
@@ -234,9 +309,9 @@ export function ContextMenuProvider({ children }) {
       {menu && items.length > 0 && (
         <div
           ref={elRef}
-          className="ctx-menu"
+          className={`ctx-menu${panel === 'playlist' ? ' ctx-menu--wide' : ''}`}
           role="menu"
-          aria-label={MENU_LABEL[menu.type] ?? 'Acciones'}
+          aria-label={panel === 'playlist' ? 'Agregar a playlist' : (MENU_LABEL[menu.type] ?? 'Acciones')}
           style={{
             left: pos ? pos.x : menu.x,
             top:  pos ? pos.y : menu.y,
@@ -247,20 +322,78 @@ export function ContextMenuProvider({ children }) {
           }}
           onContextMenu={(e) => e.preventDefault()}   // clic derecho SOBRE el menú: no abrir el nativo encima
         >
-          {items.map((it, i) => (
-            <div key={it.id}>
-              {it.sep && i > 0 && <div className="ctx-sep" role="separator" />}
-              <button
-                type="button"
-                role="menuitem"
-                className={`ctx-item tone-${it.tone}`}
-                onClick={() => { closeMenu(); it.run(); }}
-              >
-                {it.icon}
-                <span>{it.label}</span>
+          {panel === 'playlist' ? (
+            <>
+              {/* Volver a las acciones. El Esc NO retrocede acá: cierra el menú entero (lo corre
+                  la escalera de Player, peldaño 0) — es un popover, no una pila de vistas. */}
+              <button type="button" className="ctx-back" onClick={() => setPanel(null)}>
+                <IconChevronLeft />
+                <span>Agregar a playlist</span>
               </button>
-            </div>
-          ))}
+
+              {/* Lista y formulario calcan las clases del "+" (.ptp-list / .ptp-item / .ptp-new):
+                  es la MISMA lista de playlists, con el mismo tile de emoji tintado por su hue.
+                  Reuso de estilos, no copia: esas clases ya son de nivel raíz. */}
+              {playlists === null ? (
+                <div className="ctx-loading">Cargando…</div>
+              ) : playlists.length > 0 ? (
+                <ul className="ptp-list">
+                  {playlists.map((pl, idx) => (
+                    <li key={pl.id} className="ptp-item" style={{ '--h': emojiHue(pl.emoji), '--i': idx }}>
+                      <button
+                        type="button"
+                        className="ptp-item-main"
+                        onClick={() => addToPlaylist(pl)}
+                        disabled={busy}
+                        title="Añadir a esta playlist"
+                      >
+                        <span className="ptp-item-emoji">{pl.emoji || '🎵'}</span>
+                        <span className="ptp-item-text">
+                          <span className="ptp-item-name">{pl.name}</span>
+                          <span className="ptp-item-sub">
+                            {pl.track_count ?? 0} {pl.track_count === 1 ? 'canción' : 'canciones'}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="ptp-empty">
+                  <div className="ptp-empty-icon">🎶</div>
+                  <div className="ptp-empty-text">Aún no tenés playlists</div>
+                  <div className="ptp-empty-sub">Creá la primera abajo 👇</div>
+                </div>
+              )}
+
+              <form className="ptp-new" onSubmit={createAndAdd}>
+                <EmojiPicker value={newEmoji} onChange={setNewEmoji} />
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Nueva playlist…"
+                  autoFocus
+                />
+                <button className="ptp-new-btn" type="submit" title="Crear y añadir" disabled={busy}>+</button>
+              </form>
+            </>
+          ) : (
+            items.map((it, i) => (
+              <div key={it.id}>
+                {it.sep && i > 0 && <div className="ctx-sep" role="separator" />}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`ctx-item tone-${it.tone}`}
+                  onClick={() => { if (!it.keepOpen) closeMenu(); it.run(); }}
+                >
+                  {it.icon}
+                  <span>{it.label}</span>
+                  {it.chev && <IconChevronRight />}
+                </button>
+              </div>
+            ))
+          )}
         </div>
       )}
     </ContextMenuCtx.Provider>
@@ -275,6 +408,28 @@ export function useContextMenu() {
 const NO_MENU = { openMenu: () => {}, closeMenu: () => {}, registerHost: () => {}, menuOpen: false };
 
 // ── Iconos: 14px, monocromo, currentColor. El texto manda; el icono orienta. ──
+function IconPlaylistAdd() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="3" y1="6" x2="16" y2="6" /><line x1="3" y1="12" x2="12" y2="12" /><line x1="3" y1="18" x2="12" y2="18" />
+      <line x1="18" y1="9" x2="18" y2="19" /><line x1="13" y1="14" x2="23" y2="14" />
+    </svg>
+  );
+}
+function IconChevronRight() {
+  return (
+    <svg className="ctx-chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+function IconChevronLeft() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 6l-6 6 6 6" />
+    </svg>
+  );
+}
 function IconPlay() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
