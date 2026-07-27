@@ -1905,6 +1905,20 @@ button, input, select, textarea { font-family: inherit; }
 
 .ctx-loading { padding: 18px 12px; text-align: center; font-size: 12.5px; color: var(--text-muted); }
 
+/* Botón "⋯" de la fila: el disparador VISIBLE del menú, en la celda .col-actions donde antes
+   estaba el "+". Reusa la caja de .ptp-btn —que Playlists ya reusa para su "quitar"—, así que
+   hereda los 30px redondos sin duplicar nada. Cabe en los 46px de la celda porque es UN solo
+   botón: "agregar a playlist" pasó a ser un ítem del menú.
+
+   PERO se sale del patrón hover-revealed de .ptp-btn a propósito: el "⋯" está SIEMPRE visible,
+   en toda fila, sin pasar el mouse. Es la puerta descubrible del menú —el clic derecho es un
+   atajo que nadie ve— y esconderla hasta el hover la volvía tan invisible como el atajo.
+   La distinción reposo/hover la hace el COLOR (--text-muted → --text más la píldora de fondo,
+   que .ptp-btn:hover ya pone), NUNCA la opacidad: así no compite con el título pero tampoco
+   desaparece. Especificidad (0,2,0) explícita para ganarle a .ptp-btn sin depender del orden
+   del archivo. En modo lista no aplica: ahí .col-actions es display:none y manda el clic derecho. */
+.track-row .ctx-row-btn { opacity: 1; }
+
 /* ── PLAYLIST DETAIL · HERO / TITLE / RENAME ───── */
 
 /* Hero de la playlist abierta: reusa .detail-hero con un banner en degradado por

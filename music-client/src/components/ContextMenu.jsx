@@ -313,9 +313,14 @@ export function ContextMenuProvider({ children }) {
           role="menu"
           aria-label={panel === 'playlist' ? 'Agregar a playlist' : (MENU_LABEL[menu.type] ?? 'Acciones')}
           style={{
-            left: pos ? pos.x : menu.x,
-            top:  pos ? pos.y : menu.y,
-            // Hasta medir no se pinta: evita el frame en la posición cruda si hay que voltear.
+            // La pasada de MEDICIÓN va en 0,0 — no en el ancla. Puesto en el ancla, un menú
+            // cerca del borde derecho queda con poco espacio a su derecha y el shrink-to-fit lo
+            // ESTRUJA hasta su min-width (208 en vez de sus ~214 naturales): se medía una caja
+            // más angosta que la real y el flip aterrizaba corrido unos px. En 0,0 tiene el
+            // viewport entero para tomar su ancho natural, y recién ahí se posiciona.
+            left: pos ? pos.x : 0,
+            top:  pos ? pos.y : 0,
+            // Hasta medir no se pinta: nadie ve el paso por 0,0.
             visibility: pos ? undefined : 'hidden',
             // El pop nace de la esquina que quedó pegada al cursor, no siempre de arriba-izquierda.
             transformOrigin: pos ? `${pos.flipY ? 'bottom' : 'top'} ${pos.flipX ? 'right' : 'left'}` : undefined,
@@ -406,6 +411,38 @@ export function useContextMenu() {
   return useContext(ContextMenuCtx) ?? NO_MENU;
 }
 const NO_MENU = { openMenu: () => {}, closeMenu: () => {}, registerHost: () => {}, menuOpen: false };
+
+// Botón "⋯" de fila: el disparador VISIBLE del menú (el clic derecho sobre la fila sigue
+// funcionando como atajo). Vive acá y no en cada vista para que el ancla y el stopPropagation
+// se definan UNA vez — igual que el menú es uno solo.
+//
+//  · `anchor:'element'` → el menú cuelga del BOTÓN (debajo, alineado a su borde derecho), no
+//    del punto clicado; el flip y el clamp siguen siendo los mismos.
+//  · stopPropagation porque el onClick de la fila REPRODUCE — mismo cuidado que ya tenía el "+".
+//    Va explícito acá y no se confía en el de openMenu, que en móvil sale antes de llegar a él.
+export function ContextMenuButton({ type, item, label = 'Más acciones' }) {
+  const { openMenu } = useContextMenu();
+  return (
+    <button
+      type="button"
+      className="ptp-btn ctx-row-btn"
+      title={label}
+      aria-label={label}
+      aria-haspopup="menu"
+      onClick={(e) => { e.stopPropagation(); openMenu(e, { type, item, anchor: 'element' }); }}
+    >
+      <IconMore />
+    </button>
+  );
+}
+
+function IconMore() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="19" cy="12" r="1.9" />
+    </svg>
+  );
+}
 
 // ── Iconos: 14px, monocromo, currentColor. El texto manda; el icono orienta. ──
 function IconPlaylistAdd() {

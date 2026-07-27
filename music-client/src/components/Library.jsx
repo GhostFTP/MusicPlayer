@@ -2,9 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
-import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
-import { useContextMenu } from './ContextMenu.jsx';
+import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
 import { fmtTotal } from '../utils/formatTotal.js';
 
 // Orden AGRUPADO de la biblioteca (modo "Artista", DEFAULT): ALBUMARTIST → álbum
@@ -261,8 +260,10 @@ export default function Library({ target, clearTarget }) {
                     <QualityChip track={track} />
                   </td>
                   <td className="col-time">{fmt(track.duration)}</td>
+                  {/* Ver el comentario de TrackTable: el "⋯" reemplaza al "+" (playlist es un
+                      ítem del menú desde la fase D) y en modo lista manda el clic derecho. */}
                   <td className="col-actions">
-                    <AddToPlaylistMenu trackId={track.id} />
+                    <ContextMenuButton type="track" item={track} />
                   </td>
                 </tr>
               );
