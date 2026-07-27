@@ -1,10 +1,12 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import { useContextMenu } from './ContextMenu.jsx';
 
 // Vista de cola — overlay del player (dirección A "Lista de sala" + eq-bars/progreso de B).
-// SOLO lectura + salto: sonó / suena / viene, la actual marcada, tap salta a la fila. SIN
-// reorder ni quitar (paso posterior, con el menú contextual).
+// Lectura + salto: sonó / suena / viene, la actual marcada, tap salta a la fila. El clic DERECHO
+// abre el menú contextual con las acciones propias de la cola (quitar, ir a artista/álbum, info).
+// SIN reorder todavía (es un frente de gestos propio).
 
 // Barra de progreso de la pista actual, AISLADA en su propio nodo: consume currentTime/duration
 // (cambian ~4 Hz). Al re-renderizarse por cada tick, SOLO se re-pinta ella — las filas de la cola
@@ -32,13 +34,14 @@ function fmt(s) {
 }
 
 // Fila memoizada. Sus props son valores ESTABLES por tick (track: misma ref; zone/isCurrent:
-// mismo valor salvo que cambie la actual; isUpNext: booleano; onJump: useCallback estable) →
-// en cada tick de progreso la fila NO se re-renderiza. Solo cambia cuando su estado real cambia.
-const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNext, onJump }) {
+// mismo valor salvo que cambie la actual; isUpNext: booleano; onJump/onCtx: useCallback estables)
+// → en cada tick de progreso la fila NO se re-renderiza. Solo cambia cuando su estado real cambia.
+const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNext, onJump, onCtx }) {
   return (
     <li
       className={`queue-row queue-${zone}${isCurrent ? ' current' : ''}`}
       onClick={() => onJump(index)}
+      onContextMenu={(e) => onCtx(e, track, isCurrent)}
       title="Reproducir esta pista"
     >
       <span className="queue-num">{index + 1}</span>
@@ -64,8 +67,17 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
 
 export default function QueueOverlay({ onClose }) {
   const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo } = usePlayer();
+  const { openMenu } = useContextMenu();
   const hasCover = !!currentTrack?.cover_path;
   const bodyRef = useRef(null);
+
+  // Estable (openMenu es un useCallback sin deps) → las QueueRow memoizadas siguen sin
+  // re-renderizarse en cada tick del progreso. `isCurrent` viaja en el payload porque la cola
+  // admite DUPLICADOS: la identidad de una fila es su `_qid`, no el id de la pista.
+  const onCtx = useCallback(
+    (e, track, isCurrent) => openMenu(e, { type: 'queue-track', item: track, isCurrent }),
+    [openMenu],
+  );
 
   // Auto-scroll: al cambiar la pista actual, centrar la fila marcada en la vista. Dep [queueIndex]
   // (NO currentTime) → no corre en cada tick del progreso. Vía querySelector sobre el DOM: NO
@@ -123,6 +135,7 @@ export default function QueueOverlay({ onClose }) {
                 isCurrent={i === queueIndex}
                 isUpNext={upNext.has(t._qid)}
                 onJump={jumpTo}
+                onCtx={onCtx}
               />
             ))}
           </ul>

@@ -258,6 +258,32 @@ export function PlayerProvider({ children }) {
     playIndex(index);
   }, [playIndex]);
 
+  // Quita UNA entrada de la cola por `_qid`. Es exactamente la operación para la que se eligió
+  // el keying por _qid (actions-lab, "el paso 2 muerde"): como played/history/forcedNext se
+  // llevan por _qid y NO por índice, quitar no remapea nada — sólo hay que recomputar idxRef
+  // (la posición de la actual, que se corrió si lo quitado estaba antes) y sacar el _qid de las
+  // estructuras para que no queden apuntando a algo que ya no existe.
+  //
+  // La pista que SUENA no se puede quitar: arrancarle la fuente al <audio> obliga a decidir qué
+  // suena después, y eso es una decisión de reproducción aparte. El menú además oculta la acción
+  // ahí, así que esto es la red, no el camino normal. NO toca MediaSession.
+  const removeFromQueue = useCallback((qid) => {
+    if (qid == null) return;
+    const curQid = queueRef.current[idxRef.current]?._qid;
+    if (qid === curQid) return;
+    const next = queueRef.current.filter((t) => t._qid !== qid);
+    if (next.length === queueRef.current.length) return;   // no estaba en la cola
+    queueRef.current = next;
+    setQueue(next);
+    playedRef.current.delete(qid);                          // ciclo de shuffle
+    historyRef.current = historyRef.current.filter((h) => h !== qid);   // "anterior" no vuelve a un fantasma
+    if (forcedNextRef.current.includes(qid)) {              // pill "a continuación"
+      forcedNextRef.current = forcedNextRef.current.filter((f) => f !== qid);
+      setUpNextIds([...forcedNextRef.current]);
+    }
+    if (curQid != null) idxRef.current = next.findIndex((t) => t._qid === curQid);
+  }, []);
+
   const seek = useCallback((time) => {
     const audio = getAudio();
     audio.currentTime = Math.max(0, Math.min(time, audio.duration || 0));
@@ -372,7 +398,7 @@ export function PlayerProvider({ children }) {
       currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
       shuffle, repeat,
       queue, upNext: new Set(upNextIds),   // _qid "a continuación" desde ESTADO (reactivo); forcedNextRef sigue siendo la verdad del motor
-      play, addToQueue, playAfterCurrent, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+      play, addToQueue, playAfterCurrent, removeFromQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
     }}>
       {children}
     </PlayerContext.Provider>

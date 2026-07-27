@@ -3,6 +3,7 @@ import {
 } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from './Toast.jsx';
+import { api } from '../api/client.js';
 
 // ── Menú contextual GLOBAL (actions-lab · dirección visual C, "Lista seca") ──────────────
 //
@@ -10,10 +11,12 @@ import { useToast } from './Toast.jsx';
 // fase B tarjetas de álbum/artista) sólo llaman openMenu(e, { type, item }); el menú arma sus
 // acciones según el `type`. Si algún día aparece un segundo componente de menú, algo se hizo mal.
 //
-// FASE A1: sólo `type: 'track'` y sólo DESKTOP (clic derecho). El long-press de móvil está
-// DIFERIDO a propósito (fase C): en Android el long-press dispara igual el evento 'contextmenu',
-// así que openMenu lo descarta por matchMedia — mismo criterio de régimen que usa el resto del
-// proyecto (ancho, no pointerType). En móvil, entonces, no pasa nada: queda el menú nativo.
+// TIPOS (fase B): 'track' (fila de lista) · 'album' (tarjeta) · 'artist' (retrato) ·
+// 'queue-track' (fila de la cola). Cada tipo ofrece SOLO lo que le aplica — no se fuerzan las
+// cinco acciones en todos. Sigue siendo DESKTOP (clic derecho): el long-press de móvil está
+// DIFERIDO a propósito (fase C); en Android dispara igual el evento 'contextmenu', así que
+// openMenu lo descarta por matchMedia — mismo criterio de régimen que el resto del proyecto
+// (ancho, no pointerType). En móvil, entonces, no pasa nada: queda el menú nativo.
 //
 // Las acciones NO se crean acá, se REÚNEN: la cola sale de PlayerContext (addToQueue /
 // playAfterCurrent) y navegar/info salen del host (Player) vía registerHost — son las mismas
@@ -31,13 +34,27 @@ const ContextMenuCtx = createContext(null);
 
 const MARGIN = 8;   // aire mínimo contra el borde del viewport
 
+// Pistas de un álbum / de un artista con los MISMOS parámetros que ya usan las vistas
+// (Albums.openAlbum y el ShuffleButton del hero de Artistas) → el orden que se encola es el
+// mismo que se ve en pantalla. Filtrar el álbum por album_artist desambigua los homónimos.
+const albumTracks  = (a) => api.tracks({ album: a.album, limit: 500, ...(a.album_artist ? { album_artist: a.album_artist } : {}) });
+const artistTracks = (a) => api.tracks({ album_artist: a.artist, limit: 10000 });
+
+// Rótulo accesible por tipo: el menú es uno solo, pero lo que lo abrió cambia.
+const MENU_LABEL = {
+  'track':       'Acciones de la pista',
+  'queue-track': 'Acciones de la pista en la cola',
+  'album':       'Acciones del álbum',
+  'artist':      'Acciones del artista',
+};
+
 export function ContextMenuProvider({ children }) {
   const [menu, setMenu] = useState(null);   // { type, item, x, y } | null — x/y = posición CRUDA del cursor
   const [pos, setPos]   = useState(null);   // posición YA resuelta (flip + clamp), null hasta medir
   const elRef   = useRef(null);
   const hostRef = useRef({});               // handlers del host (Player): goArtist / goAlbum / openInfo
 
-  const { addToQueue, playAfterCurrent, currentTrack } = usePlayer();
+  const { play, addToQueue, playAfterCurrent, removeFromQueue, currentTrack } = usePlayer();
   const toast = useToast();
 
   // El host (Player) publica acá los handlers que dependen de SU estado (cerrar expandido/letra
@@ -89,40 +106,122 @@ export function ContextMenuProvider({ children }) {
     };
   }, [menu, closeMenu]);
 
+  // Carga un CONJUNTO de pistas y opera sobre él. Si el fetch falla o el conjunto viene vacío,
+  // avisa: sin esto, "reproducir álbum" sobre un álbum vacío no haría nada y parecería un bug.
+  const onTracks = useCallback(async (load, done, empty) => {
+    try {
+      const ts = await load();
+      if (!ts?.length) { toast(empty, { variant: 'warning' }); return; }
+      done(ts);
+    } catch { toast('No se pudieron cargar las pistas', { variant: 'warning' }); }
+  }, [toast]);
+
   // Las acciones que NO aplican se OCULTAN, no se deshabilitan (regla dura de actions-lab: un
   // menú con ítems grises es ruido). `sep: true` = separador ARRIBA de ese ítem.
+  //
+  // El BLOQUE DE NAVEGACIÓN + INFO es idéntico en todos los tipos que lo ofrecen (mismas
+  // funciones del host), así que se arma una sola vez: "ir al artista" significa lo mismo en una
+  // fila de lista, en una tarjeta de álbum y en una fila de la cola.
   const items = useMemo(() => {
-    if (menu?.type !== 'track') return [];
-    const t = menu.item;
+    if (!menu) return [];
+    const it = menu.item;
     const host = hostRef.current;
     const list = [];
 
-    // "A continuación" sobre la pista que YA suena es un no-op → se oculta.
-    if (currentTrack?.id !== t.id) {
-      list.push({
-        id: 'next', label: 'Reproducir a continuación', tone: 'queue', icon: <IconPlayNext />,
-        run: () => { playAfterCurrent(t); toast('Suena a continuación'); },
-      });
-    }
-    list.push({
-      id: 'queue', label: 'Agregar a la cola', tone: 'queue', icon: <IconQueue />,
-      run: () => { addToQueue(t); toast('Añadida a la cola'); },
-    });
+    // Navegar SIEMPRE por album_artist, NUNCA por el `artist` mostrado (rompería Various Artists
+    // y los feats; el backend además filtra album_artist IS NOT NULL). Sin album_artist no hay
+    // vista de artista a la que ir → la acción no aparece. Es curación/tagging, no un bug.
+    // `seed` = lo que se le pasa al host: una pista completa cuando la hay (así conserva su
+    // fallback por api.track), o el mínimo {album_artist} cuando el ítem es una tarjeta.
+    const pushGoArtist = (albumArtist, seed) => {
+      if (host.goArtist && albumArtist) {
+        list.push({ id: 'artist', sep: list.length > 0, label: 'Ir al artista', tone: 'nav', icon: <IconArtist />, run: () => host.goArtist(seed) });
+      }
+    };
+    const pushTrackNav = (t) => {
+      pushGoArtist(t.album_artist, t);
+      if (host.goAlbum && t.album) {
+        list.push({ id: 'album', sep: !t.album_artist && list.length > 0, label: 'Ir al álbum', tone: 'nav', icon: <IconAlbum />, run: () => host.goAlbum(t) });
+      }
+      if (host.openInfo) {
+        list.push({ id: 'info', sep: list.length > 0, label: 'Ver info', tone: 'info', icon: <IconInfo />, run: () => host.openInfo(t) });
+      }
+    };
 
-    // Navegar SIEMPRE por album_artist, NUNCA por `artist` (rompería Various Artists y los feats;
-    // el backend además filtra album_artist IS NOT NULL). Sin album_artist no hay vista de artista
-    // a la que ir → la acción no aparece. Es curación/tagging del usuario, no un bug de código.
-    if (host.goArtist && t.album_artist) {
-      list.push({ id: 'artist', sep: true, label: 'Ir al artista', tone: 'nav', icon: <IconArtist />, run: () => host.goArtist(t) });
-    }
-    if (host.goAlbum && t.album) {
-      list.push({ id: 'album', sep: !t.album_artist, label: 'Ir al álbum', tone: 'nav', icon: <IconAlbum />, run: () => host.goAlbum(t) });
-    }
-    if (host.openInfo) {
-      list.push({ id: 'info', sep: true, label: 'Ver info', tone: 'info', icon: <IconInfo />, run: () => host.openInfo(t) });
+    switch (menu.type) {
+      // ── Pista de una lista ──
+      case 'track': {
+        // "A continuación" sobre la pista que YA suena es un no-op → se oculta.
+        if (currentTrack?.id !== it.id) {
+          list.push({
+            id: 'next', label: 'Reproducir a continuación', tone: 'queue', icon: <IconPlayNext />,
+            run: () => { playAfterCurrent(it); toast('Suena a continuación'); },
+          });
+        }
+        list.push({
+          id: 'queue', label: 'Agregar a la cola', tone: 'queue', icon: <IconQueue />,
+          run: () => { addToQueue(it); toast('Añadida a la cola'); },
+        });
+        pushTrackNav(it);
+        break;
+      }
+
+      // ── Fila de la COLA. Acciones propias de estar YA en la cola: NO se ofrece "agregar a la
+      //    cola" (ya está) ni "reproducir a continuación" (con el motor actual insertaría una
+      //    COPIA nueva —otro _qid— en vez de mover ésta; mover es reorder, frente aparte).
+      //    "Quitar" no aparece sobre la que suena: eso obliga a decidir qué reproducir después.
+      case 'queue-track': {
+        if (!menu.isCurrent) {
+          list.push({
+            id: 'remove', label: 'Quitar de la cola', tone: 'queue', icon: <IconRemove />,
+            run: () => { removeFromQueue(it._qid); toast('Quitada de la cola'); },
+          });
+        }
+        pushTrackNav(it);
+        break;
+      }
+
+      // ── Tarjeta de ÁLBUM. Sin "ir al álbum": la tarjeta YA es el álbum (el clic izquierdo lo
+      //    abre). Sin "ver info": el panel de Info es de PISTA (título, nº de pista, códec de
+      //    ese archivo) — un info de álbum es otro panel, no esta acción.
+      case 'album': {
+        list.push({
+          id: 'play', label: 'Reproducir álbum', tone: 'queue', icon: <IconPlay />,
+          run: () => onTracks(() => albumTracks(it), (ts) => play(ts, 0), 'Ese álbum no tiene pistas'),
+        });
+        list.push({
+          id: 'queue', label: 'Agregar a la cola', tone: 'queue', icon: <IconQueue />,
+          run: () => onTracks(() => albumTracks(it), (ts) => {
+            addToQueue(ts);
+            toast(`«${it.album}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
+          }, 'Ese álbum no tiene pistas'),
+        });
+        pushGoArtist(it.album_artist, { album_artist: it.album_artist });
+        break;
+      }
+
+      // ── Retrato de ARTISTA. `artist` en esta vista YA ES album_artist (browse.js lo aliasea:
+      //    SELECT album_artist AS artist), así que la regla dura se cumple sola.
+      case 'artist': {
+        list.push({
+          id: 'play', label: 'Reproducir todo', tone: 'queue', icon: <IconPlay />,
+          run: () => onTracks(() => artistTracks(it), (ts) => play(ts, 0), 'Ese artista no tiene pistas'),
+        });
+        list.push({
+          id: 'queue', label: 'Agregar a la cola', tone: 'queue', icon: <IconQueue />,
+          run: () => onTracks(() => artistTracks(it), (ts) => {
+            addToQueue(ts);
+            toast(`«${it.artist}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
+          }, 'Ese artista no tiene pistas'),
+        });
+        pushGoArtist(it.artist, { album_artist: it.artist });
+        break;
+      }
+
+      default: break;
     }
     return list;
-  }, [menu, currentTrack, addToQueue, playAfterCurrent, toast]);
+  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast]);
 
   const value = useMemo(
     () => ({ openMenu, closeMenu, registerHost, menuOpen: menu !== null }),
@@ -137,7 +236,7 @@ export function ContextMenuProvider({ children }) {
           ref={elRef}
           className="ctx-menu"
           role="menu"
-          aria-label="Acciones de la pista"
+          aria-label={MENU_LABEL[menu.type] ?? 'Acciones'}
           style={{
             left: pos ? pos.x : menu.x,
             top:  pos ? pos.y : menu.y,
@@ -176,6 +275,21 @@ export function useContextMenu() {
 const NO_MENU = { openMenu: () => {}, closeMenu: () => {}, registerHost: () => {}, menuOpen: false };
 
 // ── Iconos: 14px, monocromo, currentColor. El texto manda; el icono orienta. ──
+function IconPlay() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+      <path d="M7 4.5l13 7.5-13 7.5z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function IconRemove() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="3" y1="6" x2="15" y2="6" /><line x1="3" y1="12" x2="15" y2="12" /><line x1="3" y1="18" x2="12" y2="18" />
+      <line x1="15" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
 function IconPlayNext() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

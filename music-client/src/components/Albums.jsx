@@ -3,6 +3,7 @@ import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import TrackTable from './TrackTable.jsx';
+import { useContextMenu } from './ContextMenu.jsx';
 
 export default function Albums({ target, clearTarget, setDetailOpen, navigate }) {
   const [albums,   setAlbums]   = useState([]);
@@ -10,6 +11,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
   const { play } = usePlayer();
+  const { openMenu } = useContextMenu();   // clic derecho sobre la tarjeta (desktop; el gate lo pone el menú)
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -128,7 +130,12 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
 
       <div className="album-grid">
         {albums.map(album => (
-          <div key={`${album.album}-${album.album_artist}`} className="album-card" onClick={() => navigate('albums', { album: album.album, album_artist: album.album_artist })}>
+          <div
+            key={`${album.album}-${album.album_artist}`}
+            className="album-card"
+            onClick={() => navigate('albums', { album: album.album, album_artist: album.album_artist })}
+            onContextMenu={(e) => openMenu(e, { type: 'album', item: album })}
+          >
             {album.sample_track_id
               ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" />
               : <div className="album-cover-placeholder">♫</div>

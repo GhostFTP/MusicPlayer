@@ -5,6 +5,7 @@ import { stringHue } from '../utils/emojiHue.js';
 import AlbumGrid from './AlbumGrid.jsx';
 import ArtistImage from './ArtistImage.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { useContextMenu } from './ContextMenu.jsx';
 
 const MAX_GENRE_CHIPS = 3;   // Kali Uchis tiene 5 géneros; sin tope el hero se satura
 
@@ -56,6 +57,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
   const [mbInfo,   setMbInfo]   = useState(null);   // identidad MusicBrainz (línea del hero)
   const [albums,   setAlbums]   = useState(null);
   const [error,    setError]    = useState(null);
+  const { openMenu } = useContextMenu();   // clic derecho sobre el retrato (desktop; el gate lo pone el menú)
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -209,7 +211,13 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
           veía casi idéntico a su propio álbum en la otra pestaña. */}
       <div className="artist-grid">
         {artists.map((a, i) => (
-          <div key={a.artist} className="artist-portrait" style={{ '--i': i, '--h': stringHue(a.artist) }} onClick={() => navigate('artists', { artist: a.artist })}>
+          <div
+            key={a.artist}
+            className="artist-portrait"
+            style={{ '--i': i, '--h': stringHue(a.artist) }}
+            onClick={() => navigate('artists', { artist: a.artist })}
+            onContextMenu={(e) => openMenu(e, { type: 'artist', item: a })}
+          >
             <ArtistImage artist={a} />
             <div className="artist-portrait-info">
               <div className="artist-portrait-name">{a.artist}</div>
