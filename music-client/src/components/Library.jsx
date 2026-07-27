@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { useContextMenu } from './ContextMenu.jsx';
 import { fmtTotal } from '../utils/formatTotal.js';
 
 // Orden AGRUPADO de la biblioteca (modo "Artista", DEFAULT): ALBUMARTIST → álbum
@@ -34,6 +35,7 @@ export default function Library({ target, clearTarget }) {
   const [sortMode, setSortMode] = useState('artist'); // 'title'|'artist'|'album'|'year'|'duration'
   const [sortDir,  setSortDir]  = useState('asc');    // 'asc' | 'desc'
   const { play, currentTrack, isPlaying } = usePlayer();
+  const { openMenu } = useContextMenu();   // clic derecho sobre la fila (desktop; el gate lo pone el menú)
 
   const fetchTracks = useCallback(async (q) => {
     setLoading(true);
@@ -227,6 +229,7 @@ export default function Library({ target, clearTarget }) {
                   key={track.id}
                   className={`track-row${active ? ' playing' : ''}`}
                   onClick={() => play(displayTracks, i)}
+                  onContextMenu={(e) => openMenu(e, { type: 'track', item: track })}
                 >
                   <td className="col-num">
                     <span className={`track-num${active ? ' active' : ''}`}>

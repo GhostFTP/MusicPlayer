@@ -3,12 +3,14 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { coverUrl } from '../api/client.js';
 import QualityChip from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
+import { useContextMenu } from './ContextMenu.jsx';
 
 // Tabla de pistas reutilizable — mismo diseño de fila que la Biblioteca
 // (carátula, jerarquía título/artista, QualityChip y botón "+").
 // `showAlbum`: oculta la columna Álbum cuando el contexto ya es un álbum.
 export default function TrackTable({ tracks, showAlbum = true }) {
   const { play, currentTrack, isPlaying } = usePlayer();
+  const { openMenu } = useContextMenu();   // clic derecho sobre la fila (desktop; el gate lo pone el menú)
   const activeRowRef = useRef(null);
 
   // Al abrir una lista (álbum/género), desplaza la pista que suena a la vista.
@@ -54,6 +56,7 @@ export default function TrackTable({ tracks, showAlbum = true }) {
                 ref={active ? activeRowRef : null}
                 className={`track-row${active ? ' playing' : ''}`}
                 onClick={() => play(tracks, i)}
+                onContextMenu={(e) => openMenu(e, { type: 'track', item: track })}
               >
                 <td className="col-num">
                   <span className={`track-num${active ? ' active' : ''}`}>

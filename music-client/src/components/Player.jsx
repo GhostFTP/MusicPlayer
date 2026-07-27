@@ -8,6 +8,7 @@ import SettingsFab from './SettingsFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
+import { useContextMenu } from './ContextMenu.jsx';
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00';
@@ -132,6 +133,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // inferior mostraría el expandido cortado en vez de la barra ("barra fantasma").
   const [lyricsImmersive, setLyricsImmersive] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  // Pista ARBITRARIA para el panel de Info (la abre el menú contextual sobre una fila cualquiera).
+  // null = el Info va sobre la que suena, que es como se comportaron siempre los botones de Info.
+  const [infoTrack, setInfoTrack] = useState(null);
   // Panel lateral del expandido DESKTOP (rediseño dos-zonas, estado único — opción a):
   // 'none' | 'queue' | 'lyrics'. SEPARADO de showQueue (columna C2) y showLyrics (letra barra/
   // móvil) para no acoplar el expandido con esas superficies. Se resetea a 'none' al cerrar el
@@ -208,6 +212,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // en vez de dejar el Info como excepción que solo su propio Esc conocía (nav-lab).
   const infoRef = useRef(null);
 
+  // Menú contextual (actions-lab): Player es su HOST — le presta las acciones que dependen de
+  // este estado (navegar cerrando overlays, abrir el Info sobre una pista arbitraria) y corre
+  // su cierre por Esc / atrás del navegador. Ver el bloque de la escalera, abajo.
+  const { menuOpen: ctxMenuOpen, closeMenu: closeCtxMenu, registerHost } = useContextMenu();
+
   // ── La escalera del "atrás" (contrato nav-lab · Modelo 2) ───────────────────
   // dismissTop() cierra el overlay más "encima" por prioridad y devuelve true si cerró algo,
   // false si no había nada. Cubre SOLO overlays (Info/Letra/Expandido) — lo único que NO es ruta.
@@ -228,15 +237,30 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     return false;
   }, [showInfo, showQueue, showLyrics, expPanel, expanded]);
 
+  // Peldaño 0 de la escalera: el MENÚ CONTEXTUAL. Es un popover efímero (clic derecho), no un
+  // overlay de nav-lab, así que va por delante de dismissTop pero NO entra en `layerDepth` (no
+  // empuja entrada-guardia de historial — el porqué está junto a layerDepth, abajo). Vive acá y
+  // no como listener propio del menú justamente para que UN Esc cierre UNA cosa: con dos
+  // listeners, un Esc con el menú abierto sobre el expandido cerraba los dos de una.
+  const dismissPopover = useCallback(() => {
+    if (!ctxMenuOpen) return false;
+    closeCtxMenu();
+    return true;
+  }, [ctxMenuOpen, closeCtxMenu]);
+
   // Esc global del reproductor → corre la escalera de overlays. Escucha siempre (no solo con
   // expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc NO navega
   // rutas (cambiar de vista, cerrar Novedades o un DETALLE es el atrás del navegador): Esc NO
   // llama history.back() → REGLA DURA #3 se cumple trivial (cero history.back() acá).
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') dismissTop(); };
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (dismissPopover()) return;   // menú contextual primero (un Esc = una cosa)
+      dismissTop();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dismissTop]);
+  }, [dismissTop, dismissPopover]);
 
   // El panel del expandido solo existe mientras el expandido está montado: al cerrarse (por
   // cualquier vía — botón, Esc, gesto, navegar) se resetea a 'none'. Evita que quede "colgado".
@@ -273,6 +297,12 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // path/estado (pushState no dispara popstate → sin ciclo); el atrás la consume cerrando el overlay,
   // sin mover la URL. Al BAJAR por Esc/botón la entrada queda sin consumir a propósito: es el
   // "atrás absorbido", quirk conocido del guardia.
+  // ⚠️ El menú contextual NO entra en layerDepth (decisión, no olvido): el guardia empuja UNA
+  // entrada por cada apertura y el menú se cierra casi siempre por clic afuera o al elegir una
+  // acción, o sea SIN consumirla → cada clic derecho dejaría un "atrás absorbido" acumulado
+  // (cinco clics derechos = cinco atrás muertos). El guardia es para superficies en las que uno
+  // se queda (Info/Cola/Letra/expandido), no para un popover efímero. A cambio, el atrás con el
+  // menú abierto lo cierra Y hace el pop de ruta (ver el popstate: cierra sin consumir el pop).
   const layerDepth = (showInfo ? 1 : 0) + (showQueue ? 1 : 0) + (showLyrics ? 1 : 0) + (expPanel !== 'none' ? 1 : 0) + (expanded ? 1 : 0);
   const prevLayerDepth = useRef(layerDepth);
   useEffect(() => {
@@ -288,12 +318,16 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // sin capa, es pop de RUTA → restoreRoute(event.state) restaura la vista de la entrada.
   useEffect(() => {
     const onPop = (e) => {
+      // El menú contextual se va con el atrás pero NO lo consume: como no empujó entrada-guardia,
+      // el pop que llegó es de una capa o de una RUTA de verdad, y tragárselo dejaría la URL
+      // movida y la vista sin restaurar. Se cierra y se sigue la escalera normal.
+      dismissPopover();
       if (dismissTop()) return;      // cerró un overlay/álbum anidado → el atrás se consumió ahí
       restoreRoute(e.state);         // pop de ruta (vista o detalle de primer nivel)
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [dismissTop, restoreRoute]);
+  }, [dismissTop, dismissPopover, restoreRoute]);
 
   // ── Swipe de la carátula del expandido (izq = siguiente, der = anterior) ──
   // Pointer Events (touch + mouse). touch-action: none (CSS): el navegador no
@@ -713,12 +747,6 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
 
   // Género (integrado al subtítulo) del track enriquecido (trackMeta) o del actual.
   const genre = (trackMeta ?? currentTrack)?.genre ?? null;
-  // album_artist/album confiables: trackMeta (api.track = SELECT *) o el track de la
-  // cola. Para navegar al artista usamos album_artist (NO el `artist` mostrado, que
-  // rompería "Various Artists"/feats). Puede faltar `album_artist` si la cola vino de una
-  // playlist → goArtist/goAlbum lo resuelven con api.track(id) (fetch lazy, sin tocar).
-  const albumArtist = (trackMeta ?? currentTrack)?.album_artist ?? null;
-  const album       = (trackMeta ?? currentTrack)?.album ?? null;
 
   // Navegación desde la barra Y el expandido. stopPropagation (no disparar el
   // onClick de .player-track en móvil) y cierre del expandido Y de la Letra antes
@@ -731,22 +759,26 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     setShowLyrics(false);
     navigate('genres', { genre });
   };
-  const goArtist = async (e) => {
-    e.stopPropagation();
-    if (!currentTrack) return;
-    let artist = albumArtist;
-    if (!artist) { try { artist = (await api.track(currentTrack.id))?.album_artist ?? null; } catch { /* ignore */ } }
+  // Navegación por PISTA (no sólo la que suena): la usan los links de la barra/expandido —con la
+  // pista actual enriquecida— y el MENÚ CONTEXTUAL, con la fila sobre la que se hizo clic derecho.
+  // Una sola implementación de la regla dura: SIEMPRE `album_artist`, NUNCA el `artist` mostrado
+  // (rompería Various Artists y los feats, y el backend filtra album_artist IS NOT NULL). Si la
+  // pista no lo trae (p. ej. viniendo de una playlist) se resuelve con api.track(id); si sigue
+  // faltando, la acción es INERTE — no hay vista de artista a la que ir.
+  const goArtistOf = async (track) => {
+    if (!track) return;
+    let artist = track.album_artist ?? null;
+    if (!artist) { try { artist = (await api.track(track.id))?.album_artist ?? null; } catch { /* ignore */ } }
     if (!artist) return;
     setExpanded(false);
     setShowLyrics(false);
     navigate('artists', { artist });
   };
-  const goAlbum = async (e) => {
-    e.stopPropagation();
-    if (!currentTrack) return;
-    let alb = album, aArtist = albumArtist;
+  const goAlbumOf = async (track) => {
+    if (!track) return;
+    let alb = track.album ?? null, aArtist = track.album_artist ?? null;
     if (!alb) {
-      try { const full = await api.track(currentTrack.id); alb = full?.album ?? null; aArtist = full?.album_artist ?? null; }
+      try { const full = await api.track(track.id); alb = full?.album ?? null; aArtist = full?.album_artist ?? null; }
       catch { /* ignore */ }
     }
     if (!alb) return;
@@ -754,6 +786,24 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     setShowLyrics(false);
     navigate('albums', { album: alb, album_artist: aArtist });
   };
+  // Handlers de la barra y el expandido: la MISMA navegación sobre la pista que suena, tomando el
+  // `trackMeta` enriquecido cuando existe (puede traer album/album_artist que la cola no tenía).
+  const goArtist = (e) => { e.stopPropagation(); goArtistOf(trackMeta ?? currentTrack); };
+  const goAlbum  = (e) => { e.stopPropagation(); goAlbumOf(trackMeta ?? currentTrack); };
+
+  // Info: los botones del reproductor siguen mostrando la pista que SUENA (infoTrack a null); el
+  // menú contextual abre el mismo panel sobre la fila clicada. Las filas de las listas ya traen
+  // todo lo que el panel pinta (/api/tracks devuelve género, año, códec, bits, sample rate…).
+  const toggleInfo = () => { setInfoTrack(null); setShowInfo(v => !v); };
+  const openInfoOf = (track) => { setInfoTrack(track); setShowInfo(true); };
+
+  // Publica las acciones al menú contextual. Sin array de deps a propósito: se refresca en cada
+  // render para que los closures vean el estado actual; el provider las guarda en un ref, así
+  // esto NO re-renderiza el menú.
+  useEffect(() => {
+    registerHost({ goArtist: goArtistOf, goAlbum: goAlbumOf, openInfo: openInfoOf });
+  });
+
   // Calidad partida: códec para el badge + resto del detalle como texto gris.
   // El color/caja del badge refleja el tier (hi-res / lossless / lossy…).
   const qCodec = qualityCodec(trackMeta);
@@ -1041,9 +1091,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
       {showInfo && (
         <InfoPanel
           ref={infoRef}
-          track={trackMeta ?? currentTrack}
-          onClose={() => setShowInfo(false)}
-          navigate={(view, target) => { setShowInfo(false); setExpanded(false); setShowLyrics(false); navigate(view, target); }}
+          track={infoTrack ?? trackMeta ?? currentTrack}
+          onClose={() => { setShowInfo(false); setInfoTrack(null); }}
+          navigate={(view, target) => { setShowInfo(false); setInfoTrack(null); setExpanded(false); setShowLyrics(false); navigate(view, target); }}
         />
       )}
 
@@ -1101,7 +1151,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               </button>
               <button
                 className={`exp-icon-btn exp-info${showInfo ? ' active' : ''}`}
-                onClick={() => setShowInfo(v => !v)}
+                onClick={toggleInfo}
                 disabled={!currentTrack}
                 title="Información de la pista"
               >
@@ -1277,7 +1327,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             </button>
             <button
               className={`exp-icon-btn exp-info${showInfo ? ' active' : ''}`}
-              onClick={() => setShowInfo(v => !v)}
+              onClick={toggleInfo}
               disabled={!currentTrack}
               title="Información de la pista"
             >
@@ -1488,7 +1538,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           <BarTip tip="Información de la pista" accent="var(--amber)">
             <button
               className={`action-btn info-btn${showInfo ? ' active' : ''}`}
-              onClick={e => { e.stopPropagation(); setShowInfo(v => !v); }}
+              onClick={e => { e.stopPropagation(); toggleInfo(); }}
               aria-pressed={showInfo}
               disabled={!currentTrack}
               aria-label="Información de la pista"
