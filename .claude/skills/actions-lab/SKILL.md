@@ -1,269 +1,310 @@
 ---
 name: actions-lab
-description: Estándar de las ACCIONES sobre ítems de SonoraRev (qué se puede hacer con una pista/álbum/artista y desde dónde) — sistema de cola en PlayerContext (addToQueue/playAfterCurrent), menú contextual global "Lista seca", y el menú "+" existente. Úsala SIEMPRE antes de tocar o auditar la cola del reproductor, el menú contextual o cualquier acción sobre ítems (PlayerContext.jsx, ContextMenu, AddToPlaylistMenu.jsx).
+description: Estándar de las ACCIONES sobre ítems de SonoraRev (qué se puede hacer con una pista/álbum/artista/fila de cola, y desde dónde) — el menú contextual único con sus DOS presentaciones (popover-lista en desktop, grid de tiles táctil en móvil), el motor de cola de PlayerContext (addToQueue/playAfterCurrent/removeFromQueue por _qid) y el menú "+" que sobrevive en la barra. Úsala SIEMPRE antes de tocar o auditar la cola, el menú contextual o cualquier acción sobre ítems (PlayerContext.jsx, ContextMenu.jsx, useLongPress.js, AddToPlaylistMenu.jsx).
 ---
 
 # Actions Lab — estándar de las acciones sobre ítems
 
 Fuente de verdad del frente "**acciones**": *qué se puede hacer con una pista / álbum /
-artista, y desde dónde*. **No cites de memoria: verificá contra el código real.**
+artista / fila de cola, y desde dónde*. **No cites de memoria: verificá contra el código real.**
 
-Este lab existe porque el contrato es **transversal**: ninguna vista es dueña. Lo consumen
-Biblioteca, Álbumes, Artistas, Géneros, Años y Playlists — y `artist-lab` / `playlist-lab`
-van a apoyarse en él.
+> **Sobre las referencias:** este mapa ancla en **nombres** (funciones, estados, selectores,
+> constantes), no en números de línea. La versión anterior de esta skill era un documento de
+> PLAN previo a la implementación —decía que `ContextMenu.jsx` "no existe aún" y que el
+> long-press estaba diferido— y envejeció entera. Buscá por nombre.
 
-## ✅ DESBLOQUEADO (2026-07-20) — se cumplió la prueba física del carro
+El contrato es **transversal**: ninguna vista es dueña. Lo consumen Biblioteca, Álbumes,
+Artistas, Géneros, Años, Playlists y la cola.
 
-**El sistema de cola YA se puede implementar.** MediaSession (v1.5.0) fue **probado en
-hardware — CarPlay en el Mazda 3** — y el usuario lo confirmó. El bloqueo que aislaba la
-variable ("carro primero") queda **levantado**.
+## Estado: CONSTRUIDO
 
-**PERO MediaSession sigue viviendo en el mismo archivo (`PlayerContext.jsx:225-291`)** — se
-edita con cuidado: los cambios de cola **NO tocan esos efectos** (interactúan por interfaces
-limpias: el estado `currentTrack` + los callbacks `next`/`prev`/`seek`). Si un cambio pretende
-entrar a `:225-291`, **parar y avisar** — bandera roja. Verificación de regresión sin carro:
-el **lockscreen del teléfono** (misma superficie MediaSession que CarPlay).
+El menú contextual **existe y está completo** en sus dos presentaciones, y el motor de cola
+también. Lo que falta está en §Deudas — y es cableado de superficies, no diseño.
 
-## PREMISA (decidida, no re-litigar)
+| Pieza | Estado |
+|---|---|
+| Motor de cola por `_qid` (`addToQueue` / `playAfterCurrent` / `forcedNext`) | ✅ v1.8.0 |
+| Vista de cola (columna desktop + hoja móvil) | ✅ v1.8.0 / v1.9.0 |
+| Menú contextual desktop (popover-lista) + tipos `track`/`album`/`artist`/`queue-track` | ✅ |
+| Botón "⋯" por fila (disparador visible) | ✅ |
+| Agregar a playlist desde el menú | ✅ |
+| `removeFromQueue` ("quitar de la cola") | ✅ |
+| Long-press en móvil + presentación táctil (grid de tiles) | ✅ |
 
-**UN componente `ContextMenu` reutilizable que recibe `{tipo, item}` y arma sus acciones
-según el tipo.** No un menú por vista. Provider + hook, un solo menú montado.
-
-- **Dirección visual: C — "Lista seca"** (elegida sobre "Hermano del +" y "Ficha del ítem").
-  Ver §Dirección visual.
-- **Desktop-only en la fase 1** (`onContextMenu`). **El long-press en móvil se DIFIERE** —
-  ver §Long-press.
-- **Las acciones que no aplican se OCULTAN, no se deshabilitan.** Ver §Reglas duras #4.
-- **Ordenar/curar la biblioteca no es tarea de este lab.**
+**⚠️ MediaSession vive en `PlayerContext.jsx`** (efectos propios, buscá `mediaSession`). Los
+cambios de cola **NO tocan esos efectos**: interactúan por interfaces limpias (`currentTrack` +
+los callbacks `next`/`prev`/`seek`). Si un cambio pretende entrar ahí, **parar y avisar** —
+bandera roja. Verificación de regresión sin carro: el **lockscreen del teléfono** (misma
+superficie que CarPlay).
 
 ## Los archivos del sistema
 
 | Archivo | Rol |
 |---|---|
-| `music-client/src/context/PlayerContext.jsx` | **El corazón. 🔒 BLOQUEADO** (ver arriba). Dueño de la cola y del `<audio>`, que nunca se expone |
-| `music-client/src/components/ContextMenu.jsx` | *(no existe aún)* El menú único + su provider |
-| `music-client/src/components/AddToPlaylistMenu.jsx` | El "+" que YA existe. Widget cerrado (botón+popover), no reusable tal cual |
-| `music-client/src/components/Layout.jsx` | Dueño de `navigate(view, target)` (`:63-66`) y del `viewProps` que reciben las vistas (`:73`) |
-| `music-client/src/components/TrackTable.jsx` | Fila de pista compartida (Álbum / Género / AlbumDetail) |
-| `music-client/src/components/Library.jsx` | Fila de pista **copia inline** (`:226-262`) |
-| `music-client/src/components/Playlists.jsx` | Fila de pista **copia inline** (`:306-340`) |
-| `music-client/src/styles/main.css` | Tokens `:root`, capas z-index, estilos `.ptp-*` (la receta glass a calcar) |
+| `music-client/src/context/PlayerContext.jsx` | **El corazón.** Dueño de la cola y del `<audio>`, que nunca se expone. De acá salen `play` / `addToQueue` / `playAfterCurrent` / `removeFromQueue` |
+| `music-client/src/components/ContextMenu.jsx` | **El menú único + su provider.** Arma las acciones según el `type`, resuelve posición (flip/clamp) y cierres. Exporta `ContextMenuProvider`, `useContextMenu()` y `ContextMenuButton` (el "⋯") |
+| `music-client/src/utils/useLongPress.js` | El disparador táctil. Física y defensas en `mobile-lab §Long-press`; acá sólo importa que entra por `via:'longpress'` |
+| `music-client/src/utils/playlistActions.js` | `addTrackToPlaylist` / `createPlaylistWithTrack`: el QUÉ de "agregar a playlist", **compartido** por el menú contextual y el "+" |
+| `music-client/src/components/AddToPlaylistMenu.jsx` | El "+". **Sobrevive**, pero ya no en las filas: hoy se monta 3 veces desde `Player.jsx` (barra y expandido) |
+| `music-client/src/components/QueueOverlay.jsx` | La vista de cola. Sus filas son una superficie más del menú (`type: 'queue-track'`) |
+| `music-client/src/components/Player.jsx` | **HOST del menú**: le presta `goArtist`/`goAlbum`/`openInfo` por `registerHost`, y corre su cierre por Esc / atrás |
+| `music-client/src/styles/main.css` | Tokens `:root`, `--z-context-menu`, estilos `.ctx-*` |
 | `music-server/` | **NO SE TOCA.** Este frente es 100% frontend |
 
-## Datos reales (medidos contra el código, 2026-07-15 — no estimados)
+## El menú: UNA lógica, DOS presentaciones
 
-### La cola HOY: no existe como feature
+**Un solo menú montado y un solo provider.** Las superficies sólo llaman
+`openMenu(e, { type, item })`; el menú arma sus acciones según el `type`. Si aparece un segundo
+componente de menú, algo se hizo mal.
 
-| Hecho | Evidencia | Consecuencia |
+**Quién ve cuál lo decide QUIÉN lo abrió, no el ancho.** `tiles` se calcula al abrir
+(`payload.via === 'longpress'`) y **se congela**: la presentación no cambia a mitad de vida, y
+achicar la ventana de desktop no puede cambiarle la cara al clic derecho. Es lo que garantiza
+"desktop intacto" por construcción y no porque un número caiga de un lado.
+
+| | Desktop | Móvil |
 |---|---|---|
-| **No hay enqueue de ninguna forma** | único camino: `play(tracks, startIndex)`, `PlayerContext.jsx:159-164` | hay que **escribirlo**, no reusarlo |
-| `play()` **reemplaza** la cola entera | `queueRef.current = tracks` (`:160`) | y resetea `playedRef` e `historyRef` (`:161-162`) |
-| **La cola es un `useRef`, NO estado** | `queueRef` (`:20`), expuesto como `queue: queueRef.current` (`:299`) | **mutar el ref no re-renderiza nada** |
-| `queueIndex` también sale de un ref | `const queueIndex = idxRef.current` (`:293`) | no reactivo |
-| **Nadie consume `queue` ni `queueIndex`** | grep en todo `music-client/src`: cero hits fuera del contexto | la cola es **invisible**: no hay UI |
-| `playedRef` / `historyRef` guardan **índices**, no ids | `:28-29`, `:78`, `:93` | de ahí sale el problema del remapeo (abajo) |
+| **Disparadores** | clic derecho sobre la fila/tarjeta · botón **"⋯"** de la fila | **long-press** (500ms) |
+| **Presentación** | popover-**LISTA**: icono 14px + etiqueta larga, separadores por grupo | **GRID DE TILES**: 2 columnas, icono + etiqueta corta (`short`) |
+| **Ancla** | el cursor, o el borde inferior-derecho del "⋯" (`anchor:'element'`) | el punto del toque, centrado sobre el dedo y separado 16px |
+| **Caja** | glass: `rgba(24,24,24,.82)` + `blur(16px) saturate(1.3)`, `min-width: 208px`, radio 12 | **sólida, sin blur**: gradiente + `#0b0b0c`, `min(300px, 100vw-24px)`, radio 20 |
+| **Color de identidad** | en **`:hover`** (en reposo todo apagado) | **desde el REPOSO** (ver abajo) |
+| **Scrim** | no | **sí** (`.ctx-scrim`), y no es decorativo |
 
-### ⚠️ El problema de los índices — resuelto con `_qid` (opción c, decidida 2026-07-20)
+El flip/clamp es **el mismo mecanismo** en los dos; lo único que cambia es el rectángulo contra
+el que se recorta (`safeArea()`, que en móvil descuenta notch y cromo fijo de abajo). La caja
+táctil, sus números y sus defensas están en **`mobile-lab §Long-press`** — no duplicar acá.
 
-El problema (real): `playedRef`/`historyRef`/`idxRef` guardaban **índices**. Insertar en
-`idx+1` corre todos los índices `>= inserción` → `playedRef` cree que sonaron pistas que no,
-y `prev()` en shuffle salta a la equivocada.
+### ⚠️ La inversión de convención en móvil (deliberada)
 
-**Decisión (con números): NO se remapean índices — cada entrada de cola lleva un `_qid`
-estable (contador `uidRef`), y `playedRef`/`historyRef` se llevan por `_qid`.** Así
-insertar/quitar/reordenar **nunca** corrompe played/history (son posición-independientes) y
-los **duplicados** funcionan (la misma pista dos veces = dos `_qid` distintos). `idxRef` se
-recomputa con `findIndex(current._qid)` tras cada mutación — un solo lugar, no per-estructura.
+`ui-polish` manda "en reposo apagado, el color al interactuar" y el popover de desktop la
+respeta. **La caja táctil la invierte**: cada tile está teñido con la identidad de su acción
+desde el reposo. En un teléfono **no hay hover que esperar** — o el color está desde el
+principio o no está nunca — y el tile teñido se reconoce sin leer la etiqueta. Son **dos
+superficies distintas**, no un sistema con dos reglas peleadas: si tocás una, no "unifiques" la
+otra.
 
-- Se eligió (c) sobre (a) remapear índices porque la fragilidad de (a) llegaba en el **paso 2**
-  ("quitar de la cola"), no en un futuro lejano; (c) cuesta ~12 líneas mecánicas más, no toca
-  ninguna función extra que (a), y evita re-abrir `playNext`/`prev` + re-testear el carro.
-- Se descartó (b) IDs de track: **se rompe con duplicados** (no distingue instancias).
-- **Cola vacía / nada suena**: encolar sobre la nada → **arranca la reproducción**.
+## Acciones por tipo (contrato as-built)
 
-### Las otras acciones: existen, pero soldadas
+Los tonos son los de la casa: **morado** (`--accent`) cola y navegación · **teal** (`--teal`)
+playlist · **ámbar** (`--amber`) info.
 
-| Acción | Estado real | Bloqueo |
+| Tipo | Acciones (en orden) | Máx. |
 |---|---|---|
-| **Añadir a playlist** | existe: `addTo()` (`AddToPlaylistMenu.jsx:44`), `createAndAdd()` (`:59`) | viven **dentro** del widget, no se exportan; el menú se posiciona `absolute` sobre `.ptp` (`main.css:1236,1258-1261`) y un menú contextual necesita **`fixed`** en coords del cursor |
-| **Ir a artista / álbum** | existe: `navigate(view, target)`, `Layout.jsx:63-66` | **las vistas NO lo reciben**: `viewProps` (`:73`) es solo `{target, clearTarget, setDetailOpen}` → hay que ampliarlo |
-| **Ver info** | existe: `<InfoPanel>` acepta cualquier `track` (`InfoPanel.jsx:227`) | pero `showInfo` es **estado local de `Player.jsx:122`** y siempre recibe `track={trackMeta ?? currentTrack}` (`:663`) → **solo la pista que suena**. Para una fila arbitraria hay que subirlo fuera de Player |
-| **Añadir álbum a playlist** | `api.addToPlaylist(id, trackId)` es **de a UNA pista** | N pistas = N requests → **fuera de scope fase 1** (deuda) |
+| **`track`** (fila de lista) | Reproducir a continuación · Agregar a la cola · Agregar a playlist ▸ · Ir al artista · Ir al álbum · Ver info | **6** |
+| **`queue-track`** (fila de la cola) | Quitar de la cola · Agregar a playlist ▸ · Ir al artista · Ir al álbum · Ver info | **5** |
+| **`album`** (tarjeta) | Reproducir álbum · Agregar a la cola · Ir al artista | **3** |
+| **`artist`** (retrato) | Reproducir todo · Agregar a la cola · Ir al artista | **3** |
 
-### Las superficies: 3 copias de fila, 2 de tarjeta
+Lo que **NO** está, y por qué:
 
-| Superficie | Dónde | Copia |
+- **"Reproducir" sobre una pista**: el clic/tap izquierdo ya reproduce. Sería un ítem que
+  duplica el gesto obvio.
+- **`queue-track` no ofrece "agregar a la cola"** (ya está) **ni "a continuación"**: con el
+  motor actual insertaría una **copia nueva** (otro `_qid`) en vez de mover ésta. Mover es
+  *reorder*, frente aparte.
+- **`album` no ofrece "ir al álbum"** (la tarjeta YA es el álbum: el clic izquierdo lo abre)
+  **ni "ver info"**: el panel de Info es de PISTA (título, nº de pista, códec de ese archivo).
+  Un info de álbum es otro panel, no esta acción.
+- **"Agregar a playlist" sólo sobre UNA pista**: `api.addToPlaylist` es de a una → un álbum
+  serían N requests (§Deudas).
+
+**Las acciones que no aplican se OCULTAN, no se deshabilitan** (regla dura). Además de las
+reglas por tipo, se ocultan caso a caso: "a continuación" sobre la pista que ya suena (no-op),
+"quitar" sobre la fila que suena (obligaría a decidir qué reproducir después), "ir al artista"
+sin `album_artist`, y cualquier acción del host que no esté registrada.
+
+## Quién provee cada acción — se REÚNEN, no se crean
+
+El menú no implementa nada: junta funciones que ya existen. Son **las mismas** que usan la
+barra y el expandido, no copias.
+
+| Acción | Origen | Nota |
 |---|---|---|
-| Biblioteca | `Library.jsx:226-262` | **inline propia** (tiene el riel de orden) |
-| Álbum / Género / AlbumDetail | `TrackTable.jsx:36-72` | el componente **compartido** |
-| Detalle de playlist | `Playlists.jsx:306-340` | **inline propia** (tiene "quitar") |
-| Grilla de álbumes (Artistas + Años) | `AlbumGrid.jsx:19-35` | el componente **compartido** |
-| Grilla de álbumes (Álbumes) | `Albums.jsx:131` | **inline propia** |
-| Retratos de artista | `Artists.jsx:217` | — |
-| Tarjetas de género | `Genres.jsx:112` | — |
-| **Cola del reproductor** | **NO EXISTE** | no hay componente ni vista |
+| Reproducir álbum/artista | `play(tracks, 0)` de **PlayerContext** | las pistas se cargan con los MISMOS parámetros que la vista (`albumTracks` / `artistTracks`) → el orden que se encola es el que se ve |
+| Reproducir a continuación | `playAfterCurrent(item)` de **PlayerContext** | |
+| Agregar a la cola | `addToQueue(item \| tracks)` de **PlayerContext** | acepta una o muchas |
+| Quitar de la cola | `removeFromQueue(_qid)` de **PlayerContext** | ver abajo |
+| Agregar a playlist | `utils/playlistActions.js` | el mismo módulo que usa el "+" |
+| Ir al artista / al álbum / Ver info | **el HOST** (`Player.jsx`) vía `registerHost({ goArtist, goAlbum, openInfo })` | dependen del estado de Player (cerrar overlays antes de navegar, abrir Info sobre una pista arbitraria) |
 
-**Esto es la deuda de `artist-lab:255-258` cobrando intereses:** un menú "global" hay que
-cablearlo en **cinco** lugares en vez de dos. No unificar es una decisión ya tomada por el
-usuario (*"un frente, una cosa"*) — **no la re-litigues**, solo sabé que el cableado se paga.
+`registerHost` guarda los handlers en un **ref**: refrescarlos en cada render del host no
+re-renderiza el menú.
 
-## Acciones por tipo (contrato)
+### `removeFromQueue(qid)` — toca el motor, respetando `_qid`
 
-| Tipo | Acciones |
-|---|---|
-| **Pista** | Reproducir · Reproducir a continuación 🔒 · Añadir a la cola 🔒 · Añadir a playlist ▸ · Ir al artista · Ir al álbum · Ver info |
-| **Pista en playlist** | lo anterior **+** Quitar de esta playlist |
-| **Álbum** | Reproducir · Añadir a la cola 🔒 · Ir al artista |
-| **Artista** | Reproducir todo · Añadir a la cola 🔒 · Ver artista |
-| **Fila de cola** | *fuera de scope* — la superficie no existe |
+Recibe un **`_qid`**, no un índice ni un `track.id`. Se niega a quitar la que suena
+(`qid === curQid` → return) y, al filtrar la cola, limpia **todas** las estructuras que podrían
+quedar apuntando a un fantasma:
 
-🔒 = depende del sistema de cola (desbloqueado 2026-07-20; en construcción, v1.8.0).
+- `playedRef.delete(qid)` → el ciclo de shuffle no cuenta una pista que ya no está.
+- `historyRef` se filtra → `prev()` no vuelve a un fantasma.
+- si estaba en `forcedNextRef`, sale de ahí **y** del espejo reactivo `upNextIds` (el pill
+  "a continuación").
+- `idxRef` se **recomputa** con `findIndex(_qid === curQid)`.
 
-**Camino B (contingencia, NO recomendado):** de las 7 acciones sobre pista, **solo 2 tocan
-`PlayerContext`**. Las otras 5 no. Si la prueba física se demora semanas, el menú podría
-salir sin las acciones de cola. **Coste:** el usuario aprende un menú al que después le
-crecen dos ítems. **Es decisión del usuario, no del ingeniero** — está anotado para que sea
-una elección, no un descubrimiento.
+Es el ejemplo canónico de la regla `_qid`: **quitar no remapea nada**.
 
-## Dirección visual — C, "Lista seca"
+## El motor de cola: `_qid`, no índices (regla dura, no re-litigar)
 
-Elegida por el usuario sobre "Hermano del +" (clon literal de `.ptp-menu` → se lee como *el
-menú de playlists* y confunde dos cosas distintas) y "Ficha del ítem" (cabecera con
-carátula → redundante: la fila que clicaste ya la muestra al lado).
+Cada entrada de cola lleva un **`_qid` estable** (contador `uidRef`), y
+`playedRef`/`historyRef`/`forcedNextRef` se llevan **por `_qid`**. Así insertar/quitar/reordenar
+nunca corrompe played/history (son posición-independientes) y los **duplicados** funcionan (la
+misma pista dos veces = dos `_qid` distintos). `idxRef` se recomputa con
+`findIndex(current._qid)` tras cada mutación — un solo lugar, no per-estructura.
 
-- **Sin cabecera.** Ancho ~200px, radio **12px**. Solo acciones.
-- **Iconos 14px monocromo**, alineados; el texto manda.
-- **Color de identidad por acción en HOVER**, reusando la familia ya establecida (`ui-polish`):
-  **teal** (`--teal`) para playlist · **ámbar** (`--amber`) para info · **morado**
-  (`--accent`) para navegar. En reposo todo es `--text` / `--text-muted`.
-- **Receta glass calcada de `.ptp-menu`** (`main.css:1258-1279`) — es coherencia, no copiar:
-  `rgba(24,24,24,.82)` + `blur(16px) saturate(1.3)`, borde `rgba(255,255,255,.1)`, sombra
-  `0 20px 50px rgba(0,0,0,.6)`.
-- **Entrada**: reusar el patrón `ptp-menu-in` (`:1279`) con su **rama de reduced-motion**
-  (`:1504`). Nada de easings nuevos: `cubic-bezier(.34,1.42,.5,1)` para el pop.
-- **Cierre**: mismo patrón que el "+" (`AddToPlaylistMenu.jsx:30-42`) — `mousedown` fuera +
-  Escape. El menú **no** necesita cierre animado (es efímero; los overlays sí lo necesitan).
+- Se descartó remapear índices: la fragilidad mordía justo en "quitar de la cola".
+- Se descartó keyear por `track.id`: **se rompe con duplicados** (no distingue instancias).
+- El `_qid` es **identidad interna**: no viaja a la API ni se muestra.
+- **Cola vacía / nada suena**: encolar sobre la nada **arranca la reproducción**.
+
+## Superficies: qué está cableado y qué no
+
+| Superficie | Clic derecho | Botón "⋯" | Long-press |
+|---|---|---|---|
+| `TrackTable.jsx` (Álbum / Género / AlbumDetail) | ✅ `track` | ✅ | ✅ |
+| `Library.jsx` (fila inline propia) | ✅ `track` | ✅ | ✅ |
+| `QueueOverlay.jsx` (filas de la cola) | ✅ `queue-track` | — | ✅ |
+| `AlbumGrid.jsx` (Artistas + Años) | ✅ `album` | — | ❌ |
+| `Albums.jsx` (grilla inline propia) | ✅ `album` | — | ❌ |
+| `Artists.jsx` (retratos) | ✅ `artist` | — | ❌ |
+| `Genres.jsx` (tarjetas) | ❌ | — | ❌ |
+| `Playlists.jsx` (detalle, fila inline propia) | ❌ | ❌ | ❌ |
+
+Dos lecturas importantes de esta tabla:
+
+1. **Las tarjetas de álbum/artista NO tienen long-press.** Es deliberado: el menú se abre en
+   móvil sólo por la puerta explícita `via:'longpress'`, así que el `contextmenu` que Android
+   dispara ahí sigue cayendo en el **menú nativo**, como siempre, en vez de abrir este popover
+   en superficies que no se probaron. Montar el hook ahí es trabajo pendiente, no un bug.
+2. **`Playlists.jsx` y `Genres.jsx` siguen sin cablear.** Playlists tiene además su propia
+   acción de fila ("quitar de esta playlist") que habría que integrar como un tipo nuevo
+   (`playlist-track`) en vez de sumarle un botón suelto.
+
+El botón **"⋯"** vive en la celda `.col-actions` (donde antes estaba el "+") y está **siempre
+visible**, sin hover: es la puerta descubrible del menú — el clic derecho es un atajo que nadie
+ve. La distinción reposo/hover la hace el **color**, nunca la opacidad. En modo lista
+(`mobile-lab §Patrones 2`) `.col-actions` es `display:none` y manda el clic derecho.
+
+## El sub-selector de playlists: panel en el MISMO sitio
+
+"Agregar a playlist" no ejecuta: cambia el contenido de la caja y la ensancha
+(`.ctx-menu--wide`). **No** es un submenú lateral ni un modal, y la razón es el posicionamiento:
+un flyout necesitaría su propio flip relativo al padre (y heredar el lado cuando el padre ya
+volteó), y un modal sería un overlay nuevo que habría que meter en la escalera de `nav-lab`.
+Así se reusa todo lo que ya funciona: mismo ancla, mismo z, mismos cierres y el mismo flip, que
+se **vuelve a medir** al crecer (el efecto tiene `panel` entre sus deps).
+
+Reusa las clases del "+" (`.ptp-list` / `.ptp-item` / `.ptp-new`) y su módulo de acciones. En
+táctil el `autoFocus` del input se **apaga**: entrar al selector es casi siempre para elegir una
+playlist existente, y abrir el teclado tapa justo la lista que se vino a mirar.
+
+## Cierres — es un POPOVER EFÍMERO, no un overlay de nav-lab
+
+- **Acá**: `pointerdown` afuera (no `mousedown`: en el teléfono ése es un evento sintetizado),
+  scroll **de afuera** (el listener es de captura y excluye lo de adentro con `contains`),
+  `resize` **sólo si cambió el ANCHO** (en móvil abrir el teclado dispara resize por alto y
+  cerraba el menú al enfocar "nueva playlist"), `blur`, y elegir una acción.
+- **Esc y el atrás del navegador los corre `Player`**, como **peldaño 0** de su escalera,
+  llamando a `dismissMenu()`. No hay un segundo listener de Esc: con dos, un Esc con el menú
+  abierto sobre el expandido cerraba los dos de una.
+- **Escalera interna**: con el selector de playlists abierto, el primer Esc/atrás vuelve al
+  grid y el segundo cierra. Cuántos pasos tiene adentro lo sabe el menú, no Player.
+- **NO entra en `layerDepth`** (no empuja entrada-guardia de historial) y **NUNCA** llama
+  `history.back()`.
 
 ## z-index
 
-Jerarquía canónica **verificada en el código**: campanita **150** (`main.css:3484`) <
-expandido **200** (`:2621`) < Letra **250** (`:3006`) < popovers **`--z-bar-popover: 260`**
-(`:34`) < Info **300** (`:3210`) < toast **400** (`:3739`).
-
-- **El menú contextual va en 260**, con los popovers, con **token propio**:
-  `--z-context-menu: 260`.
-- **⚠️ NO reusar `--z-bar-popover`.** Hoy coinciden en 260, pero son cosas distintas: atarlas
-  al mismo token hace que mover una mueva la otra sin querer.
-- Queda **encima** de Letra y del expandido, **debajo** de Info. Correcto para fase 1: el
-  menú se abre sobre superficies de biblioteca, **nunca sobre el InfoPanel**.
-- **`position: fixed`** en coordenadas del cursor (el `absolute` del "+" no sirve acá).
-  Reposicionar si se sale del viewport (borde derecho / inferior).
-
-## Long-press en móvil: DIFERIDO (decidido, con razones)
-
-**No hay ningún `onContextMenu` ni long-press en todo el proyecto** (verificado). Los gestos
-vivos: swipe-derecha = atrás (`Layout.jsx:130-168`, solo ≤700px y con detalle abierto),
-swipe horizontal en carátula = prev/next y swipe-down = cerrar expandido (`Player.jsx:689,
-727, 743`).
-
-Por qué se difiere (4 razones concretas, no instinto):
-
-1. Cada fila ya tiene `onClick = play` (`TrackTable.jsx:40`) → un long-press mal calibrado
-   dispara reproducción al soltar.
-2. Suprimir el callout nativo de iOS exige `-webkit-touch-callout: none`, que **también mata
-   copy/paste** en esa zona.
-3. El swipe-atrás de Layout escucha `pointerdown` en el mismo contenedor: un long-press que
-   derive 12px (`NAV_AXIS_DIST`, `Layout.jsx:20`) **se convierte en gesto de navegación**.
-4. **El que decide:** sin vista de cola, la acción estrella del menú **no se puede verificar
-   en móvil**. Sería pelear gestos por un menú cuya acción principal es invisible.
-
-Cuando entre: con la maquinaria de **`mobile-lab`** y con la cola ya visible.
+Token **propio**: `--z-context-menu: 260`. Hoy coincide con `--z-bar-popover: 260`, pero
+**⚠️ no reusar ese token**: son cosas distintas y atarlas hace que mover una mueva la otra sin
+querer. Queda encima de la Letra (250) y del expandido (200), **debajo** de Info (300). El
+scrim comparte el z del menú y queda debajo por **orden del DOM** (hermano anterior), sin
+inventar una capa nueva — mismo patrón que `.exp-scrim`.
 
 ## Reglas duras (no romper)
 
-1. **`PlayerContext.jsx` DESBLOQUEADO** (2026-07-20, prueba del carro cumplida) — pero
-   MediaSession vive ahí (`:225-291`): los cambios de cola **NO tocan** esos efectos; si uno
-   pretende entrar, **parar y avisar** (bandera roja).
-2. **⚠️ `playedRef`/`historyRef` se llevan por `_qid`, NUNCA por índice** (opción c, 2026-07-20).
-   Cada entrada de cola tiene un `_qid` estable; insertar/quitar/reordenar **no remapea nada**.
-   `idxRef` se recomputa con `findIndex(current._qid)` tras cada mutación. (El remapeo de índices
-   —opción a— se descartó: frágil, muerde en el paso 2 "quitar".)
+1. **MediaSession** vive en `PlayerContext.jsx`: los cambios de cola **NO tocan** esos efectos.
+   Si uno pretende entrar, **parar y avisar**.
+2. **`playedRef`/`historyRef`/`forcedNextRef` se llevan por `_qid`, NUNCA por índice.**
 3. **UN menú, un provider.** Si aparece un segundo componente de menú, algo se hizo mal.
-4. **Las acciones que no aplican se OCULTAN, no se deshabilitan.** Un menú con tres ítems
-   grises es ruido. Precedente exacto: `goArtist` no se deshabilita, se vuelve **inerte**
-   (`Player.jsx:598-607`).
-5. **Navegar SIEMPRE por `album_artist`, NUNCA por `artist`.** Es la regla del usuario y el
-   backend la respalda: `browse.js:31` filtra `album_artist IS NOT NULL`. Copiá el precedente
-   de `goArtist` (`Player.jsx:598-607`): usa `albumArtist`; si falta, hace fetch de
-   `api.track(id).album_artist`; si sigue faltando, **`return`** → la acción no aparece.
-6. **Backend: NO SE TOCA.** Este frente es 100% frontend. Si creés que hace falta un endpoint,
-   **pedilo** (regla de oro #5 de `CLAUDE.md`).
-7. **Nada de dependencias nuevas** (ni librerías de menús ni de drag&drop).
-8. **`prefers-reduced-motion` y tokens de `:root`** siempre (`ui-polish`).
-9. **No re-litigar la unificación de las 3 copias de fila.** El usuario decidió *"un frente,
-   una cosa"* (`artist-lab:255-258`). Se cablea en las 5, y se paga.
+4. **Las acciones que no aplican se OCULTAN, no se deshabilitan.** Un menú con ítems grises es
+   ruido.
+5. **Navegar SIEMPRE por `album_artist`, NUNCA por el `artist` mostrado.** Rompería Various
+   Artists y los feats, y el backend lo respalda: `music-server/src/api/browse.js` (⚠️ `src/api/`,
+   no `src/routes/` — la ruta que citaba la versión anterior de esta skill no existe) filtra
+   `WHERE album_artist IS NOT NULL AND album_artist <> ''` en `GET /browse/artists`. Sin
+   `album_artist` no hay vista a la que ir → la acción **no aparece**. En la vista de Artistas el
+   campo `artist` **ya ES** `album_artist`: esa misma query lo aliasea (`album_artist AS artist`),
+   así que ahí la regla se cumple sola.
+6. **La presentación la decide QUIÉN abrió el menú, no el ancho** — y se congela al abrir.
+7. **Sin `backdrop-filter` en la caja táctil.** El "buffeo" móvil es regresión conocida; se
+   resuelve con capas sólidas. El popover de desktop sí conserva su glass.
+8. **Backend: NO SE TOCA.** Si creés que hace falta un endpoint, **pedilo**.
+9. **Nada de dependencias nuevas** (ni librerías de menús ni de drag&drop).
+10. **`prefers-reduced-motion` y tokens de `:root`** siempre.
+11. **No re-litigar la unificación de las copias de fila.** El usuario decidió *"un frente, una
+    cosa"*: se cablea en cada superficie, y se paga.
 
 ## Casos borde (resueltos)
 
-- **La pista que YA suena:** "Reproducir" **se queda** (reinicia desde 0 — comportamiento
-  esperado). "Reproducir a continuación" sobre la actual es un **no-op → se oculta**.
-- **Various Artists:** *sí* es un artista real en la DB (uno de los 7, con 68 pistas/4
-  álbumes) → "Ir al artista" **funciona** y lleva a la carpeta VA. Para una pista de un álbum
-  VA, el artista real **no tiene vista** (Artistas agrupa por `album_artist`,
-  `browse.js:32`). **Se navega por `album_artist` y punto** — no hay decisión que tomar.
-- **Pista sin `album_artist`** (las 3 de Red Hot Chili Peppers, las 7 de Metallica sueltas):
-  **no tienen vista de artista a la que ir** → la acción **se oculta**. Es
-  **curación/tagging del usuario, NO código** (`CLAUDE.md` §Pendientes). No lo "arregles".
-- **Cola vacía + "añadir a la cola":** arranca la reproducción (si no, no pasa nada visible).
+- **La pista que YA suena**: "Reproducir a continuación" sería un no-op → **se oculta**.
+- **La fila de cola que suena**: "Quitar" **se oculta** (y `removeFromQueue` además se niega en
+  el motor — doble red).
+- **Various Artists**: *sí* es un artista real en la DB → "Ir al artista" funciona y lleva a la
+  carpeta VA. Para una pista de un álbum VA, el artista real no tiene vista propia. **Se navega
+  por `album_artist` y punto.**
+- **Pista sin `album_artist`** (las de Red Hot Chili Peppers y las de Metallica sueltas en la
+  raíz): no hay vista a la que ir → la acción **se oculta**. Es **curación/tagging del usuario,
+  NO código** (`CLAUDE.md` §Pendientes). No lo "arregles" desde el scanner.
+- **Álbum o artista sin pistas**: el fetch devuelve vacío → **toast de aviso**. Sin eso,
+  "reproducir álbum" no haría nada y parecería un bug.
+- **Cola vacía + "agregar a la cola"**: arranca la reproducción.
 
 ## Deudas conocidas (anotadas a propósito)
 
-- **"Añadir álbum/artista a playlist" no está**: `api.addToPlaylist(id, trackId)` es de a una
-  pista → N requests. Fuera de fase 1. Si se quiere, es un endpoint nuevo → **OK del usuario**.
-- **"Ver info" sobre una pista arbitraria** exige subir `InfoPanel`/`infoTrack` fuera de
-  `Player.jsx` (hoy `showInfo` es estado local, `:122`). Es un **refactor del Player**, paso
-  propio del plan.
-- **La vista de cola no incluye reorder** en su primera versión: el drag&drop es un frente de
-  gestos propio y colisiona con `Layout.jsx:130` y `Player.jsx:727` — el mismo motivo que
-  difiere el long-press. Decidido con el usuario para que la tanda salga.
+- **`Playlists.jsx` y `Genres.jsx` sin cablear** (ver §Superficies). Playlists necesita además
+  decidir si "quitar de esta playlist" entra como tipo nuevo.
+- **Long-press sobre tarjetas de álbum/artista**: el hook no está montado ahí.
+- **"Agregar álbum/artista a playlist"**: `api.addToPlaylist` es de a una pista → N requests.
+  Si se quiere, es un endpoint nuevo → **OK del usuario**.
+- **Reorder de la cola**: drag&drop es un frente de gestos propio y colisiona con el swipe-atrás
+  y con los gestos del expandido. Sin él, "mover a continuación" sobre una fila de cola no se
+  puede ofrecer.
 - **`build.target` sin fijar** (`CLAUDE.md` §Pendientes): afecta a la app entera, no a este
-  frente, pero si el menú usa sintaxis moderna el problema no cambia de tamaño.
-
-## Plan por pasos (acordado; un commit cada uno)
-
-| # | Commit | Estado |
-|---|---|---|
-| 1 | `chore(actions-lab)`: skill + agentes | ✅ este archivo |
-| 2 | `refactor+feat(player)`: cola a **estado** + motor por `_qid` + `addToQueue`/`playAfterCurrent` + `forcedNext` | 🟢 desbloqueado (v1.8.0) |
-| 3 | `feat(ui)`: ContextMenu + provider, desktop, tipo `track`, cableado **solo en `TrackTable.jsx`** (una superficie, para validar) | tras el 2 |
-| 4 | `feat(ui)`: tipos `album` y `artist`; `navigate` en `viewProps` | tras el 3 |
-| 5 | `feat(ui)`: resto de superficies (Library, Playlists, Albums, Artists, Genres) | tras el 4 |
-| 6 | `refactor(player)`: subir InfoPanel/`infoTrack` fuera de Player → "Ver info" sobre cualquier pista | tras el 5 |
-
-**Troceo en releases (acordado; renumerado 2026-07-20 — v1.7.0 salió como el routing):**
-**v1.6.x** = Artistas · **v1.7.0** = routing Modelo 2 (ya desplegado) · **v1.8.0** = sistema de
-cola + vista de cola *sin reorder* · **v1.9.0** = menú contextual, apoyado en una cola ya
-probada · el **reorder** después.
+  frente.
 
 ## Checklist QA
 
-**Cola** (cuando se desbloquee):
+**Cola:**
 1. `addToQueue` con la cola **vacía** → arranca la reproducción.
 2. `addToQueue` durante reproducción → **no interrumpe** lo que suena.
 3. `playAfterCurrent` → la insertada suena **inmediatamente después** de la actual.
-4. **`playAfterCurrent` + shuffle**: ninguna pista ya sonada vuelve a sonar en el ciclo, y
-   ninguna sin sonar se saltea. *(Test del keying por `_qid`. Si falla, played/history están mal.)*
+4. **`playAfterCurrent` + shuffle**: ninguna ya sonada vuelve a sonar en el ciclo, y ninguna sin
+   sonar se saltea. *(Test del keying por `_qid`.)*
 5. **`playAfterCurrent` + `prev()` en shuffle** → vuelve a la realmente sonada antes.
-6. `repeat: 'all'` con cola crecida → el ciclo cubre las nuevas.
-7. La UI **se entera** de los cambios de cola (o sea: la cola es estado, no ref).
-8. **MediaSession sigue viva**: metadata, play/pause, prev/next y scrubber en el lockscreen.
+6. **`removeFromQueue`**: quitar una pista NO altera qué suena después; quitar una que estaba
+   "a continuación" la saca también del pill; sobre la que suena la acción **no aparece**.
+7. `repeat: 'all'` con cola crecida → el ciclo cubre las nuevas.
+8. La UI **se entera** de los cambios de cola (la cola es estado, no ref).
+9. **MediaSession sigue viva**: metadata, play/pause, prev/next y scrubber en el lockscreen.
 
-**Menú contextual:**
-9. Clic derecho sobre fila → menú en el cursor; clic izquierdo normal **sigue reproduciendo**.
-10. Menú cerca del **borde derecho / inferior** → se reposiciona, no se sale del viewport.
-11. `mousedown` fuera y **Escape** cierran.
-12. Pista **sin `album_artist`** → "Ir al artista" **no aparece** (no aparece gris).
-13. Pista que **ya suena** → "Reproducir a continuación" **no aparece**.
-14. Menú sobre la **Letra abierta** (250) → el menú (260) queda **encima**.
-15. **`prefers-reduced-motion`** → sin animación de entrada, colores intactos.
-16. Desktop y app **no rotos**; el menú "+" sigue funcionando igual.
+**Menú — desktop:**
+10. Clic derecho sobre fila → menú en el cursor; clic izquierdo **sigue reproduciendo**.
+11. El **"⋯"** abre el mismo menú colgado del botón, y su clic **no** reproduce la fila.
+12. Menú cerca del **borde derecho / inferior** → se voltea y no se sale del viewport.
+13. `pointerdown` fuera, scroll de la página y **Escape** cierran; scrollear **dentro** del menú
+    (lista de playlists) **no** cierra.
+14. Con el selector de playlists abierto, el primer Esc vuelve al grid y el segundo cierra.
+15. Menú sobre la **Letra abierta** (250) → el menú (260) queda encima.
+
+**Menú — móvil:** ver `mobile-lab §Long-press` (gesto, scrim, safe-areas, targets) y su
+checklist #13. Acá sólo lo de las acciones:
+16. Las acciones y su orden son **las mismas** que en desktop — sólo cambia la etiqueta (`short`).
+17. La etiqueta LARGA sigue siendo la accesible (`aria-label`), aunque el tile muestre la corta.
+
+**Transversal:**
+18. Pista **sin `album_artist`** → "Ir al artista" **no aparece** (no aparece gris).
+19. Pista que **ya suena** → "Reproducir a continuación" **no aparece**.
+20. Álbum/artista **vacío** → toast de aviso, no silencio.
+21. **`prefers-reduced-motion`** → sin animación de entrada, colores y estados intactos.
+22. El menú **"+"** de la barra y del expandido sigue funcionando igual.

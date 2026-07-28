@@ -21,7 +21,10 @@ y qué NO se puede romper.
 | `music-client/src/components/Player.jsx` | TODA la maquinaria de gestos (Pointer Events) y el estado del expandido. **Tres** gestos, no dos (ver §Gestos). Constantes de física agrupadas arriba del componente (`DIST_THRESH`/`VEL_THRESH`/`RUBBER_LIMIT`, `CLOSE_DIST`/`CLOSE_VEL`/`CLOSE_MIN`, `AXIS_DIST`/`AXIS_DOM`, `DRAWER_*_VH`). Handlers por prefijo: `onArt*` (carátula), `onSheet*` (cierre del expandido), `onQueueDrag*` (hoja de la cola, móvil), `onGrabber*` (drawer desktop) |
 | `music-client/src/styles/main.css` | Media queries, safe-areas, touch-action, ramas reduced-motion. **No hay un bloque móvil único**: hay ~8 `@media (max-width: 700px)` repartidos por componente (barra, expandido, drawer, layout, campanita…). Buscá el selector, no el bloque |
 | `music-client/index.html` | `<meta … viewport-fit=cover />` (línea 5). El `viewport-fit=cover` **ya está** — es lo que habilita `env()` en iOS |
+| `music-client/src/utils/useLongPress.js` | El **cuarto** gesto, y el único que NO vive en Player.jsx: long-press sobre una fila → menú contextual. Hook propio, creado para esto (`HOLD_MS` 500, `MOVE_TOL` 10). Ver §Long-press |
+| `music-client/src/components/ContextMenu.jsx` | El menú que abre ese gesto. En móvil se pinta como grid de tiles y se recorta con `safeArea()`, que lee las safe-areas **desde JS**. El contrato de las ACCIONES es de `actions-lab`; acá sólo lo táctil |
 | `.claude/tools/snap/snap.mjs` | Verificación visual headless (ver §Snapshots) |
+| `.claude/tools/snap/snap-ctx.mjs` | Idem, pero **con el menú táctil abierto**: ninguna captura estática lo alcanza (ver §Snapshots) |
 
 ## Arquitectura del expandido móvil (v1.9.0)
 
@@ -170,7 +173,8 @@ Trade aceptado: **en modo lista no se muestra la calidad** — se consulta desde
 ## Touch targets
 
 Piso del proyecto: **≥44px** en controles primarios táctiles (HIG de Apple).
-Referencias reales: `.exp-btn` 48×48, campanita móvil 40×40 (por debajo del piso, conocido).
+Referencias reales: `.exp-btn` 48×48, `.ctx-tile` del menú táctil **134×84** a 390px (medido, no
+declarado: el ancho sale del grid), campanita móvil 40×40 (por debajo del piso, conocido).
 
 Los botones del **expandido** y de la **Letra** cumplen el piso con dos técnicas:
 - **Hit-area transparente vía `::before`** (no infla el glifo ni el footprint
@@ -321,6 +325,91 @@ El asa del **header** sigue cerrando el expandido como siempre: es la superficie
   morder porque rige el alto declarado (ver Patrones §1); con la hoja cerrada, en pantallas
   muy bajas el contenido se recorta en vez de scrollear — lo mitiga la rama de ≤680px de alto.
 
+## Long-press → menú contextual (el 4º gesto, fuera del expandido)
+
+El único gesto que **no** vive en `Player.jsx`: es un hook propio,
+`music-client/src/utils/useLongPress.js`. **No se reusó de ningún lado** — antes de esto no
+había ningún long-press en el proyecto (`AlbumGrid.jsx` no tiene ninguno; verificado). Acá va
+lo TÁCTIL; el contrato de las acciones del menú es de `actions-lab`.
+
+**Física.** `HOLD_MS` 500 (igual al long-press nativo del navegador) y `MOVE_TOL` 10px que
+cancelan. Ese 10 está **a propósito por debajo de `AXIS_DIST` (12)**, el umbral con el que el
+resto de los gestos fija eje: el long-press siempre muere antes de que otro gesto se declare,
+así que nunca hay dos ganadores. Gate por **ANCHO** (`matchMedia('(max-width: 700px)')`), nunca
+por `pointerType` — mismo criterio de régimen que todo el proyecto.
+
+**Los listeners de movimiento van en WINDOW, no en la fila.** Con un detalle abierto,
+`.main-content` captura el puntero en su propio pointerdown (el swipe-atrás de `Layout.jsx`), y
+con pointer capture los eventos se **re-targetean al capturador**: la fila sale del camino de
+propagación y un `onPointerMove` suyo nunca correría → la cancelación por movimiento andaría en
+Biblioteca pero no dentro de un álbum. En `window` llegan siempre.
+
+**Al disparar le ROBA la captura a `.main-content`** (`setPointerCapture` en la fila), que
+recibe `lostpointercapture` y cancela su swipe-atrás solo. Sin eso, seguir arrastrando con el
+menú abierto disparaba `history.back()` y te sacaba del detalle.
+
+**El `contextmenu` de Android entra por el mismo `fire`, que es IDEMPOTENTE.** Al reconocer el
+long-press, Android manda un `pointercancel` que apaga nuestro timer y recién después el
+`contextmenu`; sin ese segundo camino el menú no abriría nunca ahí. Gane quien gane la carrera
+entre los dos relojes, abre una sola vez. El `click` que sigue al gesto **se traga en el hook**
+(no reproduce) — y no con un `preventDefault` en el pointerdown, que mataría el scroll.
+
+**Defensas CSS (≤700px, obligatorias).** `-webkit-touch-callout: none` + `user-select: none` en
+`.track-row, .queue-row`. El `preventDefault` sobre `contextmenu` alcanza en Android pero **no
+en iOS**: ahí el toque sostenido no dispara ese evento sino el **callout del sistema**
+(lupa/copiar, "Guardar imagen" sobre la carátula), que sólo se apaga con `-webkit-touch-callout`.
+Sin `user-select` el gesto arranca seleccionando texto en los dos. Sólo ≤700px: en desktop la
+fila sigue seleccionable.
+
+**Dónde está montado** (verificado): `TrackTable.jsx`, `Library.jsx` y las filas de
+`QueueOverlay.jsx`. **NO** en las tarjetas de álbum/artista (`AlbumGrid`, `Albums`, `Artists`):
+ésas sólo tienen clic derecho, así que en el teléfono siguen cayendo en el menú nativo — es
+deliberado (el menú entra por una puerta explícita `via:'longpress'`), no un olvido.
+
+### La caja táctil: grid de tiles anclado al toque
+
+**No es un bottom sheet.** Se probó como hoja desde abajo y ocupaba demasiada pantalla; hoy es
+un **flotante anclado al punto del toque**, centrado en horizontal sobre el dedo y separado
+`TOUCH_GAP` 16px en vertical para que la yema no tape la primera fila. Reusa el **mismo
+flip/clamp** del popover de desktop.
+
+- **2 columnas** (`repeat(2, 1fr)`, gap 10), caja `min(300px, 100vw - 24px)`, radio 20, tiles de
+  `min-height: 84px` → medidos **134×84** a 390px de viewport. Muy por encima del piso de 44.
+- **Los tiles están TEÑIDOS DESDE EL REPOSO** con el color de identidad de su acción —
+  morado cola/navegación · teal playlist · ámbar info— y el toque sube el tinte, lleva el borde
+  al 75% y enciende un glow.
+- **Esto INVIERTE la convención de la casa a propósito.** `ui-polish` dice "en reposo todo
+  apagado, el color aparece al interactuar", y el popover de desktop la respeta (tono en
+  `:hover`). En el teléfono **no hay hover que esperar**: o el color está desde el principio o
+  no está nunca, y un hover pegado tras el toque sería peor que no tenerlo. Con el tile teñido
+  la acción se reconoce sin leer la etiqueta. Son **dos superficies distintas**, no un sistema
+  con dos reglas peleadas: si tocás una, no "unifiques" la otra.
+- El tono viaja como **canales** en una custom property (`--t: 167, 139, 250`), no como color
+  entero: es lo único que permite modular su opacidad (`rgba(var(--t), .22)`) sin `color-mix`,
+  que deja afuera navegadores viejos.
+- **Sin blur**, como todo lo móvil: capas sólidas + gradiente (el buffeo es regresión conocida).
+  El popover de desktop sí conserva su glass.
+- **Scrim propio** (`.ctx-scrim`), y NO es decorativo: sin él, el toque de "cerrar tocando
+  afuera" cierra en el `pointerdown` y después **sigue viaje hasta la fila, que reproduce**. Al
+  revés que `.exp-scrim` (que es `pointer-events: none` porque sólo tiñe), éste **sí intercepta**.
+
+**El recorte lo hace JS, no CSS** — y por eso el CSS publica `--sa-top` / `--sa-bottom` en
+`:root` con un **`env()` PELADO**: una custom property sin registrar NO evalúa funciones
+matemáticas, así que un `max(env(...), 8px)` ahí adentro haría que `getComputedStyle` devuelva
+el texto literal en vez de una longitud (verificado). El piso se aplica en JS. `safeArea()`
+descuenta el notch y, del cromo de abajo, mide los rects reales de `.player-bar` / `.bottom-nav`
+(que ya traen su propio padding de safe-area) — salvo con el expandido abierto, donde esos dos
+están tapados y manda el inset.
+
+⚠️ **El `@media` del menú táctil es 880, no 700.** No es el corte de régimen: es un cinturón de
+seguridad. Quién ve los tiles lo decide **quién abrió el menú** (`tiles` se congela al abrir),
+así que el clic derecho sale en lista a cualquier ancho y achicar la ventana de desktop no puede
+cambiarle la cara.
+
+**reduced-motion**: "color sí, movimiento no" — el tile conserva el encendido de `:active`
+(tinte, borde y glow son color) y pierde el `transform: scale(.97)`; el scrim entra sin fade. El
+pop de la caja ya lo anula la rama general de `.ctx-menu`.
+
 ## Quirks conocidos (reglas duras)
 
 1. **iOS: `audio.volume` es de SOLO LECTURA** desde el navegador. Por eso
@@ -379,6 +468,7 @@ cd .claude/tools/snap
 
 node snap.mjs                              # vista por defecto (un álbum de 32 pistas)
 node snap.mjs "/albums/Artista/Album"       # cualquier ruta del Modelo 2
+node snap-ctx.mjs                           # el MENÚ TÁCTIL abierto (390×844, una sola toma)
 npm run snap                                # idéntico a `node snap.mjs`
 npm run snap -- "/albums/Artista/Album"     # con ruta, vía npm (ojo el `--`)
 
@@ -461,3 +551,10 @@ capturas salían del 404 de la otra app **sin un solo error de red**.
 12. **Desktop no roto** (Player.jsx es compartido): drag de cierre con mouse,
     swipe horizontal con mouse, cursor grab/grabbing, clicks/seek/volumen
     intactos tras cualquier cambio de gesto.
+13. **Long-press** (`snap-ctx.mjs` cubre la parte visual): mantener el dedo sobre una fila abre
+    el menú donde está la mano y **no reproduce** al soltar; moverse 10px lo cancela y la lista
+    scrollea normal; tocar afuera cierra **sin** reproducir la fila de abajo (eso lo prueba el
+    scrim); el menú no queda tapado por la mini barra ni por los tabs; en iOS **no** aparece el
+    callout del sistema (🔍 PRUEBA FÍSICA — el `-webkit-touch-callout` no se puede verificar en
+    headless). Sobre tarjetas de álbum/artista el long-press **no** abre este menú: es lo
+    esperado, ahí sigue el nativo.
