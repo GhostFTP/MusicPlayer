@@ -1,0 +1,14 @@
+{
+  "name": "sonorarev-snap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tooling LOCAL de verificacion visual (Playwright headless). NO forma parte de la app ni del build de produccion.",
+  "scripts": {
+    "setup": "npm install && npx playwright install chromium",
+    "snap": "node snap.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

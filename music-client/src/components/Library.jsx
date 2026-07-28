@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
-import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 
 // Orden AGRUPADO de la biblioteca (modo "Artista", DEFAULT): ALBUMARTIST → álbum
@@ -34,6 +35,9 @@ export default function Library({ target, clearTarget }) {
   const [sortMode, setSortMode] = useState('artist'); // 'title'|'artist'|'album'|'year'|'duration'
   const [sortDir,  setSortDir]  = useState('asc');    // 'asc' | 'desc'
   const { play, currentTrack, isPlaying } = usePlayer();
+  const { openMenu } = useContextMenu();   // clic derecho sobre la fila (desktop; el gate lo pone el menú)
+  // C1 · long-press = el mismo menú en móvil (ver TrackTable, misma fila y mismo hook).
+  const bindPress = useLongPress((track, ev) => openMenu(ev, { type: 'track', item: track, via: 'longpress' }));
 
   const fetchTracks = useCallback(async (q) => {
     setLoading(true);
@@ -226,7 +230,10 @@ export default function Library({ target, clearTarget }) {
                 <tr
                   key={track.id}
                   className={`track-row${active ? ' playing' : ''}`}
-                  onClick={() => play(displayTracks, i)}
+                  {...bindPress(track, {
+                    onClick: () => play(displayTracks, i),
+                    onContextMenu: (e) => openMenu(e, { type: 'track', item: track }),
+                  })}
                 >
                   <td className="col-num">
                     <span className={`track-num${active ? ' active' : ''}`}>
@@ -258,8 +265,10 @@ export default function Library({ target, clearTarget }) {
                     <QualityChip track={track} />
                   </td>
                   <td className="col-time">{fmt(track.duration)}</td>
+                  {/* Ver el comentario de TrackTable: el "⋯" reemplaza al "+" (playlist es un
+                      ítem del menú desde la fase D) y en modo lista manda el clic derecho. */}
                   <td className="col-actions">
-                    <AddToPlaylistMenu trackId={track.id} />
+                    <ContextMenuButton type="track" item={track} />
                   </td>
                 </tr>
               );

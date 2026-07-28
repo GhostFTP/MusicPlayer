@@ -1,4 +1,5 @@
 import { coverUrl } from '../api/client.js';
+import { useContextMenu } from './ContextMenu.jsx';
 
 // Grid de álbumes reutilizable. Lo usan Artistas y Años.
 //
@@ -17,6 +18,7 @@ import { coverUrl } from '../api/client.js';
 // pasa (Años) deja `--h` sin setear → las fórmulas caen al morado 265 de siempre.
 export default function AlbumGrid({ albums, onOpen, secondary = 'artist', hue }) {
   const byYear = secondary === 'year';
+  const { openMenu } = useContextMenu();   // clic derecho sobre la tarjeta (desktop; el gate lo pone el menú)
   return (
     <div className="album-grid album-grid-anim" style={hue != null ? { '--h': hue } : undefined}>
       {albums.map((album, i) => (
@@ -25,6 +27,7 @@ export default function AlbumGrid({ albums, onOpen, secondary = 'artist', hue })
           className="album-card"
           style={{ '--i': i }}
           onClick={() => onOpen(album)}
+          onContextMenu={(e) => openMenu(e, { type: 'album', item: album })}
         >
           {/* Marco que recorta el zoom-on-hover de la carátula (overflow:hidden) sin que
               la imagen desborde sus esquinas redondeadas. NADA la tapa. */}
