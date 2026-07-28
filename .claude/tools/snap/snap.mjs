@@ -14,101 +14,19 @@
 //
 // Requisitos: backend en :3000, Vite en :5173 (o SNAP_BASE), y credenciales en
 // .claude/tools/snap/.env (SNAP_USER / SNAP_PASS). SNAP_TOKEN sigue sirviendo como atajo.
+//
+// La SESIÓN (login por API, preflight del puerto, carga de playwright) vive en session.mjs
+// desde que hay un segundo script de capturas — misma lógica, un solo lugar.
 
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BASE, getToken, loadPlaywright, preflight } from './session.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHOTS = join(HERE, 'shots');
 
-// OJO con el puerto: Vite NO usa strictPort, así que si 5173 está ocupado por OTRO proyecto
-// se corre solo al 5174 y lo dice en su log. Pasó de verdad: 5173 lo tenía otra app y las
-// tres tomas salieron con SU 404, sin un solo error de red. De ahí el preflight de abajo.
-const BASE = process.env.SNAP_BASE ?? 'http://localhost:5173';
-
-// Auto-reinstalación entre sesiones: el entorno de Claude Code se resetea y node_modules/
-// está gitignoreado. Los binarios del navegador viven en %LOCALAPPDATA%\ms-playwright, FUERA
-// del repo, así que sobreviven al reset: acá sólo hay que rehacer 2 paquetes (~2s).
-if (!existsSync(join(HERE, 'node_modules', 'playwright'))) {
-  console.log('[snap] falta playwright → npm install…');
-  execSync('npm install', { cwd: HERE, stdio: 'inherit' });
-}
-const { chromium } = await import('playwright');
-
-// ── Sesión ───────────────────────────────────────────────────────────────────
-// Login normal por API: el script hace el MISMO POST /api/auth/login que haría el formulario
-// y siembra el JWT que le devuelve el backend. No lee el secreto de firma ni genera tokens.
-// Credenciales desde .claude/tools/snap/.env (gitignoreado por la regla `.env` de la raíz),
-// o por variables de entorno. SNAP_TOKEN sigue funcionando si preferís pegar un JWT a mano.
-function readDotEnv() {
-  const f = join(HERE, '.env');
-  if (!existsSync(f)) return {};
-  return Object.fromEntries(
-    readFileSync(f, 'utf8')
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#') && l.includes('='))
-      .map((l) => {
-        const i = l.indexOf('=');
-        return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, '')];
-      }),
-  );
-}
-
-async function getToken() {
-  const env = readDotEnv();
-
-  // Un JWT ya emitido gana sobre el login: es el atajo cuando la cuenta con la que hay sesión
-  // no es la de SNAP_USER. Se acepta tanto por variable de entorno como desde el .env — antes
-  // sólo se miraba process.env, así que ponerlo en el archivo no tenía ningún efecto.
-  // NUNCA se imprime su valor, ni entero ni recortado.
-  const token = process.env.SNAP_TOKEN ?? env.SNAP_TOKEN;
-  if (token) {
-    console.log('[snap] usando SNAP_TOKEN (login por usuario/contraseña omitido)');
-    return token;
-  }
-
-  const user = process.env.SNAP_USER ?? env.SNAP_USER;
-  const pass = process.env.SNAP_PASS ?? env.SNAP_PASS;
-  if (!user || !pass) {
-    console.error('[snap] no hay credenciales. Creá .claude/tools/snap/.env con:');
-    console.error('       SNAP_USER=admin@adr.com');
-    console.error('       SNAP_PASS=<la contraseña local>');
-    console.error('       (o exportá SNAP_TOKEN con un JWT ya emitido)');
-    process.exit(1);
-  }
-
-  // Vía el proxy de Vite (/api → :3000), así se usa el mismo origen que la app.
-  let res;
-  try {
-    res = await fetch(`${BASE}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pass }),
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch (e) {
-    console.error(`[snap] no se pudo llamar a ${BASE}/api/auth/login: ${e.message}`);
-    process.exit(1);
-  }
-  if (!res.ok) {
-    // El backend responde 401 con { error } tanto si el usuario no existe como si la
-    // contraseña no coincide (auth.js:50-53) — no distingue, y está bien que no lo haga.
-    const body = await res.json().catch(() => ({}));
-    console.error(`[snap] login rechazado: HTTP ${res.status} ${body.error ?? ''}`.trim());
-    console.error(`       usuario probado: ${user}`);
-    process.exit(1);
-  }
-  const issued = (await res.json()).token;
-  if (!issued) {
-    console.error('[snap] el login respondió 200 pero sin token.');
-    process.exit(1);
-  }
-  console.log(`[snap] sesión obtenida por login como ${user}`);
-  return issued;
-}
+const { chromium } = await loadPlaywright();
 
 // ── La vista ─────────────────────────────────────────────────────────────────
 // La URL directa funciona por el Modelo 2 (routes.js:43-45); Albums.jsx:47-57 consume el
@@ -208,28 +126,9 @@ function auditInPage() {
   };
 }
 
-// ── Preflight: ¿del otro lado hay SonoraRev? ─────────────────────────────────
-// Sin esto, apuntarle a la app equivocada no da NINGÚN error: se navega, no hay .track-row,
-// y el script culpa a la sesión o a los servidores. Se verifica el <title> del index.html.
-{
-  let html;
-  try {
-    html = await fetch(BASE, { signal: AbortSignal.timeout(5_000) }).then((r) => r.text());
-  } catch (e) {
-    console.error(`[snap] no hay nada escuchando en ${BASE} (${e.message}).`);
-    console.error('       Levantá Vite en music-client y pasá SNAP_BASE si no quedó en 5173.');
-    process.exit(1);
-  }
-  if (!/<title>SonoraRev<\/title>/i.test(html)) {
-    const otra = html.match(/<title>([^<]*)<\/title>/i)?.[1] ?? '(sin título)';
-    console.error(`[snap] ${BASE} NO es SonoraRev — sirve "${otra}".`);
-    console.error('       Vite se corre de puerto si 5173 está ocupado: mirá su log y pasá SNAP_BASE.');
-    process.exit(1);
-  }
-}
-
-// El login va DESPUÉS del preflight: si BASE apunta a otra app, el mensaje útil es "esto no
-// es SonoraRev", no un 404 del endpoint de login.
+// Preflight (¿del otro lado hay SonoraRev?) y login: el orden importa — si BASE apunta a otra
+// app, el mensaje útil es "esto no es SonoraRev", no un 404 del endpoint de login.
+await preflight();
 const TOKEN = await getToken();
 
 // ── Corrida ──────────────────────────────────────────────────────────────────
