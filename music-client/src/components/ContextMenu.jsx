@@ -14,9 +14,9 @@ import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistAc
 // fase B tarjetas de álbum/artista) sólo llaman openMenu(e, { type, item }); el menú arma sus
 // acciones según el `type`. Si algún día aparece un segundo componente de menú, algo se hizo mal.
 //
-// TIPOS (fase B): 'track' (fila de lista) · 'album' (tarjeta) · 'artist' (retrato) ·
-// 'queue-track' (fila de la cola). Cada tipo ofrece SOLO lo que le aplica — no se fuerzan las
-// cinco acciones en todos.
+// TIPOS: 'track' (fila de lista) · 'album' (tarjeta) · 'artist' (retrato) · 'queue-track' (fila
+// de la cola) · 'playlist-track' (fila del detalle de playlist) · 'genre' (tarjeta de género).
+// Cada tipo ofrece SOLO lo que le aplica — no se fuerzan todas las acciones en todos.
 //
 // DISPARADORES: clic derecho (desktop) · botón "⋯" de la fila (desktop) · LONG-PRESS (móvil,
 // fase C1 — utils/useLongPress.js). El long-press entra por una puerta EXPLÍCITA (`via:
@@ -105,13 +105,18 @@ function safeArea(mobile) {
 // mismo que se ve en pantalla. Filtrar el álbum por album_artist desambigua los homónimos.
 const albumTracks  = (a) => api.tracks({ album: a.album, limit: 500, ...(a.album_artist ? { album_artist: a.album_artist } : {}) });
 const artistTracks = (a) => api.tracks({ album_artist: a.artist, limit: 10000 });
+// Mismo `limit: 500` que usa Genres.open() al abrir el detalle → lo que se encola es exactamente
+// lo que se ve al entrar al género, no otro conjunto.
+const genreTracks  = (g) => api.tracks({ genre: g.genre, limit: 500 });
 
 // Rótulo accesible por tipo: el menú es uno solo, pero lo que lo abrió cambia.
 const MENU_LABEL = {
-  'track':       'Acciones de la pista',
-  'queue-track': 'Acciones de la pista en la cola',
-  'album':       'Acciones del álbum',
-  'artist':      'Acciones del artista',
+  'track':          'Acciones de la pista',
+  'queue-track':    'Acciones de la pista en la cola',
+  'playlist-track': 'Acciones de la pista en la playlist',
+  'album':          'Acciones del álbum',
+  'artist':         'Acciones del artista',
+  'genre':          'Acciones del género',
 };
 
 export function ContextMenuProvider({ children }) {
@@ -300,6 +305,22 @@ export function ContextMenuProvider({ children }) {
         chev: true, keepOpen: true, run: () => setPanel('playlist'),
       });
     };
+    // Las dos acciones de cola sobre UNA pista. Se arman una sola vez porque valen igual para una
+    // fila de lista y para una fila de playlist: si mañana cambia el texto o el toast, cambia en
+    // los dos lados o en ninguno. (La fila de la COLA no las usa: ver su case.)
+    const pushQueueActions = (t) => {
+      // "A continuación" sobre la pista que YA suena es un no-op → se oculta.
+      if (currentTrack?.id !== t.id) {
+        list.push({
+          id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
+          run: () => { playAfterCurrent(t); toast('Suena a continuación'); },
+        });
+      }
+      list.push({
+        id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
+        run: () => { addToQueue(t); toast('Añadida a la cola'); },
+      });
+    };
     const pushTrackNav = (t) => {
       pushGoArtist(t.album_artist, t);
       if (host.goAlbum && t.album) {
@@ -313,17 +334,28 @@ export function ContextMenuProvider({ children }) {
     switch (menu.type) {
       // ── Pista de una lista ──
       case 'track': {
-        // "A continuación" sobre la pista que YA suena es un no-op → se oculta.
-        if (currentTrack?.id !== it.id) {
+        pushQueueActions(it);
+        pushAddToPlaylist();
+        pushTrackNav(it);
+        break;
+      }
+
+      // ── Fila del DETALLE DE PLAYLIST. Es una pista normal (todo lo de 'track' aplica) MÁS su
+      //    acción propia: quitarla de esta playlist. A diferencia de la vista de álbum, acá "ir
+      //    al álbum" SÍ aplica: estás en una playlist, no dentro del álbum de la pista.
+      //
+      //    `onRemove` viaja en el PAYLOAD, igual que `isCurrent` en la fila de cola: quitar de una
+      //    playlist depende del estado de Playlists.jsx (cuál está abierta, su lista y su contador),
+      //    y eso no es del menú ni del host global. El menú no sabe quitar — invoca lo que ya
+      //    existía detrás del botón "✕" de la fila. Sin `onRemove` la acción no aparece.
+      case 'playlist-track': {
+        if (menu.onRemove) {
           list.push({
-            id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
-            run: () => { playAfterCurrent(it); toast('Suena a continuación'); },
+            id: 'pl-remove', label: 'Quitar de esta playlist', short: 'Quitar', tone: 'playlist', icon: <IconPlaylistRemove />,
+            run: () => menu.onRemove(),
           });
         }
-        list.push({
-          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
-          run: () => { addToQueue(it); toast('Añadida a la cola'); },
-        });
+        pushQueueActions(it);
         pushAddToPlaylist();
         pushTrackNav(it);
         break;
@@ -379,6 +411,24 @@ export function ContextMenuProvider({ children }) {
           }, 'Ese artista no tiene pistas'),
         });
         pushGoArtist(it.artist, { album_artist: it.artist });
+        break;
+      }
+
+      // ── Tarjeta de GÉNERO. Sólo las dos acciones de conjunto: un género abarca muchos artistas
+      //    y muchos álbumes, así que no hay un "ir al artista" que signifique algo. Sin "ver info"
+      //    por lo mismo que el álbum: el panel de Info es de PISTA.
+      case 'genre': {
+        list.push({
+          id: 'play', label: 'Reproducir género', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
+          run: () => onTracks(() => genreTracks(it), (ts) => play(ts, 0), 'Ese género no tiene pistas'),
+        });
+        list.push({
+          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
+          run: () => onTracks(() => genreTracks(it), (ts) => {
+            addToQueue(ts);
+            toast(`«${it.genre}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
+          }, 'Ese género no tiene pistas'),
+        });
         break;
       }
 
@@ -563,7 +613,10 @@ const NO_MENU = { openMenu: () => {}, closeMenu: () => {}, dismissMenu: () => fa
 //    del punto clicado; el flip y el clamp siguen siendo los mismos.
 //  · stopPropagation porque el onClick de la fila REPRODUCE — mismo cuidado que ya tenía el "+".
 //    Va explícito acá y no se confía en el de openMenu, que en móvil sale antes de llegar a él.
-export function ContextMenuButton({ type, item, label = 'Más acciones' }) {
+//  · `extra` es carga del payload que depende de la SUPERFICIE, no del ítem: hoy lo usa el
+//    detalle de playlist para pasar su `onRemove`. Va antes de `anchor` a propósito — el ancla
+//    la define este botón y no se deja pisar desde afuera.
+export function ContextMenuButton({ type, item, label = 'Más acciones', extra }) {
   const { openMenu } = useContextMenu();
   return (
     <button
@@ -572,7 +625,7 @@ export function ContextMenuButton({ type, item, label = 'Más acciones' }) {
       title={label}
       aria-label={label}
       aria-haspopup="menu"
-      onClick={(e) => { e.stopPropagation(); openMenu(e, { type, item, anchor: 'element' }); }}
+      onClick={(e) => { e.stopPropagation(); openMenu(e, { type, item, ...extra, anchor: 'element' }); }}
     >
       <IconMore />
     </button>
@@ -593,6 +646,17 @@ function IconPlaylistAdd() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <line x1="3" y1="6" x2="16" y2="6" /><line x1="3" y1="12" x2="12" y2="12" /><line x1="3" y1="18" x2="12" y2="18" />
       <line x1="18" y1="9" x2="18" y2="19" /><line x1="13" y1="14" x2="23" y2="14" />
+    </svg>
+  );
+}
+// Hermano de IconPlaylistAdd con el signo cambiado: la misma lista, quitando en vez de sumando.
+// No reusa IconRemove (el de la cola) para que "quitar de la playlist" no se lea como "quitar de
+// la cola" — comparten la idea pero no la superficie.
+function IconPlaylistRemove() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="3" y1="6" x2="16" y2="6" /><line x1="3" y1="12" x2="12" y2="12" /><line x1="3" y1="18" x2="12" y2="18" />
+      <line x1="13" y1="14" x2="23" y2="14" />
     </svg>
   );
 }

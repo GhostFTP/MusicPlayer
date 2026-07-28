@@ -3,6 +3,33 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.10.1] - 2026-07-27
+
+### Mejorado
+- **El menú de acciones ya está en todas las vistas**: le faltaban Géneros y
+  Playlists, y ahora también las tienen. Sobre una tarjeta de género podés
+  reproducirlo entero o mandarlo a la cola; sobre una canción de una playlist
+  tenés lo mismo que en el resto de la app —a continuación, a la cola, agregar a
+  otra playlist, ir al artista, ir al álbum, ver info— más quitarla de esa
+  playlist, que la saca de ahí y nada más: el archivo sigue en tu biblioteca y en
+  las demás playlists donde lo hayas puesto.
+- **En el teléfono, mantené presionada una carátula y se abre el menú**: funciona
+  sobre los álbumes, los retratos de artista y las tarjetas de género. Antes,
+  dejar el dedo apoyado ahí sacaba el menú del navegador; ahora sale el de la app,
+  junto a la mano. Un toque corto sigue abriendo el álbum, el artista o el género,
+  como siempre.
+
+### Cambiado
+- **En las playlists, el botón "✕" de cada canción ahora es el "⋯"**: quitarla
+  pasó a ser la primera opción del menú, así que cada fila tiene un solo botón que
+  abre todo. Es el mismo cambio que ya habían tenido las otras listas.
+
+### Corregido
+- **En el teléfono no se podía quitar una canción de una playlist**: al
+  reacomodarse la lista para que los títulos entren, el botón de quitar quedaba
+  fuera de la fila y no había otro camino. Ahora se hace manteniendo presionada la
+  canción, como el resto de las acciones.
+
 ## [1.10.0] - 2026-07-27
 
 ### Añadido

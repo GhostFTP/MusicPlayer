@@ -1,5 +1,6 @@
 import { coverUrl } from '../api/client.js';
 import { useContextMenu } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 
 // Grid de álbumes reutilizable. Lo usan Artistas y Años.
 //
@@ -19,6 +20,10 @@ import { useContextMenu } from './ContextMenu.jsx';
 export default function AlbumGrid({ albums, onOpen, secondary = 'artist', hue }) {
   const byYear = secondary === 'year';
   const { openMenu } = useContextMenu();   // clic derecho sobre la tarjeta (desktop; el gate lo pone el menú)
+  // C1 · long-press = el mismo menú en móvil. El hook ENVUELVE el onClick de la tarjeta: un
+  // long-press ya no cuenta como tap, así que abrir el menú no navega también al álbum. Scrollear
+  // la grilla tampoco dispara (el movimiento y el pointercancel del scroll matan el timer).
+  const bindPress = useLongPress((album, ev) => openMenu(ev, { type: 'album', item: album, via: 'longpress' }));
   return (
     <div className="album-grid album-grid-anim" style={hue != null ? { '--h': hue } : undefined}>
       {albums.map((album, i) => (
@@ -26,8 +31,10 @@ export default function AlbumGrid({ albums, onOpen, secondary = 'artist', hue })
           key={`${album.album}-${album.album_artist}`}
           className="album-card"
           style={{ '--i': i }}
-          onClick={() => onOpen(album)}
-          onContextMenu={(e) => openMenu(e, { type: 'album', item: album })}
+          {...bindPress(album, {
+            onClick: () => onOpen(album),
+            onContextMenu: (e) => openMenu(e, { type: 'album', item: album }),
+          })}
         >
           {/* Marco que recorta el zoom-on-hover de la carátula (overflow:hidden) sin que
               la imagen desborde sus esquinas redondeadas. NADA la tapa. */}

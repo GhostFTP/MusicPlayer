@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import TrackTable from './TrackTable.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 
 export default function Albums({ target, clearTarget, setDetailOpen, navigate }) {
   const [albums,   setAlbums]   = useState([]);
@@ -12,6 +13,8 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   const [error,    setError]    = useState(null);
   const { play } = usePlayer();
   const { openMenu } = useContextMenu();   // clic derecho sobre la tarjeta (desktop; el gate lo pone el menú)
+  // C1 · long-press = el mismo menú en móvil (misma tarjeta que AlbumGrid, misma puerta).
+  const bindPress = useLongPress((album, ev) => openMenu(ev, { type: 'album', item: album, via: 'longpress' }));
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -133,8 +136,10 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
           <div
             key={`${album.album}-${album.album_artist}`}
             className="album-card"
-            onClick={() => navigate('albums', { album: album.album, album_artist: album.album_artist })}
-            onContextMenu={(e) => openMenu(e, { type: 'album', item: album })}
+            {...bindPress(album, {
+              onClick: () => navigate('albums', { album: album.album, album_artist: album.album_artist }),
+              onContextMenu: (e) => openMenu(e, { type: 'album', item: album }),
+            })}
           >
             {album.sample_track_id
               ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" />

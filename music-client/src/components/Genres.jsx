@@ -3,6 +3,8 @@ import { api } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { useContextMenu } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 import { genreEmoji } from '../utils/genreEmoji.js';
 import { emojiHue } from '../utils/emojiHue.js';
 
@@ -12,6 +14,11 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   const [tracks, setTracks] = useState(null);
   const [error,  setError]  = useState(null);
   const { play } = usePlayer();
+  // Menú sobre una TARJETA de género: clic derecho en desktop, long-press en móvil. Las filas de
+  // pista del detalle no necesitan nada acá: las pinta TrackTable, que ya trae el menú completo
+  // —clic derecho, "⋯" y long-press— con el tipo 'track'.
+  const { openMenu } = useContextMenu();
+  const bindPress = useLongPress((g, ev) => openMenu(ev, { type: 'genre', item: g, via: 'longpress' }));
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -109,7 +116,10 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
             key={g.genre}
             className="browse-item genre-item"
             style={{ '--h': emojiHue(genreEmoji(g.genre)), '--i': idx }}
-            onClick={() => navigate('genres', { genre: g.genre })}
+            {...bindPress(g, {
+              onClick: () => navigate('genres', { genre: g.genre }),
+              onContextMenu: (e) => openMenu(e, { type: 'genre', item: g }),
+            })}
           >
             <span className="genre-item-main">
               <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>
