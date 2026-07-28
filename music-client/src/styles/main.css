@@ -4575,7 +4575,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
      se apaga con -webkit-touch-callout. Y sin user-select el long-press arranca seleccionando
      texto en los dos antes de que se vea el menú. Sólo ≤700px: en desktop la fila sigue
      seleccionable como siempre. */
-  .track-row, .queue-row {
+  .track-row, .queue-row,
+  /* Las TARJETAS también, desde que tienen long-press: la carátula de un álbum o el retrato de
+     un artista son <img>, y sobre una imagen el callout de iOS ofrece "Guardar imagen" — el
+     preventDefault del 'contextmenu' no lo tapa. `.genre-item` y no `.browse-item` a propósito:
+     esa clase la comparte Años, que no tiene menú y no necesita perder la selección. */
+  .album-card, .artist-portrait, .genre-item {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;

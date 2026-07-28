@@ -6,6 +6,7 @@ import AlbumGrid from './AlbumGrid.jsx';
 import ArtistImage from './ArtistImage.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 
 const MAX_GENRE_CHIPS = 3;   // Kali Uchis tiene 5 géneros; sin tope el hero se satura
 
@@ -58,6 +59,9 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
   const [albums,   setAlbums]   = useState(null);
   const [error,    setError]    = useState(null);
   const { openMenu } = useContextMenu();   // clic derecho sobre el retrato (desktop; el gate lo pone el menú)
+  // C1 · long-press = el mismo menú en móvil. `a.artist` en esta vista YA ES album_artist (el
+  // backend lo aliasea), así que la regla dura se cumple sola — igual que en el clic derecho.
+  const bindPress = useLongPress((a, ev) => openMenu(ev, { type: 'artist', item: a, via: 'longpress' }));
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -215,8 +219,10 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
             key={a.artist}
             className="artist-portrait"
             style={{ '--i': i, '--h': stringHue(a.artist) }}
-            onClick={() => navigate('artists', { artist: a.artist })}
-            onContextMenu={(e) => openMenu(e, { type: 'artist', item: a })}
+            {...bindPress(a, {
+              onClick: () => navigate('artists', { artist: a.artist }),
+              onContextMenu: (e) => openMenu(e, { type: 'artist', item: a }),
+            })}
           >
             <ArtistImage artist={a} />
             <div className="artist-portrait-info">
