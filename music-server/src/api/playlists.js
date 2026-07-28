@@ -47,7 +47,7 @@ router.get('/:id/tracks', (req, res) => {
   if (!pl) return res.status(404).json({ error: 'Playlist not found' });
 
   const tracks = db.prepare(`
-    SELECT t.id, t.title, t.artist, t.album, t.duration, t.cover_path,
+    SELECT t.id, t.title, t.artist, t.album, t.album_artist, t.duration, t.cover_path,
            t.codec, t.bits_per_sample, t.sample_rate, t.bitrate, t.lossless,
            pt.position
     FROM playlist_tracks pt
