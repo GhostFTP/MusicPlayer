@@ -35,10 +35,10 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - Las animaciones respetan `prefers-reduced-motion`.
 
 ## Estado actual
-- **Producción va en `v1.9.0`** (tag `v1.9.0` → merge `9d34a7f`, desplegado el 2026-07-23). El
+- **Producción va en `v1.10.0`** (tag `v1.10.0` → merge `0d29e34`, desplegado el 2026-07-27). El
   tag más reciente **es** la versión en producción: `main` con auto-deploy
-  despliega directo. Los tags `v1.9.0`, `v1.8.1` y `v1.8.0` están creados y **pusheados a
-  `origin`** — el tag más reciente vuelve a coincidir con prod. Para saber la versión real,
+  despliega directo. Los tags `v1.10.0`, `v1.9.0`, `v1.8.1` y `v1.8.0` están creados y
+  **pusheados a `origin`** — el tag más reciente coincide con prod. Para saber la versión real,
   **leé el tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head -1`** — no confíes en
   versiones citadas en docs o memoria.
 - En producción en **https://sonorarev.com** (servidor X99, Dokploy, túnel Cloudflare *Healthy*).
@@ -85,9 +85,8 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   nav-lab sin peldaño nuevo. Y es **una sola cola**: la mini barra ya no abre el overlay viejo
   sino que promueve al expandido y abre ahí el mismo drawer → `showQueue` **ya sólo existe en
   desktop**. Contrato del motor: `.claude/skills/actions-lab/SKILL.md`; gestos:
-  `.claude/skills/mobile-lab/SKILL.md` — no duplicar acá. ⚠️ Ojo: **las dos skills están al día
-  hasta v1.8.0** (la numeración de releases de actions-lab quedó vieja: da v1.9.0 por "menú
-  contextual"); el drawer móvil todavía no se volcó ahí.
+  `.claude/skills/mobile-lab/SKILL.md` — no duplicar acá. **Las dos skills se reescribieron
+  as-built en v1.10.0** y ya no van atrasadas.
 - **Listas de canciones que se adaptan al ancho (v1.9.0)** — cuando falta ancho, la tabla de
   pistas **reflowea a modo lista** (carátula + título/artista, sin columnas) en las **cuatro
   vistas** (Álbum, Género, Playlists, Biblioteca) y también en **móvil**. Dispara **por CSS**,
@@ -96,6 +95,33 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   viewport, y `1344 = 1024 + 320`; ⚠️ **si cambia `--queue-w` hay que recalcular ese 1344**. En
   modo lista **no se muestra la calidad** (el chip inline desbordaba sobre la duración): se
   consulta desde **Info**. Es el trade del patrón, no un olvido.
+- **Menú contextual de acciones (v1.10.0)** — **un** solo `ContextMenu.jsx` + provider montado en
+  `App.jsx`: las superficies sólo llaman `openMenu(e, {type, item})` y el menú arma sus acciones
+  según el tipo. Se pinta de **dos formas, y lo decide QUIÉN lo abrió, no el ancho** (`tiles` se
+  congela al abrir → achicar la ventana no le cambia la cara al clic derecho):
+  · **desktop** = popover-**lista** glass, disparado por **clic derecho** y por el botón **"⋯"**
+  de cada fila, que **reemplazó al "+"** en `.col-actions` y está **siempre visible** (el "+"
+  sobrevive en la barra y el expandido, que es donde se renombran/borran playlists);
+  · **móvil** = **grid de tiles 2×N** flotante **anclado al toque**, disparado por **long-press**
+  (`utils/useLongPress.js`, 500ms / 10px de tolerancia, gate por ancho ≤700). Los tiles van
+  **teñidos con su identidad desde el reposo** (morado cola/nav · teal playlist · ámbar info):
+  **invierte a propósito** la convención de `ui-polish` ("apagado hasta el hover") porque en el
+  teléfono no hay hover que esperar — desktop conserva la suya. **Sin blur** (capas sólidas) y con
+  **scrim que SÍ intercepta**: sin él, el toque de "cerrar afuera" seguía viaje y reproducía la
+  fila de abajo.
+  **Acciones (máx. 6, sobre pista):** a continuación · a la cola · agregar a playlist ▸ · ir al
+  artista · ir al álbum · ver info. Por tipo: fila de cola **5** (quitar, en vez de encolar),
+  álbum y artista **3**. Las que no aplican **se ocultan, no se deshabilitan**. Navegar
+  **siempre** por `album_artist`. La cola y la navegación no se implementan acá, se **reúnen**:
+  salen de `PlayerContext` y del host (`Player.jsx` vía `registerHost`).
+  **Motor:** se sumó **`removeFromQueue(qid)`** — toma un **`_qid`**, no un índice; se niega
+  sobre la que suena, y limpia `playedRef`/`historyRef`/`forcedNext` (+ su espejo `upNextIds`)
+  recomputando `idxRef` por `findIndex`. Es el caso canónico de por qué la cola se keyea por
+  `_qid`. **No toca MediaSession.**
+  ⚠️ **Falta cablear:** `Playlists.jsx` y `Genres.jsx` no tienen menú, y las **tarjetas de
+  álbum/artista no tienen long-press** (en el teléfono ahí sigue el menú nativo — es deliberado,
+  no un bug). Contrato completo: `.claude/skills/actions-lab/SKILL.md`; lo táctil:
+  `.claude/skills/mobile-lab/SKILL.md` — no duplicar acá.
 - Env vars (según `docker-compose.yml`): `NODE_ENV`, `PORT`, `MUSIC_DIR`, `JWT_SECRET`,
   `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
@@ -106,15 +132,23 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 **No hay features pendientes de desplegar**: todo lo desarrollado ya salió en producción —
 Artistas Retrato/Prisma + discos dobles (v1.6.0), Ajustes/cerrar sesión + registro cerrado
 (v1.6.1), botón Google (v1.6.2), routing Modelo 2 (v1.7.0), cola de reproducción + rediseño
-del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1) y cola móvil como hoja
-arrastrable + listas que se adaptan al ancho (v1.9.0).
+del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1), cola móvil como hoja
+arrastrable + listas que se adaptan al ancho (v1.9.0) y el menú contextual de acciones,
+escritorio y teléfono (v1.10.0).
 `feature/sonorarev-integration` arranca limpio para lo próximo — lo único que tiene fuera de
 `main` es este mismo commit de docs, que entra en la próxima tanda. **Este archivo siempre va
 un release atrás por construcción**: su commit de docs viaja *dentro* de la tanda siguiente
-(el de post-v1.8.1 salió con v1.9.0), así que después de cada release hay que releerlo contra
-los tags. Ojo: la feature branch **no se pushea** (queda muy por delante de
-`origin/feature/sonorarev-integration`); lo que viaja a `origin` es `main` + tags. La versión
-real siempre sale del tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head -1`.
+(el de post-v1.8.1 salió con v1.9.0; el de post-v1.9.0 salió con v1.10.0), así que después de
+cada release hay que releerlo contra los tags. Ojo: la feature branch **no se pushea** (queda
+muy por delante de `origin/feature/sonorarev-integration`); lo que viaja a `origin` es `main` +
+tags. La versión real siempre sale del tope de `CHANGELOG.md` o
+`git tag --sort=-v:refname | head -1`.
+
+**Deuda de QA de v1.10.0:** de los 6 commits de esa tanda que llegaron a producción, 4 (fases
+A1/B/D y el botón "⋯") venían de sesiones anteriores y **no se les corrió un QA funcional
+completo** antes del deploy — se verificó build, el popover de desktop y una captura del menú
+móvil, no el recorrido entero (encolar/quitar con shuffle, playlist, navegación, cadena de
+cierres). El subagente `actions-qa` sigue disponible para auditarlo contra el contrato.
 
 ## Pendientes conocidos
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
@@ -124,8 +158,9 @@ real siempre sale del tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head
 - **CURACIÓN DE BIBLIOTECA (tareas del usuario, NO código — no "arreglarlas" desde el repo):**
   - **Red Hot Chili Peppers no aparece en la vista Artistas**: sus 3 pistas están sueltas en
     la raíz de la biblioteca y **sin tag `ALBUMARTIST`**. La vista filtra
-    `album_artist IS NOT NULL` (`browse.js:31`) y el scanner no cae a `artist`
-    (`scanner/index.js:140`) → invisibles. Hay una carpeta `Red Hot Chili Peppers` vacía.
+    `WHERE album_artist IS NOT NULL AND album_artist <> ''` (`music-server/src/api/browse.js`,
+    en `GET /browse/artists` — ojo: es `src/api/`, no `src/routes/`) y el scanner no cae a
+    `artist` (`scanner/index.js:140`) → invisibles. Hay una carpeta `Red Hot Chili Peppers` vacía.
     Se resuelve **tageando**, no tocando el scanner.
   - **Metallica a medias**: 8 pistas en su carpeta y **7 sueltas en la raíz**.
   - (Medido contra la DB local el 2026-07-14, que tenía 484 pistas — **no** las ~653 de
@@ -138,4 +173,4 @@ real siempre sale del tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-25 (v1.9.0 DESPLEGADO y tagueado el 2026-07-23 — cola móvil como hoja arrastrable y listas de canciones que se adaptan al ancho, en producción; CLAUDE.md al día: producción = v1.9.0, nada sin mergear)._
+_Última actualización: 2026-07-27 (v1.10.0 DESPLEGADO y tagueado el 2026-07-27 — menú contextual de acciones en escritorio y teléfono, quitar de la cola e info sobre cualquier canción, en producción; CLAUDE.md al día: producción = v1.10.0, nada sin mergear)._
