@@ -3,6 +3,34 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.10.0] - 2026-07-27
+
+### Añadido
+- **Menú de acciones rápidas**: hacé clic derecho —o tocá el botón "⋯" que ahora tiene
+  cada fila— sobre una canción, un álbum o un artista, y se abre un menú con todo lo que
+  podés hacer sin moverte de donde estás: agregarlo a la cola, reproducirlo a
+  continuación, agregarlo a una playlist, ir al artista, ir al álbum o ver la info. Cada
+  menú ofrece sólo lo que aplica: sobre un álbum no aparece "ir al álbum", y sobre la
+  canción que ya está sonando no aparece "reproducir a continuación".
+- **El mismo menú en el teléfono, dejando el dedo apoyado**: mantené presionada una
+  canción y el menú aparece ahí mismo, junto a la mano, como una grilla de botones
+  grandes con un color por tipo de acción (morado para la cola, verde agua para
+  playlist, ámbar para la info). Soltar el dedo no reproduce nada: para eso sigue estando
+  el toque corto.
+- **Quitar una canción de la cola**: desde ese mismo menú, sobre cualquier pista que ya
+  esté esperando su turno. La que está sonando no se puede quitar —habría que decidir qué
+  suena después—, así que ahí la opción no aparece.
+- **Ver la info de cualquier canción, no sólo de la que suena**: hasta ahora el panel de
+  info mostraba siempre la pista en reproducción; ahora lo abrís sobre la fila que
+  quieras desde el menú.
+
+### Cambiado
+- **El "+" de cada fila ahora es un "⋯"**: como "agregar a playlist" pasó a vivir adentro
+  del menú de acciones, cada fila tiene un solo botón que las abre todas, y está siempre
+  visible (antes había que pasar el mouse por encima para que apareciera). El "+" se
+  queda donde sí es su lugar: la barra del reproductor y la vista ampliada, que es además
+  donde renombrás y borrás tus playlists.
+
 ## [1.9.0] - 2026-07-23
 
 ### Añadido
