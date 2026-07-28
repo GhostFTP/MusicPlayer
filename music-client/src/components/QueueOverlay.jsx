@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef } from 'react';
 import { coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 
 // Vista de cola — overlay del player (dirección A "Lista de sala" + eq-bars/progreso de B).
 // Lectura + salto: sonó / suena / viene, la actual marcada, tap salta a la fila. El clic DERECHO
@@ -37,11 +38,21 @@ function fmt(s) {
 // mismo valor salvo que cambie la actual; isUpNext: booleano; onJump/onCtx: useCallback estables)
 // → en cada tick de progreso la fila NO se re-renderiza. Solo cambia cuando su estado real cambia.
 const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNext, onJump, onCtx }) {
+  // C1 · long-press = menú también acá. El hook devuelve handlers estables (el callback viaja por
+  // ref), así que la memoización de la fila queda intacta: sigue sin re-renderizarse por tick.
+  //
+  // No choca con los arrastres de la hoja: onQueueDragDown (Player.jsx) sólo arma sobre
+  // '.queue-header, .exp-drawer-grabber' y el pointerdown de una fila cae ahí por burbujeo y SALE
+  // sin capturar el puntero. El cuerpo de la lista scrollea nativo, y ese scroll manda un
+  // pointercancel que apaga el timer del long-press — la colisión se resuelve sola.
+  const bindPress = useLongPress((t, ev) => onCtx(ev, t, isCurrent, 'longpress'));
   return (
     <li
       className={`queue-row queue-${zone}${isCurrent ? ' current' : ''}`}
-      onClick={() => onJump(index)}
-      onContextMenu={(e) => onCtx(e, track, isCurrent)}
+      {...bindPress(track, {
+        onClick: () => onJump(index),
+        onContextMenu: (e) => onCtx(e, track, isCurrent),
+      })}
       title="Reproducir esta pista"
     >
       <span className="queue-num">{index + 1}</span>
@@ -74,8 +85,11 @@ export default function QueueOverlay({ onClose }) {
   // Estable (openMenu es un useCallback sin deps) → las QueueRow memoizadas siguen sin
   // re-renderizarse en cada tick del progreso. `isCurrent` viaja en el payload porque la cola
   // admite DUPLICADOS: la identidad de una fila es su `_qid`, no el id de la pista.
+  // `via` lo manda el long-press de móvil (C1) y es lo único que distingue las dos puertas: sin él
+  // openMenu descarta el móvil, como hasta ahora. Un solo callback para las dos → la fila sigue
+  // recibiendo props estables.
   const onCtx = useCallback(
-    (e, track, isCurrent) => openMenu(e, { type: 'queue-track', item: track, isCurrent }),
+    (e, track, isCurrent, via) => openMenu(e, { type: 'queue-track', item: track, isCurrent, via }),
     [openMenu],
   );
 

@@ -4402,6 +4402,18 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .track-row td { padding: 12px 8px; }
   .track-row td:first-child { width: 32px; }
 
+  /* C1 · defensas del LONG-PRESS (utils/useLongPress.js). El preventDefault sobre 'contextmenu'
+     alcanza en Android, pero NO en iOS: ahí un toque sostenido no dispara ese evento sino el
+     CALLOUT del sistema (lupa/copiar, y "Guardar imagen" sobre la carátula de la fila), que sólo
+     se apaga con -webkit-touch-callout. Y sin user-select el long-press arranca seleccionando
+     texto en los dos antes de que se vea el menú. Sólo ≤700px: en desktop la fila sigue
+     seleccionable como siempre. */
+  .track-row, .queue-row {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
   /* Slightly smaller art in track rows */
   .track-art, .track-art-placeholder { width: 34px; height: 34px; }
 

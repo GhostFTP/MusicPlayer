@@ -16,10 +16,15 @@ import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistAc
 //
 // TIPOS (fase B): 'track' (fila de lista) · 'album' (tarjeta) · 'artist' (retrato) ·
 // 'queue-track' (fila de la cola). Cada tipo ofrece SOLO lo que le aplica — no se fuerzan las
-// cinco acciones en todos. Sigue siendo DESKTOP (clic derecho): el long-press de móvil está
-// DIFERIDO a propósito (fase C); en Android dispara igual el evento 'contextmenu', así que
-// openMenu lo descarta por matchMedia — mismo criterio de régimen que el resto del proyecto
-// (ancho, no pointerType). En móvil, entonces, no pasa nada: queda el menú nativo.
+// cinco acciones en todos.
+//
+// DISPARADORES: clic derecho (desktop) · botón "⋯" de la fila (desktop) · LONG-PRESS (móvil,
+// fase C1 — utils/useLongPress.js). El long-press entra por una puerta EXPLÍCITA (`via:
+// 'longpress'`): sin esa marca, openMenu sigue descartando el móvil por matchMedia. Así el
+// 'contextmenu' que Android dispara solo sobre las superficies que TODAVÍA no montaron el hook
+// (tarjetas de álbum/artista) sigue cayendo en el menú nativo, como hasta ahora, en vez de
+// abrir este popover en sitios que no se probaron. El criterio de régimen es el de siempre:
+// ancho, no pointerType.
 //
 // Las acciones NO se crean acá, se REÚNEN: la cola sale de PlayerContext (addToQueue /
 // playAfterCurrent) y navegar/info salen del host (Player) vía registerHost — son las mismas
@@ -93,7 +98,10 @@ export function ContextMenuProvider({ children }) {
   }, []);
 
   const openMenu = useCallback((e, payload) => {
-    if (window.matchMedia('(max-width: 700px)').matches) return;   // móvil: long-press es fase C
+    // QUIÉN puede abrir: por ANCHO, el corte 700/701 de siempre (mobile-lab). En móvil sólo entra
+    // por la puerta explícita del long-press (ver el banner de arriba). Este gate NO se ensancha:
+    // subirlo a 880 dejaría al clic derecho sin menú entre 701 y 880.
+    if (payload.via !== 'longpress' && window.matchMedia('(max-width: 700px)').matches) return;
     e.preventDefault();
     e.stopPropagation();
     setPos(null);                                                   // se recalcula al medir
@@ -135,17 +143,27 @@ export function ContextMenuProvider({ children }) {
 
   // Cierres "ambientales". Esc NO está acá a propósito (lo corre la escalera de Player).
   // El scroll se escucha en CAPTURA: el contenido scrollea en .main-content, no en window.
+  //
+  // C1 · dos ajustes que el táctil obliga:
+  //  · 'pointerdown' en vez de 'mousedown': en un teléfono el mousedown es un evento SINTETIZADO
+  //    después del toque, así que el "tocar afuera" dependía de esa emulación. pointerdown cubre
+  //    dedo y mouse por igual, y en desktop mantiene el orden de siempre (pointerdown → mousedown
+  //    → contextmenu), o sea que el clic derecho sobre otra fila sigue cerrando y reabriendo.
+  //  · el resize sólo cierra si cambió el ANCHO: en móvil, abrir el teclado dispara resize por el
+  //    alto, y eso cerraba el menú justo al enfocar el input de "nueva playlist" (autoFocus).
   useEffect(() => {
     if (!menu) return;
     const onDown = (e) => { if (!elRef.current?.contains(e.target)) closeMenu(); };
-    document.addEventListener('mousedown', onDown);
+    const w0 = window.innerWidth;
+    const onResize = () => { if (window.innerWidth !== w0) closeMenu(); };
+    document.addEventListener('pointerdown', onDown);
     window.addEventListener('scroll', closeMenu, true);
-    window.addEventListener('resize', closeMenu);
+    window.addEventListener('resize', onResize);
     window.addEventListener('blur', closeMenu);
     return () => {
-      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('pointerdown', onDown);
       window.removeEventListener('scroll', closeMenu, true);
-      window.removeEventListener('resize', closeMenu);
+      window.removeEventListener('resize', onResize);
       window.removeEventListener('blur', closeMenu);
     };
   }, [menu, closeMenu]);

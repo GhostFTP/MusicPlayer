@@ -3,6 +3,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { coverUrl } from '../api/client.js';
 import QualityChip from './QualityChip.jsx';
 import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 
 // Tabla de pistas reutilizable — mismo diseño de fila que la Biblioteca
 // (carátula, jerarquía título/artista, QualityChip y botón "⋯" del menú contextual).
@@ -10,6 +11,9 @@ import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
 export default function TrackTable({ tracks, showAlbum = true }) {
   const { play, currentTrack, isPlaying } = usePlayer();
   const { openMenu } = useContextMenu();   // clic derecho sobre la fila (desktop; el gate lo pone el menú)
+  // C1 · long-press = el mismo menú en móvil. El hook envuelve onClick/onContextMenu de la fila:
+  // un long-press ya no cuenta como tap (no reproduce) y el menú nativo queda prevenido.
+  const bindPress = useLongPress((track, ev) => openMenu(ev, { type: 'track', item: track, via: 'longpress' }));
   const activeRowRef = useRef(null);
 
   // Al abrir una lista (álbum/género), desplaza la pista que suena a la vista.
@@ -54,8 +58,10 @@ export default function TrackTable({ tracks, showAlbum = true }) {
               <tr
                 ref={active ? activeRowRef : null}
                 className={`track-row${active ? ' playing' : ''}`}
-                onClick={() => play(tracks, i)}
-                onContextMenu={(e) => openMenu(e, { type: 'track', item: track })}
+                {...bindPress(track, {
+                  onClick: () => play(tracks, i),
+                  onContextMenu: (e) => openMenu(e, { type: 'track', item: track }),
+                })}
               >
                 <td className="col-num">
                   <span className={`track-num${active ? ' active' : ''}`}>
