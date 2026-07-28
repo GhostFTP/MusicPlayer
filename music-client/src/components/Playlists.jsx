@@ -5,6 +5,8 @@ import QualityChip from './QualityChip.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import PlaylistCover from './PlaylistCover.jsx';
+import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 import { emojiHue } from '../utils/emojiHue.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 
@@ -22,6 +24,15 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
   const [sortDir,   setSortDir]   = useState('desc');  // 'asc' | 'desc'
   const [query,     setQuery]     = useState('');      // filtro del detalle (título/artista)
   const { play, currentTrack, isPlaying } = usePlayer();
+  // Menú contextual sobre las filas del detalle. Tipo PROPIO ('playlist-track'): es una pista
+  // normal más "quitar de ESTA playlist", que sólo esta vista sabe hacer — por eso la función
+  // viaja en el payload (`onRemove`) en vez de vivir en el menú o en el host global.
+  const { openMenu } = useContextMenu();   // clic derecho (el gate de móvil lo pone el menú)
+  const ctxPayload = (track) => ({ type: 'playlist-track', item: track, onRemove: () => removeTrack(track.id) });
+  // C1 · long-press = el mismo menú en móvil. Acá importa el doble: en modo lista (que en el
+  // teléfono es SIEMPRE) la celda .col-actions es display:none, así que sin esto no había ninguna
+  // forma de quitar una pista de una playlist desde el celular.
+  const bindPress = useLongPress((track, ev) => openMenu(ev, { ...ctxPayload(track), via: 'longpress' }));
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -95,8 +106,10 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     setRenaming(false);
   }
 
+  // `e` es opcional: cuando la corre el menú contextual no hay evento de fila que frenar (el
+  // menú ya paró la propagación al abrirse); cuando la corría el botón "✕" de la fila, sí.
   async function removeTrack(trackId, e) {
-    e.stopPropagation();
+    e?.stopPropagation();
     await api.removeFromPlaylist(selected.playlist.id, trackId);
     setSelected(s => ({ ...s, tracks: s.tracks.filter(t => t.id !== trackId) }));
     setPlaylists(prev => prev.map(p =>
@@ -313,7 +326,10 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                   <tr
                     key={track.id}
                     className={`track-row${active ? ' playing' : ''}`}
-                    onClick={() => play(sortedTracks, i)}
+                    {...bindPress(track, {
+                      onClick: () => play(sortedTracks, i),
+                      onContextMenu: (e) => openMenu(e, ctxPayload(track)),
+                    })}
                   >
                     <td className="col-num">
                       <span className={`track-num${active ? ' active' : ''}`}>
@@ -342,14 +358,16 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                     <td className="col-album track-album">{track.album ?? '—'}</td>
                     <td className="col-quality"><QualityChip track={track} /></td>
                     <td className="col-time">{fmt(track.duration)}</td>
+                    {/* El "✕" de quitar se ABSORBIÓ en el "⋯", igual que el "+" en las otras
+                        vistas: un solo botón por fila que abre todas las acciones, y "quitar de
+                        esta playlist" pasa a ser el primer ítem del menú. Así Playlists deja de
+                        ser la excepción con botón propio. */}
                     <td className="col-actions">
-                      <button
-                        className="ptp-btn"
-                        title="Quitar de la playlist"
-                        onClick={e => removeTrack(track.id, e)}
-                      >
-                        <XIcon />
-                      </button>
+                      <ContextMenuButton
+                        type="playlist-track"
+                        item={track}
+                        extra={{ onRemove: () => removeTrack(track.id) }}
+                      />
                     </td>
                   </tr>
                 );
