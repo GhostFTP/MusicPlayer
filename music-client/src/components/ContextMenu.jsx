@@ -26,6 +26,17 @@ import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistAc
 // abrir este popover en sitios que no se probaron. El criterio de régimen es el de siempre:
 // ancho, no pointerType.
 //
+// PRESENTACIÓN — el mismo menú se pinta de dos formas, y lo decide QUIÉN lo abrió (no el ancho).
+// La CAJA es la misma en los dos casos: un flotante anclado, con el flip/clamp de siempre. Lo que
+// cambia es el CONTENIDO y contra qué punto se ancla:
+//   · clic derecho / "⋯"  → LISTA, anclada al cursor o al botón (desktop, sin cambios).
+//   · long-press          → GRID DE TILES (icono + etiqueta corta `short`, 2 por fila), anclado
+//     al punto del toque y centrado sobre el dedo (C2c), con cada tile teñido con el color de
+//     identidad de SU acción desde el reposo (C2e, dirección "Neón" — el porqué, en main.css).
+// C2 lo había hecho hoja desde abajo y C2b le puso los tiles adentro; C2c se quedó con los tiles
+// y devolvió la caja al flotante — ocupa menos pantalla y aparece donde está la mano.
+// Las ACCIONES son las mismas en las dos: `items` se arma una sola vez, más abajo.
+//
 // Las acciones NO se crean acá, se REÚNEN: la cola sale de PlayerContext (addToQueue /
 // playAfterCurrent) y navegar/info salen del host (Player) vía registerHost — son las mismas
 // funciones que ya usan la barra y el expandido, no copias.
@@ -40,17 +51,53 @@ import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistAc
 
 const ContextMenuCtx = createContext(null);
 
-const MARGIN = 8;    // aire mínimo contra el borde del viewport
-const BTN_GAP = 6;   // separación entre el botón "⋯" y el menú que cuelga de él
+const MARGIN = 8;      // aire mínimo contra el borde del viewport
+const BTN_GAP = 6;     // separación entre el botón "⋯" y el menú que cuelga de él
+const TOUCH_GAP = 16;  // separación entre la yema y el menú, en el long-press
 
 // Ancla del menú, según qué lo abrió. Con el CURSOR (clic derecho) nace en el punto exacto.
 // Con un BOTÓN (`anchor: 'element'`, el "⋯" de la fila) nace DEBAJO y alineado a su borde
 // derecho; `yUp` es el borde superior del botón, que se usa como base al voltear hacia arriba
 // para que el menú volteado no le caiga encima. El flip y el clamp los resuelve el mismo efecto.
+//
+// C2c · Con el LONG-PRESS (móvil) nace junto al DEDO: centrado en horizontal sobre el punto del
+// toque (`center`) y separado en vertical, para que la yema no tape la primera fila de tiles.
+// `yUp` es el mismo punto con el gap hacia el otro lado → al voltear hacia arriba el menú queda
+// por ENCIMA del dedo con la misma separación. Puesto así, el flip/clamp del efecto de abajo no
+// necesita saber nada nuevo: es el MISMO mecanismo probado del popover de desktop.
 function anchorOf(e, payload) {
+  if (payload.via === 'longpress') {
+    return { x: e.clientX, y: e.clientY + TOUCH_GAP, yUp: e.clientY - TOUCH_GAP, center: true };
+  }
   if (payload.anchor !== 'element') return { x: e.clientX, y: e.clientY };
   const r = e.currentTarget.getBoundingClientRect();
   return { x: r.right, y: r.bottom + BTN_GAP, yUp: r.top - BTN_GAP, alignRight: true };
+}
+
+// Rectángulo donde el menú tiene PERMITIDO vivir. En desktop es el viewport con su margen — o
+// sea, exactamente lo de siempre. En móvil se le descuentan además:
+//  · el NOTCH, vía `--sa-top`. Ojo: la custom property lleva un env() PELADO a propósito. Un
+//    `max(env(...), 8px)` ahí adentro NO se evalúa (las custom properties sin registrar no
+//    resuelven funciones matemáticas) y getComputedStyle devolvería el texto literal; el piso
+//    se aplica acá, en JS.
+//  · el CROMO FIJO de abajo (mini barra + tabs), medido del DOM real: sus rects ya traen dentro
+//    su propio padding de safe-area, así que no hay que sumar nada a mano. Con el expandido
+//    abierto esos dos están tapados y no valen como referencia — ahí manda el inset de abajo.
+function safeArea(mobile) {
+  const s = { top: MARGIN, bottom: window.innerHeight - MARGIN, left: MARGIN, right: window.innerWidth - MARGIN };
+  if (!mobile) return s;
+  const cs = getComputedStyle(document.documentElement);
+  const px = (name) => parseFloat(cs.getPropertyValue(name)) || 0;
+  s.top = Math.max(s.top, px('--sa-top') + MARGIN);
+  if (document.querySelector('.player-expanded')) {
+    s.bottom = Math.min(s.bottom, window.innerHeight - px('--sa-bottom') - MARGIN);
+  } else {
+    for (const sel of ['.player-bar', '.bottom-nav']) {
+      const r = document.querySelector(sel)?.getBoundingClientRect();
+      if (r && r.height > 0) s.bottom = Math.min(s.bottom, r.top - MARGIN);
+    }
+  }
+  return s;
 }
 
 // Pistas de un álbum / de un artista con los MISMOS parámetros que ya usan las vistas
@@ -106,7 +153,14 @@ export function ContextMenuProvider({ children }) {
     e.stopPropagation();
     setPos(null);                                                   // se recalcula al medir
     setPanel(null); setPlaylists(null); setNewName(''); setNewEmoji('🎵');   // el menú abre en la raíz
-    setMenu({ ...payload, ...anchorOf(e, payload) });
+    // CÓMO se presenta: lo decide QUIÉN lo abrió, no el ancho. El long-press es táctil por
+    // definición → GRID DE TILES; el clic derecho y el "⋯" son de desktop → LISTA, siempre, a
+    // cualquier ancho. Es lo que garantiza "desktop intacto" por construcción y no porque un
+    // número caiga de un lado: achicar la ventana no puede cambiarle la cara al clic derecho.
+    // Se congela al abrir → la presentación no cambia a mitad de vida.
+    // Ojo: `tiles` es sólo el CONTENIDO. La caja es un flotante anclado en los dos casos (C2c);
+    // lo que cambia es qué se pinta adentro y contra qué rectángulo se recorta.
+    setMenu({ ...payload, tiles: payload.via === 'longpress', ...anchorOf(e, payload) });
   }, []);
 
   // Posicionamiento con FLIP: se mide el menú ya montado y, si no cabe hacia abajo/derecha, se
@@ -116,18 +170,26 @@ export function ContextMenuProvider({ children }) {
   //
   // Se re-mide también al cambiar de PANEL y al llegar las playlists: el selector ensancha y
   // alarga la caja, así que la que se voltea/clampa es la caja NUEVA, no la de las acciones.
+  //
+  // C2c · Ahora corre TAMBIÉN en móvil: el menú del long-press dejó de ser una hoja anclada abajo
+  // y volvió a ser un flotante, así que reusa este mismo mecanismo — el que ya estaba probado.
+  // Lo único que cambia entre regímenes es el RECTÁNGULO contra el que se recorta (`safeArea`) y
+  // que el ancla táctil viene centrada; el flip y el clamp son idénticos.
   useLayoutEffect(() => {
     if (!menu || !elRef.current) return;
     const { offsetWidth: w, offsetHeight: h } = elRef.current;
-    const vw = window.innerWidth, vh = window.innerHeight;
+    const s = safeArea(menu.tiles);
     // `alignRight` lo pide el ancla de BOTÓN (el "⋯"): ahí el menú no nace en el punto clicado
-    // sino alineado al borde derecho del botón, quepa o no. Con el cursor, sólo voltea si hace falta.
-    const flipX = menu.alignRight || menu.x + w + MARGIN > vw;
-    const flipY = menu.y + h + MARGIN > vh;
-    const x = Math.max(MARGIN, Math.min(flipX ? menu.x - w : menu.x, vw - w - MARGIN));
+    // sino alineado al borde derecho del botón, quepa o no. Con el cursor, sólo voltea si hace
+    // falta. Con el ancla táctil (`center`) no hay flip horizontal: se centra y se recorta.
+    const flipX = menu.alignRight || (!menu.center && menu.x + w > s.right);
+    const flipY = menu.y + h > s.bottom;
+    const left = menu.center ? menu.x - w / 2 : (flipX ? menu.x - w : menu.x);
+    const x = Math.max(s.left, Math.min(left, s.right - w));
     // Al voltear hacia arriba se usa `yUp` como BORDE INFERIOR: con el cursor es el mismo punto,
-    // pero con un botón es su borde superior — si no, el menú volteado le taparía el botón.
-    const y = Math.max(MARGIN, Math.min(flipY ? (menu.yUp ?? menu.y) - h : menu.y, vh - h - MARGIN));
+    // con un botón es su borde superior y con el dedo es el punto del toque menos el gap — si no,
+    // el menú volteado taparía justo lo que lo abrió.
+    const y = Math.max(s.top, Math.min(flipY ? (menu.yUp ?? menu.y) - h : menu.y, s.bottom - h));
     setPos({ x, y, flipX, flipY });
   }, [menu, panel, playlists]);
 
@@ -156,13 +218,18 @@ export function ContextMenuProvider({ children }) {
     const onDown = (e) => { if (!elRef.current?.contains(e.target)) closeMenu(); };
     const w0 = window.innerWidth;
     const onResize = () => { if (window.innerWidth !== w0) closeMenu(); };
+    // El listener de scroll es de CAPTURA, así que ve el scroll de CUALQUIER elemento, no sólo el
+    // del contenido de la app: scrollear DENTRO del propio menú lo cerraba. Se notaba poco porque
+    // lo único scrolleable era .ptp-list con 6+ playlists, pero en móvil el selector de playlists
+    // scrollea siempre. Lo de adentro no cierra.
+    const onScroll = (e) => { if (!elRef.current?.contains(e.target)) closeMenu(); };
     document.addEventListener('pointerdown', onDown);
-    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onResize);
     window.addEventListener('blur', closeMenu);
     return () => {
       document.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('blur', closeMenu);
     };
@@ -215,9 +282,13 @@ export function ContextMenuProvider({ children }) {
     // vista de artista a la que ir → la acción no aparece. Es curación/tagging, no un bug.
     // `seed` = lo que se le pasa al host: una pista completa cuando la hay (así conserva su
     // fallback por api.track), o el mínimo {album_artist} cuando el ítem es una tarjeta.
+    // `short` = la etiqueta del TILE en móvil (C2b). Un tile de ~134px no admite "Reproducir a
+    // continuación", así que cada acción declara su versión corta acá, al lado de la larga —
+    // no en una tabla aparte que se desincronizaría al agregar una acción. Sin `short`, el tile
+    // cae a `label` (sirve para las que ya son cortas).
     const pushGoArtist = (albumArtist, seed) => {
       if (host.goArtist && albumArtist) {
-        list.push({ id: 'artist', sep: list.length > 0, label: 'Ir al artista', tone: 'nav', icon: <IconArtist />, run: () => host.goArtist(seed) });
+        list.push({ id: 'artist', sep: list.length > 0, label: 'Ir al artista', short: 'Artista', tone: 'nav', icon: <IconArtist />, run: () => host.goArtist(seed) });
       }
     };
     // Sólo para ítems que son UNA pista: `api.addToPlaylist` es de a una, así que un álbum o un
@@ -225,17 +296,17 @@ export function ContextMenuProvider({ children }) {
     // `keepOpen` porque no ejecuta nada: cambia el menú al selector, en la misma caja.
     const pushAddToPlaylist = () => {
       list.push({
-        id: 'playlist', label: 'Agregar a playlist', tone: 'playlist', icon: <IconPlaylistAdd />,
+        id: 'playlist', label: 'Agregar a playlist', short: 'Playlist', tone: 'playlist', icon: <IconPlaylistAdd />,
         chev: true, keepOpen: true, run: () => setPanel('playlist'),
       });
     };
     const pushTrackNav = (t) => {
       pushGoArtist(t.album_artist, t);
       if (host.goAlbum && t.album) {
-        list.push({ id: 'album', sep: !t.album_artist && list.length > 0, label: 'Ir al álbum', tone: 'nav', icon: <IconAlbum />, run: () => host.goAlbum(t) });
+        list.push({ id: 'album', sep: !t.album_artist && list.length > 0, label: 'Ir al álbum', short: 'Álbum', tone: 'nav', icon: <IconAlbum />, run: () => host.goAlbum(t) });
       }
       if (host.openInfo) {
-        list.push({ id: 'info', sep: list.length > 0, label: 'Ver info', tone: 'info', icon: <IconInfo />, run: () => host.openInfo(t) });
+        list.push({ id: 'info', sep: list.length > 0, label: 'Ver info', short: 'Info', tone: 'info', icon: <IconInfo />, run: () => host.openInfo(t) });
       }
     };
 
@@ -245,12 +316,12 @@ export function ContextMenuProvider({ children }) {
         // "A continuación" sobre la pista que YA suena es un no-op → se oculta.
         if (currentTrack?.id !== it.id) {
           list.push({
-            id: 'next', label: 'Reproducir a continuación', tone: 'queue', icon: <IconPlayNext />,
+            id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
             run: () => { playAfterCurrent(it); toast('Suena a continuación'); },
           });
         }
         list.push({
-          id: 'queue', label: 'Agregar a la cola', tone: 'queue', icon: <IconQueue />,
+          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
           run: () => { addToQueue(it); toast('Añadida a la cola'); },
         });
         pushAddToPlaylist();
@@ -265,7 +336,7 @@ export function ContextMenuProvider({ children }) {
       case 'queue-track': {
         if (!menu.isCurrent) {
           list.push({
-            id: 'remove', label: 'Quitar de la cola', tone: 'queue', icon: <IconRemove />,
+            id: 'remove', label: 'Quitar de la cola', short: 'Quitar', tone: 'queue', icon: <IconRemove />,
             run: () => { removeFromQueue(it._qid); toast('Quitada de la cola'); },
           });
         }
@@ -279,11 +350,11 @@ export function ContextMenuProvider({ children }) {
       //    ese archivo) — un info de álbum es otro panel, no esta acción.
       case 'album': {
         list.push({
-          id: 'play', label: 'Reproducir álbum', tone: 'queue', icon: <IconPlay />,
+          id: 'play', label: 'Reproducir álbum', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
           run: () => onTracks(() => albumTracks(it), (ts) => play(ts, 0), 'Ese álbum no tiene pistas'),
         });
         list.push({
-          id: 'queue', label: 'Agregar a la cola', tone: 'queue', icon: <IconQueue />,
+          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
           run: () => onTracks(() => albumTracks(it), (ts) => {
             addToQueue(ts);
             toast(`«${it.album}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
@@ -297,11 +368,11 @@ export function ContextMenuProvider({ children }) {
       //    SELECT album_artist AS artist), así que la regla dura se cumple sola.
       case 'artist': {
         list.push({
-          id: 'play', label: 'Reproducir todo', tone: 'queue', icon: <IconPlay />,
+          id: 'play', label: 'Reproducir todo', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
           run: () => onTracks(() => artistTracks(it), (ts) => play(ts, 0), 'Ese artista no tiene pistas'),
         });
         list.push({
-          id: 'queue', label: 'Agregar a la cola', tone: 'queue', icon: <IconQueue />,
+          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
           run: () => onTracks(() => artistTracks(it), (ts) => {
             addToQueue(ts);
             toast(`«${it.artist}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
@@ -316,18 +387,41 @@ export function ContextMenuProvider({ children }) {
     return list;
   }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast]);
 
+  // C2b · Escalera INTERNA del menú. Con el selector de playlists abierto, el primer Esc/atrás
+  // vuelve al grid y el segundo cierra — antes cerraba todo de una. Sigue valiendo "un Esc = una
+  // cosa": cada pulsación deshace exactamente UN paso. Vive acá (el menú es el que sabe si tiene
+  // un panel abierto) pero la corre Player como peldaño 0 de su escalera, así que no aparece un
+  // segundo listener de Esc peleando con el suyo. Devuelve true si consumió algo, igual que
+  // dismissTop. NUNCA history.back().
+  const dismissMenu = useCallback(() => {
+    if (menu === null) return false;
+    if (panel !== null) { setPanel(null); return true; }   // selector → grid
+    closeMenu();
+    return true;
+  }, [menu, panel, closeMenu]);
+
   const value = useMemo(
-    () => ({ openMenu, closeMenu, registerHost, menuOpen: menu !== null }),
-    [openMenu, closeMenu, registerHost, menu],
+    () => ({ openMenu, closeMenu, dismissMenu, registerHost, menuOpen: menu !== null }),
+    [openMenu, closeMenu, dismissMenu, registerHost, menu],
   );
 
   return (
     <ContextMenuCtx.Provider value={value}>
       {children}
       {menu && items.length > 0 && (
+        <>
+        {/* Scrim del menú TÁCTIL. NO es decorativo: sin él, el toque de "cerrar tocando afuera"
+            cierra el menú en el pointerdown y después sigue viaje hasta la fila de abajo, que
+            REPRODUCE en el click. El scrim se lo come. Por eso, al revés que .exp-scrim (que es
+            pointer-events:none porque ahí sólo tiñe), éste sí intercepta.
+            El cierre lo hace el listener de document: el scrim está fuera de elRef, así que cae
+            solo en la rama de "afuera" — sin handler propio, una sola vía de cierre.
+            Hermano ANTERIOR y MISMO z que el menú (patrón de .exp-scrim): el orden del DOM lo
+            deja debajo, sin inventar una capa nueva. Sin blur (no revivir el buffeo móvil). */}
+        {menu.tiles && <div className="ctx-scrim" aria-hidden="true" />}
         <div
           ref={elRef}
-          className={`ctx-menu${panel === 'playlist' ? ' ctx-menu--wide' : ''}`}
+          className={`ctx-menu${panel === 'playlist' ? ' ctx-menu--wide' : ''}${menu.tiles ? ' ctx-menu--tiles' : ''}`}
           role="menu"
           aria-label={panel === 'playlist' ? 'Agregar a playlist' : (MENU_LABEL[menu.type] ?? 'Acciones')}
           style={{
@@ -340,8 +434,11 @@ export function ContextMenuProvider({ children }) {
             top:  pos ? pos.y : 0,
             // Hasta medir no se pinta: nadie ve el paso por 0,0.
             visibility: pos ? undefined : 'hidden',
-            // El pop nace de la esquina que quedó pegada al cursor, no siempre de arriba-izquierda.
-            transformOrigin: pos ? `${pos.flipY ? 'bottom' : 'top'} ${pos.flipX ? 'right' : 'left'}` : undefined,
+            // El pop nace de la esquina que quedó pegada al cursor. Con el ancla táctil el menú
+            // está centrado sobre el dedo, así que crece desde el CENTRO del borde que lo tocó.
+            transformOrigin: pos
+              ? `${pos.flipY ? 'bottom' : 'top'} ${menu.center ? 'center' : (pos.flipX ? 'right' : 'left')}`
+              : undefined,
           }}
           onContextMenu={(e) => e.preventDefault()}   // clic derecho SOBRE el menú: no abrir el nativo encima
         >
@@ -391,15 +488,42 @@ export function ContextMenuProvider({ children }) {
 
               <form className="ptp-new" onSubmit={createAndAdd}>
                 <EmojiPicker value={newEmoji} onChange={setNewEmoji} />
+                {/* autoFocus SÓLO en desktop: en táctil, entrar al selector es casi siempre para
+                    ELEGIR una playlist existente, y abrir el teclado de una tapa justo la lista que
+                    se vino a mirar. Acá se enfoca cuando se toca, como cualquier campo del teléfono. */}
                 <input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="Nueva playlist…"
-                  autoFocus
+                  autoFocus={!menu.tiles}
                 />
                 <button className="ptp-new-btn" type="submit" title="Crear y añadir" disabled={busy}>+</button>
               </form>
             </>
+          ) : menu.tiles ? (
+            /* C2b · GRID DE TILES (móvil). Rama de render propia y no un override de CSS sobre la
+               lista: el tile es otra composición (icono ARRIBA, etiqueta corta abajo) y los
+               separadores no significan nada en una cuadrícula, así que rendirlos y ocultarlos
+               sería mentirle al DOM. La lista de desktop, abajo, queda intacta.
+               Se reusan `items` tal cual: mismas acciones, mismo orden, mismos iconos y los mismos
+               `run` — lo único que cambia es la caja y que la etiqueta usa `short`. */
+            <div className="ctx-grid" role="none">
+              {items.map((it) => (
+                <button
+                  key={it.id}
+                  type="button"
+                  role="menuitem"
+                  className={`ctx-tile tone-${it.tone}`}
+                  // La etiqueta LARGA sigue siendo la accesible: el tile recorta por espacio,
+                  // no porque "Artista" describa mejor la acción que "Ir al artista".
+                  aria-label={it.label}
+                  onClick={() => { if (!it.keepOpen) closeMenu(); it.run(); }}
+                >
+                  {it.icon}
+                  <span className="ctx-tile-label">{it.short ?? it.label}</span>
+                </button>
+              ))}
+            </div>
           ) : (
             items.map((it, i) => (
               <div key={it.id}>
@@ -418,6 +542,7 @@ export function ContextMenuProvider({ children }) {
             ))
           )}
         </div>
+        </>
       )}
     </ContextMenuCtx.Provider>
   );
@@ -428,7 +553,7 @@ export function ContextMenuProvider({ children }) {
 export function useContextMenu() {
   return useContext(ContextMenuCtx) ?? NO_MENU;
 }
-const NO_MENU = { openMenu: () => {}, closeMenu: () => {}, registerHost: () => {}, menuOpen: false };
+const NO_MENU = { openMenu: () => {}, closeMenu: () => {}, dismissMenu: () => false, registerHost: () => {}, menuOpen: false };
 
 // Botón "⋯" de fila: el disparador VISIBLE del menú (el clic derecho sobre la fila sigue
 // funcionando como atajo). Vive acá y no en cada vista para que el ancla y el stopPropagation

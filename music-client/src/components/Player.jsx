@@ -215,7 +215,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // Menú contextual (actions-lab): Player es su HOST — le presta las acciones que dependen de
   // este estado (navegar cerrando overlays, abrir el Info sobre una pista arbitraria) y corre
   // su cierre por Esc / atrás del navegador. Ver el bloque de la escalera, abajo.
-  const { menuOpen: ctxMenuOpen, closeMenu: closeCtxMenu, registerHost } = useContextMenu();
+  // `dismissMenu` ya devuelve false solo cuando no hay menú abierto, así que Player no necesita
+  // mirar `menuOpen` por su cuenta (era lo que hacía antes de que el menú tuviera pasos internos).
+  const { dismissMenu: dismissCtxMenu, registerHost } = useContextMenu();
 
   // ── La escalera del "atrás" (contrato nav-lab · Modelo 2) ───────────────────
   // dismissTop() cierra el overlay más "encima" por prioridad y devuelve true si cerró algo,
@@ -242,11 +244,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // empuja entrada-guardia de historial — el porqué está junto a layerDepth, abajo). Vive acá y
   // no como listener propio del menú justamente para que UN Esc cierre UNA cosa: con dos
   // listeners, un Esc con el menú abierto sobre el expandido cerraba los dos de una.
-  const dismissPopover = useCallback(() => {
-    if (!ctxMenuOpen) return false;
-    closeCtxMenu();
-    return true;
-  }, [ctxMenuOpen, closeCtxMenu]);
+  // C2b · el menú tiene su propia escalera INTERNA (con el selector de playlists abierto, el
+  // primer paso vuelve al grid y el segundo cierra), así que acá se delega en `dismissMenu` en
+  // vez de cerrarlo de una: quién sabe cuántos pasos tiene adentro es el menú, no Player. Sigue
+  // devolviendo true sólo si consumió algo — el contrato de este peldaño no cambia.
+  const dismissPopover = useCallback(() => dismissCtxMenu(), [dismissCtxMenu]);
 
   // Esc global del reproductor → corre la escalera de overlays. Escucha siempre (no solo con
   // expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc NO navega

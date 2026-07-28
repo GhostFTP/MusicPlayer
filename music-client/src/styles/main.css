@@ -39,6 +39,18 @@
      mover una moviera la otra sin querer. Queda sobre la Letra (250) y el expandido (200), y
      debajo del Info (300): el menú se abre sobre superficies de biblioteca, nunca sobre el Info. */
   --z-context-menu: 260;
+
+  /* Safe-areas LEGIBLES DESDE JS (C2c). El CSS puede usar env() donde quiera; el JS no tiene
+     forma de preguntarle al navegador cuánto mide el notch, y el menú contextual necesita el
+     número para recortar su posición contra las zonas prohibidas.
+     ⚠️ El env() va PELADO a propósito. Una custom property sin registrar NO evalúa funciones
+     matemáticas: escribir `max(env(...), 8px)` acá haría que getComputedStyle devuelva el texto
+     literal "max(0px, 8px)" en vez de una longitud (verificado). El env() solo, en cambio, sí se
+     sustituye. Los pisos se aplican en JS. En emulación y en teléfonos sin notch valen 0 — ese
+     es el mundo que se ve en DevTools; el otro sólo existe en hardware (mobile-lab §safe-areas). */
+  --sa-top: env(safe-area-inset-top, 0px);
+  --sa-bottom: env(safe-area-inset-bottom, 0px);
+
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   /* App dark-only: que el motor pinte TODOS los controles de formulario en apariencia
      oscura. Sin esto, iOS Safari / Android Chrome (SO en oscuro) pintan el texto de los
@@ -1904,6 +1916,161 @@ button, input, select, textarea { font-family: inherit; }
 .ctx-back:hover { color: var(--text); }
 
 .ctx-loading { padding: 18px 12px; text-align: center; font-size: 12.5px; color: var(--text-muted); }
+
+/* ── El menú TÁCTIL: grid de tiles flotante anclado al toque (C2b · C2c · C2e) ──
+   Misma lógica, otra caja: el provider, las acciones por tipo y todos los cierres son los de
+   siempre — acá sólo cambia la presentación.
+
+   C2c · La CAJA es un flotante anclado, igual que en desktop: mismo `position: fixed` con
+   left/top escritos por el JS, y el MISMO flip/clamp probado (ContextMenu.jsx). Lo único propio
+   de acá es que mide lo justo para la grilla y que se recorta contra un rectángulo con las zonas
+   prohibidas de un teléfono descontadas (notch arriba, mini barra + tabs abajo) — eso lo calcula
+   `safeArea()`, no este CSS. C2 lo había hecho hoja desde abajo; ocupaba demasiada pantalla, así
+   que de aquella etapa sólo quedan el scrim y los tiles.
+
+   C2e · Dirección visual "NEÓN", elegida entre tres exploradas en C2d. La regla de la casa es
+   "en reposo todo apagado, el color aparece al interactuar"; acá se invierte A PROPÓSITO: cada
+   acción se tiñe con SU identidad (morado cola/nav · teal playlist · ámbar info) desde el reposo
+   y el color es lo primero que se lee. En un teléfono no hay hover que esperar, y el tile teñido
+   se reconoce sin leer la etiqueta. El popover de desktop conserva su convención intacta — son
+   dos superficies distintas, no un sistema con dos reglas contradictorias.
+
+   Régimen: quién ve los tiles NO lo decide este @media sino QUIÉN abrió el menú (`tiles` en
+   ContextMenu.jsx = abierto por long-press). El ancho es sólo un cinturón de seguridad, por eso
+   está en 880 y no en 700: el clic derecho y el "⋯" salen siempre en lista, a cualquier ancho,
+   así que achicar la ventana de desktop no puede cambiarles la cara. Y si algún día el gesto de
+   C1 se ensancha, esto ya lo acompaña.
+
+   Especificidad (0,2,0) donde hay que ganarle a .ctx-menu / .ctx-menu--wide, sin depender del
+   orden del archivo — el mismo criterio que ya usa .track-row .ctx-row-btn. */
+@media (max-width: 880px) {
+  .ctx-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-context-menu);   /* MISMO z que el menú: el orden del DOM lo deja debajo */
+    background: rgba(0, 0, 0, .5);
+    animation: ctx-scrim-in .2s ease;
+  }
+
+  .ctx-menu.ctx-menu--tiles {
+    /* 300 y no más: con 2 columnas es fácil terminar en una caja casi a todo lo ancho, y ahí se
+       pierde justo lo que hace a esta dirección — que el menú se lea como una pastilla al lado
+       del dedo y no como una barra pegada a los bordes. A 390px de viewport da tiles de 134px. */
+    width: min(300px, calc(100vw - 24px));
+    min-width: 0;
+    padding: 10px;
+    border-radius: 20px;
+    /* Capas sólidas + gradiente, NUNCA backdrop-filter: mismo criterio que el drawer de la cola
+       (mobile-lab §GPU) y el "buffeo" móvil es regresión conocida. El halo de arriba es el morado
+       de identidad del proyecto. El popover de desktop sí conserva su glass — no se toca acá. */
+    background:
+      radial-gradient(130% 80% at 50% 0%, rgba(167, 139, 250, .17), rgba(167, 139, 250, 0) 62%),
+      #0b0b0c;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 1px solid rgba(167, 139, 250, .24);
+    box-shadow: 0 22px 56px rgba(0, 0, 0, .7), 0 0 26px rgba(167, 139, 250, .1);
+    /* El grid mide ~294px y nunca scrollea. El tope es para la "segunda página" (el selector de
+       playlists), que sí crece; ahí scrollea él y no la página. */
+    max-height: 60vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* Entra con el MISMO pop que el popover de desktop (heredado de .ctx-menu), naciendo del
+       borde que quedó pegado al dedo — el transformOrigin lo escribe el JS. */
+  }
+
+  /* El tono de cada acción viaja como CANALES en `--t`, no como color entero: es lo único que
+     permite modular su opacidad (`rgba(var(--t), .22)`) sin color-mix, que deja afuera navegadores
+     viejos — y por acá anda un HiBy R4. Los tres valores son EXACTAMENTE los tokens de :root
+     (--accent #a78bfa · --amber #fbbf24 · --teal #2dd4a7); el proyecto ya escribía canales a mano
+     para el teal en .ctx-item.tone-playlist:hover. Las dos reglas de tono son (0,2,0) contra la
+     (0,1,0) de la base, así que ganan sin depender del orden. */
+  .ctx-tile                { --t: 167, 139, 250; }   /* cola + navegación = morado */
+  .ctx-tile.tone-info      { --t: 251, 191, 36; }    /* info = ámbar */
+  .ctx-tile.tone-playlist  { --t: 45, 212, 167; }    /* playlist = teal */
+
+  /* 2 columnas: con 6 acciones (el máximo real de una pista) son 3 filas exactas, y con 4-5 la
+     última queda incompleta sin romperse. `1fr` reparte el ancho del flotante, así que los tiles
+     miden lo mismo en cualquier teléfono (134px con el ancho de 300). */
+  .ctx-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  /* Tile: icono arriba, etiqueta corta abajo y TODO alineado a la izquierda — el bloque teñido
+     con el contenido arrimado a una esquina es lo que lo saca del share-sheet cuadriculado.
+     Caja propia (no hereda de .ctx-item) porque es otra composición: columna, en vez de fila con
+     el texto mandando. 84px de alto, bien por encima del piso de 44 del proyecto. */
+  .ctx-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 10px;
+    min-height: 84px;
+    padding: 12px;
+    background: linear-gradient(150deg, rgba(var(--t), .22), rgba(var(--t), .07));
+    border: 1px solid rgba(var(--t), .4);
+    border-radius: 16px;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+    transition: background .12s, border-color .12s, box-shadow .12s, transform .12s;
+  }
+  /* El icono nace en 14px por atributo del SVG; el CSS le gana y lo lleva a 24 para el tile. */
+  .ctx-tile svg { width: 24px; height: 24px; color: rgb(var(--t)); }
+  .ctx-tile-label {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    line-height: 1.2;
+    color: #fff;
+    /* Las etiquetas cortas entran en una línea a este ancho; si alguna creciera, que corte limpio
+       en vez de desmaquetar la cuadrícula. */
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Al tocar, el neón enciende: el tinte sube, el borde va al 75% y aparece el glow — el mismo
+     lenguaje del drop-shadow de aleatorio/repetir. El icono y la etiqueta ya están en su color
+     desde el reposo, así que no hay nada más que cambiarles. */
+  .ctx-tile:active {
+    transform: scale(.97);
+    background: linear-gradient(150deg, rgba(var(--t), .36), rgba(var(--t), .15));
+    border-color: rgba(var(--t), .75);
+    box-shadow: 0 0 20px rgba(var(--t), .38);
+  }
+  .ctx-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* Sub-selector de playlists. NO hacía falta resolver nada nuevo: ya en desktop es un PANEL EN
+     EL MISMO SITIO (la caja cambia de contenido), no un flyout lateral — ver el comentario de
+     `panel` en ContextMenu.jsx. Acá sigue igual: misma caja, que crece y se vuelve a posicionar
+     sola (el efecto de flip/clamp tiene `panel` entre sus deps). Lo único que cambia son los
+     targets y quién scrollea — la LISTA se scrollea sola y así el formulario de "nueva playlist"
+     queda siempre apoyado abajo, en vez de irse con el scroll del flotante. */
+  .ctx-menu--tiles .ctx-back { min-height: 48px; font-size: 15px; }
+  .ctx-menu--tiles .ptp-list { max-height: 34vh; }
+  .ctx-menu--tiles .ptp-item-main { padding: 12px 14px; }
+  .ctx-menu--tiles .ptp-new input,
+  .ctx-menu--tiles .ptp-new-btn { min-height: 44px; }
+  /* …y no se achica al ancho de la grilla: la lista con emoji + contador necesita el ancho del
+     popover del "+" y su padding de siempre. Misma especificidad (0,2,0) que
+     `.ctx-menu.ctx-menu--tiles` → gana porque va después. */
+  .ctx-menu--tiles.ctx-menu--wide { width: min(340px, calc(100vw - 24px)); padding: 8px; }
+}
+@keyframes ctx-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* El pop de entrada del menú ya lo anula la rama reduced-motion general (.ctx-menu
+   { animation: none }); acá sólo queda lo que agregó el menú táctil. */
+@media (max-width: 880px) and (prefers-reduced-motion: reduce) {
+  .ctx-scrim { animation: none; }
+  /* "Color sí, movimiento no": el tile conserva el encendido de :active (tinte, borde y glow son
+     color), pierde el empujoncito. */
+  .ctx-tile { transition: background .12s, border-color .12s, box-shadow .12s; }
+  .ctx-tile:active { transform: none; }
+}
 
 /* Botón "⋯" de la fila: el disparador VISIBLE del menú, en la celda .col-actions donde antes
    estaba el "+". Reusa la caja de .ptp-btn —que Playlists ya reusa para su "quitar"—, así que
