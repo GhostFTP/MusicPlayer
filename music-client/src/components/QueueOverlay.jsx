@@ -7,7 +7,38 @@ import { useLongPress } from '../utils/useLongPress.js';
 // Vista de cola — overlay del player (dirección A "Lista de sala" + eq-bars/progreso de B).
 // Lectura + salto: sonó / suena / viene, la actual marcada, tap salta a la fila. El clic DERECHO
 // abre el menú contextual con las acciones propias de la cola (quitar, ir a artista/álbum, info).
-// SIN reorder todavía (es un frente de gestos propio).
+// D1 · REORDER por arrastre, sólo en DESKTOP (ver el bloque de gesto abajo).
+
+// px de movimiento vertical que declaran "esto es un arrastre, no un click". Por DEBAJO de
+// AXIS_DIST (12, el umbral con el que Player fija eje) porque acá no compite con ningún otro
+// gesto: en desktop el long-press no arma y el arrastre de la hoja es móvil. Alcanza con que un
+// click tembloroso (<3px de jerk del mouse) nunca se cuele como reorder.
+const DRAG_START = 6;
+
+// D3 · Autoscroll de bordes. Sin esto el reorden sólo alcanza lo VISIBLE: en una cola de ~650
+// pistas no hay manera de llevar la 400 a la 3.
+const EDGE_ZONE  = 56;     // px de franja sensible arriba y abajo del cuerpo scrolleable
+const EDGE_V_MAX = 1600;   // px/s pegado al borde (~30 filas/s). Más rápido se vuelve incontrolable
+
+// D2b · El asentamiento al soltar. Corto a propósito: es un acuse de recibo, no un viaje — y
+// mientras dura, un gesto nuevo tiene que esperar.
+const SNAP_MS   = 170;
+// D2d · Curva CON CARÁCTER: el ease-out plano de la casa (.22,1,.36,1) cumplía pero no se notaba.
+// Ésta se pasa del destino y vuelve —el "spring" de iOS— y el rebote es lo que hace que el
+// movimiento se lea como intencional y no como un salto suavizado. El overshoot va en la CURVA, no
+// en keyframes: sigue siendo una sola transición de transform, compositable.
+// Calibración: es el extremo alto a propósito (el usuario pidió pasarse y bajar). Si resulta
+// demasiado, el número a mover es el 1.56 (a ~1.3 el rebote se insinúa); si NO se percibe, la
+// palanca es SNAP_MS —en 170ms el rebote dura ~60ms— pero eso quedó fuera de alcance esta vuelta.
+const SNAP_EASE = 'cubic-bezier(.34, 1.56, .64, 1)';
+// D2d · El "despegue" de la fila agarrada. Va en el transform (no en la clase CSS) porque el JS ya
+// escribe transform inline para seguir al puntero y el inline pisaría la clase entera. Al soltar,
+// el snap transiciona hacia un transform SIN esto: la fila aterriza —se endereza y se desinfla—
+// mientras cae, en la misma animación y sin una propiedad de más.
+// Los números están topados por geometría, no por gusto: la fila mide ~320px de ancho en la columna
+// y el cuerpo tiene 8px de padding. scale(1.03) crece ~4.8px por lado y el rotate suma ~0.6 → entra
+// justo sin provocar scroll horizontal (el overflow-y:auto del cuerpo computa el overflow-x a auto).
+const LIFT = 'scale(1.03) rotate(-1.2deg)';
 
 // Barra de progreso de la pista actual, AISLADA en su propio nodo: consume currentTime/duration
 // (cambian ~4 Hz). Al re-renderizarse por cada tick, SOLO se re-pinta ella — las filas de la cola
@@ -49,6 +80,7 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
   return (
     <li
       className={`queue-row queue-${zone}${isCurrent ? ' current' : ''}`}
+      data-qid={track._qid}
       {...bindPress(track, {
         onClick: () => onJump(index),
         onContextMenu: (e) => onCtx(e, track, isCurrent),
@@ -77,10 +109,258 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
 });
 
 export default function QueueOverlay({ onClose }) {
-  const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo } = usePlayer();
+  const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo, moveInQueue } = usePlayer();
   const { openMenu } = useContextMenu();
   const hasCover = !!currentTrack?.cover_path;
   const bodyRef = useRef(null);
+
+  // ── D1 · Reorder por arrastre (DESKTOP-ONLY) ────────────────────────────────────────────────
+  //
+  // Patrón de la casa, sin librerías (regla dura #9 de actions-lab): pointer events + captura +
+  // umbral + cancelación limpia, calcado de onGrabberDown/onQueueDragDown (Player.jsx). Como en el
+  // arrastre de la hoja móvil, los handlers van en el CONTENEDOR (el <ul>) y se filtra por target:
+  // así las filas memoizadas no reciben ni una prop nueva.
+  //
+  // Durante el gesto NO se pasa por React: los transforms y las marcas se escriben DIRECTO sobre
+  // los nodos (mismo permiso que se toma el auto-scroll de abajo). Si el estado del drag viviera en
+  // un useState, cada frame re-renderizaría las ~650 filas y tiraría abajo la memoización que este
+  // archivo cuida (cuidado 3). React se entera UNA vez: al soltar, vía moveInQueue.
+  //
+  // Gate por ANCHO en el pointerdown, igual que onGrabberDown (Player.jsx) — nunca por pointerType
+  // (criterio de régimen de mobile-lab). En móvil las filas NO se vuelven arrastrables: ahí la cola
+  // es la hoja del drawer y su gesto (subir/bajar) queda intacto.
+  const dragRef    = useRef(null);    // gesto en curso (null = ninguno)
+  const didDragRef = useRef(false);   // este gesto arrastró → su click NO salta de pista
+
+  // Marca dónde caería: línea de 2px sobre la fila destino. Hacia abajo cae DESPUÉS de la que hoy
+  // ocupa ese índice; hacia arriba, ANTES (la convención splice-remove-then-insert de moveInQueue).
+  // Se recuerda la fila marcada (`d.marked`) en vez de barrer la lista entera: con el autoscroll
+  // corriendo el destino cambia ~30 veces por segundo, y limpiar las ~650 filas en cada cambio
+  // serían decenas de miles de classList por segundo. Así son dos toques de DOM por cambio.
+  const paintDrop = (d, to) => {
+    if (d.marked) {
+      d.marked.classList.remove('queue-row--drop-before', 'queue-row--drop-after');
+      d.marked = null;
+    }
+    if (to === d.index) return;                                  // vuelve a su sitio: sin marca
+    d.marked = d.rows[to];
+    d.marked.classList.add(to > d.index ? 'queue-row--drop-after' : 'queue-row--drop-before');
+  };
+
+  // Pinta el estado del arrastre. El desplazamiento se mide en COORDENADAS DE CONTENIDO, no de
+  // pantalla: dy = (puntero recorrido) + (lo que scrolleó la lista debajo). Esa suma es la clave de
+  // D3 y hace las dos cosas de una:
+  //  · el transform deja la fila pegada al puntero — al desarrollar la posición visual, los dos
+  //    scrollTop se cancelan y queda `rowTop0 + (lastY - y0)`, o sea sigue al dedo y NADA más;
+  //  · el índice destino sí incorpora el scroll, que es exactamente lo que permite pasar de la
+  //    posición 400 a la 3: el destino se recalcula con las filas que van apareciendo.
+  // Con scroll quieto (scrollTop === top0) se reduce a lo de D1 — es compatible hacia atrás.
+  const updateDrag = (d) => {
+    const dy = (d.lastY - d.y0) + (d.body.scrollTop - d.top0);
+    d.row.style.transform = `translateY(${dy}px) ${LIFT}`;   // D2d · sigue al puntero, ya despegada
+    const to = Math.max(0, Math.min(d.index + Math.round(dy / d.h), d.rows.length - 1));
+    if (to !== d.to) { d.to = to; paintDrop(d, to); }
+  };
+
+  // Velocidad del autoscroll según cuánto penetró el puntero en la franja. Cuadrática: control fino
+  // al entrar, velocidad alta al pegarse al borde. El rect va CACHEADO desde el pointerdown (el
+  // cuerpo no cambia de tamaño a mitad de arrastre), así que el loop no lee layout ni un solo frame
+  // — sólo escribe scrollTop y transform. Es lo que lo mantiene sin jank.
+  // Puntero FUERA del cuerpo (arriba del header o debajo del borde) → p se clampea a 1: máxima
+  // velocidad, en vez de un número disparatado.
+  const edgeVelocity = (d) => {
+    const toTop = d.lastY - d.rect.top;
+    const toBot = d.rect.bottom - d.lastY;
+    const ramp  = (p) => EDGE_V_MAX * Math.min(1, Math.max(0, p)) ** 2;
+    // Si el cuerpo es más bajo que las dos franjas juntas (drawer chico en una pantalla baja) se
+    // solapan: gana el borde MÁS CERCANO, en vez de que "arriba" se quede siempre con el gesto.
+    if (toTop < EDGE_ZONE && toTop <= toBot) return -ramp(1 - toTop / EDGE_ZONE);
+    if (toBot < EDGE_ZONE) return  ramp(1 - toBot / EDGE_ZONE);
+    return 0;
+  };
+
+  // Un frame de autoscroll. Se detiene solo al tocar el tope o el fondo (chequeo explícito, no por
+  // "scrollTop no cambió", que con velocidades bajas daría un falso positivo por redondeo).
+  const autoTick = (t) => {
+    const d = dragRef.current;
+    if (!d || !d.auto.vy) { if (d) d.auto.raf = 0; return; }   // el drag terminó → no re-agendar
+    const dt = Math.min((t - d.auto.lastT) / 1000, 0.05);   // clamp: si el tab estuvo dormido, no saltar
+    d.auto.lastT = t;
+    const cur = d.body.scrollTop;
+    // Tope/fondo contra el máximo cacheado en el pointerdown: la cola no muta durante el arrastre,
+    // así que el loop no vuelve a leer scrollHeight/clientHeight ni un frame.
+    if ((d.auto.vy < 0 && cur <= 0) || (d.auto.vy > 0 && cur >= d.maxScroll - 1)) {
+      d.auto.vy = 0; d.auto.raf = 0; return;
+    }
+    d.body.scrollTop = cur + d.auto.vy * dt;
+    updateDrag(d);                                      // el marcador de drop NO se congela
+    d.auto.raf = requestAnimationFrame(autoTick);
+  };
+
+  const setAutoScroll = (d, vy) => {
+    d.auto.vy = vy;
+    if (vy && !d.auto.raf) {
+      d.auto.lastT = performance.now();                 // misma base de tiempo que el timestamp de rAF
+      d.auto.raf = requestAnimationFrame(autoTick);
+    } else if (!vy && d.auto.raf) {
+      cancelAnimationFrame(d.auto.raf);
+      d.auto.raf = 0;
+    }
+  };
+
+  // Limpieza común del gesto: corta el rAF, suelta la captura y borra las marcas. Es el único
+  // camino de salida (pointerup, cancel, captura perdida y desmontaje pasan todos por acá), así que
+  // no queda ningún loop colgado. NO toca el transform de la fila a propósito: quién lo hace —de
+  // golpe al cancelar, o animado al soltar (D2b)— lo decide el llamador.
+  const cleanupGesture = (d) => {
+    dragRef.current = null;
+    if (d.auto.raf) cancelAnimationFrame(d.auto.raf);
+    d.auto.raf = 0; d.auto.vy = 0;
+    d.list.classList.remove('queue-dragging');
+    d.marked?.classList.remove('queue-row--drop-before', 'queue-row--drop-after');
+    try { d.list.releasePointerCapture(d.id); } catch { /* ya liberada */ }
+  };
+
+  // Cancelación DURA (pointercancel, captura perdida, desmontaje): la fila vuelve de golpe, sin
+  // animar. Un gesto abortado no merece ceremonia, y además puede venir de un desmontaje donde no
+  // hay nada que mirar. Limpiar el transform es obligatorio: React reusa los <li> por su key (_qid)
+  // y no controla `style`, así que uno sin limpiar quedaría pegado.
+  const endDrag = useCallback(() => {
+    const d = dragRef.current;
+    if (!d) return;
+    cleanupGesture(d);
+    d.row.style.transform = '';
+    d.row.classList.remove('queue-row--dragging');
+  }, []);
+
+  // ── D2b · El snap al soltar ─────────────────────────────────────────────────────────────────
+  //
+  // Al soltar, la fila NO salta a su lugar: se asienta. El truco es el mismo que usa snapQueue en
+  // Player.jsx para la hoja móvil — se anima hasta la posición del destino y el reorden se COMMITEA
+  // recién al terminar. En ese frame la imagen es idéntica (la fila ya está donde va a quedar), así
+  // que el intercambio "transform → orden real" es invisible.
+  //
+  // El orden importa y es justo al revés de lo intuitivo: limpiar el transform y commitear juntos
+  // NO anima nada. Primero se anima, y sólo después se limpia y se commitea.
+  //
+  // El destino es exacto y sale de la geometría, no de una medición nueva: la distancia entre el
+  // sitio de reposo de la fila (index) y el que va a ocupar (to). El scroll no entra en la cuenta
+  // —ya está aplicado al contenedor— así que la fórmula vale igual si hubo autoscroll. Y cubre
+  // gratis el caso "la devolví a su lugar" (to === index → destino 0), que antes también saltaba.
+  const settleRef = useRef(null);   // snap en curso: { row, commit, timer }
+
+  // Termina YA el snap pendiente: deja la fila plana y commitea el reorden. Idempotente.
+  const finishSettle = useCallback(() => {
+    const s = settleRef.current;
+    if (!s) return;
+    settleRef.current = null;
+    clearTimeout(s.timer);
+    s.row.style.transition = '';
+    s.row.style.transform  = '';
+    s.row.classList.remove('queue-row--dragging');
+    s.commit();
+  }, []);
+
+  const settleDrag = (d) => {
+    const { row, to, index, qid, h } = d;
+    const commit = () => { if (to !== index) moveInQueue(qid, to); };
+    // reduced-motion: cae directo, como antes de D2b. Se consulta al soltar (no hace falta estado
+    // reactivo para un valor que se lee una vez por gesto).
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      row.style.transform = '';
+      row.classList.remove('queue-row--dragging');
+      commit();
+      return;
+    }
+    // La transición va INLINE y sólo acá: durante el arrastre la fila sigue al puntero 1:1, sin
+    // transición, y eso no cambia. Sólo transform (compositable) y sólo esta fila — las otras ~650
+    // no se enteran. Se conserva .queue-row--dragging mientras cae, para que siga por encima de
+    // sus vecinas hasta apoyarse.
+    // D2d · El destino va SIN el LIFT a propósito: en la misma transición la fila se endereza y se
+    // desinfla mientras baja — aterriza, no se apaga de golpe al final. Es una sola interpolación
+    // de transform (translate + scale + rotate), no tres propiedades.
+    settleRef.current = { row, commit, timer: 0 };
+    row.style.transition = `transform ${SNAP_MS}ms ${SNAP_EASE}`;
+    row.style.transform  = `translateY(${(to - index) * h}px)`;
+    settleRef.current.timer = setTimeout(finishSettle, SNAP_MS + 20);
+  };
+
+  const onListPointerDown = (e) => {
+    didDragRef.current = false;                                   // gesto nuevo → guard limpio
+    // Snap en curso: se cierra YA (la cola queda consistente) y este gesto se cede. Arrancar un
+    // arrastre acá tomaría `rows`/`index` de un DOM que está por reordenarse en el commit. Son
+    // ~190ms y el click sigue funcionando, así que lo único que se pierde es encadenar dos
+    // arrastres a velocidad inhumana.
+    if (settleRef.current) { finishSettle(); return; }
+    if (e.button !== 0) return;                                   // el clic DERECHO es el menú
+    if (!window.matchMedia('(min-width: 701px)').matches) return;  // desktop-only
+    if (e.target.closest?.('button, a, input, [role="button"]')) return;
+    const row = e.target.closest?.('.queue-row');
+    if (!row) return;
+    const list = e.currentTarget;
+    const rows = Array.from(list.children);
+    const index = rows.indexOf(row);
+    if (index < 0) return;
+    if (!row.offsetHeight) return;   // alto 0 (fila oculta): dy/h daría NaN y el destino se iría a undefined
+    const body = bodyRef.current;
+    if (!body) return;
+    // Paso entre filas medido del DOM REAL, no hardcodeado. Son de alto uniforme: lo manda la
+    // carátula (38px + padding), el título va nowrap y el pill no la supera.
+    // `top0` es el scroll de partida y `rect` la caja del cuerpo, los dos leídos UNA vez acá para
+    // que ni el move ni el loop de autoscroll toquen layout.
+    dragRef.current = {
+      id: e.pointerId, qid: Number(row.dataset.qid),
+      list, row, rows, index, to: index, body,
+      y0: e.clientY, lastY: e.clientY, top0: body.scrollTop,
+      rect: body.getBoundingClientRect(),
+      maxScroll: body.scrollHeight - body.clientHeight,
+      h: row.offsetHeight, active: false, marked: null,
+      auto: { raf: 0, vy: 0, lastT: 0 },
+    };
+  };
+
+  const onListPointerMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    d.lastY = e.clientY;                                          // el loop de autoscroll lo reusa
+    if (!d.active) {
+      if (Math.abs(e.clientY - d.y0) < DRAG_START) return;        // aún indeciso: puede ser un click
+      d.active = true;
+      didDragRef.current = true;
+      try { d.list.setPointerCapture(d.id); } catch { /* noop */ }
+      d.list.classList.add('queue-dragging');
+      d.row.classList.add('queue-row--dragging');
+    }
+    updateDrag(d);
+    setAutoScroll(d, edgeVelocity(d));                            // entrar/salir de la franja de borde
+  };
+
+  const onListPointerUp = () => {
+    const d = dragRef.current;
+    if (!d) return;
+    cleanupGesture(d);                                            // el gesto terminó; la fila aún no
+    if (!d.active) {                                              // fue un click: nada que asentar
+      d.row.style.transform = '';
+      d.row.classList.remove('queue-row--dragging');
+      return;
+    }
+    settleDrag(d);                                                // anima y commitea al terminar
+  };
+
+  // El click que sigue a un arrastre no debe saltar de pista. Se traga en fase de CAPTURA sobre el
+  // <ul> (corre antes del onClick de la fila, y no depende de dónde re-targetee la captura), no con
+  // un preventDefault en el pointerdown que mataría el scroll — mismo criterio que useLongPress.
+  const onListClickCapture = (e) => {
+    if (!didDragRef.current) return;
+    didDragRef.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  // Desmontar a mitad de gesto no deja el DOM sucio ni un timer suelto. Si había un snap corriendo
+  // se cierra commiteando: el usuario ya soltó, la intención estaba tomada — cerrar la cola no es
+  // motivo para descartar el reorden.
+  useEffect(() => () => { endDrag(); finishSettle(); }, [endDrag, finishSettle]);
 
   // Estable (openMenu es un useCallback sin deps) → las QueueRow memoizadas siguen sin
   // re-renderizarse en cada tick del progreso. `isCurrent` viaja en el payload porque la cola
@@ -93,17 +373,29 @@ export default function QueueOverlay({ onClose }) {
     [openMenu],
   );
 
-  // Auto-scroll: al cambiar la pista actual, centrar la fila marcada en la vista. Dep [queueIndex]
-  // (NO currentTime) → no corre en cada tick del progreso. Vía querySelector sobre el DOM: NO
-  // agrega props a las QueueRow memoizadas → el aislamiento del re-render del progreso queda intacto.
+  // Auto-scroll: al cambiar la pista actual, centrar la fila marcada en la vista. Dep por _qid de
+  // la actual (NO currentTime) → no corre en cada tick del progreso. Vía querySelector sobre el DOM:
+  // NO agrega props a las QueueRow memoizadas → el aislamiento del re-render del progreso queda intacto.
+  //
+  // D1 · La dep es el _qid y ya NO queueIndex: reordenar cruzando la pista actual le cambia el
+  // ÍNDICE sin cambiar la pista (idxRef la sigue por _qid), y con la dep vieja la lista se
+  // auto-centraba sola a mitad del arrastre. Por _qid dispara exactamente cuando cambia la pista
+  // —que es lo que este efecto siempre quiso decir— y de paso distingue duplicados.
   // behavior:'auto' (salto directo, SIEMPRE): con shuffle + cola larga "siguiente" salta cientos de
   // filas y animar ese trayecto marea; el salto instantáneo orienta sin recorrerlo (auto = sin
   // motion → también respeta prefers-reduced-motion). block:'center' orienta mejor en saltos grandes.
   useEffect(() => {
+    // D3 · Con un arrastre en curso este efecto se ABSTIENE. Si la canción termina a mitad del
+    // gesto, centrar la nueva actual movería el scroll de golpe por debajo del dedo: el arrastre
+    // lo leería como desplazamiento y el destino pegaría un salto. Los dos scrollean el mismo
+    // nodo, así que mandan de a uno — y mientras arrastrás, mandás vos.
+    // D2b · Y también mientras la fila se asienta: ahí el arrastre ya terminó (dragRef en null),
+    // pero un scroll de golpe partiría la animación al medio.
+    if (dragRef.current || settleRef.current) return;
     const row = bodyRef.current?.querySelector('.queue-row.current');
     if (!row) return;
     row.scrollIntoView({ block: 'center', behavior: 'auto' });
-  }, [queueIndex]);
+  }, [currentTrack?._qid]);
 
   return (
     <div className="queue-panel">
@@ -139,7 +431,15 @@ export default function QueueOverlay({ onClose }) {
             <div>La cola está vacía</div>
           </div>
         ) : (
-          <ul className="queue-list">
+          <ul
+            className="queue-list"
+            onPointerDown={onListPointerDown}
+            onPointerMove={onListPointerMove}
+            onPointerUp={onListPointerUp}
+            onPointerCancel={endDrag}
+            onLostPointerCapture={endDrag}
+            onClickCapture={onListClickCapture}
+          >
             {queue.map((t, i) => (
               <QueueRow
                 key={t._qid}
