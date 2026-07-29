@@ -3,6 +3,20 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.11.0] - 2026-07-29
+
+### Añadido
+- **Reordená la cola arrastrando**: agarrá una canción de la lista de lo que sigue
+  y soltala donde quieras — las demás se corren solas para hacerle lugar y el orden
+  nuevo queda aplicado al toque. Mientras la arrastrás, la fila se despega apenas de
+  la lista y al soltarla se asienta con un rebote, así siempre ves cuál estás
+  moviendo y dónde cayó. Por ahora es en pantalla grande, con el mouse: en el
+  teléfono la cola sigue funcionando como hasta ahora.
+- **La lista se desplaza sola mientras arrastrás**: si llevás la canción hasta el
+  borde de arriba o de abajo del panel, la cola empieza a correrse en esa dirección
+  y se frena apenas te alejás del borde. Podés mandar una pista del final al
+  principio de una cola larga sin soltarla ni scrollear a mano.
+
 ## [1.10.1] - 2026-07-27
 
 ### Mejorado
