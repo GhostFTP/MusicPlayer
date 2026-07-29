@@ -4928,9 +4928,23 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   /* user-select sólo DURANTE el arrastre: fuera de él, el título de una pista se sigue pudiendo
      seleccionar como siempre. */
   .queue-list.queue-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
-  /* La fila levantada. La sombra no es decoración: sin ella, al superponerse sobre las vecinas no
-     se distingue cuál se está moviendo. */
-  .queue-row--dragging { z-index: 2; opacity: .9; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
+  /* D2d · La fila levantada tiene que leerse CLARÍSIMO. Fondo SÓLIDO (sin él se transparenta sobre
+     las vecinas) y opacidad plena: la .9 de antes la apagaba justo cuando más tiene que destacar.
+     Sombra de DOS capas —una difusa y lejana que da el "flota alto", otra cerrada que ancla el
+     borde— más un inset de 1px que hace de realce. Las tres en box-shadow: una sola propiedad,
+     cero reflow.
+     El scale/rotate del despegue NO va acá: lo compone el JS junto al translateY, porque es la
+     MISMA propiedad transform y el inline pisaría entera a la clase.
+     Doble clase para ganarle en especificidad a .queue-row.current (0,2,0), que si no le pisa el
+     fondo a la fila agarrada cuando la que movés es la que suena. */
+  .queue-row.queue-row--dragging {
+    z-index: 2;
+    background: var(--surface-2);
+    box-shadow:
+      0 22px 48px rgba(0, 0, 0, .60),
+      0 6px 14px rgba(0, 0, 0, .45),
+      inset 0 0 0 1px rgba(255, 255, 255, .10);
+  }
   /* Dónde caería. ::after libre en .queue-row (el ::before de la cola es de .queue-close). */
   .queue-row--drop-before::after,
   .queue-row--drop-after::after {
