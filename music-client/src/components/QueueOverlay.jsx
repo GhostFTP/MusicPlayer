@@ -7,7 +7,13 @@ import { useLongPress } from '../utils/useLongPress.js';
 // Vista de cola — overlay del player (dirección A "Lista de sala" + eq-bars/progreso de B).
 // Lectura + salto: sonó / suena / viene, la actual marcada, tap salta a la fila. El clic DERECHO
 // abre el menú contextual con las acciones propias de la cola (quitar, ir a artista/álbum, info).
-// SIN reorder todavía (es un frente de gestos propio).
+// D1 · REORDER por arrastre, sólo en DESKTOP (ver el bloque de gesto abajo).
+
+// px de movimiento vertical que declaran "esto es un arrastre, no un click". Por DEBAJO de
+// AXIS_DIST (12, el umbral con el que Player fija eje) porque acá no compite con ningún otro
+// gesto: en desktop el long-press no arma y el arrastre de la hoja es móvil. Alcanza con que un
+// click tembloroso (<3px de jerk del mouse) nunca se cuele como reorder.
+const DRAG_START = 6;
 
 // Barra de progreso de la pista actual, AISLADA en su propio nodo: consume currentTime/duration
 // (cambian ~4 Hz). Al re-renderizarse por cada tick, SOLO se re-pinta ella — las filas de la cola
@@ -49,6 +55,7 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
   return (
     <li
       className={`queue-row queue-${zone}${isCurrent ? ' current' : ''}`}
+      data-qid={track._qid}
       {...bindPress(track, {
         onClick: () => onJump(index),
         onContextMenu: (e) => onCtx(e, track, isCurrent),
@@ -77,10 +84,107 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
 });
 
 export default function QueueOverlay({ onClose }) {
-  const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo } = usePlayer();
+  const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo, moveInQueue } = usePlayer();
   const { openMenu } = useContextMenu();
   const hasCover = !!currentTrack?.cover_path;
   const bodyRef = useRef(null);
+
+  // ── D1 · Reorder por arrastre (DESKTOP-ONLY) ────────────────────────────────────────────────
+  //
+  // Patrón de la casa, sin librerías (regla dura #9 de actions-lab): pointer events + captura +
+  // umbral + cancelación limpia, calcado de onGrabberDown/onQueueDragDown (Player.jsx). Como en el
+  // arrastre de la hoja móvil, los handlers van en el CONTENEDOR (el <ul>) y se filtra por target:
+  // así las filas memoizadas no reciben ni una prop nueva.
+  //
+  // Durante el gesto NO se pasa por React: los transforms y las marcas se escriben DIRECTO sobre
+  // los nodos (mismo permiso que se toma el auto-scroll de abajo). Si el estado del drag viviera en
+  // un useState, cada frame re-renderizaría las ~650 filas y tiraría abajo la memoización que este
+  // archivo cuida (cuidado 3). React se entera UNA vez: al soltar, vía moveInQueue.
+  //
+  // Gate por ANCHO en el pointerdown, igual que onGrabberDown (Player.jsx) — nunca por pointerType
+  // (criterio de régimen de mobile-lab). En móvil las filas NO se vuelven arrastrables: ahí la cola
+  // es la hoja del drawer y su gesto (subir/bajar) queda intacto.
+  const dragRef    = useRef(null);    // gesto en curso (null = ninguno)
+  const didDragRef = useRef(false);   // este gesto arrastró → su click NO salta de pista
+
+  // Marca dónde caería: línea de 2px sobre la fila destino. Hacia abajo cae DESPUÉS de la que hoy
+  // ocupa ese índice; hacia arriba, ANTES (la convención splice-remove-then-insert de moveInQueue).
+  const paintDrop = (d, to) => {
+    for (const r of d.rows) r.classList.remove('queue-row--drop-before', 'queue-row--drop-after');
+    if (to === d.index) return;                                  // vuelve a su sitio: sin marca
+    d.rows[to].classList.add(to > d.index ? 'queue-row--drop-after' : 'queue-row--drop-before');
+  };
+
+  // Deja el DOM como estaba. SIEMPRE antes de moveInQueue: React reusa los <li> por su key (_qid)
+  // y no controla `style`, así que un transform inline sin limpiar quedaría pegado tras el reorder.
+  const endDrag = useCallback(() => {
+    const d = dragRef.current;
+    if (!d) return;
+    dragRef.current = null;
+    d.row.style.transform = '';
+    d.row.classList.remove('queue-row--dragging');
+    d.list.classList.remove('queue-dragging');
+    for (const r of d.rows) r.classList.remove('queue-row--drop-before', 'queue-row--drop-after');
+    try { d.list.releasePointerCapture(d.id); } catch { /* ya liberada */ }
+  }, []);
+
+  const onListPointerDown = (e) => {
+    didDragRef.current = false;                                   // gesto nuevo → guard limpio
+    if (e.button !== 0) return;                                   // el clic DERECHO es el menú
+    if (!window.matchMedia('(min-width: 701px)').matches) return;  // desktop-only
+    if (e.target.closest?.('button, a, input, [role="button"]')) return;
+    const row = e.target.closest?.('.queue-row');
+    if (!row) return;
+    const list = e.currentTarget;
+    const rows = Array.from(list.children);
+    const index = rows.indexOf(row);
+    if (index < 0) return;
+    if (!row.offsetHeight) return;   // alto 0 (fila oculta): dy/h daría NaN y el destino se iría a undefined
+    // Paso entre filas medido del DOM REAL, no hardcodeado. Son de alto uniforme: lo manda la
+    // carátula (38px + padding), el título va nowrap y el pill no la supera.
+    dragRef.current = {
+      id: e.pointerId, qid: Number(row.dataset.qid),
+      list, row, rows, index, to: index,
+      y0: e.clientY, h: row.offsetHeight, active: false,
+    };
+  };
+
+  const onListPointerMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dy = e.clientY - d.y0;
+    if (!d.active) {
+      if (Math.abs(dy) < DRAG_START) return;                      // aún indeciso: puede ser un click
+      d.active = true;
+      didDragRef.current = true;
+      try { d.list.setPointerCapture(d.id); } catch { /* noop */ }
+      d.list.classList.add('queue-dragging');
+      d.row.classList.add('queue-row--dragging');
+    }
+    d.row.style.transform = `translateY(${dy}px)`;
+    const to = Math.max(0, Math.min(d.index + Math.round(dy / d.h), d.rows.length - 1));
+    if (to !== d.to) { d.to = to; paintDrop(d, to); }
+  };
+
+  const onListPointerUp = () => {
+    const d = dragRef.current;
+    if (!d) return;
+    const { active, qid, to, index } = d;
+    endDrag();                                                    // limpiar el DOM ANTES del commit
+    if (active && to !== index) moveInQueue(qid, to);
+  };
+
+  // El click que sigue a un arrastre no debe saltar de pista. Se traga en fase de CAPTURA sobre el
+  // <ul> (corre antes del onClick de la fila, y no depende de dónde re-targetee la captura), no con
+  // un preventDefault en el pointerdown que mataría el scroll — mismo criterio que useLongPress.
+  const onListClickCapture = (e) => {
+    if (!didDragRef.current) return;
+    didDragRef.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  useEffect(() => endDrag, [endDrag]);   // desmontar a mitad de gesto no deja el DOM sucio
 
   // Estable (openMenu es un useCallback sin deps) → las QueueRow memoizadas siguen sin
   // re-renderizarse en cada tick del progreso. `isCurrent` viaja en el payload porque la cola
@@ -93,9 +197,14 @@ export default function QueueOverlay({ onClose }) {
     [openMenu],
   );
 
-  // Auto-scroll: al cambiar la pista actual, centrar la fila marcada en la vista. Dep [queueIndex]
-  // (NO currentTime) → no corre en cada tick del progreso. Vía querySelector sobre el DOM: NO
-  // agrega props a las QueueRow memoizadas → el aislamiento del re-render del progreso queda intacto.
+  // Auto-scroll: al cambiar la pista actual, centrar la fila marcada en la vista. Dep por _qid de
+  // la actual (NO currentTime) → no corre en cada tick del progreso. Vía querySelector sobre el DOM:
+  // NO agrega props a las QueueRow memoizadas → el aislamiento del re-render del progreso queda intacto.
+  //
+  // D1 · La dep es el _qid y ya NO queueIndex: reordenar cruzando la pista actual le cambia el
+  // ÍNDICE sin cambiar la pista (idxRef la sigue por _qid), y con la dep vieja la lista se
+  // auto-centraba sola a mitad del arrastre. Por _qid dispara exactamente cuando cambia la pista
+  // —que es lo que este efecto siempre quiso decir— y de paso distingue duplicados.
   // behavior:'auto' (salto directo, SIEMPRE): con shuffle + cola larga "siguiente" salta cientos de
   // filas y animar ese trayecto marea; el salto instantáneo orienta sin recorrerlo (auto = sin
   // motion → también respeta prefers-reduced-motion). block:'center' orienta mejor en saltos grandes.
@@ -103,7 +212,7 @@ export default function QueueOverlay({ onClose }) {
     const row = bodyRef.current?.querySelector('.queue-row.current');
     if (!row) return;
     row.scrollIntoView({ block: 'center', behavior: 'auto' });
-  }, [queueIndex]);
+  }, [currentTrack?._qid]);
 
   return (
     <div className="queue-panel">
@@ -139,7 +248,15 @@ export default function QueueOverlay({ onClose }) {
             <div>La cola está vacía</div>
           </div>
         ) : (
-          <ul className="queue-list">
+          <ul
+            className="queue-list"
+            onPointerDown={onListPointerDown}
+            onPointerMove={onListPointerMove}
+            onPointerUp={onListPointerUp}
+            onPointerCancel={endDrag}
+            onLostPointerCapture={endDrag}
+            onClickCapture={onListClickCapture}
+          >
             {queue.map((t, i) => (
               <QueueRow
                 key={t._qid}

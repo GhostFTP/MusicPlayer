@@ -4908,6 +4908,39 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .layout--queue .queue-bg { display: none; }    /* sin carátula difuminada en la columna sólida */
 }
 
+/* ── D1 · Reorder por arrastre — DESKTOP-ONLY, funcional (la estética es D2) ────────────────────
+   Alcance deliberado: la fila sigue al puntero (transform inline desde JS, SIN transición) y una
+   línea de 2px marca dónde caería. El reacomodo animado de las vecinas y el snap al soltar son D2.
+
+   Gate ≥701px por CSS y TAMBIÉN por JS (matchMedia en el pointerdown, como onGrabberDown): en
+   ≤700px estas reglas no existen y el gesto no arma — la cola móvil es la hoja del drawer y su
+   arrastre (subir/bajar) queda intacto, sin superposición de áreas (onQueueDragDown sólo agarra
+   '.queue-header, .exp-drawer-grabber').
+
+   isolation:isolate acota el z-index de la fila levantada a la propia lista: no se inventa capa ni
+   se toca la escalera (--z-queue 255 / --z-context-menu 260 intactos). El menú contextual se
+   renderiza desde App.jsx, fuera de este subárbol, así que aislar acá no lo atrapa.
+
+   Sin blur (regla dura #7) y sin animaciones — no hay nada que apagar bajo prefers-reduced-motion:
+   el transform sigue al puntero 1:1, que no es una animación sino manipulación directa. ── */
+@media (min-width: 701px) {
+  .queue-list { isolation: isolate; }
+  /* user-select sólo DURANTE el arrastre: fuera de él, el título de una pista se sigue pudiendo
+     seleccionar como siempre. */
+  .queue-list.queue-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+  /* La fila levantada. La sombra no es decoración: sin ella, al superponerse sobre las vecinas no
+     se distingue cuál se está moviendo. */
+  .queue-row--dragging { z-index: 2; opacity: .9; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
+  /* Dónde caería. ::after libre en .queue-row (el ::before de la cola es de .queue-close). */
+  .queue-row--drop-before::after,
+  .queue-row--drop-after::after {
+    content: ''; position: absolute; left: 10px; right: 10px;
+    height: 2px; background: var(--accent); border-radius: 2px; pointer-events: none;
+  }
+  .queue-row--drop-before::after { top: -1px; }
+  .queue-row--drop-after::after  { bottom: -1px; }
+}
+
 /* ── E2c · Contenido REUSADO dentro del drawer del expandido desktop: se montan QueueOverlay (cola:
    mismo motor/pill/número/auto-scroll) y LyricsPanel (letra sincronizada, mismo .lrc/LRCLIB) TAL
    CUAL, adaptados por CSS a "hoja sólida": posición estática (llenan .exp-drawer-inner), SIN fondo

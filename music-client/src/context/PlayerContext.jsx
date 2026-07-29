@@ -284,6 +284,50 @@ export function PlayerProvider({ children }) {
     if (curQid != null) idxRef.current = next.findIndex((t) => t._qid === curQid);
   }, []);
 
+  // Mueve UNA entrada de la cola a otra posición (reorder por arrastre en desktop). Es la tercera
+  // pata del trípode que habilita el keying por _qid: como played/history/forcedNext se llevan por
+  // _qid y NO por índice, PERMUTAR el array no corrompe nada — igual que en removeFromQueue, lo
+  // único posicional del motor es idxRef, y se recomputa por findIndex.
+  //
+  // NO llama a playIndex ni toca el <audio>: lo que suena sigue sonando, en el mismo segundo, y
+  // MediaSession (que cuelga de currentTrack/isPlaying) ni se entera. Reordenar cambia el PLAN,
+  // nunca la reproducción en curso.
+  //
+  // `toIndex` es la posición destino en la cola YA SIN la pista movida (convención
+  // splice-remove-then-insert): mover la 0 con toIndex=2 la deja en el índice 2 del array final.
+  //
+  // played/history NO se tocan a propósito: son Set/array de _qid y reordenar no agrega ni quita
+  // entradas. El historial es lo que YA sonó — permutar el plan no lo reescribe.
+  //
+  // forcedNext SÍ: mover a mano una pista marcada "a continuación" REVOCA su marca. Sin esto el
+  // arrastre mentiría — forcedNext tiene prioridad sobre el orden (playNext lo consume antes de
+  // cualquier pick), así que arrastrarla al fondo la haría sonar a continuación igual. La regla
+  // queda simple y explicable: si la moviste a mano, manda el orden. Simétrico con
+  // removeFromQueue, y sale del ref Y de su espejo reactivo (el pill).
+  //
+  // En SHUFFLE el motor no mira el orden (playNext elige del pool de no-sonadas), así que reordenar
+  // es cosmético: shuffle sigue activo y sólo se reacomoda lo que se ve. El aviso ya está en el
+  // header de la cola ("Aleatorio · orden de la cola").
+  const moveInQueue = useCallback((qid, toIndex) => {
+    if (qid == null) return;
+    const q = queueRef.current;
+    const from = q.findIndex((t) => t._qid === qid);
+    if (from < 0) return;                                   // no estaba en la cola
+    const to = Math.max(0, Math.min(toIndex, q.length - 1));
+    if (to === from) return;                                // no-op
+    const curQid = q[idxRef.current]?._qid;
+    const next = [...q];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    queueRef.current = next;
+    setQueue(next);
+    if (forcedNextRef.current.includes(qid)) {              // el gesto manual revoca el pill
+      forcedNextRef.current = forcedNextRef.current.filter((f) => f !== qid);
+      setUpNextIds([...forcedNextRef.current]);
+    }
+    if (curQid != null) idxRef.current = next.findIndex((t) => t._qid === curQid);
+  }, []);
+
   const seek = useCallback((time) => {
     const audio = getAudio();
     audio.currentTime = Math.max(0, Math.min(time, audio.duration || 0));
@@ -398,7 +442,7 @@ export function PlayerProvider({ children }) {
       currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
       shuffle, repeat,
       queue, upNext: new Set(upNextIds),   // _qid "a continuación" desde ESTADO (reactivo); forcedNextRef sigue siendo la verdad del motor
-      play, addToQueue, playAfterCurrent, removeFromQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+      play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
     }}>
       {children}
     </PlayerContext.Provider>
