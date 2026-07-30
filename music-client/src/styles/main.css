@@ -4908,6 +4908,60 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .layout--queue .queue-bg { display: none; }    /* sin carátula difuminada en la columna sólida */
 }
 
+/* ── Drag-to-enqueue · fase (a) — soltar una pista en la columna para encolarla ─────────────────
+   Dos piezas: el resalte de la ZONA (acá) y el ghost que sigue al cursor (más abajo).
+
+   El resalte dice "soltá acá" mientras el arrastre está encima. Va SÓLO en desktop porque el
+   destino sólo existe ahí: la clase la pone QueueOverlay, pero únicamente la instancia COLUMNA
+   recibe `acceptsDrop` (el drawer del expandido y la hoja móvil montan el mismo componente sin él).
+
+   Sin blur, por la misma razón que la columna es sólida (mata el buffeo de raíz): esto es un
+   cambio de color y un borde, nada que componer. Y sin capa nueva — el panel ya está en el grid,
+   así que la escalera de nav-lab (--z-queue 255 / --z-context-menu 260) no se toca. */
+@media (min-width: 701px) {
+  .layout--queue .queue-panel {
+    transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
+  }
+  .layout--queue .queue-panel--drop {
+    background: #14101f;                         /* el sólido de siempre, tirado al morado */
+    border-left-color: var(--accent);
+    /* Realce por dentro: un filo de acento contra el borde de la biblioteca. Va en box-shadow y no
+       en un borde real para no correr un solo píxel del contenido al encenderse. */
+    box-shadow: inset 0 0 0 1px var(--accent-dim), inset 3px 0 0 var(--accent);
+  }
+}
+
+/* reduced-motion: el resalte es INFORMACIÓN (dice dónde se puede soltar), así que se conserva —
+   lo que se va es el fundido entre estados. */
+@media (prefers-reduced-motion: reduce) {
+  .layout--queue .queue-panel { transition: none; }
+}
+
+/* El GHOST que acompaña al cursor. Nodo efímero creado en dragstart: el navegador le saca una foto
+   y se descarta en el mismo tick, así que nunca se lo ve en su posición real — lo que se ve es la
+   foto, que el navegador pinta FUERA del DOM (no participa del stacking: cero impacto en la
+   escalera de z, otra ventaja de la API nativa sobre un ghost a mano).
+   Es custom y no el default porque el default de un <tr> es una foto de la fila ENTERA, a lo ancho
+   de la tabla. Sobrio: carátula + título, sólido, sin blur. */
+.dq-ghost {
+  position: fixed; top: -1000px; left: -1000px;   /* fuera de pantalla: sólo existe para la foto */
+  display: flex; align-items: center; gap: 10px;
+  max-width: 280px; padding: 8px 14px 8px 8px;
+  background: #17141f; border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
+  font-size: 13px; color: var(--text);
+}
+.dq-ghost-art {
+  width: 32px; height: 32px; flex: none;
+  border-radius: 5px; object-fit: cover;
+}
+.dq-ghost-ph {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-2); color: var(--text-muted);
+}
+.dq-ghost-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ── D1 · Reorder por arrastre — DESKTOP-ONLY, funcional (la estética es D2) ────────────────────
    Alcance deliberado: la fila sigue al puntero (transform inline desde JS, SIN transición) y una
    línea de 2px marca dónde caería. El reacomodo animado de las vecinas y el snap al soltar son D2.

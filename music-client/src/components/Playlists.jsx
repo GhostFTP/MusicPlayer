@@ -7,6 +7,7 @@ import EmojiPicker from './EmojiPicker.jsx';
 import PlaylistCover from './PlaylistCover.jsx';
 import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 
@@ -33,6 +34,9 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
   // teléfono es SIEMPRE) la celda .col-actions es display:none, así que sin esto no había ninguna
   // forma de quitar una pista de una playlist desde el celular.
   const bindPress = useLongPress((track, ev) => openMenu(ev, { ...ctxPayload(track), via: 'longpress' }));
+  // Drag-to-enqueue (fase a): misma fila que TrackTable, mismo trato (ver el comentario de allá).
+  // Encolar NO saca la pista de la playlist: es la misma copia que ya hace "agregar a la cola".
+  const { dragProps } = useDragQueue();
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -330,6 +334,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                       onClick: () => play(sortedTracks, i),
                       onContextMenu: (e) => openMenu(e, ctxPayload(track)),
                     })}
+                    {...dragProps(track)}
                   >
                     <td className="col-num">
                       <span className={`track-num${active ? ' active' : ''}`}>
@@ -339,8 +344,10 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                     </td>
                     <td>
                       <div className="track-info-cell">
+                        {/* draggable={false}: ver TrackTable — si no, agarrar por la carátula
+                            arrancaría el arrastre nativo de la imagen en vez del de la fila. */}
                         {track.cover_path
-                          ? <img className="track-art" src={coverUrl(track.id)} alt="" />
+                          ? <img className="track-art" src={coverUrl(track.id)} alt="" draggable={false} />
                           : <div className="track-art-placeholder">♪</div>
                         }
                         <div className="track-text">

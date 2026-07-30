@@ -10,6 +10,7 @@ import Changelog from './Changelog.jsx';
 import Settings  from './Settings.jsx';
 import Player    from './Player.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
+import { DragQueueProvider } from '../context/DragQueueContext.jsx';
 import { pathToState, stateToPath } from '../utils/routes.js';
 
 // ── Gesto "atrás" en móvil: deslizar en el contenido para salir del detalle
@@ -214,34 +215,41 @@ export default function Layout() {
   };
 
   return (
-    <div className={`layout${showQueue ? ' layout--queue' : ''}`}>
-      <Sidebar view={view} navigate={navigate} />
+    // Drag-to-enqueue (fase a): el provider envuelve a las DOS puntas del gesto — las listas de
+    // .main-content (origen) y la columna de la cola (destino). `enabled` es showQueue: sin cola
+    // abierta no hay dónde soltar, así que las filas ni se vuelven arrastrables. No auto-abre nada.
+    <DragQueueProvider enabled={showQueue}>
+      <div className={`layout${showQueue ? ' layout--queue' : ''}`}>
+        <Sidebar view={view} navigate={navigate} />
 
-      <main
-        className="main-content"
-        onPointerDown={onContentPointerDown}
-        onPointerMove={onContentPointerMove}
-        onPointerUp={onContentPointerUp}
-        onPointerCancel={cancelNavDrag}
-        onLostPointerCapture={cancelNavDrag}
-      >
-        {VIEWS[view]}
-      </main>
+        <main
+          className="main-content"
+          onPointerDown={onContentPointerDown}
+          onPointerMove={onContentPointerMove}
+          onPointerUp={onContentPointerUp}
+          onPointerCancel={cancelNavDrag}
+          onLostPointerCapture={cancelNavDrag}
+        >
+          {VIEWS[view]}
+        </main>
 
-      {navDrag.mode !== 'idle' && (
-        <div className="nav-back-chevron" style={navChevronStyle(navDrag, navReduced)} aria-hidden="true">
-          <ChevronLeftGlyph />
-        </div>
-      )}
+        {navDrag.mode !== 'idle' && (
+          <div className="nav-back-chevron" style={navChevronStyle(navDrag, navReduced)} aria-hidden="true">
+            <ChevronLeftGlyph />
+          </div>
+        )}
 
-      <Player navigate={navigate} view={view} restoreRoute={restoreRoute} showQueue={showQueue} setShowQueue={setShowQueue} />
+        <Player navigate={navigate} view={view} restoreRoute={restoreRoute} showQueue={showQueue} setShowQueue={setShowQueue} />
 
-      {/* Cola: hija directa de .layout (C1). Sigue siendo el overlay actual (fixed, z 255);
-          en C2 se vuelve columna del grid en desktop. onClose la controla el estado de acá. */}
-      {showQueue && <QueueOverlay onClose={() => setShowQueue(false)} />}
+        {/* Cola: hija directa de .layout (C1). Sigue siendo el overlay actual (fixed, z 255);
+            en C2 se vuelve columna del grid en desktop. onClose la controla el estado de acá.
+            `acceptsDrop` SÓLO acá: QueueOverlay se monta también dentro del drawer del expandido
+            (Player.jsx) y, en móvil, como la hoja arrastrable — ahí no hay arrastre que recibir. */}
+        {showQueue && <QueueOverlay onClose={() => setShowQueue(false)} acceptsDrop />}
 
-      <BottomNav view={view} navigate={navigate} />
-    </div>
+        <BottomNav view={view} navigate={navigate} />
+      </div>
+    </DragQueueProvider>
   );
 }
 

@@ -5,6 +5,7 @@ import QualityChip from './QualityChip.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { fmtTotal } from '../utils/formatTotal.js';
 
 // Orden AGRUPADO de la biblioteca (modo "Artista", DEFAULT): ALBUMARTIST → álbum
@@ -38,6 +39,8 @@ export default function Library({ target, clearTarget }) {
   const { openMenu } = useContextMenu();   // clic derecho sobre la fila (desktop; el gate lo pone el menú)
   // C1 · long-press = el mismo menú en móvil (ver TrackTable, misma fila y mismo hook).
   const bindPress = useLongPress((track, ev) => openMenu(ev, { type: 'track', item: track, via: 'longpress' }));
+  // Drag-to-enqueue (fase a): misma fila que TrackTable, mismo trato (ver el comentario de allá).
+  const { dragProps } = useDragQueue();
 
   const fetchTracks = useCallback(async (q) => {
     setLoading(true);
@@ -234,6 +237,7 @@ export default function Library({ target, clearTarget }) {
                     onClick: () => play(displayTracks, i),
                     onContextMenu: (e) => openMenu(e, { type: 'track', item: track }),
                   })}
+                  {...dragProps(track)}
                 >
                   <td className="col-num">
                     <span className={`track-num${active ? ' active' : ''}`}>
@@ -243,8 +247,10 @@ export default function Library({ target, clearTarget }) {
                   </td>
                   <td>
                     <div className="track-info-cell">
+                      {/* draggable={false}: ver TrackTable — si no, agarrar por la carátula
+                          arrancaría el arrastre nativo de la imagen en vez del de la fila. */}
                       {track.cover_path
-                        ? <img className="track-art" src={coverUrl(track.id)} alt="" />
+                        ? <img className="track-art" src={coverUrl(track.id)} alt="" draggable={false} />
                         : <div className="track-art-placeholder">♪</div>
                       }
                       <div className="track-text">

@@ -1,8 +1,10 @@
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue, DRAG_MIME } from '../context/DragQueueContext.jsx';
+import { useToast } from './Toast.jsx';
 
 // Vista de cola — overlay del player (dirección A "Lista de sala" + eq-bars/progreso de B).
 // Lectura + salto: sonó / suena / viene, la actual marcada, tap salta a la fila. El clic DERECHO
@@ -108,9 +110,11 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
   );
 });
 
-export default function QueueOverlay({ onClose }) {
-  const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo, moveInQueue } = usePlayer();
+export default function QueueOverlay({ onClose, acceptsDrop = false }) {
+  const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo, moveInQueue, addToQueue } = usePlayer();
   const { openMenu } = useContextMenu();
+  const { takeDrag } = useDragQueue();
+  const toast = useToast();
   const hasCover = !!currentTrack?.cover_path;
   const bodyRef = useRef(null);
 
@@ -397,8 +401,64 @@ export default function QueueOverlay({ onClose }) {
     row.scrollIntoView({ block: 'center', behavior: 'auto' });
   }, [currentTrack?._qid]);
 
+  // ── Drag-to-enqueue · el DESTINO (fase a) ───────────────────────────────────────────────────
+  //
+  // Soltar una fila de pista acá la encola AL FINAL. Sólo la instancia COLUMNA acepta drops
+  // (`acceptsDrop`, que pasa Layout): este mismo componente se monta también dentro del drawer del
+  // expandido y, en móvil, como la hoja arrastrable — ahí no hay arrastre que recibir.
+  //
+  // No interfiere con el reorder de D1: son mecanismos distintos y ninguno ve los eventos del otro.
+  // Un drop cruzado no genera pointerdown (así que onListPointerDown ni se entera) y un arrastre de
+  // fila de cola no dispara dragstart (las filas de la cola no son draggable). El único cruce
+  // posible es al revés —una imagen o un texto de afuera pasando por encima— y lo ataja el guard
+  // de la marca: sin nuestro MIME, ni se ilumina ni se acepta.
+  const [dropOver, setDropOver] = useState(false);
+  // dragenter/dragleave BURBUJEAN: al pasar de la cabecera a una fila llega el leave del nodo que
+  // se abandona ANTES que el enter del que se entra, y el resalte parpadearía en cada frontera
+  // interna. Contando profundidad, se apaga sólo cuando se abandona el panel de verdad.
+  const dropDepth = useRef(0);
+
+  // En dragover/dragenter el navegador no deja leer los DATOS (sólo `types`), así que la marca es
+  // lo único con lo que se puede distinguir un arrastre nuestro de un archivo o una imagen.
+  const isOurDrag = (e) => !!e.dataTransfer?.types?.includes(DRAG_MIME);
+
+  const onDropEnter = (e) => {
+    if (!isOurDrag(e)) return;
+    dropDepth.current += 1;
+    setDropOver(true);
+  };
+  const onDropLeave = (e) => {
+    if (!isOurDrag(e)) return;
+    dropDepth.current = Math.max(0, dropDepth.current - 1);
+    if (!dropDepth.current) setDropOver(false);
+  };
+  const onDropOver = (e) => {
+    if (!isOurDrag(e)) return;
+    e.preventDefault();                      // SIN esto el drop no ocurre nunca (regla de la API)
+    e.dataTransfer.dropEffect = 'copy';      // el cursor dice "agrega", no "mueve"
+  };
+  const onDropDone = (e) => {
+    if (!isOurDrag(e)) return;
+    e.preventDefault();
+    dropDepth.current = 0;
+    setDropOver(false);
+    const track = takeDrag();
+    if (!track) return;                      // dragend ya limpió, o el payload nunca se armó
+    addToQueue(track);                       // el motor no se toca: se invoca y nada más
+    toast('Añadida a la cola');              // el MISMO texto que el menú contextual
+  };
+
+  // Los handlers se montan sólo en la columna. `setDropOver` re-renderiza este componente, pero las
+  // QueueRow son memoizadas con props estables → ninguna fila se vuelve a pintar por iluminar.
+  const dropHandlers = acceptsDrop
+    ? { onDragEnter: onDropEnter, onDragLeave: onDropLeave, onDragOver: onDropOver, onDrop: onDropDone }
+    : null;
+
   return (
-    <div className="queue-panel">
+    <div
+      className={`queue-panel${dropOver ? ' queue-panel--drop' : ''}`}
+      {...dropHandlers}
+    >
       {/* Fondo: carátula actual difuminada (como Letra); si no hay, queda el glass sólido. */}
       {hasCover && (
         <div

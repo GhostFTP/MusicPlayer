@@ -4,6 +4,7 @@ import { coverUrl } from '../api/client.js';
 import QualityChip from './QualityChip.jsx';
 import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue } from '../context/DragQueueContext.jsx';
 
 // Tabla de pistas reutilizable — mismo diseño de fila que la Biblioteca
 // (carátula, jerarquía título/artista, QualityChip y botón "⋯" del menú contextual).
@@ -14,6 +15,10 @@ export default function TrackTable({ tracks, showAlbum = true }) {
   // C1 · long-press = el mismo menú en móvil. El hook envuelve onClick/onContextMenu de la fila:
   // un long-press ya no cuenta como tap (no reproduce) y el menú nativo queda prevenido.
   const bindPress = useLongPress((track, ev) => openMenu(ev, { type: 'track', item: track, via: 'longpress' }));
+  // Drag-to-enqueue (fase a): con la cola abierta en desktop, la fila se arrastra hasta la columna
+  // para encolarla. Devuelve {} con la cola cerrada → la fila no queda draggable. NO trae
+  // onPointerDown, así que no le pisa el suyo a bindPress (el long-press del menú en móvil).
+  const { dragProps } = useDragQueue();
   const activeRowRef = useRef(null);
 
   // Al abrir una lista (álbum/género), desplaza la pista que suena a la vista.
@@ -62,6 +67,7 @@ export default function TrackTable({ tracks, showAlbum = true }) {
                   onClick: () => play(tracks, i),
                   onContextMenu: (e) => openMenu(e, { type: 'track', item: track }),
                 })}
+                {...dragProps(track)}
               >
                 <td className="col-num">
                   <span className={`track-num${active ? ' active' : ''}`}>
@@ -71,8 +77,11 @@ export default function TrackTable({ tracks, showAlbum = true }) {
                 </td>
                 <td>
                   <div className="track-info-cell">
+                    {/* draggable={false}: una <img> es arrastrable NATIVAMENTE, así que agarrar
+                        la fila por la carátula —el punto de agarre más natural— arrancaría el
+                        arrastre de la IMAGEN en vez del de la fila y el drop no encolaría nada. */}
                     {track.cover_path
-                      ? <img className="track-art" src={coverUrl(track.id)} alt="" />
+                      ? <img className="track-art" src={coverUrl(track.id)} alt="" draggable={false} />
                       : <div className="track-art-placeholder">♪</div>
                     }
                     <div className="track-text">
