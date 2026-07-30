@@ -4,6 +4,7 @@ import {
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from './Toast.jsx';
 import { api } from '../api/client.js';
+import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
 import EmojiPicker from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
@@ -100,14 +101,9 @@ function safeArea(mobile) {
   return s;
 }
 
-// Pistas de un álbum / de un artista con los MISMOS parámetros que ya usan las vistas
-// (Albums.openAlbum y el ShuffleButton del hero de Artistas) → el orden que se encola es el
-// mismo que se ve en pantalla. Filtrar el álbum por album_artist desambigua los homónimos.
-const albumTracks  = (a) => api.tracks({ album: a.album, limit: 500, ...(a.album_artist ? { album_artist: a.album_artist } : {}) });
-const artistTracks = (a) => api.tracks({ album_artist: a.artist, limit: 10000 });
-// Mismo `limit: 500` que usa Genres.open() al abrir el detalle → lo que se encola es exactamente
-// lo que se ve al entrar al género, no otro conjunto.
-const genreTracks  = (g) => api.tracks({ genre: g.genre, limit: 500 });
+// Las pistas de un álbum/artista/género salen de utils/itemTracks.js: desde la fase (b) de
+// drag-to-enqueue las comparte con el drop de la cola, que encola exactamente lo mismo que
+// "agregar a la cola" del menú. Se movieron tal cual, sin cambiar un parámetro.
 
 // Rótulo accesible por tipo: el menú es uno solo, pero lo que lo abrió cambia.
 const MENU_LABEL = {

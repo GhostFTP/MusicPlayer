@@ -4942,7 +4942,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    foto, que el navegador pinta FUERA del DOM (no participa del stacking: cero impacto en la
    escalera de z, otra ventaja de la API nativa sobre un ghost a mano).
    Es custom y no el default porque el default de un <tr> es una foto de la fila ENTERA, a lo ancho
-   de la tabla. Sobrio: carátula + título, sólido, sin blur. */
+   de la tabla. Sobrio: carátula + título, sólido, sin blur.
+   Los kinds de CONJUNTO (álbum, artista, género) agregan una segunda línea con el conteo — es lo
+   que avisa que vienen N canciones y no una. La pista suelta no la lleva: ahí el subtítulo sería el
+   artista, que no aporta nada a "qué estoy arrastrando". */
 .dq-ghost {
   position: fixed; top: -1000px; left: -1000px;   /* fuera de pantalla: sólo existe para la foto */
   display: flex; align-items: center; gap: 10px;
@@ -4956,11 +4959,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   width: 32px; height: 32px; flex: none;
   border-radius: 5px; object-fit: cover;
 }
+/* Sin imagen: el glifo del kind. 17px porque acá NO siempre es un signo tenue de relleno — para
+   el género es SU emoji, el mismo de la tarjeta, y a 13px quedaba perdido en la caja de 32. */
 .dq-ghost-ph {
   display: flex; align-items: center; justify-content: center;
   background: var(--surface-2); color: var(--text-muted);
+  font-size: 17px; line-height: 1;
 }
-.dq-ghost-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dq-ghost-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dq-ghost-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dq-ghost-sub { font-size: 11px; color: var(--text-muted); }
 
 /* ── D1 · Reorder por arrastre — DESKTOP-ONLY, funcional (la estética es D2) ────────────────────
    Alcance deliberado: la fila sigue al puntero (transform inline desde JS, SIN transición) y una

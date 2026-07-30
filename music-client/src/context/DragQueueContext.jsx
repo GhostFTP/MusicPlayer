@@ -1,11 +1,17 @@
 import { createContext, useCallback, useContext, useMemo, useRef } from 'react';
-import { coverUrl } from '../api/client.js';
+import { artistImageUrl, coverUrl } from '../api/client.js';
+import { genreEmoji } from '../utils/genreEmoji.js';
 
-// ── Drag-to-enqueue · FASE (a): arrastrar una fila de pista hasta la cola ────────────────────
+// ── Drag-to-enqueue: arrastrar cosas hasta la cola ──────────────────────────────────────────
 //
-// Agarrar una canción de cualquier lista y soltarla en la COLUMNA de la cola para encolarla al
-// final. Esta fase monta la maquinaria; (b) álbumes y (c) artista/género la reusan cambiando sólo
-// QUÉ se pone en el payload (una pista hoy, un conjunto de pistas después).
+// Agarrar algo de cualquier lista y soltarlo en la COLUMNA de la cola para encolarlo al final.
+// Fase (a): una fila de pista. Fase (b): una tarjeta de ÁLBUM. Fase (c): una de ARTISTA o de
+// GÉNERO. Las tres últimas encolan todas las pistas del conjunto.
+//
+// La maquinaria es la misma para los cuatro kinds: lo único que cambia es el `kind` del payload y
+// quién lo resuelve en el destino. Acá NO se sabe qué significa cada kind ni se pide una sola pista
+// a la API: esto transporta una intención, el destino la ejecuta. Por eso el ghost es lo único que
+// mira el kind — porque es lo único que se ve.
 //
 // POR QUÉ HTML5 DnD NATIVO Y NO LOS POINTER EVENTS DE LA CASA. El gesto cruza dos subárboles
 // distintos del DOM: la tabla vive en .main-content y la cola es la 3ª columna del grid. Todo
@@ -29,7 +35,11 @@ const DragQueueCtx = createContext(null);
 // que esto es lo único con lo que el destino puede distinguir un arrastre NUESTRO de una imagen,
 // un archivo o una selección de texto venidos de afuera. Sin la marca, la columna se iluminaría
 // con cualquier cosa que pase por encima.
-export const DRAG_MIME = 'application/x-sonorarev-track';
+//
+// UNA sola marca para todos los kinds, no una por tipo: lo que decide si la columna acepta es
+// "¿esto lo soltó SonoraRev?", y esa respuesta es idéntica para una pista y para un álbum. El kind
+// se lee del payload al soltar, que es el único momento en que hace falta saberlo.
+export const DRAG_MIME = 'application/x-sonorarev-item';
 
 // Doble red del gate, igual que el reorder (matchMedia en el pointerdown + @media en el CSS):
 // `enabled` ya cuelga de showQueue —que sólo existe en desktop—, pero un resize desktop→móvil
@@ -45,27 +55,67 @@ export function DragQueueProvider({ enabled, children }) {
   const payloadRef = useRef(null);
   const ghostRef   = useRef(null);
 
+  // Qué se ve arrastrando, por kind. Cada tarjeta saca su imagen de un lado distinto —la pista de
+  // su propio id, el álbum de `sample_track_id`, el artista de su foto curada con la MISMA cadena
+  // de fallback que ArtistImage (foto → carátula de un álbum suyo → nada), y el género de un emoji
+  // en vez de una imagen—, así que no hay campo común: cada kind dice de dónde sale la suya.
+  //
+  // El subtítulo lo llevan los kinds de CONJUNTO y no la pista suelta: ahí sería el artista, que no
+  // aporta al "qué estoy arrastrando", mientras que el conteo SÍ avisa que vienen N y no una. Es el
+  // conteo de la TARJETA, el mismo que ya se ve en pantalla; lo que realmente entró lo dice el
+  // toast al soltar (para un género con más de 500 pistas los dos números pueden no coincidir: el
+  // fetch está topado, igual que en el menú).
+  const count = (n) => (n != null ? `${n} ${n === 1 ? 'canción' : 'canciones'}` : null);
+  const GHOST = {
+    track: (t) => ({ cover: t.cover_path ? coverUrl(t.id) : null, glyph: '♪', title: t.title ?? 'Sin título', sub: null }),
+    album: (a) => ({
+      cover: a.sample_track_id ? coverUrl(a.sample_track_id) : null,
+      glyph: '♫',
+      title: a.album ?? 'Álbum',
+      sub: count(a.track_count),
+    }),
+    artist: (a) => ({
+      cover: a.has_image ? artistImageUrl(a.artist) : (a.sample_track_id ? coverUrl(a.sample_track_id) : null),
+      glyph: '♫',
+      title: a.artist ?? 'Artista',
+      sub: count(a.track_count),
+    }),
+    genre: (g) => ({ cover: null, glyph: genreEmoji(g.genre), title: g.genre ?? 'Género', sub: count(g.track_count) }),
+  };
+
   // El ghost es un nodo EFÍMERO: se crea en dragstart, el navegador le saca una foto al terminar
   // de despachar el evento, y se descarta en el mismo tick. Se construye con DOM API y no con
-  // innerHTML porque el título sale de los tags del archivo — dato externo, no se interpola a mano.
-  const makeGhost = (track) => {
+  // innerHTML porque el texto sale de los tags del archivo — dato externo, no se interpola a mano.
+  const makeGhost = (item, kind) => {
+    const { cover, glyph, title, sub } = (GHOST[kind] ?? GHOST.track)(item);
     const el = document.createElement('div');
     el.className = 'dq-ghost';
-    if (track.cover_path) {
+    if (cover) {
       const img = document.createElement('img');
       img.className = 'dq-ghost-art';
-      img.src = coverUrl(track.id);
+      img.src = cover;
       img.alt = '';
       el.appendChild(img);
     } else {
+      // Sin imagen: el glifo del kind. Para el género no es un placeholder sino SU emoji, el mismo
+      // que lleva la tarjeta — es la identidad del género, no un relleno por falta de carátula.
       const ph = document.createElement('span');
       ph.className = 'dq-ghost-art dq-ghost-ph';
-      ph.textContent = '♪';
+      ph.textContent = glyph;
       el.appendChild(ph);
     }
     const text = document.createElement('span');
     text.className = 'dq-ghost-text';
-    text.textContent = track.title ?? 'Sin título';
+    const name = document.createElement('span');
+    name.className = 'dq-ghost-title';
+    name.textContent = title;
+    text.appendChild(name);
+    if (sub) {
+      const meta = document.createElement('span');
+      meta.className = 'dq-ghost-sub';
+      meta.textContent = sub;
+      text.appendChild(meta);
+    }
     el.appendChild(text);
     document.body.appendChild(el);
     return el;
@@ -76,17 +126,17 @@ export function DragQueueProvider({ enabled, children }) {
     ghostRef.current = null;
   };
 
-  const onDragStart = useCallback((e, track) => {
+  const onDragStart = useCallback((e, item, kind) => {
     // Segunda red del gate. preventDefault en dragstart CANCELA el arrastre: si por un resize la
-    // cola quedó abierta en móvil, la fila no se levanta.
+    // cola quedó abierta en móvil, no se levanta nada.
     if (!window.matchMedia(DESKTOP).matches) { e.preventDefault(); return; }
-    payloadRef.current = track;
-    // Sólo la marca. A propósito NO se setea 'text/plain': con él, arrastrar una fila sobre el
-    // buscador de la biblioteca o el input de renombrar playlist ofrecería pegar el título ahí.
-    e.dataTransfer.setData(DRAG_MIME, String(track.id));
+    payloadRef.current = { kind, item };
+    // Sólo la marca. A propósito NO se setea 'text/plain': con él, arrastrar algo sobre el
+    // buscador de la biblioteca o el input de renombrar playlist ofrecería pegar el texto ahí.
+    e.dataTransfer.setData(DRAG_MIME, kind);
     e.dataTransfer.effectAllowed = 'copy';
     dropGhost();                                  // por si un dragend se perdió
-    const ghost = makeGhost(track);
+    const ghost = makeGhost(item, kind);
     ghostRef.current = ghost;
     // La foto se toma al final del despacho de este evento → el nodo se puede tirar en el próximo
     // tick. Se agenda acá y no sólo en dragend porque en dragend ya no hace falta que exista.
@@ -101,17 +151,20 @@ export function DragQueueProvider({ enabled, children }) {
     dropGhost();
   }, []);
 
-  // Lo que cada fila esparce. Con la cola cerrada devuelve un objeto VACÍO: la fila no queda
+  // Lo que cada fila/tarjeta esparce. Con la cola cerrada devuelve un objeto VACÍO: no queda
   // draggable, así que no se levanta nada que no tenga dónde caer. Y como no incluye
   // onPointerDown, no le pisa el suyo a useLongPress (que es quien abre el menú en móvil).
   const dragProps = useCallback(
-    (track) => (enabled
-      ? { draggable: true, onDragStart: (e) => onDragStart(e, track), onDragEnd }
+    (item, kind = 'track') => (enabled
+      ? { draggable: true, onDragStart: (e) => onDragStart(e, item, kind), onDragEnd }
       : NO_DRAG),
     [enabled, onDragStart, onDragEnd],
   );
 
-  // El destino lee el payload de acá. No lo borra: de eso se encarga onDragEnd, que corre siempre.
+  // El destino lee el payload de acá: `{ kind, item }`. No lo borra — de eso se encarga onDragEnd,
+  // que corre siempre. Ojo desde (b): el destino resuelve el kind de forma ASÍNCRONA (un álbum hay
+  // que ir a buscarlo), así que tiene que quedarse con el valor ANTES de esperar nada; para cuando
+  // el fetch vuelva, dragend ya pasó y el ref está en null.
   const takeDrag = useCallback(() => payloadRef.current, []);
 
   const value = useMemo(() => ({ enabled, dragProps, takeDrag }), [enabled, dragProps, takeDrag]);

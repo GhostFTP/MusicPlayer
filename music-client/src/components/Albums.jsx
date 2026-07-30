@@ -5,6 +5,7 @@ import ShuffleButton from './ShuffleButton.jsx';
 import TrackTable from './TrackTable.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue } from '../context/DragQueueContext.jsx';
 
 export default function Albums({ target, clearTarget, setDetailOpen, navigate }) {
   const [albums,   setAlbums]   = useState([]);
@@ -15,6 +16,8 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   const { openMenu } = useContextMenu();   // clic derecho sobre la tarjeta (desktop; el gate lo pone el menú)
   // C1 · long-press = el mismo menú en móvil (misma tarjeta que AlbumGrid, misma puerta).
   const bindPress = useLongPress((album, ev) => openMenu(ev, { type: 'album', item: album, via: 'longpress' }));
+  // Drag-to-enqueue fase (b): misma tarjeta que AlbumGrid, mismo trato (ver el comentario de allá).
+  const { dragProps } = useDragQueue();
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -140,9 +143,12 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
               onClick: () => navigate('albums', { album: album.album, album_artist: album.album_artist }),
               onContextMenu: (e) => openMenu(e, { type: 'album', item: album }),
             })}
+            {...dragProps(album, 'album')}
           >
+            {/* draggable={false}: ver AlbumGrid — si no, agarrar por la carátula arrancaría el
+                arrastre nativo de la imagen en vez del de la tarjeta. */}
             {album.sample_track_id
-              ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" />
+              ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" draggable={false} />
               : <div className="album-cover-placeholder">♫</div>
             }
             <div className="album-name">{album.album}</div>

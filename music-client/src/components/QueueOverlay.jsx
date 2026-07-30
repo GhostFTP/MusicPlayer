@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue, DRAG_MIME } from '../context/DragQueueContext.jsx';
+import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
 import { useToast } from './Toast.jsx';
 
 // Vista de cola — overlay del player (dirección A "Lista de sala" + eq-bars/progreso de B).
@@ -41,6 +42,21 @@ const SNAP_EASE = 'cubic-bezier(.34, 1.56, .64, 1)';
 // y el cuerpo tiene 8px de padding. scale(1.03) crece ~4.8px por lado y el rotate suma ~0.6 → entra
 // justo sin provocar scroll horizontal (el overflow-y:auto del cuerpo computa el overflow-x a auto).
 const LIFT = 'scale(1.03) rotate(-1.2deg)';
+
+// Drag-to-enqueue · los kinds de CONJUNTO que sabe recibir el drop: cómo traer sus pistas, cómo
+// llamarlos en el toast y qué avisar si no tienen ninguna. Las tres cargas salen de
+// utils/itemTracks.js —el mismo módulo que usa "agregar a la cola" del menú contextual—, así que
+// soltar un álbum/artista/género y elegirlo del menú encolan exactamente el mismo conjunto, en el
+// mismo orden. Los textos también son los del menú: la misma acción por otra puerta dice lo mismo.
+//
+// `artist` se busca por `item.artist`, que en la vista de Artistas YA ES album_artist (el backend
+// lo aliasea en GET /browse/artists) → la regla dura "navegar/encolar siempre por album_artist" se
+// cumple sola, sin que la tarjeta tenga que traer un campo aparte.
+const DROP_SETS = {
+  album:  { load: albumTracks,  name: (i) => i.album,  empty: 'Ese álbum no tiene pistas' },
+  artist: { load: artistTracks, name: (i) => i.artist, empty: 'Ese artista no tiene pistas' },
+  genre:  { load: genreTracks,  name: (i) => i.genre,  empty: 'Ese género no tiene pistas' },
+};
 
 // Barra de progreso de la pista actual, AISLADA en su propio nodo: consume currentTime/duration
 // (cambian ~4 Hz). Al re-renderizarse por cada tick, SOLO se re-pinta ella — las filas de la cola
@@ -437,15 +453,37 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
     e.preventDefault();                      // SIN esto el drop no ocurre nunca (regla de la API)
     e.dataTransfer.dropEffect = 'copy';      // el cursor dice "agrega", no "mueve"
   };
-  const onDropDone = (e) => {
+  // Resuelve el kind del payload. Una PISTA ya viene entera y se encola en el acto; los kinds de
+  // CONJUNTO (álbum, artista, género) son sólo una identidad y hay que ir a buscar sus pistas — por
+  // eso esto es async, y por eso el payload se lee ANTES de esperar nada (para cuando el fetch
+  // vuelva, dragend ya lo puso en null).
+  //
+  // Un kind desconocido sale sin hacer nada: la tabla de arriba es la lista blanca.
+  const onDropDone = async (e) => {
     if (!isOurDrag(e)) return;
     e.preventDefault();
     dropDepth.current = 0;
     setDropOver(false);
-    const track = takeDrag();
-    if (!track) return;                      // dragend ya limpió, o el payload nunca se armó
-    addToQueue(track);                       // el motor no se toca: se invoca y nada más
-    toast('Añadida a la cola');              // el MISMO texto que el menú contextual
+    const payload = takeDrag();
+    if (!payload) return;                    // dragend ya limpió, o el payload nunca se armó
+    const { kind, item } = payload;
+
+    if (kind === 'track') {
+      addToQueue(item);                      // el motor no se toca: se invoca y nada más
+      toast('Añadida a la cola');            // el MISMO texto que el menú contextual
+      return;
+    }
+
+    const set = DROP_SETS[kind];
+    if (!set) return;
+    // Mismos avisos que onTracks() en ContextMenu: un conjunto sin pistas no puede quedar en
+    // silencio (parecería que el drop no funcionó), y un fetch caído tampoco.
+    try {
+      const ts = await set.load(item);
+      if (!ts?.length) { toast(set.empty, { variant: 'warning' }); return; }
+      addToQueue(ts);                        // acepta arrays desde v1.8.0: una sola llamada
+      toast(`«${set.name(item)}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
+    } catch { toast('No se pudieron cargar las pistas', { variant: 'warning' }); }
   };
 
   // Los handlers se montan sólo en la columna. `setDropOver` re-renderiza este componente, pero las
