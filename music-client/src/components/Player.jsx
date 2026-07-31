@@ -9,6 +9,7 @@ import LyricsPanel from './LyricsPanel.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
+import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00';
@@ -124,6 +125,12 @@ function dragOpacity(x)  { return 1 - Math.min(0.28, Math.abs(x) / 520); }
 export default function Player({ navigate, view, restoreRoute, showQueue, setShowQueue }) {
   // `navigate(view, target)` disponible para navegar desde la barra. Aún NO se
   // usa (los onClick de portada/artista/género/canción llegan en pasos 3-5).
+  // Drag-to-enqueue · la BARRA como segundo destino. Mismo comportamiento que la columna de la
+  // cola (el hook es compartido); lo que la hace valer la pena es que está SIEMPRE visible, así que
+  // encolar arrastrando ya no obliga a abrir la cola primero.
+  // El gate de desktop lo pone el ORIGEN (nada es draggable en móvil), así que acá no hace falta
+  // repetirlo: sin arrastre no hay dragover, y sin dragover la barra no se entera de nada.
+  const { dropOver: barDropOver, dropHandlers: barDropHandlers } = useQueueDropTarget();
   const [expanded, setExpanded] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
   // Modo de la Letra: inmersivo (full-bleed, tapa la barra) vs panel (deja la barra
@@ -1393,7 +1400,17 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
       {/* Clic en CUALQUIER zona libre de la barra (huecos alrededor de controles,
           seek y volumen) abre el expandido. Cada control interactivo corta la
           propagación para no dispararlo. */}
-      <div className="player-bar" onClick={openNowPlaying}>
+      {/* Drag-to-enqueue: la barra ACEPTA soltar (2º destino, ver el hook arriba). Los handlers
+          van en el contenedor y no en cada control: dragover sólo hace preventDefault y prende un
+          booleano, así que pasar por encima NO activa play, el seek ni el volumen — lo único que
+          encola es el `drop`, al soltar. El openNowPlaying de esta misma barra tampoco se dispara:
+          un `drop` no sintetiza un click, y el navegador ya suprime el click posterior a un
+          arrastre (es lo mismo que hace que arrastrar una fila no la reproduzca). */}
+      <div
+        className={`player-bar${barDropOver ? ' player-bar--drop' : ''}`}
+        onClick={openNowPlaying}
+        {...barDropHandlers}
+      >
 
         {/* Track info (portada, links y "+" cortan la propagación) */}
         <div className="player-track">

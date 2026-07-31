@@ -1,11 +1,9 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
-import { useDragQueue, DRAG_MIME } from '../context/DragQueueContext.jsx';
-import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
-import { useToast } from './Toast.jsx';
+import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
 
 // Vista de cola — overlay del player (dirección A "Lista de sala" + eq-bars/progreso de B).
 // Lectura + salto: sonó / suena / viene, la actual marcada, tap salta a la fila. El clic DERECHO
@@ -42,21 +40,6 @@ const SNAP_EASE = 'cubic-bezier(.34, 1.56, .64, 1)';
 // y el cuerpo tiene 8px de padding. scale(1.03) crece ~4.8px por lado y el rotate suma ~0.6 → entra
 // justo sin provocar scroll horizontal (el overflow-y:auto del cuerpo computa el overflow-x a auto).
 const LIFT = 'scale(1.03) rotate(-1.2deg)';
-
-// Drag-to-enqueue · los kinds de CONJUNTO que sabe recibir el drop: cómo traer sus pistas, cómo
-// llamarlos en el toast y qué avisar si no tienen ninguna. Las tres cargas salen de
-// utils/itemTracks.js —el mismo módulo que usa "agregar a la cola" del menú contextual—, así que
-// soltar un álbum/artista/género y elegirlo del menú encolan exactamente el mismo conjunto, en el
-// mismo orden. Los textos también son los del menú: la misma acción por otra puerta dice lo mismo.
-//
-// `artist` se busca por `item.artist`, que en la vista de Artistas YA ES album_artist (el backend
-// lo aliasea en GET /browse/artists) → la regla dura "navegar/encolar siempre por album_artist" se
-// cumple sola, sin que la tarjeta tenga que traer un campo aparte.
-const DROP_SETS = {
-  album:  { load: albumTracks,  name: (i) => i.album,  empty: 'Ese álbum no tiene pistas' },
-  artist: { load: artistTracks, name: (i) => i.artist, empty: 'Ese artista no tiene pistas' },
-  genre:  { load: genreTracks,  name: (i) => i.genre,  empty: 'Ese género no tiene pistas' },
-};
 
 // Barra de progreso de la pista actual, AISLADA en su propio nodo: consume currentTime/duration
 // (cambian ~4 Hz). Al re-renderizarse por cada tick, SOLO se re-pinta ella — las filas de la cola
@@ -127,12 +110,30 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
 });
 
 export default function QueueOverlay({ onClose, acceptsDrop = false }) {
-  const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo, moveInQueue, addToQueue } = usePlayer();
+  const { queue, queueIndex, currentTrack, shuffle, upNext, jumpTo, moveInQueue } = usePlayer();
   const { openMenu } = useContextMenu();
-  const { takeDrag } = useDragQueue();
-  const toast = useToast();
   const hasCover = !!currentTrack?.cover_path;
   const bodyRef = useRef(null);
+
+  // ── Drag-to-enqueue · el DESTINO ────────────────────────────────────────────────────────────
+  //
+  // Soltar acá encola AL FINAL. El comportamiento vive en useQueueDropTarget, compartido con la
+  // barra del reproductor (el otro destino): las dos zonas hacen exactamente lo mismo, así que
+  // ninguna tiene una copia propia. Acá sólo se decide QUIÉN acepta y cómo se ve encendida.
+  //
+  // Sólo la instancia COLUMNA acepta (`acceptsDrop`, que pasa Layout): este mismo componente se
+  // monta también dentro del drawer del expandido y, en móvil, como la hoja arrastrable — ahí no
+  // hay arrastre que recibir.
+  //
+  // No interfiere con el reorder de D1: son mecanismos distintos y ninguno ve los eventos del otro.
+  // Un drop cruzado no genera pointerdown (así que onListPointerDown ni se entera) y un arrastre de
+  // fila de cola no dispara dragstart (las filas de la cola no son draggable). El único cruce
+  // posible es al revés —una imagen o un texto de afuera pasando por encima— y lo ataja el guard
+  // de la marca, que vive en el hook.
+  //
+  // `setDropOver` (adentro del hook) re-renderiza este componente, pero las QueueRow son memoizadas
+  // con props estables → ninguna fila se vuelve a pintar por iluminar el panel.
+  const { dropOver, dropHandlers } = useQueueDropTarget({ active: acceptsDrop });
 
   // ── D1 · Reorder por arrastre (DESKTOP-ONLY) ────────────────────────────────────────────────
   //
@@ -416,81 +417,6 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
     if (!row) return;
     row.scrollIntoView({ block: 'center', behavior: 'auto' });
   }, [currentTrack?._qid]);
-
-  // ── Drag-to-enqueue · el DESTINO (fase a) ───────────────────────────────────────────────────
-  //
-  // Soltar una fila de pista acá la encola AL FINAL. Sólo la instancia COLUMNA acepta drops
-  // (`acceptsDrop`, que pasa Layout): este mismo componente se monta también dentro del drawer del
-  // expandido y, en móvil, como la hoja arrastrable — ahí no hay arrastre que recibir.
-  //
-  // No interfiere con el reorder de D1: son mecanismos distintos y ninguno ve los eventos del otro.
-  // Un drop cruzado no genera pointerdown (así que onListPointerDown ni se entera) y un arrastre de
-  // fila de cola no dispara dragstart (las filas de la cola no son draggable). El único cruce
-  // posible es al revés —una imagen o un texto de afuera pasando por encima— y lo ataja el guard
-  // de la marca: sin nuestro MIME, ni se ilumina ni se acepta.
-  const [dropOver, setDropOver] = useState(false);
-  // dragenter/dragleave BURBUJEAN: al pasar de la cabecera a una fila llega el leave del nodo que
-  // se abandona ANTES que el enter del que se entra, y el resalte parpadearía en cada frontera
-  // interna. Contando profundidad, se apaga sólo cuando se abandona el panel de verdad.
-  const dropDepth = useRef(0);
-
-  // En dragover/dragenter el navegador no deja leer los DATOS (sólo `types`), así que la marca es
-  // lo único con lo que se puede distinguir un arrastre nuestro de un archivo o una imagen.
-  const isOurDrag = (e) => !!e.dataTransfer?.types?.includes(DRAG_MIME);
-
-  const onDropEnter = (e) => {
-    if (!isOurDrag(e)) return;
-    dropDepth.current += 1;
-    setDropOver(true);
-  };
-  const onDropLeave = (e) => {
-    if (!isOurDrag(e)) return;
-    dropDepth.current = Math.max(0, dropDepth.current - 1);
-    if (!dropDepth.current) setDropOver(false);
-  };
-  const onDropOver = (e) => {
-    if (!isOurDrag(e)) return;
-    e.preventDefault();                      // SIN esto el drop no ocurre nunca (regla de la API)
-    e.dataTransfer.dropEffect = 'copy';      // el cursor dice "agrega", no "mueve"
-  };
-  // Resuelve el kind del payload. Una PISTA ya viene entera y se encola en el acto; los kinds de
-  // CONJUNTO (álbum, artista, género) son sólo una identidad y hay que ir a buscar sus pistas — por
-  // eso esto es async, y por eso el payload se lee ANTES de esperar nada (para cuando el fetch
-  // vuelva, dragend ya lo puso en null).
-  //
-  // Un kind desconocido sale sin hacer nada: la tabla de arriba es la lista blanca.
-  const onDropDone = async (e) => {
-    if (!isOurDrag(e)) return;
-    e.preventDefault();
-    dropDepth.current = 0;
-    setDropOver(false);
-    const payload = takeDrag();
-    if (!payload) return;                    // dragend ya limpió, o el payload nunca se armó
-    const { kind, item } = payload;
-
-    if (kind === 'track') {
-      addToQueue(item);                      // el motor no se toca: se invoca y nada más
-      toast('Añadida a la cola');            // el MISMO texto que el menú contextual
-      return;
-    }
-
-    const set = DROP_SETS[kind];
-    if (!set) return;
-    // Mismos avisos que onTracks() en ContextMenu: un conjunto sin pistas no puede quedar en
-    // silencio (parecería que el drop no funcionó), y un fetch caído tampoco.
-    try {
-      const ts = await set.load(item);
-      if (!ts?.length) { toast(set.empty, { variant: 'warning' }); return; }
-      addToQueue(ts);                        // acepta arrays desde v1.8.0: una sola llamada
-      toast(`«${set.name(item)}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
-    } catch { toast('No se pudieron cargar las pistas', { variant: 'warning' }); }
-  };
-
-  // Los handlers se montan sólo en la columna. `setDropOver` re-renderiza este componente, pero las
-  // QueueRow son memoizadas con props estables → ninguna fila se vuelve a pintar por iluminar.
-  const dropHandlers = acceptsDrop
-    ? { onDragEnter: onDropEnter, onDragLeave: onDropLeave, onDragOver: onDropOver, onDrop: onDropDone }
-    : null;
 
   return (
     <div

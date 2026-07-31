@@ -2441,6 +2441,31 @@ button, input, select, textarea { font-family: inherit; }
   gap: 16px;
 }
 
+/* ── Drag-to-enqueue · la BARRA como 2º destino ─────────────────────────────────────────────────
+   Contraparte de .queue-panel--drop, con una diferencia de criterio: la columna puede teñirse
+   entera porque es una lista, pero la barra está LLENA de información y de controles. Teñirle el
+   fondo taparía la canción que suena y —peor— daría a entender que algo va a pasarle al play o al
+   volumen. Así que el resalte es un FILO en el borde superior, el canto por el que se entra:
+   dice "esta franja recibe" sin tocar nada de lo que hay adentro.
+
+   Va en box-shadow y no en un border-top real para no correr un píxel del contenido al encenderse
+   (el border ya existe y mide 1px; cambiarlo a 2 empujaría toda la barra hacia abajo).
+   Sin blur, como el resto del sistema. Sólo desktop: en móvil no hay arrastre que lo encienda,
+   pero la regla se scopea igual para que no exista ahí ni por accidente. */
+@media (min-width: 701px) {
+  .player-bar { transition: background .14s ease, box-shadow .14s ease; }
+  .player-bar--drop {
+    background: #0c0a12;                 /* el negro de siempre, apenas tirado al morado */
+    box-shadow: inset 0 2px 0 var(--accent), inset 0 0 0 1px var(--accent-dim);
+  }
+}
+
+/* reduced-motion: el resalte es INFORMACIÓN (dice dónde se puede soltar), así que se conserva;
+   lo que se va es el fundido entre estados. */
+@media (prefers-reduced-motion: reduce) {
+  .player-bar { transition: none; }
+}
+
 /* Left: track info */
 .player-track {
   display: flex;
