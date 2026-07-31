@@ -35,12 +35,13 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - Las animaciones respetan `prefers-reduced-motion`.
 
 ## Estado actual
-- **Producción va en `v1.10.0`** (tag `v1.10.0` → merge `0d29e34`, desplegado el 2026-07-27). El
+- **Producción va en `v1.11.0`** (tag `v1.11.0` → merge `a706779`, desplegado el 2026-07-29). El
   tag más reciente **es** la versión en producción: `main` con auto-deploy
-  despliega directo. Los tags `v1.10.0`, `v1.9.0`, `v1.8.1` y `v1.8.0` están creados y
-  **pusheados a `origin`** — el tag más reciente coincide con prod. Para saber la versión real,
-  **leé el tope de `CHANGELOG.md` o `git tag --sort=-v:refname | head -1`** — no confíes en
-  versiones citadas en docs o memoria.
+  despliega directo. Los tags `v1.11.0`, `v1.10.1`, `v1.10.0` y `v1.9.0` están creados y
+  **pusheados a `origin`**, y `origin/main` está en `a706779` — el tag más reciente coincide con
+  prod. Para saber la versión real, **leé el tope de `CHANGELOG.md` o
+  `git tag --sort=-v:refname | head -1`** — no confíes en versiones citadas en docs o memoria
+  (incluida la de este archivo, que va un release atrás por construcción).
 - En producción en **https://sonorarev.com** (servidor X99, Dokploy, túnel Cloudflare *Healthy*).
 - Auth: Cloudflare Access + Google SSO; auto-login SSO→JWT **desplegado y funcionando**
   (commit `d7a23b6`), con login usuario/contraseña como fallback local. **Registro cerrado**
@@ -118,10 +119,69 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   sobre la que suena, y limpia `playedRef`/`historyRef`/`forcedNext` (+ su espejo `upNextIds`)
   recomputando `idxRef` por `findIndex`. Es el caso canónico de por qué la cola se keyea por
   `_qid`. **No toca MediaSession.**
-  ⚠️ **Falta cablear:** `Playlists.jsx` y `Genres.jsx` no tienen menú, y las **tarjetas de
-  álbum/artista no tienen long-press** (en el teléfono ahí sigue el menú nativo — es deliberado,
-  no un bug). Contrato completo: `.claude/skills/actions-lab/SKILL.md`; lo táctil:
+  **Ya no falta cablear nada** — lo que v1.10.0 dejó pendiente se cerró en v1.10.1 (abajo).
+  Contrato completo: `.claude/skills/actions-lab/SKILL.md`; lo táctil:
   `.claude/skills/mobile-lab/SKILL.md` — no duplicar acá.
+- **El menú llega a todas las superficies (v1.10.1)** — `Genres.jsx` y `Playlists.jsx` ya llaman
+  `openMenu`, y tienen **long-press** las tarjetas de **álbum** (`AlbumGrid.jsx`, `Albums.jsx`),
+  los **retratos** de artista (`Artists.jsx`) y las tarjetas de **género** (`Genres.jsx`). El
+  long-press entra por una **puerta explícita**: `via: 'longpress'` en el payload — sin esa marca
+  `openMenu` sigue descartando el móvil por `matchMedia`, así que el gate no se aflojó, se le
+  abrió una puerta con nombre. En playlists el **"✕" de cada fila lo absorbió el "⋯"** (quitar
+  pasó a ser la primera acción del menú); no fue sólo consistencia: con la lista reflowada, en el
+  teléfono el "✕" quedaba fuera de la fila y no había otra vía. **Única línea de backend** de toda
+  la serie: `GET /api/playlists/:id/tracks` trae ahora **`t.album_artist`** en el SELECT
+  (`music-server/src/api/playlists.js:50`) — sin eso, "ir al artista" desde una playlist no tenía
+  por dónde navegar.
+- **Reordenar la cola arrastrando (v1.11.0) — sólo escritorio** — la **tercera pata** del trípode
+  que el keying por `_qid` venía habilitando (insertar, quitar, reordenar):
+  **`moveInQueue(qid, toIndex)`** (`PlayerContext.jsx:311`). Permuta el array y **no toca lo que
+  suena** — no llama a `playIndex` ni al `<audio>`, y MediaSession (que cuelga de
+  `currentTrack`/`isPlaying`) ni se entera: reordenar cambia el **plan**, nunca la reproducción en
+  curso. Lo único posicional del motor es `idxRef`, recomputado por `findIndex(_qid)`. `toIndex` es
+  la posición **ya sin la pista movida** (splice-remove-then-insert). `played`/`history` **no** se
+  tocan (son `_qid`; permutar el plan no reescribe lo que ya sonó); `forcedNext` **sí**: mover a
+  mano una pista marcada "a continuación" **revoca el pill**, porque forcedNext gana sobre el orden
+  y si no el arrastre mentiría.
+  ⚠️ **Con aleatorio encendido el reorden es cosmético**: el motor elige del pool de no-sonadas y
+  no mira el orden. Es **decisión tomada, no olvido** — el aviso vive en el header de la cola
+  ("Aleatorio · orden de la cola") desde v1.8.0, y por eso tampoco se menciona en el CHANGELOG.
+  **El gesto** (`QueueOverlay.jsx`): pointer events **a mano**, sin librerías; handlers en el `<ul>`
+  con filtro por target, así las filas memoizadas no reciben ni una prop nueva (sólo un `data-qid`).
+  Durante el arrastre **no se pasa por React** —transforms y marcas se escriben sobre los nodos— y
+  React se entera **una sola vez, al soltar**: con estado por frame se re-renderizarían las ~650
+  filas. Umbral de 6px y el click posterior se traga en fase de **captura**. Gate **desktop-only**
+  con doble red: `matchMedia('(min-width: 701px)')` en el pointerdown **y** las reglas CSS dentro
+  de su `@media`.
+  **Autoscroll de bordes:** franja `EDGE_ZONE` 56px arriba/abajo, velocidad **cuadrática** hasta
+  `EDGE_V_MAX` 1600 px/s, continua por rAF. Sin esto el reorden sólo alcanzaba **lo visible**. El
+  desplazamiento se mide en **coordenadas de contenido** (puntero + lo que scrolleó la lista): los
+  dos `scrollTop` se cancelan para la posición visual y **sí** suman para el índice destino, que es
+  lo que permite cruzar cientos de filas. El auto-scroll a la pista actual **se abstiene** mientras
+  hay arrastre — los dos mueven el mismo nodo.
+  **El asentamiento al soltar:** `SNAP_MS` 170ms con `SNAP_EASE`
+  `cubic-bezier(.34, 1.56, .64, 1)` (overshoot en la **curva**, no en keyframes) y `LIFT`
+  `scale(1.03) rotate(-1.2deg)` compuesto en el JS —no en la clase CSS, que el transform inline
+  pisaría—. Se **anima primero y se commitea al terminar** (mismo truco que `snapQueue`), y el
+  destino sale de la **geometría**, no de una medición nueva. Bajo `prefers-reduced-motion` el snap
+  cae directo; el autoscroll **sí** corre igual, porque es **funcional, no decorativo**.
+  ⚠️ **Que no se malinterprete: no hay FLIP ni reacomodo de vecinas.** Las filas de alrededor
+  **no se mueven en ningún momento**; el destino se comunica **sólo** con una línea de 2px
+  (`queue-row--drop-before` / `--drop-after`) y se anima **únicamente la fila arrastrada**. El
+  reacomodo animado del hueco quedó como **pendiente opcional** (ver abajo).
+- **Herramienta de snapshots (`.claude/tools/snap/`)** — tooling **local** de verificación visual
+  con Playwright headless, nacido en esta serie. `snap.mjs` captura una ruta del Modelo 2 en los
+  **tres anchos** que importan de una corrida; `snap-ctx.mjs` abre el **menú contextual móvil**
+  (390×844 con `isMobile`+`hasTouch`, el único régimen donde existe) simulando el long-press con el
+  puntero —down, esperar >500ms sin moverse, up—, que entra por la misma puerta que el dedo porque
+  `useLongPress` no mira `pointerType`. `session.mjs` centraliza la sesión: hace el **mismo
+  `POST /api/auth/login`** que haría el formulario y siembra el JWT en `localStorage` — **no**
+  fabrica tokens ni lee el secreto de firma. Requiere backend en `:3000` y Vite en `:5173` (o
+  `SNAP_BASE`), con credenciales en `.claude/tools/snap/.env` (`SNAP_USER`/`SNAP_PASS`).
+  **No entra al bundle ni a la imagen**: no lo importa nadie de la app y `.dockerignore` excluye
+  `.claude`. Versionados los `.mjs` + `package.json`; **ignorados** `.env`, `node_modules/`,
+  `shots/` y `package-lock.json`. **No reemplaza la prueba física**: en headless
+  `env(safe-area-*)` vale 0 y la sensación del gesto real no se mide.
 - Env vars (según `docker-compose.yml`): `NODE_ENV`, `PORT`, `MUSIC_DIR`, `JWT_SECRET`,
   `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
@@ -133,14 +193,18 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 Artistas Retrato/Prisma + discos dobles (v1.6.0), Ajustes/cerrar sesión + registro cerrado
 (v1.6.1), botón Google (v1.6.2), routing Modelo 2 (v1.7.0), cola de reproducción + rediseño
 del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1), cola móvil como hoja
-arrastrable + listas que se adaptan al ancho (v1.9.0) y el menú contextual de acciones,
-escritorio y teléfono (v1.10.0).
+arrastrable + listas que se adaptan al ancho (v1.9.0), el menú contextual de acciones en
+escritorio y teléfono (v1.10.0) con su cableado a Géneros/Playlists y a las carátulas del
+teléfono (v1.10.1), y el reorden de la cola por arrastre (v1.11.0).
 `feature/sonorarev-integration` arranca limpio para lo próximo — lo único que tiene fuera de
 `main` es este mismo commit de docs, que entra en la próxima tanda. **Este archivo siempre va
 un release atrás por construcción**: su commit de docs viaja *dentro* de la tanda siguiente
-(el de post-v1.8.1 salió con v1.9.0; el de post-v1.9.0 salió con v1.10.0), así que después de
-cada release hay que releerlo contra los tags. Ojo: la feature branch **no se pushea** (queda
-muy por delante de `origin/feature/sonorarev-integration`); lo que viaja a `origin` es `main` +
+(el de post-v1.8.1 salió con v1.9.0; el de post-v1.9.0 salió con v1.10.0; el de post-v1.10.0
+—`431cabf`— salió con v1.10.1), así que después de cada release hay que releerlo contra los
+tags. Esta actualización cubre **dos** releases (v1.10.1 y v1.11.0) porque v1.10.1 salió el
+mismo día que v1.10.0, antes de que hubiera un commit de docs propio. Ojo: la feature branch
+**no se pushea** (queda muy por delante de
+`origin/feature/sonorarev-integration`); lo que viaja a `origin` es `main` +
 tags. La versión real siempre sale del tope de `CHANGELOG.md` o
 `git tag --sort=-v:refname | head -1`.
 
@@ -150,8 +214,26 @@ completo** antes del deploy — se verificó build, el popover de desktop y una 
 móvil, no el recorrido entero (encolar/quitar con shuffle, playlist, navegación, cadena de
 cierres). El subagente `actions-qa` sigue disponible para auditarlo contra el contrato.
 
+**QA de v1.11.0 — parcial, y se sabe cuál parte falta:** el usuario **validó el arrastre en
+escritorio** al cerrar la serie, y los tres commits pasaron build. Lo que **no** se ejercitó es
+la interacción del reorden con el resto del motor: mover la pista marcada **"a continuación"**
+(que debe hacer desaparecer el pill), reordenar **cruzando la pista actual**, reordenar con
+**aleatorio** encendido (donde el efecto es cosmético a propósito), y confirmar que en el
+**teléfono** el gesto sigue sin existir. Mismo subagente `actions-qa` para auditarlo.
+
 ## Pendientes conocidos
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
+- **Novedades sin color:** `Changelog.jsx:95` ya emite el hook por sección
+  (`cl-${slug(título)}`), pero `main.css:1752-1753` sólo pinta **`.cl-nuevo`** (verde) y
+  **`.cl-mejorado`** (morado). El CHANGELOG real usa **"Añadido"**, que `slug()` normaliza a
+  `cl-anadido` — **sin regla** → gris. Lo mismo "Cambiado", "Corregido" y "Técnico". O sea: la
+  sección más usada del changelog es justo la que no tiene color. Falta CSS, no markup.
+- **Reacomodo animado de las vecinas al arrastrar en la cola** (opcional): hoy el hueco no se abre
+  y el destino se comunica sólo con la línea de 2px. La curva del snap (`SNAP_EASE`) ya queda
+  lista para reusarse tal cual.
+- **Modo Auto (car-lab, fase B):** último tramo del orden pactado A → C → B. Contrato en
+  `.claude/skills/car-lab/SKILL.md`. Sigue pendiente también la **prueba física** de MediaSession
+  en los 4 carros.
 - **Fase 1.5:** agregar MBIDs + canales al scanner para habilitar MusicBrainz.
 - Subagente **album-curator** + ledger.
 - Integración de código con GhostFTP en fase posterior.
@@ -173,4 +255,4 @@ cierres). El subagente `actions-qa` sigue disponible para auditarlo contra el co
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-27 (v1.10.0 DESPLEGADO y tagueado el 2026-07-27 — menú contextual de acciones en escritorio y teléfono, quitar de la cola e info sobre cualquier canción, en producción; CLAUDE.md al día: producción = v1.10.0, nada sin mergear)._
+_Última actualización: 2026-07-29 (v1.11.0 DESPLEGADO y tagueado el 2026-07-29 — reordenar la cola arrastrando en escritorio, con autoscroll de bordes y asentamiento al soltar, en producción; cubre además v1.10.1, que no había llegado a este archivo. CLAUDE.md al día: producción = v1.11.0, nada sin mergear)._

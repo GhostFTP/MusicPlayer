@@ -1,6 +1,7 @@
 import { coverUrl } from '../api/client.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue } from '../context/DragQueueContext.jsx';
 
 // Grid de álbumes reutilizable. Lo usan Artistas y Años.
 //
@@ -24,6 +25,11 @@ export default function AlbumGrid({ albums, onOpen, secondary = 'artist', hue })
   // long-press ya no cuenta como tap, así que abrir el menú no navega también al álbum. Scrollear
   // la grilla tampoco dispara (el movimiento y el pointercancel del scroll matan el timer).
   const bindPress = useLongPress((album, ev) => openMenu(ev, { type: 'album', item: album, via: 'longpress' }));
+  // Drag-to-enqueue fase (b): con la cola abierta en desktop, la tarjeta se arrastra hasta la
+  // columna y encola el álbum ENTERO (el drop va a buscar sus pistas). Devuelve {} con la cola
+  // cerrada. No trae onPointerDown → no le pisa el suyo a bindPress, así que el long-press del
+  // menú en móvil sigue igual; y como el arrastre suprime el click, abrir el álbum tampoco cambia.
+  const { dragProps } = useDragQueue();
   return (
     <div className="album-grid album-grid-anim" style={hue != null ? { '--h': hue } : undefined}>
       {albums.map((album, i) => (
@@ -35,12 +41,16 @@ export default function AlbumGrid({ albums, onOpen, secondary = 'artist', hue })
             onClick: () => onOpen(album),
             onContextMenu: (e) => openMenu(e, { type: 'album', item: album }),
           })}
+          {...dragProps(album, 'album')}
         >
           {/* Marco que recorta el zoom-on-hover de la carátula (overflow:hidden) sin que
               la imagen desborde sus esquinas redondeadas. NADA la tapa. */}
           <div className="album-cover-frame">
+            {/* draggable={false}: una <img> es arrastrable NATIVAMENTE y la carátula ES la
+                tarjeta — sin esto, agarrar por ahí arrancaría el arrastre de la imagen en vez
+                del de la tarjeta y el drop no encolaría nada. */}
             {album.sample_track_id
-              ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" />
+              ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" draggable={false} />
               : <div className="album-cover-placeholder">♫</div>
             }
           </div>

@@ -5,6 +5,7 @@ import TrackTable from './TrackTable.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { genreEmoji } from '../utils/genreEmoji.js';
 import { emojiHue } from '../utils/emojiHue.js';
 
@@ -19,6 +20,11 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   // —clic derecho, "⋯" y long-press— con el tipo 'track'.
   const { openMenu } = useContextMenu();
   const bindPress = useLongPress((g, ev) => openMenu(ev, { type: 'genre', item: g, via: 'longpress' }));
+  // Drag-to-enqueue fase (c): con la cola abierta en desktop, la tarjeta se arrastra hasta la
+  // columna y encola TODO el género. Mismo nodo que el clic y el menú, mismo motivo que en el resto
+  // (no trae onPointerDown). Acá no hace falta ningún draggable={false}: la tarjeta no tiene <img>
+  // —su "carátula" es el emoji, que es texto— así que no hay imagen que robe el arrastre.
+  const { dragProps } = useDragQueue();
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -120,6 +126,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
               onClick: () => navigate('genres', { genre: g.genre }),
               onContextMenu: (e) => openMenu(e, { type: 'genre', item: g }),
             })}
+            {...dragProps(g, 'genre')}
           >
             <span className="genre-item-main">
               <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>

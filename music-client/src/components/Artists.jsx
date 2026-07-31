@@ -7,6 +7,7 @@ import ArtistImage from './ArtistImage.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue } from '../context/DragQueueContext.jsx';
 
 const MAX_GENRE_CHIPS = 3;   // Kali Uchis tiene 5 géneros; sin tope el hero se satura
 
@@ -62,6 +63,12 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
   // C1 · long-press = el mismo menú en móvil. `a.artist` en esta vista YA ES album_artist (el
   // backend lo aliasea), así que la regla dura se cumple sola — igual que en el clic derecho.
   const bindPress = useLongPress((a, ev) => openMenu(ev, { type: 'artist', item: a, via: 'longpress' }));
+  // Drag-to-enqueue fase (c): con la cola abierta en desktop, el retrato se arrastra hasta la
+  // columna y encola TODO lo del artista (el drop va a buscar sus pistas). Va sobre el mismo nodo
+  // que el clic y el menú, y por el mismo motivo de siempre: no trae onPointerDown, así que no le
+  // pisa el suyo a bindPress. El item es el objeto entero de la tarjeta — `a.artist` (que acá YA
+  // ES album_artist) es lo que necesita artistTracks.
+  const { dragProps } = useDragQueue();
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -223,6 +230,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
               onClick: () => navigate('artists', { artist: a.artist }),
               onContextMenu: (e) => openMenu(e, { type: 'artist', item: a }),
             })}
+            {...dragProps(a, 'artist')}
           >
             <ArtistImage artist={a} />
             <div className="artist-portrait-info">

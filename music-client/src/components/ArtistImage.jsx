@@ -37,11 +37,15 @@ export default function ArtistImage({ artist, className = '' }) {
   }
 
   return (
+    // draggable={false}: una <img> es arrastrable NATIVAMENTE y acá la foto ES la tarjeta, así que
+    // sin esto agarrar el retrato arrancaría el arrastre de la IMAGEN en vez del de la tarjeta y el
+    // drag-to-enqueue no encolaría nada. Mismo cuidado que en las carátulas de álbum y de fila.
     <img
       className={`artist-img ${className}`}
       src={level === 0 ? artistImageUrl(artist.artist) : coverUrl(artist.sample_track_id)}
       alt=""
       loading="lazy"
+      draggable={false}
       onError={() => setLevel(l => (l === 0 && artist.sample_track_id ? 1 : 2))}
     />
   );
