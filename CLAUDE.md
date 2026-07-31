@@ -35,10 +35,10 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - Las animaciones respetan `prefers-reduced-motion`.
 
 ## Estado actual
-- **Producción va en `v1.11.0`** (tag `v1.11.0` → merge `a706779`, desplegado el 2026-07-29). El
+- **Producción va en `v1.12.0`** (tag `v1.12.0` → merge `ddbe6a7`, desplegado el 2026-07-30). El
   tag más reciente **es** la versión en producción: `main` con auto-deploy
-  despliega directo. Los tags `v1.11.0`, `v1.10.1`, `v1.10.0` y `v1.9.0` están creados y
-  **pusheados a `origin`**, y `origin/main` está en `a706779` — el tag más reciente coincide con
+  despliega directo. Los tags `v1.12.0`, `v1.11.0`, `v1.10.1` y `v1.10.0` están creados y
+  **pusheados a `origin`**, y `origin/main` está en `ddbe6a7` — el tag más reciente coincide con
   prod. Para saber la versión real, **leé el tope de `CHANGELOG.md` o
   `git tag --sort=-v:refname | head -1`** — no confíes en versiones citadas en docs o memoria
   (incluida la de este archivo, que va un release atrás por construcción).
@@ -169,6 +169,52 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   **no se mueven en ningún momento**; el destino se comunica **sólo** con una línea de 2px
   (`queue-row--drop-before` / `--drop-after`) y se anima **únicamente la fila arrastrada**. El
   reacomodo animado del hueco quedó como **pendiente opcional** (ver abajo).
+- **Arrastrar HACIA la cola — drag-to-enqueue (v1.12.0), desktop-only y sólo con la cola abierta** —
+  la contraparte del reorden: aquél mueve DENTRO de la cola, éste trae cosas de afuera. Se arrastra
+  **una canción** (fila de `TrackTable` —que cubre Álbum y Género—, `Library` y `Playlists`), **un
+  álbum** (`AlbumGrid` —Artistas y Años— y `Albums`), **un artista** (`Artists`) o **un género**
+  (`Genres`), y soltarlo en la columna de la cola **encola todo al final**; en `dragover` la columna
+  **se ilumina** (`queue-panel--drop`) y al soltar sale un **toast con el conteo**.
+  ⚠️ **El mecanismo es HTML5 DnD NATIVO, y NO los pointer events del reorden.** No es capricho: el
+  gesto **cruza dos subárboles distintos del DOM** —la tabla vive en `.main-content`, la cola es la
+  3ª columna del grid— y todo gesto de la casa captura el puntero, con lo cual los eventos se
+  **re-targetean al capturador** (el mismo motivo está escrito en el banner de `useLongPress.js`):
+  la columna no vería un solo `pointermove` y habría que hacer hit-testing a mano con
+  `elementFromPoint` por frame. Además este drop **no tiene posición** (soltar en cualquier parte =
+  al final), así que desaparece justo la parte donde el enfoque a mano brillaría. **Los dos
+  mecanismos conviven sin verse**: un drop cruzado no genera `pointerdown` (el reorden ni se entera)
+  y una fila de cola no dispara `dragstart` (no es draggable).
+  **El motor NO se tocó**: `addToQueue` se **invoca** y nada más — MediaSession, `_qid`, `played`/
+  `history`/`forcedNext` intactos.
+  **Piezas:** `context/DragQueueContext.jsx` (provider montado en `Layout`, `dragProps(item, kind)`
+  + `takeDrag()`), y el destino en `QueueOverlay` detrás de la prop **`acceptsDrop`, que pasa SÓLO
+  `Layout`** — el mismo componente se monta también en el drawer del expandido y como hoja móvil, y
+  ahí no hay arrastre que recibir. El drop cuelga de `.queue-panel` y **no** de `.queue-list`,
+  porque con la cola vacía el `<ul>` no se renderiza y ése es justo el caso donde encolar **arranca
+  la reproducción**.
+  **`utils/itemTracks.js` es ahora la fuente COMPARTIDA** de `albumTracks`/`artistTracks`/
+  `genreTracks`: salieron de `ContextMenu.jsx` **tal cual** (movimiento puro, sin cambiar un
+  parámetro) porque desde v1.12.0 tienen dos consumidores —el menú y el drop— y copiarlas era
+  garantizar que un día una encolara un conjunto distinto del que muestra la vista. Los **textos**
+  de los toasts también son los del menú. **`artistTracks` filtra por `album_artist`** (regla dura):
+  usa `item.artist`, que en la vista de Artistas **ya ES** `album_artist` porque el backend lo
+  aliasea en `GET /browse/artists` → la regla se cumple sola.
+  **Gate**, doble red como el reorden: `enabled` = `showQueue` (con la cola cerrada la fila/tarjeta
+  **ni se vuelve `draggable`** — no se auto-abre nada) **y** `matchMedia('(min-width: 701px)')` en
+  el `dragstart`, que hace `preventDefault()` y cancela si un resize dejó la cola abierta en móvil.
+  **Detalles que no son cosméticos:** el MIME propio **`application/x-sonorarev-item`** es lo único
+  con lo que el destino distingue un arrastre nuestro de una imagen o un archivo (en `dragover` el
+  navegador **no** deja leer los datos, sólo `types`); y **`draggable={false}` en las `<img>`** de
+  filas y tarjetas (`TrackTable`, `Library`, `Playlists`, `AlbumGrid`, `Albums`, `ArtistImage`),
+  porque una imagen es arrastrable **nativamente** y agarrar por la carátula arrancaba el arrastre
+  de la IMAGEN en vez del de la fila. La tarjeta de **género no lo necesita**: su "carátula" es un
+  emoji, que es texto. El **ghost** lo pinta el navegador **fuera del DOM** → cero impacto en la
+  escalera de z (no hizo falta token nuevo).
+  ⚠️ **El mini-reproductor NO es drop target**: el único destino es `.queue-panel` en la instancia
+  columna. Se asumió lo contrario en una sesión previa — **no existe**; es decisión pendiente.
+  **Trade conocido:** con la cola abierta, en esas filas ya no se puede seleccionar el título
+  arrastrando (el navegador prioriza el arrastre del elemento). Con la cola cerrada, igual que
+  siempre. Contrato: `.claude/skills/actions-lab/SKILL.md`.
 - **Herramienta de snapshots (`.claude/tools/snap/`)** — tooling **local** de verificación visual
   con Playwright headless, nacido en esta serie. `snap.mjs` captura una ruta del Modelo 2 en los
   **tres anchos** que importan de una corrida; `snap-ctx.mjs` abre el **menú contextual móvil**
@@ -195,14 +241,15 @@ Artistas Retrato/Prisma + discos dobles (v1.6.0), Ajustes/cerrar sesión + regis
 del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1), cola móvil como hoja
 arrastrable + listas que se adaptan al ancho (v1.9.0), el menú contextual de acciones en
 escritorio y teléfono (v1.10.0) con su cableado a Géneros/Playlists y a las carátulas del
-teléfono (v1.10.1), y el reorden de la cola por arrastre (v1.11.0).
+teléfono (v1.10.1), el reorden de la cola por arrastre (v1.11.0) y el drag-to-enqueue completo
+—canción, álbum, artista y género (v1.12.0)—. Con eso el **ecosistema de la cola queda cerrado**:
+menú contextual → reordenar dentro → arrastrar hacia adentro.
 `feature/sonorarev-integration` arranca limpio para lo próximo — lo único que tiene fuera de
 `main` es este mismo commit de docs, que entra en la próxima tanda. **Este archivo siempre va
 un release atrás por construcción**: su commit de docs viaja *dentro* de la tanda siguiente
 (el de post-v1.8.1 salió con v1.9.0; el de post-v1.9.0 salió con v1.10.0; el de post-v1.10.0
-—`431cabf`— salió con v1.10.1), así que después de cada release hay que releerlo contra los
-tags. Esta actualización cubre **dos** releases (v1.10.1 y v1.11.0) porque v1.10.1 salió el
-mismo día que v1.10.0, antes de que hubiera un commit de docs propio. Ojo: la feature branch
+—`431cabf`— salió con v1.10.1; el de post-v1.11.0 —`6f90636`— salió con v1.12.0), así que
+después de cada release hay que releerlo contra los tags. Ojo: la feature branch
 **no se pushea** (queda muy por delante de
 `origin/feature/sonorarev-integration`); lo que viaja a `origin` es `main` +
 tags. La versión real siempre sale del tope de `CHANGELOG.md` o
@@ -221,6 +268,13 @@ la interacción del reorden con el resto del motor: mover la pista marcada **"a 
 **aleatorio** encendido (donde el efecto es cosmético a propósito), y confirmar que en el
 **teléfono** el gesto sigue sin existir. Mismo subagente `actions-qa` para auditarlo.
 
+**QA de v1.12.0 — validado a mano, fase por fase:** el usuario probó en escritorio las tres
+tandas antes de commitear cada una (canción, después álbum, después artista/género), y confirmó
+que el reorden de la cola **convive** con el arrastre nuevo. Lo que **no** se ejercitó: los
+caminos de **error** (álbum/artista/género **sin pistas** → aviso ámbar; fetch caído), soltar
+sobre la **cola vacía** (debe arrancar la reproducción), y que el drop **rechace** un arrastre
+ajeno (una imagen o un archivo de afuera no debe iluminar la columna).
+
 ## Pendientes conocidos
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
 - **Novedades sin color:** `Changelog.jsx:95` ya emite el hook por sección
@@ -231,6 +285,16 @@ la interacción del reorden con el resto del motor: mover la pista marcada **"a 
 - **Reacomodo animado de las vecinas al arrastrar en la cola** (opcional): hoy el hueco no se abre
   y el destino se comunica sólo con la línea de 2px. La curva del snap (`SNAP_EASE`) ya queda
   lista para reusarse tal cual.
+- **¿El mini-reproductor acepta drops? — DECISIÓN, no trabajo pendiente.** Hoy el único destino del
+  drag-to-enqueue es `.queue-panel` en la instancia columna. Si se aprueba, es un release chico
+  propio: reusaría `takeDrag()` y `DROP_SETS` tal como están. ⚠️ En una sesión previa se **asumió
+  que ya funcionaba** y no es así — verificar antes de darlo por hecho.
+- **Emoji-picker de playlists — alcance sin definir (pendiente del usuario).** Estado real hoy
+  (`EmojiPicker.jsx`): lista **fija de 24 emojis** (`PLAYLIST_EMOJIS`), sin búsqueda ni emoji
+  libre, y cierra por clic afuera con **`mousedown`** — que **diverge del estándar de la casa**
+  (`ContextMenu` usa `pointerdown` a propósito, porque en el teléfono `mousedown` es un evento
+  sintetizado). No hay una deuda escrita en el código ni en las skills: **preguntar qué se quiere**
+  antes de tocarlo, en vez de suponer que es "agregar más emojis".
 - **Modo Auto (car-lab, fase B):** último tramo del orden pactado A → C → B. Contrato en
   `.claude/skills/car-lab/SKILL.md`. Sigue pendiente también la **prueba física** de MediaSession
   en los 4 carros.
@@ -255,4 +319,4 @@ la interacción del reorden con el resto del motor: mover la pista marcada **"a 
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-29 (v1.11.0 DESPLEGADO y tagueado el 2026-07-29 — reordenar la cola arrastrando en escritorio, con autoscroll de bordes y asentamiento al soltar, en producción; cubre además v1.10.1, que no había llegado a este archivo. CLAUDE.md al día: producción = v1.11.0, nada sin mergear)._
+_Última actualización: 2026-07-30 (v1.12.0 DESPLEGADO y tagueado el 2026-07-30 — arrastrar a la cola una canción, un álbum, un artista o un género, en escritorio y con la cola abierta, en producción. Con eso cierra el ecosistema de la cola: menú contextual → reordenar dentro → arrastrar hacia adentro. CLAUDE.md al día: producción = v1.12.0, nada sin mergear)._
