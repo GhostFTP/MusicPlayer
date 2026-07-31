@@ -3,6 +3,21 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.12.0] - 2026-07-30
+
+### Añadido
+- **Arrastrá a la cola lo que quieras escuchar después**: con la cola abierta al
+  costado, agarrá una canción de cualquier lista y soltala sobre la columna —
+  se agrega al final, sin cortar lo que está sonando. Mientras la arrastrás, la
+  columna se ilumina para avisarte que ahí podés soltar. Es en pantalla grande,
+  con el mouse; en el teléfono la forma de encolar sigue siendo el menú que
+  aparece al mantener presionada una canción.
+- **También podés arrastrar un álbum, un artista o un género enteros**: agarrá
+  la tarjeta —una portada de álbum, el retrato de un artista, un género— y
+  soltala en la cola para encolar todo lo que contiene, en el mismo orden en el
+  que lo ves. Al soltar te avisa cuántas canciones entraron, así sabés si
+  agarraste el álbum de doce o el artista de ciento veinte.
+
 ## [1.11.0] - 2026-07-29
 
 ### Añadido
