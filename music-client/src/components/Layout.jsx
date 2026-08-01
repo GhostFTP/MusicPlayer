@@ -215,10 +215,11 @@ export default function Layout() {
   };
 
   return (
-    // Drag-to-enqueue (fase a): el provider envuelve a las DOS puntas del gesto — las listas de
-    // .main-content (origen) y la columna de la cola (destino). `enabled` es showQueue: sin cola
-    // abierta no hay dónde soltar, así que las filas ni se vuelven arrastrables. No auto-abre nada.
-    <DragQueueProvider enabled={showQueue}>
+    // Drag-to-enqueue: el provider envuelve a las DOS puntas del gesto — las listas de
+    // .main-content (origen) y los destinos (la columna de la cola y la barra del reproductor).
+    // Ya NO recibe `enabled`: desde que la barra acepta drops hay destino siempre, así que el gate
+    // del origen es sólo el ancho y lo resuelve el provider (ver §Destinos en DragQueueContext).
+    <DragQueueProvider>
       <div className={`layout${showQueue ? ' layout--queue' : ''}`}>
         <Sidebar view={view} navigate={navigate} />
 

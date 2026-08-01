@@ -3,6 +3,17 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.12.1] - 2026-07-31
+
+### Mejorado
+- **Arrastrar a la cola ya no te obliga a abrirla**: además de la columna del
+  costado, ahora podés soltar sobre la **barra del reproductor** —esa está
+  siempre abajo, tenga o no la cola abierta—. Agarrás una canción, un álbum, un
+  artista o un género, lo soltás en la barra y se agrega al final, igual que
+  antes. Mientras arrastrás por encima, la barra se marca con un filo de color
+  para avisarte que ahí podés soltar, y los controles no se tocan: soltar
+  encima no pausa, no cambia el volumen ni mueve la canción de lugar.
+
 ## [1.12.0] - 2026-07-30
 
 ### Añadido

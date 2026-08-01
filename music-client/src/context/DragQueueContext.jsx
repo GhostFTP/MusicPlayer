@@ -1,6 +1,9 @@
-import { createContext, useCallback, useContext, useMemo, useRef } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { artistImageUrl, coverUrl } from '../api/client.js';
 import { genreEmoji } from '../utils/genreEmoji.js';
+import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
+import { usePlayer } from './PlayerContext.jsx';
+import { useToast } from '../components/Toast.jsx';
 
 // ── Drag-to-enqueue: arrastrar cosas hasta la cola ──────────────────────────────────────────
 //
@@ -41,14 +44,33 @@ const DragQueueCtx = createContext(null);
 // se lee del payload al soltar, que es el único momento en que hace falta saberlo.
 export const DRAG_MIME = 'application/x-sonorarev-item';
 
-// Doble red del gate, igual que el reorder (matchMedia en el pointerdown + @media en el CSS):
-// `enabled` ya cuelga de showQueue —que sólo existe en desktop—, pero un resize desktop→móvil
-// puede dejarlo en true, caso que el CSS de la cola también contempla explícitamente.
+// Doble red del gate, igual que el reorder (matchMedia acá + @media en el CSS).
 const DESKTOP = '(min-width: 701px)';
 
 const NO_DRAG = {};
 
-export function DragQueueProvider({ enabled, children }) {
+// ⚠️ EL GATE DEL ORIGEN CAMBIÓ al sumarse la barra como segundo destino (ver §Destinos abajo).
+// Antes colgaba de `showQueue`: sin cola abierta no había dónde soltar, así que no tenía sentido
+// levantar nada. Ahora la BARRA acepta drops y está SIEMPRE visible, así que en desktop siempre
+// hay destino → el gate es el ancho, y nada más. No es un permiso que se aflojó: es que la premisa
+// que lo justificaba dejó de ser cierta.
+//
+// Reactivo por matchMedia y no leído una vez: `draggable` es un atributo del DOM, así que al
+// cruzar el breakpoint por resize hay que volver a renderizar para quitarlo. En móvil nunca se
+// pone — ahí la puerta es el menú contextual por long-press.
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP);
+    const on = () => setDesktop(mq.matches);
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
+  return desktop;
+}
+
+export function DragQueueProvider({ children }) {
+  const enabled = useIsDesktop();
   // El payload viaja por un ref y NO por dataTransfer: éste sólo transporta strings, y addToQueue
   // necesita el objeto de pista entero (lo esparce para ponerle su _qid). En dataTransfer va sólo
   // la marca. Un arrastre por vez, así que un ref alcanza — no hay carrera posible.
@@ -176,4 +198,104 @@ const NO_CTX = { enabled: false, dragProps: () => NO_DRAG, takeDrag: () => null 
 
 export function useDragQueue() {
   return useContext(DragQueueCtx) ?? NO_CTX;
+}
+
+// ── §Destinos · el drop, UNA sola implementación para las dos zonas ─────────────────────────────
+//
+// Zonas que aceptan soltar: la COLUMNA de la cola (`QueueOverlay`, sólo la instancia que recibe
+// `acceptsDrop` de Layout) y la BARRA del reproductor (`Player`). Hacen exactamente lo mismo, así
+// que el comportamiento vive acá y no duplicado en cada una: si mañana cambia un texto o se suma un
+// kind, cambia en las dos o en ninguna. Cada zona sólo aporta su nodo y su clase de resaltado.
+//
+// La diferencia entre las dos es de DISPONIBILIDAD, no de conducta: la columna existe sólo con la
+// cola abierta; la barra está siempre. Por eso la barra es la que vuelve el gesto usable sin abrir
+// nada — y la que obligó a que el origen deje de colgar de `showQueue`.
+//
+// Los kinds de CONJUNTO: cómo traer sus pistas, cómo nombrarlos en el toast y qué avisar si no
+// tienen ninguna. Las tres cargas salen de utils/itemTracks.js —el mismo módulo que usa "agregar a
+// la cola" del menú contextual—, así que soltar y elegirlo del menú encolan el mismo conjunto, en
+// el mismo orden. Los textos también son los del menú.
+//
+// `artist` se busca por `item.artist`, que en la vista de Artistas YA ES album_artist (el backend lo
+// aliasea en GET /browse/artists) → la regla dura "encolar siempre por album_artist" se cumple sola.
+const DROP_SETS = {
+  album:  { load: albumTracks,  name: (i) => i.album,  empty: 'Ese álbum no tiene pistas' },
+  artist: { load: artistTracks, name: (i) => i.artist, empty: 'Ese artista no tiene pistas' },
+  genre:  { load: genreTracks,  name: (i) => i.genre,  empty: 'Ese género no tiene pistas' },
+};
+
+// En dragover/dragenter el navegador NO deja leer los datos (sólo `types`), así que la marca es lo
+// único con lo que se distingue un arrastre nuestro de un archivo, una imagen o una selección de
+// texto venidos de afuera. Sin esto, cualquier cosa que pase por encima encendería la zona.
+const isOurDrag = (e) => !!e.dataTransfer?.types?.includes(DRAG_MIME);
+
+// Devuelve `{ dropOver, dropHandlers }`. `active` permite montar la zona condicionalmente sin
+// romper el orden de hooks (la columna lo usa para su prop `acceptsDrop`).
+//
+// NADA de esto actúa al pasar por encima: dragover sólo hace preventDefault —el permiso que la API
+// exige para que el drop pueda ocurrir— y pinta un booleano. Lo único que encola es el `drop`, que
+// el navegador dispara al SOLTAR. Por eso una barra llena de controles puede ser zona de drop sin
+// que pasar el cursor active play, el seek o el volumen.
+export function useQueueDropTarget({ active = true } = {}) {
+  const { addToQueue } = usePlayer();
+  const { takeDrag } = useDragQueue();
+  const toast = useToast();
+
+  const [dropOver, setDropOver] = useState(false);
+  // dragenter/dragleave BURBUJEAN: al cruzar de un hijo a otro llega el leave del que se abandona
+  // ANTES que el enter del que se entra, y el resalte parpadearía en cada frontera interna. Contando
+  // profundidad, se apaga sólo cuando se abandona la zona de verdad.
+  const depth = useRef(0);
+
+  const onDragEnter = useCallback((e) => {
+    if (!isOurDrag(e)) return;
+    depth.current += 1;
+    setDropOver(true);
+  }, []);
+
+  const onDragLeave = useCallback((e) => {
+    if (!isOurDrag(e)) return;
+    depth.current = Math.max(0, depth.current - 1);
+    if (!depth.current) setDropOver(false);
+  }, []);
+
+  const onDragOver = useCallback((e) => {
+    if (!isOurDrag(e)) return;
+    e.preventDefault();                      // SIN esto el drop no ocurre nunca (regla de la API)
+    e.dataTransfer.dropEffect = 'copy';      // el cursor dice "agrega", no "mueve"
+  }, []);
+
+  // Una PISTA ya viene entera y se encola en el acto; los kinds de CONJUNTO son sólo una identidad y
+  // hay que ir a buscar sus pistas — por eso esto es async, y por eso el payload se lee ANTES de
+  // esperar nada (para cuando el fetch vuelva, dragend ya lo puso en null).
+  // Un kind desconocido sale sin hacer nada: DROP_SETS es la lista blanca.
+  const onDrop = useCallback(async (e) => {
+    if (!isOurDrag(e)) return;
+    e.preventDefault();
+    depth.current = 0;
+    setDropOver(false);
+    const payload = takeDrag();
+    if (!payload) return;                    // dragend ya limpió, o el payload nunca se armó
+    const { kind, item } = payload;
+
+    if (kind === 'track') {
+      addToQueue(item);                      // el motor no se toca: se invoca y nada más
+      toast('Añadida a la cola');            // el MISMO texto que el menú contextual
+      return;
+    }
+
+    const set = DROP_SETS[kind];
+    if (!set) return;
+    // Mismos avisos que onTracks() en ContextMenu: un conjunto sin pistas no puede quedar en
+    // silencio (parecería que el drop no funcionó), y un fetch caído tampoco.
+    try {
+      const ts = await set.load(item);
+      if (!ts?.length) { toast(set.empty, { variant: 'warning' }); return; }
+      addToQueue(ts);                        // acepta arrays desde v1.8.0: una sola llamada
+      toast(`«${set.name(item)}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
+    } catch { toast('No se pudieron cargar las pistas', { variant: 'warning' }); }
+  }, [addToQueue, takeDrag, toast]);
+
+  const dropHandlers = active ? { onDragEnter, onDragLeave, onDragOver, onDrop } : null;
+  return { dropOver: active && dropOver, dropHandlers };
 }
