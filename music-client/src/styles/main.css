@@ -1746,11 +1746,34 @@ button, input, select, textarea { font-family: inherit; }
 .cl-date { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .cl-section { margin-bottom: 18px; }
 .cl-section-title {
+  display: flex; align-items: center; gap: 7px;
   font-size: 12px; font-weight: 700; text-transform: uppercase;
   letter-spacing: 1px; margin-bottom: 10px; color: var(--text-muted);
 }
-.cl-section-title.cl-nuevo    { color: var(--q-lossless); }   /* verde */
-.cl-section-title.cl-mejorado { color: var(--accent); }       /* morado */
+/* El ícono NO lleva color propio: hereda por `currentColor` el de la clase de categoría de abajo.
+   Un solo lugar decide el color de cada categoría, así que ícono y texto no pueden separarse. */
+.cl-section-icon { flex: none; }
+
+/* ── Identidad por categoría ────────────────────────────────────────────────────────────────────
+   Todos los colores salen de tokens de :root — ninguno nuevo. El criterio es semántico, no
+   decorativo:
+   · Añadido/Nuevo → VERDE (--q-lossless): lo que no existía. Son la misma categoría con dos
+     nombres según la época del archivo ("Nuevo" es el viejo), así que comparten color: si no, la
+     misma idea cambiaría de color al hacer scroll por el historial.
+   · Corregido → ÁMBAR (--amber), no rojo: el rojo diría "esto está roto", y acá justamente ya
+     está arreglado. Ámbar señala sin alarmar.
+   · Cambiado → CIAN (--q-hires), la familia azul del proyecto: ni celebra ni alerta, sólo avisa
+     que algo se comporta distinto.
+   · Mejorado → MORADO (--accent), el que ya tenía: es el acento de la casa y le queda bien a "lo
+     de siempre, pero mejor".
+   · Técnico → queda a propósito en el gris heredado (--text-muted): es la sección de referencia
+     interna, la menos importante para quien lee las novedades. Lleva ícono como todas, así que se
+     lee como una decisión y no como la categoría que se olvidaron de pintar. */
+.cl-section-title.cl-anadido   { color: var(--q-lossless); }   /* verde */
+.cl-section-title.cl-nuevo     { color: var(--q-lossless); }   /* verde — alias histórico */
+.cl-section-title.cl-corregido { color: var(--amber); }        /* ámbar */
+.cl-section-title.cl-cambiado  { color: var(--q-hires); }      /* cian */
+.cl-section-title.cl-mejorado  { color: var(--accent); }       /* morado */
 .cl-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
 .cl-list li {
   position: relative; padding-left: 18px;
