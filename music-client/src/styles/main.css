@@ -39,6 +39,11 @@
      mover una moviera la otra sin querer. Queda sobre la Letra (250) y el expandido (200), y
      debajo del Info (300): el menú se abre sobre superficies de biblioteca, nunca sobre el Info. */
   --z-context-menu: 260;
+  /* Grilla de emojis: flota SOBRE el popover que la abrió (el menú "+" y el contextual, los dos en
+     260), y por eso no puede compartir esa capa. Sigue debajo de Info (300) y del toast (400), que
+     nunca hospedan un picker. Es un peldaño NUEVO por encima de los popovers — no mueve ninguno
+     de los que ya existían. */
+  --z-emoji-grid: 270;
 
   /* Safe-areas LEGIBLES DESDE JS (C2c). El CSS puede usar env() donde quiera; el JS no tiene
      forma de preguntarle al navegador cuánto mide el notch, y el menú contextual necesita el
@@ -1466,23 +1471,56 @@ button, input, select, textarea { font-family: inherit; }
 }
 .btn-icon:hover { color: var(--text); background: var(--surface-hover); }
 
+/* ── Barra "Nueva playlist" — UN campo, no tres cajas ───────────────────────────────────────────
+   Antes eran tres controles con borde propio puestos en fila (emoji · input · Crear) y se leían
+   como tres cosas sueltas. Ahora la identidad visual la lleva el <form>, que YA era el contenedor
+   flex: fondo, borde y radio de píldora van en él, el input queda transparente y el emoji y el
+   botón viven ADENTRO como partes del mismo objeto. El foco pasa a ser del campo entero
+   (`:focus-within`), no del input solo.
+   Todo scopeado a .new-playlist-form: el formulario de renombrar y las variantes del menú "+"
+   (.ptp-new) tienen su propio lenguaje y no se tocan. */
 .new-playlist-form {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 24px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: border-color .15s, background .15s;
+}
+.new-playlist-form:focus-within {
+  border-color: var(--accent);
+  background: var(--surface-2);
 }
 .new-playlist-form input {
   flex: 1;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  min-width: 0;                 /* sin esto el input no puede encogerse y empuja al botón */
+  background: none;
+  border: none;
   color: var(--text);
-  padding: 9px 14px;
+  padding: 8px 6px;
   font-size: 14px;
   outline: none;
 }
-.new-playlist-form input:focus { border-color: var(--accent); }
+/* El botón de emoji pierde su caja propia: adentro de la píldora sería una caja dentro de otra. */
+.new-playlist-form .emoji-picker-btn {
+  border-color: transparent;
+  border-radius: 999px;
+}
+/* ⚠️ SCOPEADO a propósito: .btn-primary es GLOBAL (Reintentar, ▶ Reproducir de los detalles…).
+   Tocar la clase base rompería esos 11 usos. */
+.new-playlist-form .btn-primary {
+  border-radius: 999px;
+  padding: 8px 18px;
+  flex: none;
+}
+/* Angosto: el texto "Crear" no puede comerse el input (la barra no tenía reglas móviles). */
+@media (max-width: 700px) {
+  .new-playlist-form .btn-primary { padding: 8px 14px; }
+  .new-playlist-form input { padding: 8px 4px; }
+}
 
 .btn-primary {
   background: var(--accent);
@@ -1700,11 +1738,14 @@ button, input, select, textarea { font-family: inherit; }
   transition: border-color .15s, background .15s, transform .12s;
 }
 .emoji-picker-btn:hover { border-color: var(--teal); background: rgba(255, 255, 255, .09); transform: scale(1.05); }
+/* La grilla se renderiza en un PORTAL a <body> y se posiciona con coordenadas de VIEWPORT
+   calculadas al abrir (flip arriba/abajo + clamp, como ContextMenu). El porqué está en
+   EmojiPicker.jsx: antes era absolute abriendo hacia arriba y la recortaba cualquier ancestro con
+   overflow — `.main-content` en la vista de Playlists, `.ptp-list` dentro del menú "+". Las
+   coordenadas las escribe el JS (left/top inline); acá va todo lo demás. */
 .emoji-grid {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 60;
+  position: fixed;
+  z-index: var(--z-emoji-grid);
   width: 246px;
   display: grid;
   grid-template-columns: repeat(6, 1fr);
@@ -1716,9 +1757,10 @@ button, input, select, textarea { font-family: inherit; }
   border: 1px solid rgba(255, 255, 255, .1);
   border-radius: 12px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, .6);
-  transform-origin: bottom left;
+  transform-origin: bottom left;          /* default: abre hacia ARRIBA del botón */
   animation: ptp-menu-in .14s ease;
 }
+.emoji-grid--down { transform-origin: top left; }   /* volteada: nace desde el borde de abajo */
 .emoji-cell {
   background: none; border: none; cursor: pointer;
   font-size: 20px; line-height: 1;
@@ -1746,11 +1788,34 @@ button, input, select, textarea { font-family: inherit; }
 .cl-date { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .cl-section { margin-bottom: 18px; }
 .cl-section-title {
+  display: flex; align-items: center; gap: 7px;
   font-size: 12px; font-weight: 700; text-transform: uppercase;
   letter-spacing: 1px; margin-bottom: 10px; color: var(--text-muted);
 }
-.cl-section-title.cl-nuevo    { color: var(--q-lossless); }   /* verde */
-.cl-section-title.cl-mejorado { color: var(--accent); }       /* morado */
+/* El ícono NO lleva color propio: hereda por `currentColor` el de la clase de categoría de abajo.
+   Un solo lugar decide el color de cada categoría, así que ícono y texto no pueden separarse. */
+.cl-section-icon { flex: none; }
+
+/* ── Identidad por categoría ────────────────────────────────────────────────────────────────────
+   Todos los colores salen de tokens de :root — ninguno nuevo. El criterio es semántico, no
+   decorativo:
+   · Añadido/Nuevo → VERDE (--q-lossless): lo que no existía. Son la misma categoría con dos
+     nombres según la época del archivo ("Nuevo" es el viejo), así que comparten color: si no, la
+     misma idea cambiaría de color al hacer scroll por el historial.
+   · Corregido → ÁMBAR (--amber), no rojo: el rojo diría "esto está roto", y acá justamente ya
+     está arreglado. Ámbar señala sin alarmar.
+   · Cambiado → CIAN (--q-hires), la familia azul del proyecto: ni celebra ni alerta, sólo avisa
+     que algo se comporta distinto.
+   · Mejorado → MORADO (--accent), el que ya tenía: es el acento de la casa y le queda bien a "lo
+     de siempre, pero mejor".
+   · Técnico → queda a propósito en el gris heredado (--text-muted): es la sección de referencia
+     interna, la menos importante para quien lee las novedades. Lleva ícono como todas, así que se
+     lee como una decisión y no como la categoría que se olvidaron de pintar. */
+.cl-section-title.cl-anadido   { color: var(--q-lossless); }   /* verde */
+.cl-section-title.cl-nuevo     { color: var(--q-lossless); }   /* verde — alias histórico */
+.cl-section-title.cl-corregido { color: var(--amber); }        /* ámbar */
+.cl-section-title.cl-cambiado  { color: var(--q-hires); }      /* cian */
+.cl-section-title.cl-mejorado  { color: var(--accent); }       /* morado */
 .cl-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
 .cl-list li {
   position: relative; padding-left: 18px;
@@ -1773,6 +1838,8 @@ button, input, select, textarea { font-family: inherit; }
   .ptp-menu, .emoji-grid { animation: none; }
   .ptp-new-btn:hover, .ptp-new-btn:active,
   .emoji-picker-btn:hover, .emoji-cell:hover { transform: none; }
+  /* La píldora de "Nueva playlist" conserva el COLOR del foco; se va sólo el fundido. */
+  .new-playlist-form { transition: none; }
   .ptp-item-emoji { animation: none; transition: none; }
   .ptp-item-main:hover .ptp-item-emoji { transform: none; }
   .ptp-mini-btn:active { transform: none; }

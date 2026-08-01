@@ -42,9 +42,41 @@ function fmt(text) {
   });
 }
 
-// Clase por sección para colorear el título (nuevo/mejorado/técnico).
+// Clase por sección para colorear el título. Normaliza acentos, así "Añadido" → 'anadido' y
+// "Técnico" → 'tecnico' (por eso las clases del CSS no llevan tilde).
 function slug(s) {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z]/g, '');
+}
+
+// Ícono por categoría. Mismo idioma que el resto de los íconos de la casa (ContextMenu): 14px,
+// viewBox 24, trazo de 2 y `currentColor` — que acá es la clave: el color lo pone la clase del
+// título, así que ícono y texto NO pueden desincronizarse por más categorías que se sumen.
+//
+// El CHANGELOG usa SEIS encabezados, no cuatro: "Nuevo" es como se llamaba "Añadido" en las
+// entradas viejas (v1.4.x y anteriores) y sigue vivo en el archivo. Son la MISMA categoría, así
+// que comparten ícono y color a propósito: si no, al hacer scroll la misma idea cambiaría de
+// color a mitad del historial.
+const ICONS = {
+  anadido:   <><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></>,
+  corregido: <path d="M4 12.5l5 5L20 6.5" />,
+  cambiado:  <><path d="M4 8h13l-3.5-3.5" /><path d="M20 16H7l3.5 3.5" /></>,
+  mejorado:  <><line x1="12" y1="20" x2="12" y2="6" /><path d="M6 12l6-6 6 6" /></>,
+  tecnico:   <><path d="M9 18l-6-6 6-6" /><path d="M15 6l6 6-6 6" /></>,
+};
+ICONS.nuevo = ICONS.anadido;   // mismo concepto, distinto nombre según la época del archivo
+
+function SectionIcon({ kind }) {
+  const glyph = ICONS[kind];
+  if (!glyph) return null;     // categoría desconocida → título sin ícono, nunca un hueco raro
+  return (
+    <svg
+      className="cl-section-icon" width="14" height="14" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {glyph}
+    </svg>
+  );
 }
 
 export default function Changelog() {
@@ -90,14 +122,20 @@ export default function Changelog() {
               <span className="cl-badge">v{v.version.replace(/^v/i, '')}</span>
               {v.date && <span className="cl-date">{v.date}</span>}
             </div>
-            {v.sections.map((s, j) => (
+            {v.sections.map((s, j) => {
+              const kind = slug(s.title);
+              return (
               <div key={j} className="cl-section">
-                <h3 className={`cl-section-title cl-${slug(s.title)}`}>{s.title}</h3>
+                <h3 className={`cl-section-title cl-${kind}`}>
+                  <SectionIcon kind={kind} />
+                  {s.title}
+                </h3>
                 <ul className="cl-list">
                   {s.items.map((it, k) => <li key={k}>{fmt(it)}</li>)}
                 </ul>
               </div>
-            ))}
+              );
+            })}
           </section>
         ))
       )}

@@ -5,7 +5,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from './Toast.jsx';
 import { api } from '../api/client.js';
 import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
-import EmojiPicker from './EmojiPicker.jsx';
+import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
 
@@ -216,7 +216,13 @@ export function ContextMenuProvider({ children }) {
   //    alto, y eso cerraba el menú justo al enfocar el input de "nueva playlist" (autoFocus).
   useEffect(() => {
     if (!menu) return;
-    const onDown = (e) => { if (!elRef.current?.contains(e.target)) closeMenu(); };
+    // El picker de emojis del selector de playlists se renderiza en un PORTAL a <body>, así que
+    // para este `contains` queda fuera del menú: sin esta excepción, tocar un emoji se leería como
+    // "tocaron afuera" y el menú se cerraría justo cuando se está eligiendo.
+    const onDown = (e) => {
+      if (elRef.current?.contains(e.target) || isEmojiPickerTarget(e.target)) return;
+      closeMenu();
+    };
     const w0 = window.innerWidth;
     const onResize = () => { if (window.innerWidth !== w0) closeMenu(); };
     // El listener de scroll es de CAPTURA, así que ve el scroll de CUALQUIER elemento, no sólo el

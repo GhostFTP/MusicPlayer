@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { api } from '../api/client.js';
-import EmojiPicker from './EmojiPicker.jsx';
+import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { useToast } from './Toast.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
@@ -32,7 +32,13 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
     if (!open) { setEditingId(null); setConfirmId(null); return; }
     api.playlists().then(setPlaylists).catch(() => {});
 
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    // El picker de emojis (renombrar en línea y "nueva playlist") se renderiza en un PORTAL a
+    // <body>, así que para este `contains` queda fuera del menú: sin la excepción, tocar un emoji
+    // cerraría el menú justo cuando se está eligiendo.
+    const onDoc = (e) => {
+      if (ref.current?.contains(e.target) || isEmojiPickerTarget(e.target)) return;
+      setOpen(false);
+    };
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
