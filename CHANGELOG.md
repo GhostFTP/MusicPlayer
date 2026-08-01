@@ -3,6 +3,26 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.12.2] - 2026-07-31
+
+### Mejorado
+- **Las Novedades ahora se leen de un vistazo**: cada categoría tiene su color y
+  su ícono —verde y un "+" para lo nuevo, ámbar y un tilde para lo corregido,
+  celeste para lo que cambió, morado y una flecha para lo mejorado—, así podés
+  barrer la lista buscando sólo los arreglos, o sólo lo que se sumó, sin leerla
+  entera. Antes casi todas las categorías se veían iguales, en gris.
+- **La barra de crear playlists es un solo campo**: el emoji, el nombre y el
+  botón "Crear" dejaron de ser tres cajas sueltas una al lado de la otra y ahora
+  viven dentro del mismo recuadro redondeado, que se ilumina cuando escribís.
+
+### Corregido
+- **El selector de emojis ya no se corta**: al abrirlo se veían sólo algunos
+  emojis —el resto quedaba tapado por el borde de la pantalla o de la ventanita
+  donde estaba—, así que había opciones a las que no se podía llegar. Ahora se
+  abre completo, y si arriba no hay lugar se despliega hacia abajo. Pasa en los
+  cinco lugares donde aparece: al crear una playlist, al renombrarla, y dentro de
+  los menús para agregar canciones.
+
 ## [1.12.1] - 2026-07-31
 
 ### Mejorado
