@@ -35,10 +35,10 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - Las animaciones respetan `prefers-reduced-motion`.
 
 ## Estado actual
-- **Producción va en `v1.12.0`** (tag `v1.12.0` → merge `ddbe6a7`, desplegado el 2026-07-30). El
+- **Producción va en `v1.12.1`** (tag `v1.12.1` → merge `f8ba2bf`, desplegado el 2026-07-31). El
   tag más reciente **es** la versión en producción: `main` con auto-deploy
-  despliega directo. Los tags `v1.12.0`, `v1.11.0`, `v1.10.1` y `v1.10.0` están creados y
-  **pusheados a `origin`**, y `origin/main` está en `ddbe6a7` — el tag más reciente coincide con
+  despliega directo. Los tags `v1.12.1`, `v1.12.0`, `v1.11.0` y `v1.10.1` están creados y
+  **pusheados a `origin`**, y `origin/main` está en `f8ba2bf` — el tag más reciente coincide con
   prod. Para saber la versión real, **leé el tope de `CHANGELOG.md` o
   `git tag --sort=-v:refname | head -1`** — no confíes en versiones citadas en docs o memoria
   (incluida la de este archivo, que va un release atrás por construcción).
@@ -210,11 +210,38 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   de la IMAGEN en vez del de la fila. La tarjeta de **género no lo necesita**: su "carátula" es un
   emoji, que es texto. El **ghost** lo pinta el navegador **fuera del DOM** → cero impacto en la
   escalera de z (no hizo falta token nuevo).
-  ⚠️ **El mini-reproductor NO es drop target**: el único destino es `.queue-panel` en la instancia
-  columna. Se asumió lo contrario en una sesión previa — **no existe**; es decisión pendiente.
-  **Trade conocido:** con la cola abierta, en esas filas ya no se puede seleccionar el título
-  arrastrando (el navegador prioriza el arrastre del elemento). Con la cola cerrada, igual que
-  siempre. Contrato: `.claude/skills/actions-lab/SKILL.md`.
+  **DOS destinos desde v1.12.1** (ver abajo). Contrato: `.claude/skills/actions-lab/SKILL.md`.
+- **La barra del reproductor, 2º destino del drop (v1.12.1)** — soltar sobre `.player-bar` encola
+  igual que soltar en la columna. La diferencia entre las dos zonas es de **DISPONIBILIDAD, no de
+  conducta**: la columna existe sólo con la cola abierta y **la barra está siempre**, así que
+  encolar arrastrando **ya no obliga a abrir la cola**. Ésa es toda la razón de ser de esta zona.
+  **El drop es UNO SOLO**: se extrajo a **`useQueueDropTarget()`** (en `DragQueueContext.jsx`,
+  junto al resto del contrato), que devuelve `{ dropOver, dropHandlers }`; cada zona sólo aporta su
+  nodo y su clase (`queue-panel--drop` / `player-bar--drop`). `DROP_SETS` y el guard del MIME viven
+  ahí. `QueueOverlay` pasó de ~70 líneas de drop propio a **una**. Si cambia un texto o entra un
+  kind nuevo, cambia en las dos zonas o en ninguna. El parámetro `active` deja que la columna **no**
+  acepte sin romper el orden de hooks.
+  ⚠️ **CAMBIÓ EL GATE DEL ORIGEN, y es consecuencia directa de lo anterior.** `dragProps` colgaba de
+  `enabled = showQueue`: con la cola cerrada **nada era arrastrable**, así que una barra que acepta
+  drops con la cola cerrada no habría recibido nunca nada. Hoy `enabled` es **el ancho**, resuelto
+  con un `matchMedia` **reactivo** (`useIsDesktop` en el provider — `draggable` es un atributo del
+  DOM, así que al cruzar el breakpoint por resize hay que re-renderizar para quitarlo), y `Layout`
+  **ya no le pasa `enabled`**. No es un permiso que se aflojó: la premisa que lo justificaba —"sin
+  cola abierta no hay dónde soltar"— dejó de ser cierta.
+  **TRADE ACEPTADO por el usuario:** como las filas ahora son **siempre** arrastrables en desktop,
+  **se perdió seleccionar el título de una fila arrastrando** — el navegador prioriza el arrastre
+  del elemento. Antes sólo pasaba con la cola abierta. Revertirlo es volver `enabled` a `showQueue`,
+  y ahí la barra sólo serviría con la cola abierta, que es casi no servir.
+  **Los controles de la barra no se tocan, por construcción:** `dragover` sólo hace
+  `preventDefault()` —el permiso que la API exige— y prende un booleano; lo único que encola es el
+  `drop`, al soltar. Pasar por encima no puede activar play/seek/volumen porque no se emite ningún
+  evento de puntero, y el `openNowPlaying` de la barra tampoco corre (un `drop` no sintetiza un
+  `click`, y el navegador ya suprime el click posterior a un arrastre).
+  **El resalte es distinto al de la columna a propósito:** aquélla se tiñe entera porque es una
+  lista; la barra está llena de información y controles, y teñirle el fondo taparía la canción que
+  suena y sugeriría que algo va a pasarle al play. Va un **filo de 2px en el borde superior** (más
+  un tinte apenas morado), en `box-shadow` y no en `border-top` para no correr un píxel del
+  contenido al encenderse.
 - **Herramienta de snapshots (`.claude/tools/snap/`)** — tooling **local** de verificación visual
   con Playwright headless, nacido en esta serie. `snap.mjs` captura una ruta del Modelo 2 en los
   **tres anchos** que importan de una corrida; `snap-ctx.mjs` abre el **menú contextual móvil**
@@ -241,15 +268,17 @@ Artistas Retrato/Prisma + discos dobles (v1.6.0), Ajustes/cerrar sesión + regis
 del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1), cola móvil como hoja
 arrastrable + listas que se adaptan al ancho (v1.9.0), el menú contextual de acciones en
 escritorio y teléfono (v1.10.0) con su cableado a Géneros/Playlists y a las carátulas del
-teléfono (v1.10.1), el reorden de la cola por arrastre (v1.11.0) y el drag-to-enqueue completo
-—canción, álbum, artista y género (v1.12.0)—. Con eso el **ecosistema de la cola queda cerrado**:
-menú contextual → reordenar dentro → arrastrar hacia adentro.
+teléfono (v1.10.1), el reorden de la cola por arrastre (v1.11.0), el drag-to-enqueue completo
+—canción, álbum, artista y género (v1.12.0)— y la barra del reproductor como segundo destino
+(v1.12.1). Con eso el **ecosistema de la cola queda cerrado**: menú contextual → reordenar
+dentro → arrastrar hacia adentro, con o sin la cola abierta.
 `feature/sonorarev-integration` arranca limpio para lo próximo — lo único que tiene fuera de
 `main` es este mismo commit de docs, que entra en la próxima tanda. **Este archivo siempre va
 un release atrás por construcción**: su commit de docs viaja *dentro* de la tanda siguiente
 (el de post-v1.8.1 salió con v1.9.0; el de post-v1.9.0 salió con v1.10.0; el de post-v1.10.0
-—`431cabf`— salió con v1.10.1; el de post-v1.11.0 —`6f90636`— salió con v1.12.0), así que
-después de cada release hay que releerlo contra los tags. Ojo: la feature branch
+—`431cabf`— salió con v1.10.1; el de post-v1.11.0 —`6f90636`— salió con v1.12.0; el de
+post-v1.12.0 —`99c0dda`— salió con v1.12.1), así que después de cada release hay que releerlo
+contra los tags. Ojo: la feature branch
 **no se pushea** (queda muy por delante de
 `origin/feature/sonorarev-integration`); lo que viaja a `origin` es `main` +
 tags. La versión real siempre sale del tope de `CHANGELOG.md` o
@@ -275,6 +304,12 @@ caminos de **error** (álbum/artista/género **sin pistas** → aviso ámbar; fe
 sobre la **cola vacía** (debe arrancar la reproducción), y que el drop **rechace** un arrastre
 ajeno (una imagen o un archivo de afuera no debe iluminar la columna).
 
+**QA de v1.12.1 — validado a mano en escritorio:** el usuario confirmó que soltar en la barra
+encola **con la cola abierta y cerrada**, que los **controles quedaron intactos** y que el trade
+de la selección de texto no molesta. Sigue **sin ejercitarse** lo mismo que en v1.12.0 (caminos de
+error, cola vacía, rechazo de un arrastre ajeno) — ahora también **sobre la barra**, que comparte
+el handler: lo que se audite en una zona vale para la otra, porque es el mismo hook.
+
 ## Pendientes conocidos
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
 - **Novedades sin color:** `Changelog.jsx:95` ya emite el hook por sección
@@ -285,10 +320,6 @@ ajeno (una imagen o un archivo de afuera no debe iluminar la columna).
 - **Reacomodo animado de las vecinas al arrastrar en la cola** (opcional): hoy el hueco no se abre
   y el destino se comunica sólo con la línea de 2px. La curva del snap (`SNAP_EASE`) ya queda
   lista para reusarse tal cual.
-- **¿El mini-reproductor acepta drops? — DECISIÓN, no trabajo pendiente.** Hoy el único destino del
-  drag-to-enqueue es `.queue-panel` en la instancia columna. Si se aprueba, es un release chico
-  propio: reusaría `takeDrag()` y `DROP_SETS` tal como están. ⚠️ En una sesión previa se **asumió
-  que ya funcionaba** y no es así — verificar antes de darlo por hecho.
 - **Emoji-picker de playlists — alcance sin definir (pendiente del usuario).** Estado real hoy
   (`EmojiPicker.jsx`): lista **fija de 24 emojis** (`PLAYLIST_EMOJIS`), sin búsqueda ni emoji
   libre, y cierra por clic afuera con **`mousedown`** — que **diverge del estándar de la casa**
@@ -319,4 +350,4 @@ ajeno (una imagen o un archivo de afuera no debe iluminar la columna).
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-30 (v1.12.0 DESPLEGADO y tagueado el 2026-07-30 — arrastrar a la cola una canción, un álbum, un artista o un género, en escritorio y con la cola abierta, en producción. Con eso cierra el ecosistema de la cola: menú contextual → reordenar dentro → arrastrar hacia adentro. CLAUDE.md al día: producción = v1.12.0, nada sin mergear)._
+_Última actualización: 2026-07-31 (v1.12.1 DESPLEGADO y tagueado el 2026-07-31 — la barra del reproductor como segundo destino del drag-to-enqueue, así encolar arrastrando ya no obliga a abrir la cola. Con eso cierra el ecosistema de la cola: menú contextual → reordenar dentro → arrastrar hacia adentro, con o sin la cola abierta. CLAUDE.md al día: producción = v1.12.1, nada sin mergear)._
