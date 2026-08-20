@@ -10,6 +10,10 @@
 //   Desarrollo:  npm run users -- list
 //   Producción:  docker exec -it <contenedor> node src/admin/users.js list
 //
+// EN WINDOWS EL PROMPT INTERACTIVO NO FUNCIONA. Ver la nota de promptHidden: el
+// prompt oculto necesita Linux/macOS, y en Windows la única vía es --generate.
+// En producción da igual, porque docker exec entra a un contenedor Linux.
+//
 // En producción SIEMPRE por docker exec, nunca desde el host: la DB vive en el
 // volumen `musicplayer-data` y solo dentro del contenedor compartimos con el
 // servidor el mismo espacio de montaje y, sobre todo, los mismos locks.
@@ -95,6 +99,8 @@ function generatePassword() {
 
 // Sin eco. Lee carácter por carácter en raw mode; itera el chunk porque un pegado
 // llega entero en un solo evento 'data' y hay que separarle el Enter.
+// SOLO LINUX/macOS. En Windows setRawMode() no da error pero no entrega teclas, así
+// que esto quedaría colgado para siempre; por eso passwd() corta antes de llegar acá.
 function promptHidden(label) {
   return new Promise((resolve, reject) => {
     const { stdin, stdout } = process;
@@ -135,6 +141,17 @@ async function passwd(username, { generate }) {
   if (generate) {
     password = generatePassword();
   } else {
+    // COMPROBADO en PowerShell y en Git Bash: en Windows el prompt se cuelga para
+    // siempre después de imprimir el label. setRawMode() no falla —Node lo acepta—
+    // pero detrás no hay un TTY real y no llega ni una tecla. Se corta acá y con un
+    // mensaje que dice qué hacer, porque colgarse mudo es el peor modo de fallo:
+    // dentro de seis meses nadie se acuerda de por qué y son diez minutos perdidos.
+    if (process.platform === 'win32') {
+      console.error('[USERS] En Windows el prompt interactivo se cuelga: no hay un TTY real detrás');
+      console.error('        de la consola ni de MinTTY, y setRawMode() se queda esperando teclas.');
+      console.error('        Usá --generate acá, o corré el prompt sobre Linux/macOS (docker exec -it).');
+      process.exit(1);
+    }
     // A propósito NO se lee de un pipe: aceptarlo invita al `echo "clave" | ...`
     // que deja la contraseña en el historial, que es justo lo que esto evita.
     if (!process.stdin.isTTY) {
@@ -178,9 +195,12 @@ const USAGE = `
 
   node src/admin/users.js list     Lista los usuarios (id, usuario, creado, playlists)
   node src/admin/users.js passwd <usuario> [--generate]
-                                   Cambia la contraseña. Sin --generate la pide por
-                                   pantalla, oculta y dos veces (necesita -it).
-                                   Con --generate la crea sola y la muestra UNA vez.
+                                   Cambia la contraseña.
+                                   --generate: la crea sola y la muestra UNA vez.
+                                     Es la ÚNICA vía en Windows.
+                                   Sin --generate: la pide por pantalla, oculta y dos
+                                     veces. Requiere Linux/macOS y TTY (docker exec -it);
+                                     en Windows el prompt se cuelga y no se usa.
 
 En producción la DB está en el volumen del contenedor, así que va por docker exec:
   docker exec -it <contenedor> node src/admin/users.js list
