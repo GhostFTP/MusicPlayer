@@ -120,6 +120,41 @@ Formatos soportados: `.mp3` `.flac` `.ogg` `.m4a` `.aac` `.wav` `.opus` `.wma`
 
 El scanner extrae los tags del archivo y guarda en la base de datos: título, artista, álbum, artista de álbum, año, número de pista, duración y carátula (si está embebida). Puedes re-escanear en cualquier momento — actualiza los existentes y añade los nuevos.
 
+
+### Administrar usuarios
+
+No hay endpoint ni pantalla para esto: la API solo expone registro (cerrado), login y el canje de Cloudflare Access. La administración va por CLI.
+
+```bash
+cd music-server
+
+# Listar usuarios (id, usuario, creado, playlists). Nunca muestra hashes.
+npm run users -- list
+
+# Cambiar contraseña: la genera, la aplica y la muestra UNA sola vez
+npm run users -- passwd <usuario> --generate
+
+# Cambiar contraseña escribiéndola (oculta, pedida dos veces)
+npm run users -- passwd <usuario>
+```
+
+**La contraseña nunca se pasa como argumento** — quedaría en el historial del shell. O la genera el script, o se escribe en un prompt sin eco.
+
+**El prompt interactivo solo funciona en Linux/macOS.** En Windows (probado en PowerShell y en Git Bash) no hay un TTY real detrás de la consola: `setRawMode()` no da error pero no entrega ninguna tecla, y el prompt se quedaría colgado sin explicación. El script lo detecta y corta con un mensaje. **En Windows hay que usar `--generate`.**
+
+#### En producción
+
+La base vive en el volumen Docker `musicplayer-data`, así que el script se corre **dentro del contenedor**, nunca desde el host: solo ahí se comparten con el servidor el mismo espacio de montaje y los locks de SQLite.
+
+```bash
+docker exec -it <contenedor> node src/admin/users.js list
+docker exec -it <contenedor> node src/admin/users.js passwd app-ios --generate
+```
+
+No hace falta parar el contenedor: SQLite en WAL admite un escritor y varios lectores a la vez, y el script fija un `busy_timeout` para esperar su turno si el servidor está escribiendo justo en ese instante.
+
+> **Cambiar la contraseña no invalida los JWT ya emitidos**: siguen valiendo hasta 7 días. Para cortarlos hay que rotar `JWT_SECRET`, y eso desloguea a todos.
+
 ---
 
 ## Deploy con Dokploy

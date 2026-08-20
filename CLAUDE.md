@@ -255,6 +255,24 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   `.claude`. Versionados los `.mjs` + `package.json`; **ignorados** `.env`, `node_modules/`,
   `shots/` y `package-lock.json`. **No reemplaza la prueba física**: en headless
   `env(safe-area-*)` vale 0 y la sensación del gesto real no se mide.
+- **Administración de usuarios: `music-server/src/admin/users.js`** (`npm run users`). No
+  existe endpoint ni UI para esto —`api/auth.js` solo tiene register (cerrado), login, el
+  canje de CF Access y el config público—, así que cambiar contraseñas, listar y borrar
+  usuarios va por CLI. Reusa `src/db/database.js` a propósito y no abre su propia conexión:
+  resuelve la ruta de `music.db` relativa al módulo (sirve igual desde el repo o desde
+  `/app/music-server`) y, sobre todo, `PRAGMA foreign_keys = ON` es POR CONEXIÓN — con una
+  conexión propia el borrado de un usuario no cascadearía y dejaría playlists huérfanas.
+  En producción se corre **dentro del contenedor** (`docker exec`), porque la DB está en el
+  volumen `musicplayer-data` y solo ahí se comparten los locks de SQLite con el servidor;
+  no hace falta pararlo (WAL: un escritor y N lectores, más un `busy_timeout`).
+  **La contraseña nunca se pasa como argumento** (historial del shell): o `--generate`, que
+  la crea y la muestra una sola vez, o un prompt sin eco pedido dos veces.
+  ⚠️ **El prompt interactivo NO funciona en Windows** —probado en PowerShell y Git Bash: no
+  hay TTY real detrás de la consola ni de MinTTY, `setRawMode()` no da error pero no entrega
+  teclas y el prompt se cuelga—. El script detecta `win32` y corta con un mensaje en vez de
+  colgarse. En Windows, `--generate`; por `docker exec` da igual, porque el contenedor es Linux.
+  ⚠️ **Cambiar la contraseña NO invalida los JWT ya emitidos**: valen hasta 7 días. Cortarlos
+  exige rotar `JWT_SECRET`, que desloguea a todos. Documentado en el README (§Administrar usuarios).
 - Env vars (según `docker-compose.yml`): `NODE_ENV`, `PORT`, `MUSIC_DIR`, `JWT_SECRET`,
   `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
