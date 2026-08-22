@@ -89,7 +89,7 @@ function list() {
   }
 }
 
-// ---- passwd ----
+// ---- Contraseñas: lo comparten passwd y create ----
 
 // 18 bytes → 24 caracteres base64url, ~144 bits. No se tipea nunca: no pasa por el
 // historial del shell, ni por `ps`, ni por la pantalla salvo una vez al final.
@@ -100,7 +100,8 @@ function generatePassword() {
 // Sin eco. Lee carácter por carácter en raw mode; itera el chunk porque un pegado
 // llega entero en un solo evento 'data' y hay que separarle el Enter.
 // SOLO LINUX/macOS. En Windows setRawMode() no da error pero no entrega teclas, así
-// que esto quedaría colgado para siempre; por eso passwd() corta antes de llegar acá.
+// que esto quedaría colgado para siempre; por eso readNewPassword() corta antes de
+// llegar acá.
 function promptHidden(label) {
   return new Promise((resolve, reject) => {
     const { stdin, stdout } = process;
@@ -130,6 +131,55 @@ function promptHidden(label) {
   });
 }
 
+// Consigue una contraseña nueva: la genera, o la pide dos veces por pantalla y la
+// valida. Lo comparten passwd y create, y está acá y no copiado en cada uno porque
+// son CINCO reglas —el guard de Windows, el de TTY, la confirmación, el mínimo y el
+// techo de 72 bytes— y dos copias de cinco reglas divergen. Es el mismo motivo por
+// el que BCRYPT_ROUNDS lleva su comentario.
+//
+// `abortNote` existe porque el mensaje de error tiene que decir qué NO pasó, y eso
+// depende de quién llame: "No se cambió nada." no sirve cuando lo que falló fue una
+// creación.
+async function readNewPassword(label, { generate, abortNote }) {
+  if (generate) return generatePassword();
+
+  // COMPROBADO en PowerShell y en Git Bash: en Windows el prompt se cuelga para
+  // siempre después de imprimir el label. setRawMode() no falla —Node lo acepta—
+  // pero detrás no hay un TTY real y no llega ni una tecla. Se corta acá y con un
+  // mensaje que dice qué hacer, porque colgarse mudo es el peor modo de fallo:
+  // dentro de seis meses nadie se acuerda de por qué y son diez minutos perdidos.
+  if (process.platform === 'win32') {
+    console.error('[USERS] En Windows el prompt interactivo se cuelga: no hay un TTY real detrás');
+    console.error('        de la consola ni de MinTTY, y setRawMode() se queda esperando teclas.');
+    console.error('        Usá --generate acá, o corré el prompt sobre Linux/macOS (docker exec -it).');
+    process.exit(1);
+  }
+  // A propósito NO se lee de un pipe: aceptarlo invita al `echo "clave" | ...`
+  // que deja la contraseña en el historial, que es justo lo que esto evita.
+  if (!process.stdin.isTTY) {
+    console.error('[USERS] Sin terminal interactiva. Usá `docker exec -it …` o pasá --generate.');
+    process.exit(1);
+  }
+
+  const password = await promptHidden(label);
+  const again = await promptHidden('Repetila: ');
+  if (password !== again) {
+    console.error(`[USERS] No coinciden. ${abortNote}`);
+    process.exit(1);
+  }
+  if (password.length < MIN_LENGTH) {
+    console.error(`[USERS] Mínimo ${MIN_LENGTH} caracteres. ${abortNote}`);
+    process.exit(1);
+  }
+  if (Buffer.byteLength(password, 'utf8') > MAX_BYTES) {
+    console.error(`[USERS] Más de ${MAX_BYTES} bytes: bcrypt la truncaría en silencio. ${abortNote}`);
+    process.exit(1);
+  }
+  return password;
+}
+
+// ---- passwd ----
+
 async function passwd(username, { generate }) {
   const user = db.prepare('SELECT id, username FROM users WHERE username = ?').get(username);
   if (!user) {
@@ -137,42 +187,10 @@ async function passwd(username, { generate }) {
     process.exit(1);
   }
 
-  let password;
-  if (generate) {
-    password = generatePassword();
-  } else {
-    // COMPROBADO en PowerShell y en Git Bash: en Windows el prompt se cuelga para
-    // siempre después de imprimir el label. setRawMode() no falla —Node lo acepta—
-    // pero detrás no hay un TTY real y no llega ni una tecla. Se corta acá y con un
-    // mensaje que dice qué hacer, porque colgarse mudo es el peor modo de fallo:
-    // dentro de seis meses nadie se acuerda de por qué y son diez minutos perdidos.
-    if (process.platform === 'win32') {
-      console.error('[USERS] En Windows el prompt interactivo se cuelga: no hay un TTY real detrás');
-      console.error('        de la consola ni de MinTTY, y setRawMode() se queda esperando teclas.');
-      console.error('        Usá --generate acá, o corré el prompt sobre Linux/macOS (docker exec -it).');
-      process.exit(1);
-    }
-    // A propósito NO se lee de un pipe: aceptarlo invita al `echo "clave" | ...`
-    // que deja la contraseña en el historial, que es justo lo que esto evita.
-    if (!process.stdin.isTTY) {
-      console.error('[USERS] Sin terminal interactiva. Usá `docker exec -it …` o pasá --generate.');
-      process.exit(1);
-    }
-    password = await promptHidden(`Nueva contraseña para "${user.username}": `);
-    const again = await promptHidden('Repetila: ');
-    if (password !== again) {
-      console.error('[USERS] No coinciden. No se cambió nada.');
-      process.exit(1);
-    }
-    if (password.length < MIN_LENGTH) {
-      console.error(`[USERS] Mínimo ${MIN_LENGTH} caracteres. No se cambió nada.`);
-      process.exit(1);
-    }
-    if (Buffer.byteLength(password, 'utf8') > MAX_BYTES) {
-      console.error(`[USERS] Más de ${MAX_BYTES} bytes: bcrypt la truncaría en silencio. No se cambió nada.`);
-      process.exit(1);
-    }
-  }
+  const password = await readNewPassword(
+    `Nueva contraseña para "${user.username}": `,
+    { generate, abortNote: 'No se cambió nada.' },
+  );
 
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, user.id);
@@ -188,12 +206,84 @@ async function passwd(username, { generate }) {
   console.log('        Para invalidarlos hay que rotar JWT_SECRET, y eso desloguea a todos.');
 }
 
+// ---- create ----
+
+// QUÉ PONER DE USERNAME, que no es cosmético: si el username es el EMAIL de la
+// persona, el día que entre al web con Google, upsertUserByEmail() encuentra esta
+// misma fila y la ADOPTA (auth.js: SELECT por username, y si existe la devuelve).
+// O sea, una sola cuenta y las mismas playlists desde la app y desde el navegador.
+// Con un nombre corto pasa lo contrario: el SSO crea una SEGUNDA cuenta con su
+// email y la persona termina con dos, cada una con sus playlists.
+//   · Personas  → su email.
+//   · Cuentas técnicas (app-ios, apple-review) → nombre corto, NUNCA un email:
+//     no son nadie y no deben cruzarse con una identidad real.
+// El costo de la primera regla está anotado en list(): con emails de los dos lados
+// se pierde la única pista para distinguir SSO de contraseña. Se acepta a
+// conciencia; la solución de verdad sería una columna, y eso es una migración.
+async function create(username, { generate }) {
+  // trim() y sin espacios adentro. Es MÁS estricto que POST /register, que no
+  // valida absolutamente nada más allá de que no vengan vacíos — replicar eso sería
+  // replicar la ausencia de validación. Un username con un espacio invisible al
+  // final es media hora de "pero si la contraseña es esa".
+  const name = String(username ?? '').trim();
+  if (!name) {
+    console.error('[USERS] El usuario no puede estar vacío. No se creó nada.');
+    process.exit(1);
+  }
+  if (/\s/.test(name)) {
+    console.error(`[USERS] El usuario no puede llevar espacios: "${name}". No se creó nada.`);
+    process.exit(1);
+  }
+
+  // El SELECT es SOLO para el mensaje: la garantía real es el UNIQUE de la tabla,
+  // y por eso el INSERT igual va con catch. Sin el SELECT, un duplicado saldría
+  // como un stack trace de SQLITE_CONSTRAINT que no le dice nada a nadie.
+  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(name);
+  if (existing) {
+    console.error(`[USERS] Ya existe el usuario "${name}" (id=${existing.id}). No se creó nada.`);
+    console.error(`        Si lo que querías era cambiarle la contraseña: users.js passwd ${name}`);
+    process.exit(1);
+  }
+
+  const password = await readNewPassword(
+    `Contraseña para "${name}": `,
+    { generate, abortNote: 'No se creó el usuario.' },
+  );
+
+  const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  let info;
+  try {
+    info = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(name, hash);
+  } catch (e) {
+    console.error(`[USERS] No se pudo crear "${name}": ${e.message}`);
+    process.exit(1);
+  }
+
+  console.log(`[USERS] Usuario "${name}" creado (id=${info.lastInsertRowid}).`);
+  // Igual que en passwd: solo se muestra la generada. La tipeada ya la sabe quien
+  // la tipeó, y reimprimirla solo la deja en pantalla para quien pase por atrás.
+  if (generate) {
+    console.log(`
+  ${password}
+`);
+    console.log('  ^ Copiala AHORA. No se vuelve a mostrar y no queda guardada en ningún lado.');
+  }
+  // A propósito NO se repite el aviso de los JWT de passwd: un usuario que acaba de
+  // nacer no tiene ninguno emitido.
+}
+
 // ---- CLI ----
 
 const USAGE = `
 [USERS] Administración de usuarios de SonoraRev
 
   node src/admin/users.js list     Lista los usuarios (id, usuario, creado, playlists)
+  node src/admin/users.js create <usuario> [--generate]
+                                   Crea un usuario nuevo. Falla si ya existe.
+                                   Para personas el usuario es su EMAIL (así el día
+                                     que entren por Google es la MISMA cuenta);
+                                     para cuentas técnicas, nombre corto.
+                                   --generate y el prompt funcionan igual que en passwd.
   node src/admin/users.js passwd <usuario> [--generate]
                                    Cambia la contraseña.
                                    --generate: la crea sola y la muestra UNA vez.
@@ -214,6 +304,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     case 'list':
       list();
       break;
+    case 'create': {
+      const username = rest.find(a => !a.startsWith('--'));
+      if (!username) {
+        console.error('[USERS] Falta el usuario. Uso: users.js create <username> [--generate]');
+        process.exit(1);
+      }
+      await create(username, { generate: rest.includes('--generate') });
+      break;
+    }
     case 'passwd': {
       const username = rest.find(a => !a.startsWith('--'));
       if (!username) {
@@ -234,4 +333,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { list, passwd };
+export { list, create, passwd };
