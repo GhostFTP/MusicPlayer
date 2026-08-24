@@ -376,6 +376,9 @@ export function PlayerProvider({ children }) {
     // Hueco de reauth (token=null un instante): emitimos SIN artwork en vez de mandar
     // `?token=null`, que 404ea en el lockscreen. Al llegar el token nuevo, este efecto
     // vuelve a correr y re-emite con la URL fresca.
+    // SIN thumb, a proposito: esta URL se la entregamos al SISTEMA OPERATIVO (lockscreen,
+    // CarPlay, Android Auto) y el artwork de abajo declara hasta 512x512. Una miniatura de
+    // 480 mentiria sobre su propio tamano en el caso que mas se mira de lejos.
     const src = token ? coverUrl(currentTrack.id) : null;
     // Los 3 `sizes` apuntan a la MISMA imagen (el backend sirve la carátula embebida
     // original, sin resize): el SO elige y escala. Sin `type`: el endpoint hace sendFile

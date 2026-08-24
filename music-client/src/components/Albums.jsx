@@ -90,7 +90,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
 
         <div className="detail-hero">
           {selected.sample_track_id
-            ? <img className="detail-hero-cover" src={coverUrl(selected.sample_track_id)} alt="" />
+            ? <img className="detail-hero-cover" src={coverUrl(selected.sample_track_id, { thumb: true })} alt="" />
             : <div className="detail-hero-cover placeholder">♫</div>
           }
           <div className="detail-hero-info">
@@ -148,7 +148,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
             {/* draggable={false}: ver AlbumGrid — si no, agarrar por la carátula arrancaría el
                 arrastre nativo de la imagen en vez del de la tarjeta. */}
             {album.sample_track_id
-              ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" loading="lazy" draggable={false} />
+              ? <img className="album-cover" src={coverUrl(album.sample_track_id, { thumb: true })} alt="" loading="lazy" draggable={false} />
               : <div className="album-cover-placeholder">♫</div>
             }
             <div className="album-name">{album.album}</div>

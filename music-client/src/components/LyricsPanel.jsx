@@ -592,7 +592,7 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
       {hasCover && (
         <div
           className="lyrics-bg"
-          style={{ backgroundImage: `url(${coverUrl(currentTrack.id)})` }}
+          style={{ backgroundImage: `url(${coverUrl(currentTrack.id, { thumb: true })})` }}
           aria-hidden="true"
         />
       )}

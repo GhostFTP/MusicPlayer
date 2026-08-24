@@ -302,7 +302,7 @@ function InfoPanel({ track, onClose, navigate }, ref) {
         aria-label="Información de la pista"
       >
         {track.cover_path && (
-          <div className="info-bg" style={{ backgroundImage: `url(${coverUrl(track.id)})` }} aria-hidden="true" />
+          <div className="info-bg" style={{ backgroundImage: `url(${coverUrl(track.id, { thumb: true })})` }} aria-hidden="true" />
         )}
         <div className="info-header">
           <div className="info-head-text">

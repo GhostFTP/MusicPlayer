@@ -23,7 +23,7 @@ export default function PlaylistCover({ ids, emoji, lazy = false }) {
         <img
           key={id}
           className="pl-cover-cell"
-          src={coverUrl(id)}
+          src={coverUrl(id, { thumb: true })}
           loading={lazy ? 'lazy' : undefined}
           alt=""
         />

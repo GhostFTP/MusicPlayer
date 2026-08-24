@@ -751,7 +751,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   };
 
   const art = currentTrack?.cover_path
-    ? <img className="player-art" src={coverUrl(currentTrack.id)} alt="" onClick={openExpanded} title="Abrir reproductor" />
+    ? <img className="player-art" src={coverUrl(currentTrack.id, { thumb: true })} alt="" onClick={openExpanded} title="Abrir reproductor" />
     : <div className="player-art-placeholder" onClick={openExpanded} title="Abrir reproductor">♪</div>;
 
   // Género (integrado al subtítulo) del track enriquecido (trackMeta) o del actual.
@@ -1123,7 +1123,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             <div
               key={currentTrack.id}
               className="exp-bg"
-              style={{ backgroundImage: `url(${coverUrl(currentTrack.id)})` }}
+              style={{ backgroundImage: `url(${coverUrl(currentTrack.id, { thumb: true })})` }}
               aria-hidden="true"
             />
           )}
@@ -1193,6 +1193,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 onLostPointerCapture={cancelGesture}
                 style={wrapStyle()}
               >
+                {/* SIN thumb, a proposito: .exp-art mide min(100%, 300px) (main.css:3759),
+                    que en un telefono con DPR 3 son ~900px reales. La miniatura de 480 se
+                    veria blanda justo en la superficie mas grande de la app. */}
                 {coverTrack?.cover_path
                   ? <img className="exp-art" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
                   : <div className="exp-art-placeholder">♪</div>

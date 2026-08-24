@@ -42,7 +42,7 @@ export default function ArtistImage({ artist, className = '' }) {
     // drag-to-enqueue no encolaría nada. Mismo cuidado que en las carátulas de álbum y de fila.
     <img
       className={`artist-img ${className}`}
-      src={level === 0 ? artistImageUrl(artist.artist) : coverUrl(artist.sample_track_id)}
+      src={level === 0 ? artistImageUrl(artist.artist) : coverUrl(artist.sample_track_id, { thumb: true })}
       alt=""
       loading="lazy"
       draggable={false}
