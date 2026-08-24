@@ -3,6 +3,19 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.12.3] - 2026-08-23
+
+### Mejorado
+- **La Biblioteca abre enseguida**: con más de mil canciones, entrar a
+  Biblioteca tardaba unos 22 segundos en terminar de dibujarse. El problema no
+  era el peso de las carátulas sino la cantidad: se pedían las de **todas** las
+  pistas de la lista de una sola vez —incluidas las cientos que ni asomaban por
+  la pantalla— y el navegador, que atiende de a pocas por vez, las dejaba
+  haciendo cola. Ahora cada carátula se pide recién cuando estás por llegar a
+  ella, así que la lista aparece de entrada y las tapas se van completando a
+  medida que bajás. Vale igual para las grillas de Álbumes, Artistas y Años, y
+  para las canciones de un álbum, un género o una playlist.
+
 ## [1.12.2] - 2026-07-31
 
 ### Mejorado

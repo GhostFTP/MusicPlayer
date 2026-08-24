@@ -81,7 +81,7 @@ export default function TrackTable({ tracks, showAlbum = true }) {
                         la fila por la carátula —el punto de agarre más natural— arrancaría el
                         arrastre de la IMAGEN en vez del de la fila y el drop no encolaría nada. */}
                     {track.cover_path
-                      ? <img className="track-art" src={coverUrl(track.id)} alt="" draggable={false} />
+                      ? <img className="track-art" src={coverUrl(track.id)} alt="" loading="lazy" draggable={false} />
                       : <div className="track-art-placeholder">♪</div>
                     }
                     <div className="track-text">

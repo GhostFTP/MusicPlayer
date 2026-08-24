@@ -347,7 +347,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                         {/* draggable={false}: ver TrackTable — si no, agarrar por la carátula
                             arrancaría el arrastre nativo de la imagen en vez del de la fila. */}
                         {track.cover_path
-                          ? <img className="track-art" src={coverUrl(track.id)} alt="" draggable={false} />
+                          ? <img className="track-art" src={coverUrl(track.id)} alt="" loading="lazy" draggable={false} />
                           : <div className="track-art-placeholder">♪</div>
                         }
                         <div className="track-text">
