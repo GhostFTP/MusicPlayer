@@ -3,6 +3,25 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.13.1] - 2026-08-23
+
+### Mejorado
+- **Las carátulas se guardan en el navegador**: hasta ahora, cada vez que
+  volvías a una vista el navegador tenía que preguntar de nuevo por cada tapa,
+  aunque ya la hubiera bajado un minuto antes. Ahora las guarda, así que
+  moverte entre Biblioteca, Álbumes y Artistas es instantáneo a partir de la
+  segunda vuelta. Si retagueás una carátula, alcanza con recargar la página
+  para ver la nueva.
+
+### Corregido
+- **La app ya no se queda en blanco al abrirla**: si al entrar la comprobación
+  de sesión no recibía respuesta —la conexión con el servidor colgada, sin
+  cortarse ni contestar—, SonoraRev se quedaba esperando para siempre y no
+  llegaba a dibujar nada: pantalla negra, y si venías escuchando algo la música
+  seguía sonando encima. Había que recargar. Ahora cada pedido al servidor
+  espera como mucho diez segundos y, si no hay respuesta, aparece la pantalla
+  de inicio de sesión en vez de la nada.
+
 ## [1.13.0] - 2026-08-23
 
 ### Nuevo
