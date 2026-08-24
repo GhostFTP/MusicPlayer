@@ -59,8 +59,40 @@ db.exec(`
     PRIMARY KEY (playlist_id, track_id)
   );
 
+  -- Registro de reproducciones. Es una TABLA de eventos y no un contador en
+  -- 'tracks' a proposito: un play_count no se puede desagregar despues, y sin
+  -- played_at no hay "lo mas escuchado este anio" ni resumen anual.
+  --
+  -- played_at lo pone el DISPOSITIVO, no el servidor: la app se usa sin senial y
+  -- encola en disco, asi que una semana de escucha offline llegaria toda junta y
+  -- con la fecha del insert quedaria registrada el dia que hubo wifi.
+  --
+  -- client_id es la idempotencia del reintento: si un envio se corta a mitad y se
+  -- reintenta, el UNIQUE + INSERT OR IGNORE evita duplicar. Sin esto los conteos
+  -- se inflan y nadie se entera.
+  --
+  -- ms_played es cuanto se escucho DE VERDAD. Va desde el dia uno porque no se
+  -- puede backfillear: el dia que se quiera "escuchaste 412 horas", los registros
+  -- viejos no lo tendrian.
+  --
+  -- OJO: nada de acentos ni backticks en estos comentarios. Todo este bloque vive
+  -- dentro de un template literal de JS, asi que un backtick lo cierra antes de
+  -- tiempo y el archivo deja de parsear.
+  CREATE TABLE IF NOT EXISTS plays (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+    track_id   INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    played_at  INTEGER NOT NULL,
+    ms_played  INTEGER,
+    client_id  TEXT    NOT NULL UNIQUE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
   CREATE INDEX IF NOT EXISTS idx_tracks_album  ON tracks(album);
+  -- Los dos ejes por los que se consulta: que se escucho en tal periodo, y
+  -- cuantas veces se escucho una pista.
+  CREATE INDEX IF NOT EXISTS idx_plays_user_time  ON plays(user_id, played_at);
+  CREATE INDEX IF NOT EXISTS idx_plays_user_track ON plays(user_id, track_id);
 `);
 
 // Migración: añade a bases ya existentes las columnas agregadas después del

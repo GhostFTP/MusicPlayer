@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.14.0] - 2026-08-23
+## [1.15.0] - 2026-08-23
 
 ### Mejorado
 - **Las carátulas viajan en miniatura**: la vista de Álbumes pintaba sus 125 tapas
@@ -37,6 +37,20 @@ Novedades destacables de **SonoraRev**. El formato sigue
   seguía sonando encima. Había que recargar. Ahora cada pedido al servidor
   espera como mucho diez segundos y, si no hay respuesta, aparece la pantalla
   de inicio de sesión en vez de la nada.
+
+## [1.14.0] - 2026-08-23
+
+### Nuevo
+- **SonoraRev empieza a llevar la cuenta de lo que escuchás**: cada vez que
+  terminás de escuchar una canción queda registrada, con la fecha y cuánto la
+  escuchaste de verdad. Es el cimiento de lo que viene —tus más escuchadas, tus
+  artistas del año, recomendaciones y el resumen anual—, que hasta ahora no se
+  podía calcular porque no había de dónde.
+  Una canción cuenta recién cuando escuchaste **la mitad, o cuatro minutos**, lo
+  que pase primero: saltearla a los tres segundos no suma, y arrastrar la barra
+  hasta el final tampoco. Y si la escuchás sin señal, se guarda igual y se
+  sincroniza cuando volvés a tener internet, así que lo que oís en el auto también
+  cuenta.
 
 ## [1.13.0] - 2026-08-23
 
