@@ -50,7 +50,7 @@ export default function AlbumGrid({ albums, onOpen, secondary = 'artist', hue })
                 tarjeta — sin esto, agarrar por ahí arrancaría el arrastre de la imagen en vez
                 del de la tarjeta y el drop no encolaría nada. */}
             {album.sample_track_id
-              ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" draggable={false} />
+              ? <img className="album-cover" src={coverUrl(album.sample_track_id)} alt="" loading="lazy" draggable={false} />
               : <div className="album-cover-placeholder">♫</div>
             }
           </div>
