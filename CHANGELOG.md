@@ -3,6 +3,16 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.13.0] - 2026-08-23
+
+### Nuevo
+- **Sumá un disco entero a una playlist de un toque**: hasta ahora las canciones
+  se agregaban de a una, así que meter un álbum completo eran veinte idas y
+  vueltas al servidor y meter un género entero, cientos — minutos de espera. Ahora
+  la colección entera viaja en un solo paso y entra de una vez, en el mismo orden
+  en que la ves. Si alguna canción ya estaba en la playlist no se duplica ni se
+  pierde el resto: te decimos cuántas se agregaron y cuántas ya estaban.
+
 ## [1.12.3] - 2026-08-23
 
 ### Mejorado
