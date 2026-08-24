@@ -12,16 +12,50 @@ export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn;
 }
 
+// Techo duro de toda petición. Sin esto un fetch colgado (túnel tosiendo, Access lento)
+// deja la promesa pendiente PARA SIEMPRE. El caso caro es cfLogin(): AuthContext lo espera
+// con checking=true y App.jsx devuelve null hasta que resuelva → pantalla en blanco con la
+// música sonando (el <audio> vive en PlayerProvider, por encima de App, y no se entera).
+// Con el timeout la promesa rechaza, el finally de reauth() baja checking y aparece el Login.
+const REQUEST_TIMEOUT_MS = 10_000;
+
 async function request(path, options = {}) {
   const token = getToken();
-  const res = await fetch(BASE + path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, REQUEST_TIMEOUT_MS);
+  // El signal del llamador NO se pisa (LyricsPanel manda el suyo, ver api.lyrics): se reenvía
+  // al nuestro. Así conviven los dos y `timedOut` distingue "lo canceló el panel" de "se
+  // acabó el tiempo", que dan mensajes distintos.
+  const callerSignal = options.signal;
+  const relayAbort = () => ctrl.abort();
+  if (callerSignal?.aborted) ctrl.abort();
+  else callerSignal?.addEventListener('abort', relayAbort);
+
+  let res;
+  try {
+    res = await fetch(BASE + path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+      signal: ctrl.signal,   // después de ...options: pisa el del llamador a propósito
+    });
+  } catch (err) {
+    if (timedOut) {
+      throw Object.assign(
+        new Error(`La petición a ${path} superó los ${REQUEST_TIMEOUT_MS / 1000} segundos`),
+        { timeout: true },
+      );
+    }
+    throw err;   // abort del llamador, red caída, etc. — se propaga tal cual
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', relayAbort);
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
