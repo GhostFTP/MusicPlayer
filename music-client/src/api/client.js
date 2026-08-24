@@ -113,7 +113,12 @@ export const api = {
 };
 
 // URL helpers for src attributes (need token in query param)
-export function coverUrl(trackId)  { return `/api/tracks/${trackId}/cover?token=${getToken()}`; }
+// `thumb` pide la miniatura de 480px (ver covers/thumbs.js en el server). Es ADITIVO:
+// sin opciones devuelve exactamente la URL de siempre, asi que un consumidor que no se
+// toque no se entera. El server cae al original si no pudo generarla.
+export function coverUrl(trackId, { thumb } = {}) {
+  return `/api/tracks/${trackId}/cover?token=${getToken()}` + (thumb ? '&size=thumb' : '');
+}
 export function streamUrl(trackId) { return `/stream/${trackId}?token=${getToken()}`; }
 // Foto curada del artista (artist.jpg en su carpeta). 404 si no hay: quien la use tiene que
 // manejar el onError y caer a la carátula (ver ArtistImage.jsx).

@@ -89,15 +89,15 @@ export function DragQueueProvider({ children }) {
   // fetch está topado, igual que en el menú).
   const count = (n) => (n != null ? `${n} ${n === 1 ? 'canción' : 'canciones'}` : null);
   const GHOST = {
-    track: (t) => ({ cover: t.cover_path ? coverUrl(t.id) : null, glyph: '♪', title: t.title ?? 'Sin título', sub: null }),
+    track: (t) => ({ cover: t.cover_path ? coverUrl(t.id, { thumb: true }) : null, glyph: '♪', title: t.title ?? 'Sin título', sub: null }),
     album: (a) => ({
-      cover: a.sample_track_id ? coverUrl(a.sample_track_id) : null,
+      cover: a.sample_track_id ? coverUrl(a.sample_track_id, { thumb: true }) : null,
       glyph: '♫',
       title: a.album ?? 'Álbum',
       sub: count(a.track_count),
     }),
     artist: (a) => ({
-      cover: a.has_image ? artistImageUrl(a.artist) : (a.sample_track_id ? coverUrl(a.sample_track_id) : null),
+      cover: a.has_image ? artistImageUrl(a.artist) : (a.sample_track_id ? coverUrl(a.sample_track_id, { thumb: true }) : null),
       glyph: '♫',
       title: a.artist ?? 'Artista',
       sub: count(a.track_count),

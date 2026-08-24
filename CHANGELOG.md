@@ -3,6 +3,22 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.14.0] - 2026-08-23
+
+### Mejorado
+- **Las carátulas viajan en miniatura**: la vista de Álbumes pintaba sus 125 tapas
+  bajando las imágenes originales enteras —de hasta medio mega cada una—, unos 55 MB
+  para llenar una pantalla de tarjetas del tamaño de una estampilla. Con la biblioteca
+  entera cargada eso no era sólo lentitud: saturaba la conexión y a veces tumbaba la
+  propia lista de álbumes, que terminaba mostrando el aviso de error. Ahora el servidor
+  prepara una miniatura de cada tapa la primera vez que alguien la pide y se la guarda,
+  así que esa misma vista pasa a pesar unos 5 MB. Medido sobre la biblioteca completa:
+  320 MB de carátulas se convierten en 51 MB de miniaturas, seis veces menos, sin que
+  se note en pantalla. El reproductor a pantalla completa y la carátula que aparece en
+  la pantalla de bloqueo del teléfono o en la del auto siguen usando la imagen grande,
+  que es donde el tamaño sí se ve. Y si retagueás una tapa y volvés a escanear, la
+  miniatura se rehace sola: no hay que borrar nada a mano.
+
 ## [1.13.1] - 2026-08-23
 
 ### Mejorado

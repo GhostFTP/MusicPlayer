@@ -2,6 +2,7 @@ import { readdirSync, statSync, writeFileSync, mkdirSync, existsSync } from 'nod
 import { join, extname, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as mm from 'music-metadata';
+import { getThumb } from '../covers/thumbs.js';
 import db from '../db/database.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -120,7 +121,7 @@ function deleteOrphans(orphanIds) {
   return { deleted: orphanIds.length, playlistRows };
 }
 
-export async function scanLibrary(musicDir, { prune = true, forcePrune = false } = {}) {
+export async function scanLibrary(musicDir, { prune = true, forcePrune = false, thumbs = true } = {}) {
   const files = [...walkDir(resolve(musicDir))];
   console.log(`Found ${files.length} audio files in ${musicDir}`);
 
@@ -182,6 +183,30 @@ export async function scanLibrary(musicDir, { prune = true, forcePrune = false }
 
   console.log(`\nDone. Added: ${added}, Updated: ${updated}, Failed: ${failed}`);
 
+  // --- Calentador de miniaturas ---
+  // Va ANTES del barrido a proposito: el bloque de abajo sale por `return` en sus
+  // dos guards (--no-prune y mount caido), asi que colgarlo del final lo dejaria sin
+  // correr justo en esos casos. El precio es regenerar el thumb de alguna fila que el
+  // barrido va a borrar despues: un punado de resizes en el peor caso, porque un
+  // barrido normal es de pocas filas (y si fuera de muchas, aborta por el Guard 2).
+  //
+  // No es un mecanismo aparte: llama al MISMO getThumb() que el endpoint, asi que
+  // hereda el vencimiento por mtime. Tras retaguear un album solo se regenera ese
+  // album; el resto se saltea con dos statSync.
+  if (thumbs) {
+    const rows = db.prepare('SELECT id, cover_path FROM tracks WHERE cover_path IS NOT NULL').all();
+    const t0 = Date.now();
+    // Se encolan las ~1000 promesas de una: el tope de concurrencia lo pone el
+    // semaforo de thumbs.js, que deja trabajar a 3 por vez.
+    const made = await Promise.all(rows.map(r => getThumb(r.id, r.cover_path)));
+    const bad = made.filter(r => r === null).length;
+    console.log(
+      `  [THUMBS] ${rows.length - bad}/${rows.length} listas en ${((Date.now() - t0) / 1000).toFixed(1)}s` +
+      (bad ? ` — ${bad} sin generar (arte ilegible; se sirve el original)` : '')
+    );
+  } else {
+    console.log('  [THUMBS] Desactivado (--no-thumbs).');
+  }
   // --- Barrido de huérfanas (filas cuyo archivo ya no existe en disco) ---
   if (!prune) {
     console.log('  [PRUNE] Desactivado (--no-prune).');
@@ -221,15 +246,17 @@ export async function scanLibrary(musicDir, { prune = true, forcePrune = false }
               (playlistRows ? ` (+${playlistRows} filas de playlist por CASCADE)` : ''));
 }
 
-// Si se ejecuta directamente: node src/scanner/index.js [ruta] [--no-prune] [--force-prune]
+// Si se ejecuta directamente: node src/scanner/index.js [ruta] [--no-prune] [--force-prune] [--no-thumbs]
 // Ruta: 1º arg no-flag, 2º env MUSIC_DIR (.env), 3º fallback local ../../music.
 //   --no-prune    : no barrer huérfanas (solo agregar/actualizar).
 //   --force-prune : barrer aunque supere el guard de borrado masivo (Guard 2).
+//   --no-thumbs   : no generar las miniaturas al terminar (solo escanear).
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const prune = !args.includes('--no-prune');
   const forcePrune = args.includes('--force-prune');
+  const thumbs = !args.includes('--no-thumbs');
   // 1º arg que no sea flag = ruta; luego env MUSIC_DIR; luego fallback local.
   const musicPath = args.find(a => !a.startsWith('--')) ?? process.env.MUSIC_DIR ?? resolve(__dir, '../../music');
-  scanLibrary(musicPath, { prune, forcePrune }).catch(console.error);
+  scanLibrary(musicPath, { prune, forcePrune, thumbs }).catch(console.error);
 }

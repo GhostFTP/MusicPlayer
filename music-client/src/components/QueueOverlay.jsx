@@ -91,7 +91,7 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
       <span className="queue-num">{index + 1}</span>
       <span className="queue-cover">
         {track.cover_path
-          ? <img src={coverUrl(track.id)} alt="" loading="lazy" />
+          ? <img src={coverUrl(track.id, { thumb: true })} alt="" loading="lazy" />
           : <span className="queue-cover-ph">♪</span>}
         {isCurrent && <EqBars />}
         <span className="queue-play" aria-hidden="true">▶</span>
@@ -427,7 +427,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
       {hasCover && (
         <div
           className="queue-bg"
-          style={{ backgroundImage: `url(${coverUrl(currentTrack.id)})` }}
+          style={{ backgroundImage: `url(${coverUrl(currentTrack.id, { thumb: true })})` }}
           aria-hidden="true"
         />
       )}

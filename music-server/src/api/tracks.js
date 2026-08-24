@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import db from '../db/database.js';
 import { authMiddleware } from '../auth/jwt.js';
 import { lrclibLyrics } from '../lyrics/lrclib.js';
+import { getThumb } from '../covers/thumbs.js';
 
 // ¿El .lrc trae timestamps [mm:ss.xx]? → letra sincronizada.
 const SYNCED_RE = /\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/;
@@ -74,10 +75,30 @@ router.get('/:id/lyrics', authMiddleware, async (req, res) => {
   return res.json({ instrumental: false, synced: false, lyrics: null });
 });
 
-// GET /api/tracks/:id/cover
-router.get('/:id/cover', authMiddleware, (req, res) => {
+// GET /api/tracks/:id/cover[?size=thumb]
+//
+// Sin `size` devuelve el original, byte por byte igual que siempre: los consumidores
+// que no se toquen no se enteran de que esto cambió. `?size=thumb` devuelve la
+// miniatura de 480px (ver covers/thumbs.js). Cualquier otro valor cae al original,
+// que es el default seguro — un `?size=` con dedo pesado sirve algo, no un 400.
+router.get('/:id/cover', authMiddleware, async (req, res) => {
   const track = db.prepare('SELECT cover_path FROM tracks WHERE id = ?').get(req.params.id);
   if (!track?.cover_path) return res.status(404).json({ error: 'No cover' });
+
+  if (req.query.size === 'thumb') {
+    const thumb = await getThumb(req.params.id, track.cover_path);
+    // getThumb devuelve null si el arte está corrupto o libvips no lo entiende.
+    // En ese caso NO se falla: se cae al original y el usuario ve su carátula
+    // pesada, que es infinitamente mejor que un hueco.
+    if (thumb) {
+      // 30 días y no 1 año: sin `?v=` en la URL (Fase 2), el navegador no tiene
+      // cómo enterarse de un retag salvo por vencimiento o recarga dura. 30d es
+      // el punto donde la caché sigue sirviendo para todo uso normal y una
+      // curación se propaga sola en un plazo razonable.
+      return res.sendFile(thumb, { maxAge: '30d' });
+    }
+  }
+
   // maxAge sube el `Cache-Control: public, max-age=0` que send pone por defecto — ese 0
   // obliga a revalidar en CADA uso, así que la carátula se re-pedía siempre.
   // SIN `immutable` a propósito: la URL no es content-addressed (/cover no cambia de nombre
