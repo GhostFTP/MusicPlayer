@@ -78,7 +78,13 @@ router.get('/:id/lyrics', authMiddleware, async (req, res) => {
 router.get('/:id/cover', authMiddleware, (req, res) => {
   const track = db.prepare('SELECT cover_path FROM tracks WHERE id = ?').get(req.params.id);
   if (!track?.cover_path) return res.status(404).json({ error: 'No cover' });
-  res.sendFile(track.cover_path);
+  // maxAge sube el `Cache-Control: public, max-age=0` que send pone por defecto — ese 0
+  // obliga a revalidar en CADA uso, así que la carátula se re-pedía siempre.
+  // SIN `immutable` a propósito: la URL no es content-addressed (/cover no cambia de nombre
+  // aunque cambie el archivo detrás), e `immutable` le prohíbe al navegador revalidar incluso
+  // al recargar → retaguear una carátula la dejaría vieja un año, sin salida. Con maxAge solo,
+  // un recargado fuerza la revalidación y el ETag resuelve.
+  res.sendFile(track.cover_path, { maxAge: '1y' });
 });
 
 export default router;
