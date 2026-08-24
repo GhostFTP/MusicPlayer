@@ -17,6 +17,7 @@
     "express": "^4.18.3",
     "jose": "^6.2.3",
     "jsonwebtoken": "^9.0.2",
-    "music-metadata": "^10.1.0"
+    "music-metadata": "^10.1.0",
+    "sharp": "^0.35.3"
   }
 }
