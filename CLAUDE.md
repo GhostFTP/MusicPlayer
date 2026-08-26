@@ -35,13 +35,27 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 - Las animaciones respetan `prefers-reduced-motion`.
 
 ## Estado actual
-- **Producción va en `v1.12.1`** (tag `v1.12.1` → merge `f8ba2bf`, desplegado el 2026-07-31). El
-  tag más reciente **es** la versión en producción: `main` con auto-deploy
-  despliega directo. Los tags `v1.12.1`, `v1.12.0`, `v1.11.0` y `v1.10.1` están creados y
-  **pusheados a `origin`**, y `origin/main` está en `f8ba2bf` — el tag más reciente coincide con
-  prod. Para saber la versión real, **leé el tope de `CHANGELOG.md` o
-  `git tag --sort=-v:refname | head -1`** — no confíes en versiones citadas en docs o memoria
-  (incluida la de este archivo, que va un release atrás por construcción).
+- **`main` va en `v1.15.0`** (tag `v1.15.0` → merge `3721ac3`, mergeado y tagueado el
+  2026-08-23). Para saber la versión real, **leé `git tag --sort=-v:refname | head -1`** o el
+  tope de `CHANGELOG.md`: los dos sirven y hoy coinciden. No confíes en versiones citadas en
+  docs o memoria, incluida la de este archivo.
+- ⚠️ **`main` == tag NO implica `main` == producción, y este archivo lo daba por hecho.**
+  Decía que el *rolling update* de Dokploy **era** el reinicio y que el auto-deploy "despliega
+  directo" (verificado con v1.13.0, backend puro). **Con v1.15.0 no ocurrió**: al 2026-08-25,
+  dos días después del merge, producción seguía corriendo una imagen anterior a `3721ac3`.
+  Medido, no supuesto — sonda **sin `Bearer` y sin credenciales**, que separa "ruta montada" de
+  "ruta inexistente" porque `authMiddleware` responde `401` y el fallback SPA de
+  `server.js:44` responde `404` seco para todo lo que empiece con `/api`:
+
+  ```
+  /api/health     -> 200 {"status":"ok"}       el origen está vivo
+  /api/tracks     -> 401 {"error":"No token"}  control: ruta montada
+  /api/plays/top  -> 404                       la ruta de v1.15.0 no existe todavía
+  ```
+
+  Es el chequeo más barato de "¿qué versión corre DE VERDAD?". **Regla nueva: después de
+  mergear a `main`, pegarle al endpoint nuevo antes de dar el release por desplegado.** Si da
+  404, el deploy no salió: Redeploy a mano en Dokploy y mirar si quedó un build fallido.
 - En producción en **https://sonorarev.com** (servidor X99, Dokploy, túnel Cloudflare *Healthy*).
 - Auth: Cloudflare Access + Google SSO; auto-login SSO→JWT **desplegado y funcionando**
   (commit `d7a23b6`), con login usuario/contraseña como fallback local. **Registro cerrado**
@@ -242,6 +256,69 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   suena y sugeriría que algo va a pasarle al play. Va un **filo de 2px en el borde superior** (más
   un tinte apenas morado), en `box-shadow` y no en `border-top` para no correr un píxel del
   contenido al encenderse.
+- **Carátulas diferidas (v1.12.3)** — `loading="lazy"` en las cinco superficies de alta
+  cardinalidad: `Library.jsx:253`, `TrackTable.jsx:84`, `Playlists.jsx:350`, `Albums.jsx:151` y
+  `AlbumGrid.jsx:53`. Biblioteca montaba **una `<img>` por pista** sin paginar ni virtualizar
+  (`limit: 10000` + `.map()` sin `slice`): 1979 requests / 22s, casi todo en *Pending* con 0 B —
+  **cola de conexiones, no peso**. Funciona porque el layout **no** depende de la carga
+  (`.track-art` es 40×40 fijo, `.album-cover` usa `aspect-ratio: 1`); sin dimensiones la
+  página colapsaría, todo quedaría "en viewport" y se bajaría igual. **No hay
+  virtualización** en ninguna vista, y sigue sin haberla.
+- **Alta por lote en playlists (v1.13.0)** — `POST /api/playlists/:id/tracks` acepta ahora
+  `{ track_ids: [...] }` además del `{ track_id }` de siempre (aditivo: los clientes viejos no
+  cambian ni un campo). Dedupe, tope de 2000, y transacción **a mano** con `BEGIN`/`COMMIT`
+  porque `db.transaction()` **no existe** acá — es de better-sqlite3 y este backend usa
+  `node:sqlite`. Devuelve contadores (`added`/`already`/`skipped`). ⚠️ **Todavía sin
+  consumidor de frontend**: el endpoint está en producción y nadie lo llama.
+- **Timeout de red y caché de carátulas (v1.13.1)** — `request()` (`api/client.js`)
+  era un `fetch` pelado **sin timeout**: si `cfLogin()` se colgaba, la promesa nunca resolvía,
+  el `finally` de `reauth()` no bajaba `checking` y **`App.jsx:10` devolvía `null` para
+  siempre** → pantalla en blanco con la música sonando (el `<audio>` es un `new Audio()`
+  que vive en `PlayerProvider`, **por encima** de `App`, y no se entera del desmontaje). Ahora hay
+  `AbortController` a 10s que **no pisa** el `signal` del llamador (`LyricsPanel` manda el suyo).
+  Y el cover pasó a `sendFile(..., { maxAge: '1y' })`: el default de `send` es `max-age=0`,
+  que obliga a revalidar en **cada** uso. **Sin `immutable` a propósito** — la URL no es
+  content-addressed, así que `immutable` dejaría una carátula retagueada congelada un
+  año, sin salida.
+- **Miniaturas de carátula (v1.14.0)** — `music-server/src/covers/thumbs.js`: JPEG de 480px
+  q80 en `data/thumbs/`, generadas **bajo demanda** y servidas por `?size=thumb` sobre el endpoint
+  de siempre (sin el parámetro devuelve el original, intacto). Medido sobre 1213 carátulas:
+  **320 MB → 51 MB (6.2×)**, 43 kB de promedio, 11.2s en frío y **82ms** con todo
+  fresco. Vencimiento por `mtime(thumb) < mtime(cover)`, así que retaguear un álbum
+  regenera **sólo ese** álbum. Semáforo de 3 + single-flight por id; escribe a
+  temporal con el pid en el nombre y `rename`, porque el calentador corre en **otro proceso**
+  (`npm run scan`, con `--no-thumbs` para saltearlo) mientras el server sirve. Si sharp falla
+  devuelve `null` y **se cae al original**: nunca un 500 por una miniatura. El calentador va
+  **antes** del barrido de huérfanas a propósito — ese bloque sale por `return` en sus
+  dos guards y colgarlo del final lo dejaría sin correr con `--no-prune` o con el mount
+  caído. **Dos consumidores siguen en original a propósito**, con el porqué escrito al
+  lado: `.exp-art` (300px CSS × DPR 3 ≈ 900px reales) y el artwork de MediaSession, que se
+  le entrega al **SO** declarando 512. ⚠️ `sharp` **obligó a commitear
+  `music-server/package-lock.json`** — excepción explícita a la regla de oro 4: el
+  Dockerfile corre `npm ci`, que **aborta** si el lock no está sincronizado con
+  `package.json`. No hizo falta tocar el Dockerfile: libvips viene precompilado y estático, y
+  `--omit=dev` conserva las `optionalDependencies` (sólo `--omit=optional` las
+  descartaría).
+- **Registro de reproducciones (v1.15.0)** — `music-server/src/api/plays.js` y la tabla
+  `plays` en `database.js`. Es una **tabla de eventos y no un contador** en `tracks`: un
+  `play_count` no se puede desagregar después, y sin `played_at` no hay "lo más escuchado este
+  año" ni resumen anual. **`played_at` lo pone el DISPOSITIVO**, no el servidor — la app móvil
+  se usa sin señal y encola en disco, así que una semana de escucha offline llegaría toda
+  junta y con la fecha del insert quedaría registrada el día que hubo wifi.
+  **`client_id TEXT NOT NULL UNIQUE`** es la idempotencia del reintento: un envío cortado a la
+  mitad se reintenta entero y el `INSERT OR IGNORE` no duplica; sin esto los conteos se inflan
+  y nadie se entera. **`ON DELETE CASCADE` en las dos FK** porque `plays` guarda QUÉ
+  escuchaste y un huérfano no tendría qué mostrar — ⚠️ el precio es que **un rescan que borre
+  una pista se lleva su historial**, y si algún día tiene que sobrevivir a los rescans hay que
+  **desnormalizar título y artista** dentro de `plays`. **Por lote desde el día uno**
+  (`{ plays: [...] }`, tope 500): el alta de canciones en playlists nació singular y costó un
+  frente entero corregirlo. Mismo `BEGIN`/`COMMIT` a mano y mismo try/catch **por fila** que
+  aquel, y por el mismo motivo — `INSERT OR IGNORE` **no** cubre las FK (el `ON CONFLICT` de
+  SQLite aplica a UNIQUE, NOT NULL, CHECK y PRIMARY KEY), así que una pista borrada abortaría
+  el lote entero y el cliente reintentaría el mismo envío para siempre; esas caen en
+  `skipped`. Agregados en `GET /api/plays/top?type=tracks|artists|albums` y
+  `GET /api/plays/stats`, los dos con `since` en epoch ms y agrupando por `album_artist`, la
+  regla de siempre. ⚠️ **Sin consumidor en el web**: hoy lo llama solo la app móvil.
 - **Herramienta de snapshots (`.claude/tools/snap/`)** — tooling **local** de verificación visual
   con Playwright headless, nacido en esta serie. `snap.mjs` captura una ruta del Modelo 2 en los
   **tres anchos** que importan de una corrida; `snap-ctx.mjs` abre el **menú contextual móvil**
@@ -260,29 +337,42 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
   son obligatorias: el arranque falla si faltan.
 
-## Estado de ramas — nada sin mergear
+## Estado de ramas — una rama sin mergear
 
-**No hay features pendientes de desplegar**: todo lo desarrollado ya salió en producción —
-Artistas Retrato/Prisma + discos dobles (v1.6.0), Ajustes/cerrar sesión + registro cerrado
-(v1.6.1), botón Google (v1.6.2), routing Modelo 2 (v1.7.0), cola de reproducción + rediseño
-del expandido desktop (v1.8.0, con los arreglos móviles de v1.8.1), cola móvil como hoja
-arrastrable + listas que se adaptan al ancho (v1.9.0), el menú contextual de acciones en
-escritorio y teléfono (v1.10.0) con su cableado a Géneros/Playlists y a las carátulas del
-teléfono (v1.10.1), el reorden de la cola por arrastre (v1.11.0), el drag-to-enqueue completo
-—canción, álbum, artista y género (v1.12.0)— y la barra del reproductor como segundo destino
-(v1.12.1). Con eso el **ecosistema de la cola queda cerrado**: menú contextual → reordenar
-dentro → arrastrar hacia adentro, con o sin la cola abierta.
-`feature/sonorarev-integration` arranca limpio para lo próximo — lo único que tiene fuera de
-`main` es este mismo commit de docs, que entra en la próxima tanda. **Este archivo siempre va
-un release atrás por construcción**: su commit de docs viaja *dentro* de la tanda siguiente
-(el de post-v1.8.1 salió con v1.9.0; el de post-v1.9.0 salió con v1.10.0; el de post-v1.10.0
-—`431cabf`— salió con v1.10.1; el de post-v1.11.0 —`6f90636`— salió con v1.12.0; el de
-post-v1.12.0 —`99c0dda`— salió con v1.12.1), así que después de cada release hay que releerlo
-contra los tags. Ojo: la feature branch
-**no se pushea** (queda muy por delante de
-`origin/feature/sonorarev-integration`); lo que viaja a `origin` es `main` +
-tags. La versión real siempre sale del tope de `CHANGELOG.md` o
-`git tag --sort=-v:refname | head -1`.
+**`main` va en `v1.15.0`** (`3721ac3`), en sincronía con `origin/main`, y el tag está
+pusheado. Lo que llegó desde el último repaso de este archivo: carátulas diferidas (v1.12.3),
+alta por lote en playlists (v1.13.0), timeout de red + caché de carátulas (v1.13.1),
+miniaturas (v1.14.0) y el registro de reproducciones (v1.15.0). ⚠️ **Llegó a `main`, no
+necesariamente a producción** — ver §Estado actual: v1.15.0 estuvo dos días mergeado sin
+desplegarse.
+
+**Una sola rama tiene commits que NO están en `main`:**
+- **`feature/user-admin-cli` — 4 commits.** El CLI de administración de usuarios
+  (`music-server/src/admin/users.js`, `npm run users`): `list`, `passwd`, `create`, más su
+  documentación en README y CLAUDE.md. Nunca se mergeó. Ojo: **la sección de
+  administración de usuarios de este archivo vive en esa rama**, no acá — al cambiar de
+  rama, CLAUDE.md cambia debajo tuyo.
+`feature/plays` (`efc27e9`) **ya está en `main`** desde el merge `3721ac3`.
+⚠️ **Cómo se numeró, porque el error casi sale publicado:** ese commit había renombrado la
+entrada ya publicada de **`1.14.0` (miniaturas) a `1.15.0`** e insertado el registro de
+reproducciones **como `1.14.0`** — pero `v1.14.0` era un tag que ya existía y apuntaba a las
+miniaturas. Se invirtió **antes** de mergear (miniaturas se quedó en `1.14.0`, plays pasó a
+`1.15.0`), así que hoy el CHANGELOG publicado y los tags coinciden. La regla que queda: **el
+CHANGELOG de una feature branch puede pisar un número ya tagueado; comprobarlo contra
+`git tag` ANTES del merge, no después.**
+
+`feature/sonorarev-integration` está **al día con `main`** salvo este mismo commit de docs.
+`feature/playlist-bulk-add` es un resto ya mergeado (su commit `f4193eb` está en `main` desde
+v1.13.0).
+
+⚠️ **Cambió el flujo de ramas.** Este archivo decía que la feature branch "no se
+pushea"; hoy `feature/plays`, `feature/playlist-bulk-add` y `feature/sonorarev-integration`
+**tienen upstream en `origin`**. Lo que sigue igual es que **mergear a `main` DISPARA el
+deploy** — con la salvedad de v1.15.0: dispararlo no es lo mismo que completarlo.
+
+**Este archivo va un release atrás por construcción** cuando su commit de docs viaja dentro
+de la tanda siguiente. La versión real sale de `git tag --sort=-v:refname | head -1` o del
+tope de `CHANGELOG.md`, que hoy coinciden.
 
 **Deuda de QA de v1.10.0:** de los 6 commits de esa tanda que llegaron a producción, 4 (fases
 A1/B/D y el botón "⋯") venían de sesiones anteriores y **no se les corrió un QA funcional
@@ -312,11 +402,6 @@ el handler: lo que se audite en una zona vale para la otra, porque es el mismo h
 
 ## Pendientes conocidos
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
-- **Novedades sin color:** `Changelog.jsx:95` ya emite el hook por sección
-  (`cl-${slug(título)}`), pero `main.css:1752-1753` sólo pinta **`.cl-nuevo`** (verde) y
-  **`.cl-mejorado`** (morado). El CHANGELOG real usa **"Añadido"**, que `slug()` normaliza a
-  `cl-anadido` — **sin regla** → gris. Lo mismo "Cambiado", "Corregido" y "Técnico". O sea: la
-  sección más usada del changelog es justo la que no tiene color. Falta CSS, no markup.
 - **Reacomodo animado de las vecinas al arrastrar en la cola** (opcional): hoy el hueco no se abre
   y el destino se comunica sólo con la línea de 2px. La curva del snap (`SNAP_EASE`) ya queda
   lista para reusarse tal cual.
@@ -350,4 +435,4 @@ el handler: lo que se audite en una zona vale para la otra, porque es el mismo h
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-07-31 (v1.12.1 DESPLEGADO y tagueado el 2026-07-31 — la barra del reproductor como segundo destino del drag-to-enqueue, así encolar arrastrando ya no obliga a abrir la cola. Con eso cierra el ecosistema de la cola: menú contextual → reordenar dentro → arrastrar hacia adentro, con o sin la cola abierta. CLAUDE.md al día: producción = v1.12.1, nada sin mergear)._
+_Última actualización: 2026-08-25 (v1.15.0 —registro de reproducciones— MERGEADO y tagueado el 2026-08-23, pero **al 2026-08-25 SIN DESPLEGAR**: Dokploy no tomó el auto-deploy y producción seguía en la imagen de v1.14.0. En §Estado actual queda la sonda de tres líneas que comprueba qué versión corre de verdad, sin credenciales. Sin mergear queda solo `feature/user-admin-cli`)._
