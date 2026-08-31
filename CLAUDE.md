@@ -41,21 +41,44 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   docs o memoria, incluida la de este archivo.
 - ⚠️ **`main` == tag NO implica `main` == producción, y este archivo lo daba por hecho.**
   Decía que el *rolling update* de Dokploy **era** el reinicio y que el auto-deploy "despliega
-  directo" (verificado con v1.13.0, backend puro). **Con v1.15.0 no ocurrió**: al 2026-08-25,
-  dos días después del merge, producción seguía corriendo una imagen anterior a `3721ac3`.
-  Medido, no supuesto — sonda **sin `Bearer` y sin credenciales**, que separa "ruta montada" de
-  "ruta inexistente" porque `authMiddleware` responde `401` y el fallback SPA de
-  `server.js:44` responde `404` seco para todo lo que empiece con `/api`:
+  directo" (verificado con v1.13.0, backend puro). **Con v1.15.0 no se cumplió**: al 2026-08-25,
+  dos días después del merge, producción seguía corriendo una imagen anterior a `3721ac3` — el
+  endpoint nuevo daba 404. Se destrabó y **al 2026-08-30 v1.15.0 está desplegado y verificado**.
+  Lo que queda es la causa, porque va a volver a pasar.
+
+  **CAUSA RAÍZ — Dokploy saltea el build y hace rolling update de una imagen vieja.** El log
+  del deploy decía, textual:
+
+  ```
+  No build configuration changed & image found with the same Git Commit SHA.
+  Build step skipped.
+  ```
+
+  O sea que el deploy **corrió y terminó en verde**, pero sin construir nada: reusó una imagen
+  cacheada y solo reinició el contenedor. Por eso el síntoma es tan traicionero — Dokploy no
+  reporta ningún fallo, no queda un build en rojo que mirar, y el contenedor arranca sano. El
+  `/api/health` responde 200 y todo parece bien. Lo único que delata que corre código viejo es
+  **pedirle al backend algo que solo existe en la versión nueva**.
+
+  **LA SONDA, que no necesita credenciales ni `Bearer`.** Separa "ruta montada" de "ruta
+  inexistente" porque `authMiddleware` responde `401` y el fallback SPA de `server.js:44`
+  responde `404` seco para todo lo que empiece con `/api`:
 
   ```
   /api/health     -> 200 {"status":"ok"}       el origen está vivo
-  /api/tracks     -> 401 {"error":"No token"}  control: ruta montada
-  /api/plays/top  -> 404                       la ruta de v1.15.0 no existe todavía
+  /api/tracks     -> 401 {"error":"No token"}  control: una ruta que seguro existe
+  /api/plays/top  -> 401 {"error":"No token"}  la ruta nueva EXISTE  -> desplegado
+                  -> 404                       la ruta nueva NO existe -> NO desplegado
+  /api/noexiste   -> 404                       control negativo
   ```
 
-  Es el chequeo más barato de "¿qué versión corre DE VERDAD?". **Regla nueva: después de
-  mergear a `main`, pegarle al endpoint nuevo antes de dar el release por desplegado.** Si da
-  404, el deploy no salió: Redeploy a mano en Dokploy y mirar si quedó un build fallido.
+  **Regla: después de mergear a `main`, pegarle al endpoint nuevo antes de dar el release por
+  desplegado.** Un deploy en verde no es evidencia; un `401` en la ruta nueva sí. Si da 404,
+  el build se salteó y hay que **forzar un rebuild** — un Redeploy a secas no alcanza, porque
+  es justo la operación que reusa la imagen.
+  ⚠️ **FALTA ANOTAR cómo se forzó el rebuild el 2026-08-30** (¿toggle de "clean cache" en
+  Dokploy, un commit nuevo que cambie el SHA, borrar la imagen a mano?). Es el paso que
+  cierra este bucle: sin él, la próxima vez se vuelve a perder el tiempo buscándolo.
 - En producción en **https://sonorarev.com** (servidor X99, Dokploy, túnel Cloudflare *Healthy*).
 - Auth: Cloudflare Access + Google SSO; auto-login SSO→JWT **desplegado y funcionando**
   (commit `d7a23b6`), con login usuario/contraseña como fallback local. **Registro cerrado**
@@ -342,9 +365,9 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
 **`main` va en `v1.15.0`** (`3721ac3`), en sincronía con `origin/main`, y el tag está
 pusheado. Lo que llegó desde el último repaso de este archivo: carátulas diferidas (v1.12.3),
 alta por lote en playlists (v1.13.0), timeout de red + caché de carátulas (v1.13.1),
-miniaturas (v1.14.0) y el registro de reproducciones (v1.15.0). ⚠️ **Llegó a `main`, no
-necesariamente a producción** — ver §Estado actual: v1.15.0 estuvo dos días mergeado sin
-desplegarse.
+miniaturas (v1.14.0) y el registro de reproducciones (v1.15.0). ⚠️ **Llegó a `main` no
+significa llegó a producción** — ver §Estado actual: v1.15.0 estuvo CINCO días mergeado y
+tagueado sin desplegarse, con el deploy en verde, porque Dokploy salteó el build.
 
 **Una sola rama tiene commits que NO están en `main`:**
 - **`feature/user-admin-cli` — 4 commits.** El CLI de administración de usuarios
@@ -435,4 +458,4 @@ el handler: lo que se audite en una zona vale para la otra, porque es el mismo h
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
 ---
-_Última actualización: 2026-08-25 (v1.15.0 —registro de reproducciones— MERGEADO y tagueado el 2026-08-23, pero **al 2026-08-25 SIN DESPLEGAR**: Dokploy no tomó el auto-deploy y producción seguía en la imagen de v1.14.0. En §Estado actual queda la sonda de tres líneas que comprueba qué versión corre de verdad, sin credenciales. Sin mergear queda solo `feature/user-admin-cli`)._
+_Última actualización: 2026-08-30 (v1.15.0 —registro de reproducciones— mergeado y tagueado el 2026-08-23 y **DESPLEGADO Y VERIFICADO el 2026-08-30**. Estuvo cinco días en `main` sin llegar a producción: Dokploy dio el deploy por bueno pero salteó el build —"image found with the same Git Commit SHA"— y solo reinició una imagen vieja. En §Estado actual quedan la causa y la sonda sin credenciales que distingue código nuevo de código viejo. Sin mergear queda solo `feature/user-admin-cli`)._
