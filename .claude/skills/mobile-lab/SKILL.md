@@ -491,8 +491,10 @@ recortados, chips que se salen de la fila) y reporta el **régimen activo** — 
 
 **Sesión:** login normal por `POST /api/auth/login`, con `SNAP_USER` / `SNAP_PASS` en
 `.claude/tools/snap/.env` (gitignoreado por la regla `.env` de la raíz). El usuario dedicado es
-**`snap@local`**, creado en la DB local con el registro abierto un momento y vuelto a cerrar
-(`ALLOW_REGISTRATION`). Alternativa: `SNAP_TOKEN` con un JWT ya emitido — pero **tiene que ser
+**`snap@local`**, que se crea en la DB local con
+`cd music-server && npm run users -- create snap@local` (en Windows, con `--generate`, que la
+muestra una sola vez). Antes se creaba abriendo el registro público un momento y volviéndolo a
+cerrar; esa ruta ya no existe. Alternativa: `SNAP_TOKEN` con un JWT ya emitido — pero **tiene que ser
 del backend LOCAL**; uno de producción está firmado con otro secreto y el backend lo rechaza
 con 401 aunque el cliente lo acepte y renderice la app (el cliente sólo mira `exp`, no la firma).
 

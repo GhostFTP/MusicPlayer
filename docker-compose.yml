@@ -15,8 +15,6 @@ services:
       # auto-login queda desactivado y solo funciona el login por contraseña.
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
-      # Registro público cerrado por defecto (los usuarios se crean solos vía CF Access).
-      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
     volumes:
       # 🎵 Biblioteca de música: host /mnt/storage → contenedor /music, SOLO LECTURA.
       #    El ":ro" lo impone el kernel: nada del contenedor puede escribir tu música.

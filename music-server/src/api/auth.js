@@ -7,10 +7,19 @@ import { verifyCfAccess, cfAccessEnabled } from '../auth/cloudflare.js';
 
 const router = Router();
 
-// El registro público está CERRADO por defecto. Para abrirlo (p.ej. al crear el
-// primer usuario) define ALLOW_REGISTRATION=true. El auto-provisioning vía
-// Cloudflare Access (POST /cf) NO depende de este flag: crea usuarios igualmente.
-const ALLOW_REGISTRATION = process.env.ALLOW_REGISTRATION === 'true';
+// NO HAY REGISTRO PÚBLICO, y no es que esté apagado: la ruta no existe. Antes era
+// POST /register detrás de ALLOW_REGISTRATION, un flag que se abría "un momento" para
+// crear a alguien y se volvía a cerrar — o sea, una ruta de alta sin autenticar cuya
+// única defensa era acordarse de volver a apagarla.
+//
+// Las altas van por los dos caminos que piden ser admin:
+//   · POST /api/admin/users  (api/admin-users.js)
+//   · npm run users -- create <usuario>  (admin/users.js)
+// Los dos comparten las reglas de users/service.js, así que validan igual.
+//
+// El alta automática por Cloudflare Access (POST /cf, más abajo) NO es una excepción a
+// esto y nunca dependió del flag: ahí la identidad ya viene verificada por Cloudflare,
+// y quién puede tener cuenta lo decide la política de Access.
 
 /**
  * Crea (o recupera) el usuario asociado a un email verificado por Cloudflare.
@@ -25,23 +34,6 @@ async function upsertUserByEmail(email) {
   const info = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(email, hash);
   return { id: Number(info.lastInsertRowid), username: email };
 }
-
-router.post('/register', async (req, res) => {
-  if (!ALLOW_REGISTRATION) {
-    return res.status(403).json({ error: 'Registration is disabled' });
-  }
-
-  const { username, password } = req.body ?? {};
-  if (!username || !password) return res.status(400).json({ error: 'username and password required' });
-
-  const hash = await bcrypt.hash(password, 12);
-  try {
-    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(username, hash);
-    res.status(201).json({ message: 'User created' });
-  } catch {
-    res.status(409).json({ error: 'Username already exists' });
-  }
-});
 
 router.post('/login', async (req, res) => {
   const { username, password } = req.body ?? {};

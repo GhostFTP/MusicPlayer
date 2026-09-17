@@ -4,9 +4,9 @@ import { api } from '../api/client.js';
 
 export default function Login() {
   const { login } = useAuth();
-  // Solo login: el registro público está CERRADO (el backend rechaza /register con 403
-  // salvo ALLOW_REGISTRATION=true, reservado para bootstrap). Los usuarios reales entran
-  // por SSO (Cloudflare Access) o, en red local, con usuario/contraseña.
+  // Solo login: no hay registro público y la ruta ya ni existe (ver api/auth.js). Las
+  // cuentas las crea un administrador, por /api/admin/users o por el CLI. Los usuarios
+  // reales entran por SSO (Cloudflare Access) o, en red local, con usuario/contraseña.
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');

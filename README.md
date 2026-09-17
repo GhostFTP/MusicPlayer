@@ -217,7 +217,6 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| POST | `/api/auth/register` | Crear cuenta. **Cerrado por defecto** (`ALLOW_REGISTRATION`); el alta va por `/api/admin/users` o por el CLI |
 | POST | `/api/auth/login` | Iniciar sesión → devuelve JWT |
 | GET | `/api/tracks` | Listar canciones (`?search=`, `?artist=`, `?album=`) |
 | GET | `/api/tracks/:id` | Detalle de una canción |
@@ -244,7 +243,6 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 | `PORT` | `3000` | Puerto del servidor |
 | `MUSIC_DIR` | `../music` | Raíz de la biblioteca a escanear (en Docker: `/music`) |
 | `JWT_SECRET` | `change-me-in-production` | Clave secreta para firmar tokens |
-| `ALLOW_REGISTRATION` | `false` | Abre `POST /api/auth/register`. Se deja en `false`: el alta es cosa de un administrador |
 
 ```bash
 JWT_SECRET=mi-clave-segura PORT=8080 node server.js
