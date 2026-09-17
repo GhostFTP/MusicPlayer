@@ -120,4 +120,17 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre);');
 const playlistCols = new Set(db.prepare('PRAGMA table_info(playlists)').all().map(c => c.name));
 if (!playlistCols.has('emoji')) db.exec('ALTER TABLE playlists ADD COLUMN emoji TEXT');
 
+// Migración de usuarios: ROL, para separar quién puede administrar (bases ya existentes).
+//
+// Valores válidos: 'user' y 'admin'. Se validan EN CÓDIGO, no con un CHECK, y no es
+// pereza: SQLite no tiene enum, y un CHECK no se puede agregar con ALTER TABLE — habría
+// que recrear la tabla entera y copiar las filas. Para dos valores no lo vale, y recrear
+// la tabla de usuarios en una migración automática es exactamente donde se pierden filas.
+//
+// El DEFAULT 'user' es lo que hace que la migración sea segura sobre una base con datos:
+// cada fila existente queda como usuario normal y nadie gana privilegios por el hecho de
+// que la columna aparezca. Admin se marca después, a mano y de a uno.
+const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map(c => c.name));
+if (!userCols.has('role')) db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+
 export default db;
