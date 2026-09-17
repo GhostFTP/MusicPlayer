@@ -49,6 +49,8 @@ import {
   createUser,
   updateUser,
   renameUser,
+  setAvatarEmoji,
+  clearAvatar,
   deleteUser,
   assertPassword,
   ROLES,
@@ -323,6 +325,27 @@ async function rename(username, nuevo) {
   console.log('        Su token actual sigue valiendo: el servidor decide por id, no por nombre.');
 }
 
+// ---- avatar ----
+
+// Poner o quitar el avatar de alguien desde la terminal. La FOTO no se puede subir por
+// acá y no es una carencia: subir un archivo desde el CLI pediría una ruta del sistema
+// de ficheros del contenedor, y la foto la elige cada quien desde su teléfono. Lo que
+// sí hace falta desde la terminal es QUITAR una que no corresponde, y eso es --clear.
+async function avatar(username, { emoji, clear }) {
+  const user = mustFind(username);
+
+  if (clear) {
+    const after = clearAvatar(user.id);
+    console.log(`[USERS] "${after.username}" se quedó sin avatar. La app le dibuja su inicial.`);
+    return;
+  }
+
+  // assertEmoji (users/service.js) es quien decide si sirve, igual que por la API. Acá
+  // no se repite ninguna regla: si aparece una, ya empezó a divergir.
+  const after = setAvatarEmoji(user.id, emoji);
+  console.log(`[USERS] "${after.username}" ahora usa ${after.avatar.value} como avatar.`);
+}
+
 // ---- delete ----
 
 async function remove(username) {
@@ -373,6 +396,10 @@ const USAGE = `
                                    Cambia el NOMBRE. No toca el correo, así que el
                                    login por Google sigue encontrando la misma cuenta,
                                    y el token actual de la persona sigue valiendo.
+  node src/admin/users.js avatar <usuario> --emoji <emoji>
+  node src/admin/users.js avatar <usuario> --clear
+                                   Pone un emoji de avatar, o quita el que haya (emoji
+                                   o foto). La FOTO se sube desde la app, no desde acá.
   node src/admin/users.js delete <usuario>
                                    Borra el usuario y, EN CASCADA, sus playlists y sus
                                    reproducciones. Pide escribir el usuario para
@@ -393,6 +420,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const flags = {
     generate: rest.includes('--generate'),
     admin: rest.includes('--admin'),
+    clear: rest.includes('--clear'),
   };
 
   // Un UserError es una regla del servicio que se incumplió, y la persona necesita
@@ -443,6 +471,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         break;
       }
 
+      case 'avatar': {
+        // El emoji entra como argumento libre (no empieza con --), así que es el
+        // segundo de la lista: `avatar juan --emoji 🎵` deja libres = ['juan', '🎵'].
+        if (!libres[0] || (!flags.clear && !libres[1])) {
+          console.error('[USERS] Uso: users.js avatar <usuario> --emoji <emoji> | --clear');
+          process.exit(1);
+        }
+        await avatar(libres[0], { emoji: libres[1], clear: flags.clear });
+        break;
+      }
+
       case 'delete': {
         if (!libres[0]) {
           console.error('[USERS] Falta el usuario. Uso: users.js delete <username>');
@@ -465,4 +504,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { list, create, passwd, setRole, rename, remove };
+export { list, create, passwd, setRole, rename, avatar, remove };

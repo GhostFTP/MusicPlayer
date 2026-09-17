@@ -14,6 +14,7 @@ import changelogRoutes from './src/api/changelog.js';
 import infoRoutes      from './src/api/info.js';
 import playsRoutes     from './src/api/plays.js';
 import meRoutes        from './src/api/me.js';
+import usersRoutes     from './src/api/users.js';
 import adminUsersRoutes from './src/api/admin-users.js';
 import streamRoutes    from './src/stream/stream.js';
 
@@ -38,6 +39,9 @@ app.use('/api/changelog', changelogRoutes);
 app.use('/api/info',      infoRoutes);
 app.use('/api/plays',     playsRoutes);
 app.use('/api/me',        meRoutes);
+// Lo de OTRO usuario (hoy: su foto de avatar). Va antes de /api/admin/users porque
+// son rutas distintas, no una anidada en la otra: esta no pide rol.
+app.use('/api/users',     usersRoutes);
 app.use('/api/admin/users', adminUsersRoutes);
 app.use('/stream',        streamRoutes);
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));

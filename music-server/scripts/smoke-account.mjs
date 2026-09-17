@@ -13,9 +13,13 @@
 // tokens porque no conoce la contraseña del admin de desarrollo; acá la contraseña ES
 // lo que se está probando, así que las cuentas las crea este script con una que sí
 // conoce, y después entra por POST /api/auth/login como entraría cualquiera.
+import { existsSync, unlinkSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import bcrypt from 'bcrypt';
+import sharp from 'sharp';
 import db from '../src/db/database.js';
 import { signToken } from '../src/auth/jwt.js';
+import { avatarPath } from '../src/users/avatars.js';
 
 const BASE = process.env.SMOKE_URL ?? 'http://localhost:3000';
 const ADMIN_USERNAME = process.env.SMOKE_ADMIN ?? 'admin@adr.com';
@@ -44,6 +48,56 @@ async function req(method, path, { token, body } = {}) {
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   return { status: res.status, data };
+}
+
+// Subir un cuerpo CRUDO (la imagen). El helper de arriba manda JSON siempre, y lo que
+// se prueba acá es justamente que el servidor acepte bytes con un Content-Type de
+// imagen y rechace cualquier otro.
+async function reqRaw(method, path, { token, contentType, body }) {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': contentType },
+    body,
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  return { status: res.status, data };
+}
+
+// Una peticion condicional con EXACTAMENTE los headers que se le pasan, por node:http
+// y no por fetch.
+//
+// ⚠️ HACE FALTA, Y ES UN HALLAZGO: el `fetch` de node (undici) agrega
+// `Cache-Control: no-cache` y `Pragma: no-cache` POR SU CUENTA. El modulo `fresh` que
+// usa Express respeta ese no-cache y devuelve false aunque el ETag coincida — o sea
+// que el servidor contesta 200, y hace bien: le estan pidiendo una copia fresca. Con
+// fetch, esta prueba nunca veria el 304 y pareceria que el servidor esta roto.
+function condicional(url, { token, ifNoneMatch }) {
+  const u = new URL(url);
+  return new Promise((resolve, reject) => {
+    const r = httpRequest({
+      hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: 'GET',
+      headers: { Authorization: `Bearer ${token}`, 'If-None-Match': ifNoneMatch },
+    }, (res) => {
+      res.resume();
+      res.on('end', () => resolve({ status: res.statusCode }));
+    });
+    r.on('error', reject);
+    r.end();
+  });
+}
+
+// Bajar la foto y quedarse con los bytes, para pasarselos a sharp y ver que salio.
+async function reqImagen(path, token) {
+  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  return {
+    status: res.status,
+    tipo: res.headers.get('content-type'),
+    cache: res.headers.get('cache-control'),
+    etag: res.headers.get('etag'),
+    bytes: Buffer.from(await res.arrayBuffer()),
+  };
 }
 
 // El username va DENTRO del JWT, así que para leerlo alcanza con decodificar el
@@ -246,8 +300,152 @@ console.log('\n[6b] un usuario normal NO puede renombrar a otro');
   check(r.status === 403, 'PATCH /api/admin/users/:id sin ser admin → 403', String(r.status));
 }
 
+// ---- [7] Avatar: emoji ----
+
+console.log('\n[7] avatar con emoji');
+{
+  for (const [emoji, que] of [['🎵', 'simple'], ['👍🏽', 'con tono de piel'], ['👨‍👩‍👧', 'con ZWJ']]) {
+    const r = await req('PATCH', '/api/me', { token: tokAna, body: { emoji } });
+    check(r.status === 200, `emoji ${que} (${emoji}) -> 200`, `${r.status} ${JSON.stringify(r.data)}`);
+    check(r.data?.me?.avatar?.kind === 'emoji' && r.data.me.avatar.value === emoji,
+      '  y viene como { kind: "emoji" }', JSON.stringify(r.data?.me?.avatar));
+  }
+
+  const me = await req('GET', '/api/me', { token: tokAna });
+  check(me.data?.avatar?.value === '👨‍👩‍👧', 'el ultimo queda puesto en /api/me', JSON.stringify(me.data?.avatar));
+
+  for (const [malo, que] of [['a', 'una letra'], ['12', 'dos digitos'], ['🎵🎶', 'dos emojis juntos']]) {
+    const r = await req('PATCH', '/api/me', { token: tokAna, body: { emoji: malo } });
+    check(r.status === 400, `${que} ("${malo}") -> 400`, `${r.status} ${JSON.stringify(r.data)}`);
+  }
+
+  const sigue = await req('GET', '/api/me', { token: tokAna });
+  check(sigue.data?.avatar?.value === '👨‍👩‍👧', 'y ninguno de los tres lo cambio');
+}
+
+// ---- [8] Avatar: foto ----
+
+console.log('\n[8] avatar con foto');
+{
+  // Un PNG de 1200x800 hecho aca mismo: no hace falta un archivo de prueba en el repo,
+  // y de paso ese tamano prueba el recorte cuadrado y el encogido de una sola vez.
+  const png = await sharp({
+    create: { width: 1200, height: 800, channels: 3, background: { r: 200, g: 60, b: 160 } },
+  }).png().toBuffer();
+
+  const subida = await reqRaw('PUT', '/api/me/avatar', {
+    token: tokAna, contentType: 'image/png', body: png,
+  });
+  check(subida.status === 200, 'subir un PNG de 1200x800 -> 200', `${subida.status} ${JSON.stringify(subida.data)}`);
+  check(subida.data?.avatar?.kind === 'photo', 'responde con { kind: "photo" }', JSON.stringify(subida.data?.avatar));
+  check(typeof subida.data?.avatar?.url === 'string' && subida.data.avatar.url.includes('?v='),
+    'y la url lleva ?v=', subida.data?.avatar?.url);
+
+  const fila = db.prepare('SELECT avatar_emoji, avatar_updated_at FROM users WHERE id = ?').get(ana.id);
+  check(fila.avatar_emoji === null, 'avatar_emoji quedo en null');
+  check(fila.avatar_updated_at !== null, 'y avatar_updated_at quedo puesto');
+  check(existsSync(avatarPath(ana.id)), 'el archivo esta en el disco');
+
+  const bajada = await reqImagen(subida.data.avatar.url, tokAna);
+  check(bajada.status === 200, 'el GET de la url -> 200', String(bajada.status));
+  check(bajada.tipo === 'image/jpeg', 'con Content-Type image/jpeg', String(bajada.tipo));
+  check(bajada.cache === 'private, max-age=86400', 'y el Cache-Control pedido', String(bajada.cache));
+  check(!String(bajada.cache).includes('immutable'), 'NUNCA immutable');
+
+  const meta = await sharp(bajada.bytes).metadata();
+  check(meta.format === 'jpeg', 'sharp dice que es un JPEG', String(meta.format));
+  check(meta.width === 256 && meta.height === 256, 'de 256x256', `${meta.width}x${meta.height}`);
+
+  const revalida = await condicional(`${BASE}${subida.data.avatar.url}`, {
+    token: tokAna, ifNoneMatch: bajada.etag,
+  });
+  check(revalida.status === 304, 'con If-None-Match devuelve 304', String(revalida.status));
+
+  // La otra cara del hallazgo de `condicional`: pidiendo no-cache, el 304 NO tiene que
+  // salir. Se comprueba para que el dia que alguien "arregle" el 304 saltandose esa
+  // regla, esto se ponga rojo.
+  const forzada = await fetch(`${BASE}${subida.data.avatar.url}`, {
+    headers: { Authorization: `Bearer ${tokAna}`, 'If-None-Match': bajada.etag },
+  });
+  check(forzada.status === 200, 'pero con Cache-Control: no-cache manda el JPEG igual', String(forzada.status));
+
+  const texto = await reqRaw('PUT', '/api/me/avatar', {
+    token: tokAna, contentType: 'text/plain', body: 'esto no es una imagen',
+  });
+  check(texto.status === 415, 'subir text/plain -> 415', `${texto.status} ${JSON.stringify(texto.data)}`);
+
+  const rota = await reqRaw('PUT', '/api/me/avatar', {
+    token: tokAna, contentType: 'image/png', body: Buffer.from('no soy un png'),
+  });
+  check(rota.status === 400, 'bytes que no son una imagen -> 400', `${rota.status} ${JSON.stringify(rota.data)}`);
+  check(rota.data?.error === 'No se pudo leer la imagen.', 'con el mensaje pedido', JSON.stringify(rota.data));
+}
+
+// ---- [9] Poner emoji borra la foto del disco ----
+
+console.log('\n[9] poner un emoji se lleva la foto');
+{
+  check(existsSync(avatarPath(ana.id)), 'antes: el archivo esta');
+  const r = await req('PATCH', '/api/me', { token: tokAna, body: { emoji: '🐙' } });
+  check(r.status === 200, 'PATCH con emoji -> 200', String(r.status));
+  check(!existsSync(avatarPath(ana.id)), 'DESPUES: el archivo del disco desaparecio');
+
+  const fila = db.prepare('SELECT avatar_emoji, avatar_updated_at FROM users WHERE id = ?').get(ana.id);
+  check(fila.avatar_updated_at === null, 'y avatar_updated_at volvio a null');
+  check(fila.avatar_emoji === '🐙', 'con el emoji puesto');
+}
+
+// ---- [10] DELETE ----
+
+console.log('\n[10] quitar el avatar');
+{
+  const r = await reqRaw('DELETE', '/api/me/avatar', { token: tokAna, contentType: 'application/json' });
+  check(r.status === 204, 'DELETE /api/me/avatar -> 204', String(r.status));
+
+  const me = await req('GET', '/api/me', { token: tokAna });
+  check(me.data?.avatar === null, 'y /api/me devuelve avatar: null', JSON.stringify(me.data?.avatar));
+
+  const otraVez = await reqRaw('DELETE', '/api/me/avatar', { token: tokAna, contentType: 'application/json' });
+  check(otraVez.status === 204, 'volver a borrarlo tambien -> 204 (idempotente)', String(otraVez.status));
+}
+
+// ---- [11] El avatar de otro ----
+
+console.log('\n[11] el avatar de otro');
+{
+  const otro = db.prepare("SELECT id FROM users WHERE username = 'acct-ocupado'").get();
+  db.prepare("UPDATE users SET avatar_emoji = '🦊' WHERE id = ?").run(otro.id);
+
+  const normal = await reqRaw('DELETE', `/api/admin/users/${otro.id}/avatar`, {
+    token: tokAna, contentType: 'application/json',
+  });
+  check(normal.status === 403, 'un usuario normal NO puede quitarselo a otro -> 403', String(normal.status));
+
+  const sigue = db.prepare('SELECT avatar_emoji FROM users WHERE id = ?').get(otro.id);
+  check(sigue.avatar_emoji === '🦊', 'y sigue puesto');
+
+  const comoAdmin = await reqRaw('DELETE', `/api/admin/users/${otro.id}/avatar`, {
+    token: tokAdmin, contentType: 'application/json',
+  });
+  check(comoAdmin.status === 204, 'un admin si -> 204', String(comoAdmin.status));
+
+  const despues = db.prepare('SELECT avatar_emoji FROM users WHERE id = ?').get(otro.id);
+  check(despues.avatar_emoji === null, 'y se lo quito');
+
+  const porPatch = await req('PATCH', `/api/admin/users/${otro.id}`, {
+    token: tokAdmin, body: { emoji: '🐢' },
+  });
+  check(porPatch.status === 200 && porPatch.data?.avatar?.value === '🐢',
+    'y el PATCH de admin tambien le puede poner uno', JSON.stringify(porPatch.data?.avatar));
+}
+
 // ---- Limpieza ----
 
+// Los avatares de las cuentas de prueba se van con ellas: limpiar() borra las filas, y
+// aca se borran los archivos, que si no quedarian sin nadie que los recoja.
+for (const u of db.prepare("SELECT id FROM users WHERE username LIKE 'acct-%'").all()) {
+  try { unlinkSync(avatarPath(u.id)); } catch { /* no tenia */ }
+}
 limpiar();
 console.log(`\n[SMOKE-ACCOUNT] ${pass} ok, ${fail} fallas\n`);
 process.exit(fail ? 1 : 0);

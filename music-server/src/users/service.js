@@ -279,11 +279,70 @@ export async function changeOwnPassword(id, { currentPassword, newPassword }) {
   return getUser(id);
 }
 
-export async function updateUser(id, { role, password, username }) {
+// ---- Avatar ----
+//
+// ⚠️ EL ORDEN DE LAS DOS ESCRITURAS NO ES CASUAL, y es la misma regla en las tres:
+// **la base manda y el archivo solo se sirve si ella lo dice.** Por eso, cuando hay
+// que BORRAR el archivo, primero se actualiza la base y después se hace el unlink: si
+// el proceso muere en el medio, queda un archivo huérfano que nadie sirve — invisible
+// y pisado por la próxima subida. Al revés (unlink y después UPDATE) quedaría la base
+// diciendo "hay foto" y el endpoint devolviendo 404, que sí se ve.
+//
+// Cuando hay que CREARLO el orden se invierte por obligación: no se puede apuntar a un
+// archivo que todavía no existe. Ahí el corte deja el archivo escrito y la columna en
+// null, que cae del mismo lado seguro.
+
+/** Pone el emoji, o lo quita con `null`.
+ *
+ *  Poner uno BORRA la foto: son excluyentes por diseño (ver el invariante en
+ *  db/database.js). Quitarlo con `null` toca solo el emoji y deja la foto donde esté —
+ *  que por ese mismo invariante es "en ningún lado". Para llevarse las dos cosas sin
+ *  preguntar está `clearAvatar`. */
+export function setAvatarEmoji(id, raw) {
+  mustGet(id);
+
+  if (raw === null) {
+    db.prepare('UPDATE users SET avatar_emoji = NULL WHERE id = ?').run(id);
+    return getUser(id);
+  }
+
+  const emoji = assertEmoji(raw);
+  db.prepare('UPDATE users SET avatar_emoji = ?, avatar_updated_at = NULL WHERE id = ?').run(emoji, id);
+  deleteAvatarPhoto(id);
+  return getUser(id);
+}
+
+/** Guarda la foto ya procesada y se lleva el emoji. */
+export async function setAvatarPhoto(id, buffer) {
+  mustGet(id);
+
+  let cuando;
+  try {
+    cuando = await writeAvatarPhoto(id, buffer);
+  } catch {
+    // Lo que sabe el que llama es que mandó bytes con un Content-Type de imagen; que
+    // libvips no los entienda es un 400 suyo, no un 500 nuestro. El detalle de sharp
+    // no sube: diría más de nuestras tripas que del problema.
+    throw new UserError(400, 'No se pudo leer la imagen.');
+  }
+
+  db.prepare('UPDATE users SET avatar_emoji = NULL, avatar_updated_at = ? WHERE id = ?').run(cuando, id);
+  return getUser(id);
+}
+
+/** Deja la cuenta sin avatar de ningún tipo. */
+export function clearAvatar(id) {
+  mustGet(id);
+  db.prepare('UPDATE users SET avatar_emoji = NULL, avatar_updated_at = NULL WHERE id = ?').run(id);
+  deleteAvatarPhoto(id);
+  return getUser(id);
+}
+
+export async function updateUser(id, { role, password, username, emoji }) {
   const user = mustGet(id);
 
-  if (role === undefined && password === undefined && username === undefined) {
-    throw new UserError(400, 'No hay nada que cambiar: mandá role, password, username o varios.');
+  if (role === undefined && password === undefined && username === undefined && emoji === undefined) {
+    throw new UserError(400, 'No hay nada que cambiar: mandá role, password, username, emoji o varios.');
   }
 
   // Se valida TODO antes de escribir NADA. Con un PATCH de rol y contraseña juntos,
@@ -296,6 +355,8 @@ export async function updateUser(id, { role, password, username }) {
   const rol = role === undefined ? undefined : normalizeRole(role);
   const hash = password === undefined ? undefined : await hashPassword(password);
   const nombre = username === undefined ? undefined : normalizeUsername(username);
+  // `null` es "quitalo" y no un valor a validar, así que no pasa por assertEmoji.
+  const emo = emoji === undefined || emoji === null ? emoji : assertEmoji(emoji);
 
   if (nombre !== undefined) assertNombreLibre(id, nombre);
   if (rol === 'user') assertNotLastAdmin(user, 'bajarlo a usuario normal');
@@ -303,6 +364,9 @@ export async function updateUser(id, { role, password, username }) {
   if (rol !== undefined) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(rol, id);
   if (hash !== undefined) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
   if (nombre !== undefined) writeUsername(id, nombre);
+  // Va último y por setAvatarEmoji para no repetir el borrado del archivo ni el
+  // cuidado del orden entre la base y el disco, que está explicado ahí arriba.
+  if (emo !== undefined) setAvatarEmoji(id, emo);
 
   return getUser(id);
 }

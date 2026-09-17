@@ -1,8 +1,10 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware, signToken } from '../auth/jwt.js';
-import { avatarDe } from '../users/avatars.js';
-import { UserError, changeOwnPassword, renameUser } from '../users/service.js';
+import { ACCEPTED_TYPES, MAX_UPLOAD_BYTES, avatarDe } from '../users/avatars.js';
+import {
+  UserError, changeOwnPassword, clearAvatar, renameUser, setAvatarEmoji, setAvatarPhoto,
+} from '../users/service.js';
 import { handle } from './handle.js';
 
 const router = Router();
@@ -59,18 +61,21 @@ router.get('/', authMiddleware, (req, res) => {
 // distintos en cualquier cliente. Cortarlo acá es más barato y más honesto que
 // prometer algo atómico que después no lo sea.
 router.patch('/', authMiddleware, handle(async (req, res) => {
-  const { username, currentPassword, newPassword } = req.body ?? {};
-  const cambiaNombre = username !== undefined;
-  const cambiaClave = newPassword !== undefined;
+  const { username, currentPassword, newPassword, emoji } = req.body ?? {};
+  // `emoji: null` es "quitámelo", así que la presencia se mira contra undefined y no
+  // por si es falsy: con `!emoji` no habría forma de pedir que se quite.
+  const pedidos = [username !== undefined, newPassword !== undefined, emoji !== undefined]
+    .filter(Boolean).length;
 
-  if (!cambiaNombre && !cambiaClave) {
-    throw new UserError(400, 'No hay nada que cambiar: mandá username o newPassword.');
+  if (pedidos === 0) {
+    throw new UserError(400, 'No hay nada que cambiar: mandá username, newPassword o emoji.');
   }
-  if (cambiaNombre && cambiaClave) {
-    throw new UserError(400, 'Cambiá el nombre o la contraseña, no los dos a la vez.');
+  if (pedidos > 1) {
+    throw new UserError(400, 'Cambiá una cosa a la vez: el nombre, la contraseña o el emoji.');
   }
 
-  if (cambiaClave) await changeOwnPassword(req.user.id, { currentPassword, newPassword });
+  if (newPassword !== undefined) await changeOwnPassword(req.user.id, { currentPassword, newPassword });
+  else if (emoji !== undefined) setAvatarEmoji(req.user.id, emoji);
   else renameUser(req.user.id, username);
 
   const me = leerMe(req.user.id);
@@ -91,5 +96,43 @@ router.patch('/', authMiddleware, handle(async (req, res) => {
   // confianza no lo vale.
   res.json({ me, token: signToken({ id: me.id, username: me.username }) });
 }));
+
+// ---- La foto ----
+//
+// EL CUERPO ES LA IMAGEN, CRUDA. Sin multipart y por lo tanto sin multer ni ninguna
+// dependencia nueva: acá se sube UN archivo y nada más, así que el formulario de
+// varias partes no compra nada y trae un parser entero que mantener.
+//
+// `express.raw` con `type` solo se activa si el Content-Type está en la lista; con
+// cualquier otro no toca `req.body` y la petición llega con `undefined`. Eso es lo que
+// se mira abajo para contestar 415: no hace falta leer el header a mano.
+const cuerpoImagen = express.raw({ type: ACCEPTED_TYPES, limit: MAX_UPLOAD_BYTES });
+
+router.put('/avatar', authMiddleware, cuerpoImagen, handle(async (req, res) => {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    throw new UserError(415, 'Manda una imagen JPEG, PNG o WebP.');
+  }
+  const me = await setAvatarPhoto(req.user.id, req.body);
+  res.json({ avatar: me.avatar });
+}));
+
+// 204 y sin cuerpo. Es idempotente y silencioso a propósito, como el DELETE de
+// playlists: borrar un avatar que no existe es el mismo resultado que borrar uno que
+// sí, y quien llama quiere lo mismo en los dos casos.
+router.delete('/avatar', authMiddleware, handle(async (req, res) => {
+  clearAvatar(req.user.id);
+  res.status(204).end();
+}));
+
+// Los errores que NO nacen en un handler sino en el parser del cuerpo: los tira
+// `express.raw` antes de que corra nada nuestro, así que `handle` no los ve. Sin esto
+// el 413 saldría como la página HTML por defecto de Express, que un cliente que espera
+// JSON no sabe leer.
+router.use((err, _req, res, next) => {
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'La imagen pesa más de 6 MB. Elegí una más chica.' });
+  }
+  next(err);
+});
 
 export default router;

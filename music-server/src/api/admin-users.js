@@ -4,7 +4,7 @@
 // ya empezó a divergir.
 import { Router } from 'express';
 import { authMiddleware, requireAdmin } from '../auth/jwt.js';
-import { UserError, listUsers, createUser, updateUser, deleteUser } from '../users/service.js';
+import { UserError, listUsers, createUser, updateUser, deleteUser, clearAvatar } from '../users/service.js';
 import { handle } from './handle.js';
 
 const router = Router();
@@ -34,16 +34,31 @@ router.post('/', handle(async (req, res) => {
   res.status(201).json(await createUser({ username, password, role: role ?? 'user' }));
 }));
 
-// `username` desde el 1.17.0: un admin puede renombrar a otro. Va por la misma regla
-// que el rename propio de PATCH /api/me — ver updateUser, que usa las dos mitades de
-// renameUser en vez de llamarlo, para no perder su promesa de validar todo antes de
-// escribir nada.
+// `username` y `emoji` desde el 1.17.0: un admin puede renombrar a otro y ponerle o
+// quitarle el emoji. Van por la misma regla que los cambios propios de PATCH /api/me —
+// ver updateUser, que usa las dos mitades de renameUser en vez de llamarlo, para no
+// perder su promesa de validar todo antes de escribir nada.
 //
 // El EMAIL no está acá y no es un olvido: no se edita por ninguna vía de
 // administración (users/service.js).
+//
+// Y LA FOTO TAMPOCO SE SUBE ACÁ, a propósito: un admin puede QUITAR la de otro (el
+// DELETE de abajo) pero no ponérsela. Elegir la cara con la que aparece otra persona
+// no es administrar, y quitar una foto que no corresponde ya cubre el caso real.
 router.patch('/:id', handle(async (req, res) => {
-  const { role, password, username } = req.body ?? {};
-  res.json(await updateUser(idParam(req), { role, password, username }));
+  const { role, password, username, emoji } = req.body ?? {};
+  res.json(await updateUser(idParam(req), { role, password, username, emoji }));
+}));
+
+// Quitarle el avatar a otro: la foto Y el emoji. 204 y sin cuerpo, idempotente como el
+// de /api/me/avatar.
+//
+// No pide escribir el nombre para confirmar, a diferencia del DELETE del usuario: esto
+// no se lleva nada por delante —la persona se vuelve a poner el suyo cuando quiera— y
+// pedir una confirmación cara para algo barato enseña a confirmar sin leer.
+router.delete('/:id/avatar', handle(async (req, res) => {
+  clearAvatar(idParam(req));
+  res.status(204).end();
 }));
 
 // El cuerpo con `confirm` lo parsea el express.json() global de server.js. Un DELETE
