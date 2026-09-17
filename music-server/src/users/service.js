@@ -88,8 +88,13 @@ export function hashPassword(password) {
 // tenga 3 playlists y 500 plays da 1500 filas, y COUNT() devolvería 1500 en las dos
 // columnas. Con UNA sola tabla el JOIN anda —así lo hacía list() del CLI— y por eso
 // el bug no aparece hasta que alguien agrega la segunda.
+// `email` va acá y NO en ningún UPDATE de este archivo: se muestra, pero no se edita
+// por ninguna de las vías de administración. Lo escribe solo el login por Cloudflare
+// (api/auth.js), que es quien tiene una identidad verificada para escribirlo. Un admin
+// que pudiera cambiarlo a mano podría, sin querer, apuntar la cuenta de alguien a la
+// identidad de Google de otro.
 const SELECT_PUBLIC = `
-  SELECT u.id, u.username, u.role, u.created_at,
+  SELECT u.id, u.username, u.email, u.role, u.created_at,
          (SELECT COUNT(*) FROM playlists p WHERE p.user_id = u.id) AS playlists,
          (SELECT COUNT(*) FROM plays     y WHERE y.user_id = u.id) AS plays
   FROM users u

@@ -13,7 +13,7 @@ const router = Router();
 // `*` lo mandaría por la red al primer descuido. Es la misma regla que sigue el CLI.
 router.get('/', authMiddleware, (req, res) => {
   const user = db
-    .prepare('SELECT id, username, role, created_at FROM users WHERE id = ?')
+    .prepare('SELECT id, username, email, role, created_at FROM users WHERE id = ?')
     .get(req.user.id);
 
   // Token válido de un usuario que ya no está (lo borró un admin mientras su sesión

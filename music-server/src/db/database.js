@@ -4,9 +4,18 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = join(__dir, '../../data/music.db');
 
-mkdirSync(join(__dir, '../../data'), { recursive: true });
+// La base es SIEMPRE data/music.db salvo que MUSIC_DB_PATH diga otra cosa. El
+// override existe para UNA cosa: que un script de prueba pueda importar este módulo
+// —y con él el resto del servidor— contra una base temporal, sin tocar la de
+// desarrollo. Sin esto, cualquier prueba de algo que importe `db` escribe en la base
+// real, que es como un test termina borrándole las playlists a alguien.
+//
+// No se documenta como variable de despliegue a propósito: en producción no hay que
+// ponerla, y el default es el de siempre.
+const DB_PATH = process.env.MUSIC_DB_PATH ?? join(__dir, '../../data/music.db');
+
+mkdirSync(dirname(DB_PATH), { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
 
@@ -132,5 +141,56 @@ if (!playlistCols.has('emoji')) db.exec('ALTER TABLE playlists ADD COLUMN emoji 
 // que la columna aparezca. Admin se marca después, a mano y de a uno.
 const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map(c => c.name));
 if (!userCols.has('role')) db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+
+// Migración de usuarios: EMAIL, separado del username.
+//
+// POR QUÉ. Las cuentas que entran por Cloudflare Access guardaban el correo EN el
+// username, y upsertUserByEmail lo buscaba por ahí (api/auth.js). Mientras nadie
+// pudiera cambiarse el nombre, funcionaba. El día que alguien se renombra, el
+// siguiente login por Google no encuentra su fila y le crea OTRA cuenta — con sus
+// playlists y su historial en la vieja, y sin ninguna forma de notarlo salvo que la
+// persona diga "se me borró todo". El email es el identificador que no cambia; el
+// username pasa a ser un nombre y nada más.
+//
+// Nullable a propósito: las cuentas de contraseña no tienen por qué tener uno, y las
+// técnicas (app-ios) no deberían.
+if (!userCols.has('email')) {
+  db.exec('ALTER TABLE users ADD COLUMN email TEXT');
+
+  // BACKFILL, y corre UNA sola vez: va dentro de este if, o sea solo en el arranque
+  // que agrega la columna. En los siguientes no se ejecuta ni se mira.
+  //
+  // El heurístico es "el username parece un correo", y es el ÚNICO que hay: una
+  // cuenta de SSO y una de contraseña se ven idénticas en la tabla (las dos tienen un
+  // bcrypt de 60 caracteres, porque a las de SSO se les guarda el hash de un UUID
+  // aleatorio para cumplir el NOT NULL). Se pasa de largo a propósito: darle un email
+  // a una cuenta de contraseña cuyo nombre tiene arroba no rompe nada —nadie va a
+  // autenticarse con Google como "snap@local"—, mientras que NO dárselo a una cuenta
+  // de SSO de verdad es justamente el bug que esto viene a cerrar.
+  //
+  // ⚠️ SALTEA LAS AMBIGUAS en vez de arriesgarse a que el índice de abajo falle. Dos
+  // filas cuyo lower(username) coincide —"A@x.com" y "a@x.com"— no pueden tener las
+  // dos el mismo email, y si el UPDATE las escribiera igual, el CREATE INDEX de
+  // después tiraría y el servidor NO ARRANCARÍA. Un arranque caído por una condición
+  // de datos es mucho peor que dos filas sin email, que se arreglan a mano.
+  const info = db.prepare(`
+    UPDATE users SET email = lower(username)
+    WHERE email IS NULL
+      AND username LIKE '%@%'
+      AND (SELECT COUNT(*) FROM users u2 WHERE lower(u2.username) = lower(users.username)) = 1
+  `).run();
+  console.log(`[migración] email: ${info.changes} usuario(s) con el correo copiado del nombre.`);
+}
+
+// UNIQUE no se puede agregar con ALTER TABLE —habría que recrear la tabla entera, que
+// es donde se pierden filas—, así que la unicidad vive en un ÍNDICE.
+//
+// PARCIAL (`WHERE email IS NOT NULL`), y no un único normal: en SQLite los NULL no
+// chocan entre sí ni en un índice común, así que para ESTO los dos servirían. Se
+// declara parcial igual porque dice lo que se quiere decir —"los correos son únicos,
+// las cuentas sin correo no son un caso"— y porque el índice no carga las filas sin
+// email. Comprobado que el SQLite de node lo soporta: 3.50.2 en node 22, índice
+// creado, tres NULL conviviendo y el duplicado rechazado.
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email) WHERE email IS NOT NULL');
 
 export default db;
