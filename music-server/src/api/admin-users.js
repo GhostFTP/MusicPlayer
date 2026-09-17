@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { authMiddleware, requireAdmin } from '../auth/jwt.js';
 import { UserError, listUsers, createUser, updateUser, deleteUser } from '../users/service.js';
+import { handle } from './handle.js';
 
 const router = Router();
 
@@ -24,21 +25,6 @@ function idParam(req) {
   return id;
 }
 
-// UserError trae el status adentro (ver el servicio), así que traducir es una línea.
-// Lo que NO se traduce se loguea y sale como 500 genérico: un mensaje de SQLite en la
-// respuesta le cuenta el esquema a quien pregunte.
-function handle(fn) {
-  return async (req, res) => {
-    try {
-      await fn(req, res);
-    } catch (e) {
-      if (e instanceof UserError) return res.status(e.status).json({ error: e.message });
-      console.error('[ADMIN-USERS]', e);
-      res.status(500).json({ error: 'Internal error' });
-    }
-  };
-}
-
 router.get('/', handle(async (_req, res) => {
   res.json(listUsers());
 }));
@@ -48,9 +34,16 @@ router.post('/', handle(async (req, res) => {
   res.status(201).json(await createUser({ username, password, role: role ?? 'user' }));
 }));
 
+// `username` desde el 1.17.0: un admin puede renombrar a otro. Va por la misma regla
+// que el rename propio de PATCH /api/me — ver updateUser, que usa las dos mitades de
+// renameUser en vez de llamarlo, para no perder su promesa de validar todo antes de
+// escribir nada.
+//
+// El EMAIL no está acá y no es un olvido: no se edita por ninguna vía de
+// administración (users/service.js).
 router.patch('/:id', handle(async (req, res) => {
-  const { role, password } = req.body ?? {};
-  res.json(await updateUser(idParam(req), { role, password }));
+  const { role, password, username } = req.body ?? {};
+  res.json(await updateUser(idParam(req), { role, password, username }));
 }));
 
 // El cuerpo con `confirm` lo parsea el express.json() global de server.js. Un DELETE

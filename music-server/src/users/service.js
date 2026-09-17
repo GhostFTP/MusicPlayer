@@ -159,22 +159,90 @@ export async function createUser({ username, password, role = 'user' }) {
   return getUser(Number(info.lastInsertRowid));
 }
 
-export async function updateUser(id, { role, password }) {
+// EL NOMBRE ESTÁ LIBRE PARA ESTE id. Privadas y compartidas por los dos caminos que
+// renombran —el propio (PATCH /api/me) y el de un admin (PATCH /api/admin/users/:id)—,
+// que es lo que hace que la REGLA sea una sola aunque las funciones sean dos.
+//
+// `taken.id !== id` y no `taken` a secas: renombrarse al nombre que uno ya tiene no es
+// un conflicto, es no hacer nada, y contestarle 409 a eso sería absurdo.
+function assertNombreLibre(id, name) {
+  const taken = findByUsername(name);
+  if (taken && taken.id !== id) throw new UserError(409, `Ya existe el usuario "${name}".`);
+}
+
+// El SELECT de arriba es solo para el mensaje; la garantía real es el UNIQUE de la
+// tabla, así que el UPDATE igual va con catch — dos renombres al mismo nombre en el
+// mismo instante saldrían como un SQLITE_CONSTRAINT crudo. Es la misma pareja de
+// comprobaciones que ya hace createUser.
+function writeUsername(id, name) {
+  try {
+    db.prepare('UPDATE users SET username = ? WHERE id = ?').run(name, id);
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) throw new UserError(409, `Ya existe el usuario "${name}".`);
+    throw e;
+  }
+}
+
+/** Cambia el NOMBRE y nada más. El email no se toca acá ni en ningún otro sitio de
+ *  este archivo: es la identidad con la que el login por Google encuentra la cuenta
+ *  (api/auth.js), y moverla desde una pantalla de "cambiar mi nombre" es exactamente
+ *  cómo se le entrega la cuenta de alguien a otra persona. */
+export function renameUser(id, username) {
+  mustGet(id);
+  const name = normalizeUsername(username);
+  assertNombreLibre(id, name);
+  writeUsername(id, name);
+  return getUser(id);
+}
+
+/** Cambia la PROPIA contraseña, y para eso exige la actual. No lo pide el esquema ni
+ *  el token: lo pide el hecho de que una sesión abierta en un teléfono prestado o sin
+ *  bloquear alcanzaría, si no, para dejar a su dueño afuera de su propia cuenta.
+ *
+ *  Un ADMIN no pasa por acá: `updateUser` cambia la contraseña de otro sin conocerla,
+ *  que es justo para lo que existe —alguien que la perdió—. Son dos operaciones
+ *  distintas y por eso son dos funciones. */
+export async function changeOwnPassword(id, { currentPassword, newPassword }) {
+  const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(id);
+  if (!row) throw new UserError(404, 'No existe ese usuario.');
+
+  // La nueva se valida ANTES de mirar la actual: si la nueva no sirve, el resultado
+  // es el mismo sepa o no la actual, y hacer el bcrypt.compare primero sería trabajo
+  // tirado. `String(...)` porque bcrypt.compare(undefined, hash) RECHAZA en vez de
+  // devolver false, y eso no es un 401: es una promesa sin dueño.
+  assertPassword(newPassword);
+  if (!(await bcrypt.compare(String(currentPassword ?? ''), row.password_hash))) {
+    throw new UserError(401, 'La contraseña actual no es correcta.');
+  }
+
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(newPassword), id);
+  return getUser(id);
+}
+
+export async function updateUser(id, { role, password, username }) {
   const user = mustGet(id);
 
-  if (role === undefined && password === undefined) {
-    throw new UserError(400, 'No hay nada que cambiar: mandá role, password o los dos.');
+  if (role === undefined && password === undefined && username === undefined) {
+    throw new UserError(400, 'No hay nada que cambiar: mandá role, password, username o varios.');
   }
 
   // Se valida TODO antes de escribir NADA. Con un PATCH de rol y contraseña juntos,
   // validar sobre la marcha dejaría el rol cambiado y la contraseña sin cambiar.
+  //
+  // Por eso el username NO se hace llamando a renameUser, que valida y escribe de una:
+  // se usan sus DOS mitades por separado, la comprobación acá arriba y la escritura
+  // abajo. La regla sigue siendo una sola —las dos mitades son las mismas— y este
+  // PATCH conserva su promesa de no dejar la fila a medias.
   const rol = role === undefined ? undefined : normalizeRole(role);
   const hash = password === undefined ? undefined : await hashPassword(password);
+  const nombre = username === undefined ? undefined : normalizeUsername(username);
 
+  if (nombre !== undefined) assertNombreLibre(id, nombre);
   if (rol === 'user') assertNotLastAdmin(user, 'bajarlo a usuario normal');
 
   if (rol !== undefined) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(rol, id);
   if (hash !== undefined) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
+  if (nombre !== undefined) writeUsername(id, nombre);
 
   return getUser(id);
 }
