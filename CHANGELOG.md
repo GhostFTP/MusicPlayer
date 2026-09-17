@@ -3,6 +3,47 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.16.0] - 2026-09-17
+
+### Añadido
+- **SonoraRev ya sabe quién administra y quién no**: hasta ahora todas las cuentas
+  eran iguales, así que cualquiera que entrara podía hacer exactamente lo mismo que
+  vos. Ahora cada cuenta tiene un rol —usuario normal o administrador— y las cosas
+  que tocan a los demás quedan del lado de los administradores. Nadie pierde nada:
+  todas las cuentas que ya existían quedaron como usuarios normales, y sus playlists
+  y su historial siguen intactos.
+- **Administrar las cuentas sin abrir una terminal**: dar de alta a alguien, cambiarle
+  la contraseña, hacerlo administrador o darlo de baja se puede hacer desde el propio
+  servidor, con la sesión de un administrador. Antes la única vía era entrar por
+  consola al contenedor. La lista te dice, de cada persona, cuántas playlists tiene y
+  cuántas reproducciones lleva registradas, que es justo lo que querés saber **antes**
+  de borrar a alguien y no después.
+- **Dos frenos para lo que no se puede deshacer**: no se puede dejar el servidor sin
+  ningún administrador —si intentás bajarte de rol siendo el único, se niega—, y para
+  borrar una cuenta hay que **escribir el nombre de usuario completo**. No alcanza con
+  confirmar: borrar a alguien se lleva también sus playlists y su historial de
+  escucha, y escribir el nombre obliga a mirar a quién le estás apuntando.
+- **La herramienta de consola gana tres cosas**: crear a alguien directamente como
+  administrador, cambiarle el rol a una cuenta existente y darla de baja. Sigue
+  existiendo además de la vía web por un motivo práctico: al **primer** administrador
+  no lo puede nombrar nadie desde la web, porque para entrar ahí ya hay que serlo.
+
+### Cambiado
+- **Se cerró una puerta de alta que quedaba abierta**: el servidor tenía una dirección
+  que permitía crear una cuenta **sin haber entrado**, protegida solo por un interruptor
+  que se prendía “un momento” para dar de alta a alguien y después se volvía a apagar.
+  O sea que su única defensa era acordarse de apagarla. Ya no existe —ni la dirección ni
+  el interruptor—, y no se pierde nada: dar de alta a alguien es cosa de un
+  administrador, desde el propio servidor o desde la consola. Entrar con tu cuenta de
+  Google sigue funcionando igual que siempre.
+- **La consola y el servidor ahora siguen las mismas reglas**: eran dos caminos con
+  sus propias copias de qué es una contraseña aceptable y qué es un nombre de usuario
+  válido, y dos copias de lo mismo terminan separándose sin que nadie se dé cuenta —el
+  día que pasa, la contraseña puesta por un lado tiene otra fuerza que la puesta por el
+  otro. Ahora las reglas viven en un solo sitio y las usan los dos. Como efecto, la
+  consola pasa a pedir el mismo mínimo de contraseña que el servidor y a exigir que el
+  nombre de usuario tenga entre 3 y 64 caracteres.
+
 ## [1.15.0] - 2026-08-23
 
 ### Mejorado
