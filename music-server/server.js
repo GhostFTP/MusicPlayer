@@ -13,6 +13,7 @@ import playlistRoutes  from './src/api/playlists.js';
 import changelogRoutes from './src/api/changelog.js';
 import infoRoutes      from './src/api/info.js';
 import playsRoutes     from './src/api/plays.js';
+import meRoutes        from './src/api/me.js';
 import streamRoutes    from './src/stream/stream.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,7 @@ app.use('/api/playlists', playlistRoutes);
 app.use('/api/changelog', changelogRoutes);
 app.use('/api/info',      infoRoutes);
 app.use('/api/plays',     playsRoutes);
+app.use('/api/me',        meRoutes);
 app.use('/stream',        streamRoutes);
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
