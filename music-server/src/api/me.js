@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware, signToken } from '../auth/jwt.js';
+import { avatarDe } from '../users/avatars.js';
 import { UserError, changeOwnPassword, renameUser } from '../users/service.js';
 import { handle } from './handle.js';
 
@@ -9,8 +10,20 @@ const router = Router();
 // Las columnas que ve uno de SU PROPIA cuenta. `password_hash` no está, por lo mismo
 // que en el SELECT_PUBLIC del servicio: un hash de bcrypt en un JSON es material para
 // atacarlo offline, sin límite de intentos.
-const SELECT_ME = 'SELECT id, username, email, role, created_at FROM users WHERE id = ?';
-const leerMe = id => db.prepare(SELECT_ME).get(id);
+const SELECT_ME = `
+  SELECT id, username, email, role, created_at, avatar_emoji, avatar_updated_at
+  FROM users WHERE id = ?
+`;
+
+// Igual que en el servicio: las dos columnas del avatar entran al SELECT y salen de la
+// respuesta ya resueltas a `avatar`. Repartir el invariante entre el servidor y cada
+// cliente es cómo el móvil y el web terminan decidiéndolo distinto.
+function leerMe(id) {
+  const row = db.prepare(SELECT_ME).get(id);
+  if (!row) return null;
+  const { avatar_emoji, avatar_updated_at, ...resto } = row;
+  return { ...resto, avatar: avatarDe(row) };
+}
 
 // Quién soy. Lo lee de la BASE y no del token, por el mismo motivo que requireAdmin
 // (auth/jwt.js): el JWT congela id y username en el momento del login y el rol no

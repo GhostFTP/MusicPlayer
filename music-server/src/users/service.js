@@ -14,6 +14,7 @@
 // vez y cada lado la presenta como le corresponde.
 import bcrypt from 'bcrypt';
 import db from '../db/database.js';
+import { avatarDe, deleteAvatarPhoto, writeAvatarPhoto } from './avatars.js';
 
 // El MISMO coste que usa auth.js. Antes vivía duplicado en el CLI con un comentario
 // que decía "si algún día se unifica, este es el otro sitio que hay que mover":
@@ -77,6 +78,54 @@ export function hashPassword(password) {
   return bcrypt.hash(assertPassword(password), BCRYPT_ROUNDS);
 }
 
+// ---- El emoji del avatar ----
+//
+// UN SOLO GRAFEMA, y se cuenta con Intl.Segmenter porque es lo único que sabe que
+// 👨‍👩‍👧 son ocho unidades de código y UNA cosa. Contar `.length` rechazaría cualquier
+// emoji compuesto, y contar code points rechazaría los de tono de piel.
+const SEGMENTADOR = new Intl.Segmenter('es', { granularity: 'grapheme' });
+
+// Tope en unidades de código UTF-16. La familia de cuatro con tonos de piel es la
+// secuencia razonable más larga y no llega a 16; el tope está para que nadie guarde
+// una cadena de mil ZWJ que un cliente tenga que dibujar.
+const MAX_EMOJI_UNITS = 16;
+
+// PICTOGRÁFICO: tiene que llevar al menos un Extended_Pictographic. Se pregunta por
+// "contiene" y no por "todo el grafema lo es" porque las secuencias traen piezas que
+// NO lo son —el ZWJ, el selector de variación FE0F, los modificadores de tono— y
+// exigirlo en todas rechazaría justo los emojis compuestos.
+const PICTOGRAFICO = /\p{Extended_Pictographic}/u;
+
+// Y NADA DE LETRAS NI DÍGITOS. Es lo que cierra el agujero que deja la regla de
+// arriba: "#️⃣" y "1️⃣" son un grafema y llevan un pictográfico (el recuadro
+// U+20E3), así que sin esto pasarían — y un dígito como avatar es exactamente lo
+// que no se quiere, porque se confunde con la inicial que la app dibuja cuando no
+// hay avatar.
+const ALFANUMERICO = /[\p{L}\p{N}]/u;
+
+/** Valida el emoji y lo devuelve tal cual. Lanza UserError 400 si no sirve.
+ *
+ *  ⚠️ LAS BANDERAS DE PAÍS QUEDAN AFUERA, y es consecuencia de la regla, no un
+ *  olvido: 🇲🇽 son dos indicadores regionales y NINGUNO es Extended_Pictographic.
+ *  Medido en node 22, no supuesto. Si algún día se quieren, la línea es admitir
+ *  además \p{Regional_Indicator}; se dejó como está porque nadie lo pidió y ampliar
+ *  lo que se acepta es más fácil que volver a achicarlo. */
+export function assertEmoji(raw) {
+  const emoji = String(raw ?? '');
+  if (!emoji) throw new UserError(400, 'No mandaste ningún emoji.');
+
+  if (emoji.length > MAX_EMOJI_UNITS) {
+    throw new UserError(400, 'Ese emoji es demasiado largo.');
+  }
+  if ([...SEGMENTADOR.segment(emoji)].length !== 1) {
+    throw new UserError(400, 'Tiene que ser un solo emoji.');
+  }
+  if (!PICTOGRAFICO.test(emoji) || ALFANUMERICO.test(emoji)) {
+    throw new UserError(400, 'Eso no es un emoji: elegí uno del teclado de emojis.');
+  }
+  return emoji;
+}
+
 // ---- Lectura ----
 
 // password_hash NO aparece acá, y por eso las columnas van NOMBRADAS: un SELECT con
@@ -95,21 +144,32 @@ export function hashPassword(password) {
 // identidad de Google de otro.
 const SELECT_PUBLIC = `
   SELECT u.id, u.username, u.email, u.role, u.created_at,
+         u.avatar_emoji, u.avatar_updated_at,
          (SELECT COUNT(*) FROM playlists p WHERE p.user_id = u.id) AS playlists,
          (SELECT COUNT(*) FROM plays     y WHERE y.user_id = u.id) AS plays
   FROM users u
 `;
 
+// Las dos columnas del avatar salen del SELECT y NO de la respuesta: lo que viaja es
+// `avatar`, ya resuelto a una de sus tres formas. Que el cliente tenga que decidir
+// entre `avatar_emoji` y `avatar_updated_at` sería repartir el invariante entre el
+// servidor y cada consumidor, y el móvil y el web lo implementarían distinto.
+function publico(row) {
+  if (!row) return null;
+  const { avatar_emoji, avatar_updated_at, ...resto } = row;
+  return { ...resto, avatar: avatarDe(row) };
+}
+
 export function listUsers() {
-  return db.prepare(`${SELECT_PUBLIC} ORDER BY u.id`).all();
+  return db.prepare(`${SELECT_PUBLIC} ORDER BY u.id`).all().map(publico);
 }
 
 export function getUser(id) {
-  return db.prepare(`${SELECT_PUBLIC} WHERE u.id = ?`).get(id) ?? null;
+  return publico(db.prepare(`${SELECT_PUBLIC} WHERE u.id = ?`).get(id) ?? null);
 }
 
 export function findByUsername(username) {
-  return db.prepare(`${SELECT_PUBLIC} WHERE u.username = ?`).get(username) ?? null;
+  return publico(db.prepare(`${SELECT_PUBLIC} WHERE u.username = ?`).get(username) ?? null);
 }
 
 export function countAdmins() {

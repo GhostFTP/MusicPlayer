@@ -193,4 +193,28 @@ if (!userCols.has('email')) {
 // creado, tres NULL conviviendo y el duplicado rechazado.
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email) WHERE email IS NOT NULL');
 
+// Migración de usuarios: AVATAR. Dos columnas y un invariante.
+//
+// LA FOTO NO VA EN LA BASE. Va a disco, en data/avatars/<id>.jpg, que es el mismo
+// volumen nombrado `musicplayer-data` donde ya viven music.db, data/covers/ y
+// data/thumbs/ (docker-compose.yml), o sea que sobrevive redeploys. Meter binarios en
+// SQLite haría que cada backup de la base cargue con ellos y que un SELECT descuidado
+// los traiga por la red; el disco ya está resuelto y es donde el repo guarda imágenes.
+//
+// ⚠️ EL INVARIANTE, y de él dependen la lectura y los tres endpoints: COMO MUCHO UNA
+// de las dos columnas es no-nula.
+//   · `avatar_emoji` no-nulo  → hay emoji, y NO hay archivo en disco.
+//   · `avatar_updated_at` no-nulo → hay foto en disco, y NO hay emoji.
+//   · las dos nulas → no hay avatar, y la app dibuja la inicial.
+// Por eso `avatar_updated_at` NO es "cuándo se tocó el avatar" a secas: es la versión
+// DE LA FOTO, y es lo que arma el `?v=` de la URL y el ETag. Ponerle fecha también al
+// emoji dejaría al lector sin forma de saber si hay archivo que servir.
+const AVATAR_COLUMNS = {
+  avatar_emoji:      'TEXT',
+  avatar_updated_at: 'TEXT',
+};
+for (const [col, type] of Object.entries(AVATAR_COLUMNS)) {
+  if (!userCols.has(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
+}
+
 export default db;
