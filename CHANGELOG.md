@@ -12,6 +12,13 @@ Novedades destacables de **SonoraRev**. El formato sigue
   alcanzaría para dejar al dueño fuera de su propia cuenta— y la nueva sigue pidiendo
   ocho caracteres como mínimo. Un administrador, además, puede renombrar a otra
   persona, desde el servidor o desde la consola.
+- **Ponle cara a tu cuenta**: ahora puedes elegir un emoji o subir una foto, y es lo
+  que verán los demás en las tarjetas de perfil. Solo una de las dos cosas a la vez —
+  poner una quita la otra—, y si no eliges ninguna se sigue viendo la inicial de tu
+  nombre, como hasta ahora. La foto se recorta cuadrada y se guarda pequeña, así que da
+  igual lo que pese la original; **y se le quitan los datos ocultos que traen las fotos
+  del teléfono**, como el lugar donde se tomó. Un administrador puede quitar la foto o
+  el emoji de alguien, pero no ponérselos: la cara con la que apareces la eliges tú.
 
 ### Cambiado
 - **Tu correo y tu nombre dejaron de ser la misma cosa, y eso arregla algo que se
