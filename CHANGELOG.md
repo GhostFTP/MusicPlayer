@@ -3,6 +3,32 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.17.0] - 2026-09-17
+
+### Añadido
+- **Ya puedes cambiar tu nombre de usuario y tu contraseña, tú mismo**: hasta ahora
+  las dos cosas había que pedírselas a un administrador. Para cambiar la contraseña
+  hay que escribir la actual —si no, una sesión abierta en un teléfono prestado
+  alcanzaría para dejar al dueño fuera de su propia cuenta— y la nueva sigue pidiendo
+  ocho caracteres como mínimo. Un administrador, además, puede renombrar a otra
+  persona, desde el servidor o desde la consola.
+
+### Cambiado
+- **Tu correo y tu nombre dejaron de ser la misma cosa, y eso arregla algo que se
+  habría roto sin avisar**: quien entra con su cuenta de Google tenía el correo
+  guardado *como* nombre de usuario, y así es como el servidor lo reconocía al volver.
+  O sea que, en cuanto alguien se cambiara el nombre, el siguiente inicio de sesión
+  con Google no lo habría encontrado y le habría creado una cuenta **nueva y vacía**,
+  con sus playlists y su historial quedándose en la vieja y sin nada que avisara del
+  problema. Ahora el correo se guarda aparte: es lo que identifica la cuenta y no
+  cambia nunca, y el nombre pasa a ser solo un nombre. Las cuentas que ya existían
+  quedaron al día solas, sin que nadie tenga que hacer nada.
+- **Iniciar sesión acepta el correo además del nombre**: como el nombre ahora se puede
+  cambiar, pedir el exacto sería pedirte que recuerdes cuál pusiste la última vez. Con
+  cualquiera de los dos entras, y da igual las mayúsculas del correo.
+- **Cambiarte el nombre no te echa de la sesión** ni en el teléfono ni en el
+  navegador: se sigue viendo todo igual, con tus playlists y tu historial intactos.
+
 ## [1.16.0] - 2026-09-17
 
 ### Añadido

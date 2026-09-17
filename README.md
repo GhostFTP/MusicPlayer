@@ -136,6 +136,25 @@ resultado.
 Los cuatro endpoints están detrás de sesión **y** de rol `admin`; a un usuario normal
 le responden `403`. Están en la tabla de la [API](#api).
 
+### Cada quien, con lo suyo — `PATCH /api/me`
+
+Lo único de la API de cuentas que **no** pide ser admin. Cambia **una** de las dos cosas
+por petición —el nombre o la contraseña, no las dos a la vez— y devuelve `{ me, token }`.
+
+```jsonc
+{ "username": "nuevo-nombre" }
+{ "currentPassword": "la de ahora", "newPassword": "la nueva" }
+```
+
+- La contraseña **exige la actual**: sin eso, una sesión abierta en un teléfono prestado
+  alcanzaría para dejar a su dueño fuera de su propia cuenta. Si no coincide, `401`.
+- El **correo no se toca acá, ni por ninguna otra vía de administración**. Lo escribe solo
+  el inicio de sesión por Cloudflare Access, que es el único que tiene una identidad
+  verificada para hacerlo.
+- El `token` que devuelve es **por comodidad, no una revocación**: el anterior sigue
+  siendo válido, porque el servidor decide siempre por el id y nunca por el nombre. Sirve
+  para que el cliente no muestre el nombre viejo durante los siete días que dura la sesión.
+
 ### Desde la terminal — el CLI
 
 Sigue haciendo falta aunque exista la API, por un motivo concreto: **la API necesita un
@@ -149,6 +168,7 @@ npm run users -- list                        # id, usuario, rol, alta, playlists
 npm run users -- create <usuario> [--admin]  # crea; --admin lo hace administrador
 npm run users -- passwd <usuario>            # cambia la contraseña
 npm run users -- set-role <usuario> user|admin
+npm run users -- rename <usuario> <nuevo>    # cambia el NOMBRE; no toca el correo
 npm run users -- delete <usuario>            # borra en CASCADA; pide escribir el usuario
 ```
 
@@ -156,11 +176,18 @@ npm run users -- delete <usuario>            # borra en CASCADA; pide escribir e
 historial del shell y en la salida de `ps`. O se tipea en un prompt oculto, o se usa
 `--generate`, que la crea sola y la muestra **una sola vez**.
 
-**Qué poner de usuario**, que no es cosmético: para una persona, su **email**. Así, el día
-que entre por Google, el auto-provisioning de Cloudflare Access encuentra esa misma fila y
-la adopta — una sola cuenta y las mismas playlists desde la app y desde el navegador. Con
-un nombre corto pasa lo contrario: el SSO crea una segunda cuenta y la persona termina con
-dos. Para cuentas técnicas (`app-ios`, `apple-review`), nombre corto y **nunca** un email.
+**Qué poner de usuario**: para una persona, su **email**. Así, el día que entre por Google,
+el auto-provisioning de Cloudflare Access encuentra esa misma fila y la adopta — una sola
+cuenta y las mismas playlists desde la app y desde el navegador. Con un nombre corto, el
+SSO crea una segunda cuenta y la persona termina con dos. Para cuentas técnicas
+(`app-ios`, `apple-review`), nombre corto y **nunca** un email.
+
+> Desde la **1.17.0** esto es una comodidad y ya no una trampa. La identidad de una cuenta
+> es su columna `email`, no su nombre: el primer inicio de sesión con Google **adopta** la
+> fila que tenga ese correo como nombre y le escribe el email de una vez. Así que
+> equivocarse ya no es irreversible, y **renombrar a alguien no le parte la cuenta en
+> dos** — que es lo que habría pasado antes, en silencio y con sus playlists quedándose en
+> la cuenta vieja.
 
 **Dos protecciones que no se pueden saltear**, ni por API ni por CLI: no se puede bajar de
 rol ni borrar al **último administrador** —una base sin admins no se arregla desde la web—,
@@ -228,10 +255,11 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 | GET | `/api/playlists/:id/tracks` | Canciones de una playlist |
 | POST | `/api/playlists/:id/tracks` | Añadir canción a playlist |
 | DELETE | `/api/playlists/:id/tracks/:trackId` | Quitar canción de playlist |
-| GET | `/api/me` | Quién soy: id, usuario, **rol** y fecha de alta |
+| GET | `/api/me` | Quién soy: id, usuario, **correo**, **rol** y fecha de alta |
+| PATCH | `/api/me` | Cambiar mi **nombre** (`username`) o mi **contraseña** (`newPassword` + `currentPassword`). Devuelve `{ me, token }` |
 | GET | `/api/admin/users` | Listar usuarios con sus conteos de playlists y plays *(solo admin)* |
 | POST | `/api/admin/users` | Crear usuario *(solo admin)* |
-| PATCH | `/api/admin/users/:id` | Cambiar rol o contraseña *(solo admin)* |
+| PATCH | `/api/admin/users/:id` | Cambiar rol, contraseña o **nombre** *(solo admin)* |
 | DELETE | `/api/admin/users/:id` | Borrar usuario y, en cascada, sus playlists y sus plays *(solo admin)* |
 | GET | `/api/changelog` | Notas de versión (CHANGELOG.md) |
 | GET | `/stream/:id` | Stream de audio con Range Requests |
