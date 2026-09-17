@@ -37,7 +37,10 @@ MusicPlayer/
 │   │   ├── stream/            # streaming con Range Requests
 │   │   ├── scanner/           # indexa carpeta de música
 │   │   ├── db/                # esquema SQLite
-│   │   └── auth/              # JWT middleware
+│   │   ├── auth/              # JWT middleware + gateo por rol
+│   │   ├── users/             # reglas de usuarios (las comparten la API y el CLI)
+│   │   └── admin/             # CLI de usuarios
+│   ├── scripts/               # smoke test de /api/admin/users
 │   ├── music/                 # ← pon aquí tus archivos de audio
 │   ├── data/                  # music.db + carátulas (auto-generado)
 │   └── public/                # build del frontend (auto-generado)
@@ -122,6 +125,67 @@ El scanner extrae los tags del archivo y guarda en la base de datos: título, ar
 
 ---
 
+## Administración de usuarios
+
+No hay alta pública: los usuarios los crea un administrador. Hay dos vías y las dos
+usan las **mismas reglas** (`music-server/src/users/service.js`), así que dan el mismo
+resultado.
+
+### Desde la web o la app — `/api/admin/users`
+
+Los cuatro endpoints están detrás de sesión **y** de rol `admin`; a un usuario normal
+le responden `403`. Están en la tabla de la [API](#api).
+
+### Desde la terminal — el CLI
+
+Sigue haciendo falta aunque exista la API, por un motivo concreto: **la API necesita un
+admin con sesión, y al primero no lo puede crear nadie desde ahí**. El CLI es la vía
+para marcar ese primer administrador, y la que queda si alguien se deja afuera solo.
+
+```bash
+cd music-server
+
+npm run users -- list                        # id, usuario, rol, alta, playlists, plays
+npm run users -- create <usuario> [--admin]  # crea; --admin lo hace administrador
+npm run users -- passwd <usuario>            # cambia la contraseña
+npm run users -- set-role <usuario> user|admin
+npm run users -- delete <usuario>            # borra en CASCADA; pide escribir el usuario
+```
+
+**La contraseña nunca se pasa por argumento ni por variable de entorno**: quedaría en el
+historial del shell y en la salida de `ps`. O se tipea en un prompt oculto, o se usa
+`--generate`, que la crea sola y la muestra **una sola vez**.
+
+**Qué poner de usuario**, que no es cosmético: para una persona, su **email**. Así, el día
+que entre por Google, el auto-provisioning de Cloudflare Access encuentra esa misma fila y
+la adopta — una sola cuenta y las mismas playlists desde la app y desde el navegador. Con
+un nombre corto pasa lo contrario: el SSO crea una segunda cuenta y la persona termina con
+dos. Para cuentas técnicas (`app-ios`, `apple-review`), nombre corto y **nunca** un email.
+
+**Dos protecciones que no se pueden saltear**, ni por API ni por CLI: no se puede bajar de
+rol ni borrar al **último administrador** —una base sin admins no se arregla desde la web—,
+y borrar exige **escribir el usuario exacto**, porque se lleva por delante sus playlists y
+su historial de reproducciones, y eso no se deshace.
+
+> ⚠️ **En Windows el prompt de contraseña no funciona.** El modo raw de la consola no
+> entrega teclas, así que el CLI corta con un mensaje en vez de colgarse: usá `--generate`.
+> El prompt de `delete` sí anda, porque es visible. En producción da igual — se entra por
+> `docker exec` a un contenedor Linux.
+
+### En producción
+
+Siempre por `docker exec`, **nunca desde el host**: la base vive en el volumen del
+contenedor, y solo ahí se comparten el mismo montaje y los mismos locks que el servidor.
+
+```bash
+docker exec -it <contenedor> node src/admin/users.js list
+```
+
+No hace falta parar el servidor: SQLite está en WAL, que admite un escritor y varios
+lectores a la vez, y lo que escribe el CLI dura milisegundos.
+
+---
+
 ## Deploy con Dokploy
 
 El repo incluye `Dockerfile`, `.dockerignore` y `docker-compose.yml` para desplegar en un servidor Linux con [Dokploy](https://dokploy.com) (PaaS sobre Docker). Un solo contenedor sirve API + frontend en el puerto **3000**.
@@ -153,7 +217,7 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| POST | `/api/auth/register` | Crear cuenta |
+| POST | `/api/auth/register` | Crear cuenta. **Cerrado por defecto** (`ALLOW_REGISTRATION`); el alta va por `/api/admin/users` o por el CLI |
 | POST | `/api/auth/login` | Iniciar sesión → devuelve JWT |
 | GET | `/api/tracks` | Listar canciones (`?search=`, `?artist=`, `?album=`) |
 | GET | `/api/tracks/:id` | Detalle de una canción |
@@ -165,6 +229,11 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 | GET | `/api/playlists/:id/tracks` | Canciones de una playlist |
 | POST | `/api/playlists/:id/tracks` | Añadir canción a playlist |
 | DELETE | `/api/playlists/:id/tracks/:trackId` | Quitar canción de playlist |
+| GET | `/api/me` | Quién soy: id, usuario, **rol** y fecha de alta |
+| GET | `/api/admin/users` | Listar usuarios con sus conteos de playlists y plays *(solo admin)* |
+| POST | `/api/admin/users` | Crear usuario *(solo admin)* |
+| PATCH | `/api/admin/users/:id` | Cambiar rol o contraseña *(solo admin)* |
+| DELETE | `/api/admin/users/:id` | Borrar usuario y, en cascada, sus playlists y sus plays *(solo admin)* |
 | GET | `/api/changelog` | Notas de versión (CHANGELOG.md) |
 | GET | `/stream/:id` | Stream de audio con Range Requests |
 
@@ -175,6 +244,7 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 | `PORT` | `3000` | Puerto del servidor |
 | `MUSIC_DIR` | `../music` | Raíz de la biblioteca a escanear (en Docker: `/music`) |
 | `JWT_SECRET` | `change-me-in-production` | Clave secreta para firmar tokens |
+| `ALLOW_REGISTRATION` | `false` | Abre `POST /api/auth/register`. Se deja en `false`: el alta es cosa de un administrador |
 
 ```bash
 JWT_SECRET=mi-clave-segura PORT=8080 node server.js
