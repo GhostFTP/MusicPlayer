@@ -14,6 +14,7 @@
 // vez y cada lado la presenta como le corresponde.
 import bcrypt from 'bcrypt';
 import db from '../db/database.js';
+import { avatarDe, deleteAvatarPhoto, writeAvatarPhoto } from './avatars.js';
 
 // El MISMO coste que usa auth.js. Antes vivía duplicado en el CLI con un comentario
 // que decía "si algún día se unifica, este es el otro sitio que hay que mover":
@@ -77,6 +78,54 @@ export function hashPassword(password) {
   return bcrypt.hash(assertPassword(password), BCRYPT_ROUNDS);
 }
 
+// ---- El emoji del avatar ----
+//
+// UN SOLO GRAFEMA, y se cuenta con Intl.Segmenter porque es lo único que sabe que
+// 👨‍👩‍👧 son ocho unidades de código y UNA cosa. Contar `.length` rechazaría cualquier
+// emoji compuesto, y contar code points rechazaría los de tono de piel.
+const SEGMENTADOR = new Intl.Segmenter('es', { granularity: 'grapheme' });
+
+// Tope en unidades de código UTF-16. La familia de cuatro con tonos de piel es la
+// secuencia razonable más larga y no llega a 16; el tope está para que nadie guarde
+// una cadena de mil ZWJ que un cliente tenga que dibujar.
+const MAX_EMOJI_UNITS = 16;
+
+// PICTOGRÁFICO: tiene que llevar al menos un Extended_Pictographic. Se pregunta por
+// "contiene" y no por "todo el grafema lo es" porque las secuencias traen piezas que
+// NO lo son —el ZWJ, el selector de variación FE0F, los modificadores de tono— y
+// exigirlo en todas rechazaría justo los emojis compuestos.
+const PICTOGRAFICO = /\p{Extended_Pictographic}/u;
+
+// Y NADA DE LETRAS NI DÍGITOS. Es lo que cierra el agujero que deja la regla de
+// arriba: "#️⃣" y "1️⃣" son un grafema y llevan un pictográfico (el recuadro
+// U+20E3), así que sin esto pasarían — y un dígito como avatar es exactamente lo
+// que no se quiere, porque se confunde con la inicial que la app dibuja cuando no
+// hay avatar.
+const ALFANUMERICO = /[\p{L}\p{N}]/u;
+
+/** Valida el emoji y lo devuelve tal cual. Lanza UserError 400 si no sirve.
+ *
+ *  ⚠️ LAS BANDERAS DE PAÍS QUEDAN AFUERA, y es consecuencia de la regla, no un
+ *  olvido: 🇲🇽 son dos indicadores regionales y NINGUNO es Extended_Pictographic.
+ *  Medido en node 22, no supuesto. Si algún día se quieren, la línea es admitir
+ *  además \p{Regional_Indicator}; se dejó como está porque nadie lo pidió y ampliar
+ *  lo que se acepta es más fácil que volver a achicarlo. */
+export function assertEmoji(raw) {
+  const emoji = String(raw ?? '');
+  if (!emoji) throw new UserError(400, 'No mandaste ningún emoji.');
+
+  if (emoji.length > MAX_EMOJI_UNITS) {
+    throw new UserError(400, 'Ese emoji es demasiado largo.');
+  }
+  if ([...SEGMENTADOR.segment(emoji)].length !== 1) {
+    throw new UserError(400, 'Tiene que ser un solo emoji.');
+  }
+  if (!PICTOGRAFICO.test(emoji) || ALFANUMERICO.test(emoji)) {
+    throw new UserError(400, 'Eso no es un emoji: elegí uno del teclado de emojis.');
+  }
+  return emoji;
+}
+
 // ---- Lectura ----
 
 // password_hash NO aparece acá, y por eso las columnas van NOMBRADAS: un SELECT con
@@ -88,23 +137,39 @@ export function hashPassword(password) {
 // tenga 3 playlists y 500 plays da 1500 filas, y COUNT() devolvería 1500 en las dos
 // columnas. Con UNA sola tabla el JOIN anda —así lo hacía list() del CLI— y por eso
 // el bug no aparece hasta que alguien agrega la segunda.
+// `email` va acá y NO en ningún UPDATE de este archivo: se muestra, pero no se edita
+// por ninguna de las vías de administración. Lo escribe solo el login por Cloudflare
+// (api/auth.js), que es quien tiene una identidad verificada para escribirlo. Un admin
+// que pudiera cambiarlo a mano podría, sin querer, apuntar la cuenta de alguien a la
+// identidad de Google de otro.
 const SELECT_PUBLIC = `
-  SELECT u.id, u.username, u.role, u.created_at,
+  SELECT u.id, u.username, u.email, u.role, u.created_at,
+         u.avatar_emoji, u.avatar_updated_at,
          (SELECT COUNT(*) FROM playlists p WHERE p.user_id = u.id) AS playlists,
          (SELECT COUNT(*) FROM plays     y WHERE y.user_id = u.id) AS plays
   FROM users u
 `;
 
+// Las dos columnas del avatar salen del SELECT y NO de la respuesta: lo que viaja es
+// `avatar`, ya resuelto a una de sus tres formas. Que el cliente tenga que decidir
+// entre `avatar_emoji` y `avatar_updated_at` sería repartir el invariante entre el
+// servidor y cada consumidor, y el móvil y el web lo implementarían distinto.
+function publico(row) {
+  if (!row) return null;
+  const { avatar_emoji, avatar_updated_at, ...resto } = row;
+  return { ...resto, avatar: avatarDe(row) };
+}
+
 export function listUsers() {
-  return db.prepare(`${SELECT_PUBLIC} ORDER BY u.id`).all();
+  return db.prepare(`${SELECT_PUBLIC} ORDER BY u.id`).all().map(publico);
 }
 
 export function getUser(id) {
-  return db.prepare(`${SELECT_PUBLIC} WHERE u.id = ?`).get(id) ?? null;
+  return publico(db.prepare(`${SELECT_PUBLIC} WHERE u.id = ?`).get(id) ?? null);
 }
 
 export function findByUsername(username) {
-  return db.prepare(`${SELECT_PUBLIC} WHERE u.username = ?`).get(username) ?? null;
+  return publico(db.prepare(`${SELECT_PUBLIC} WHERE u.username = ?`).get(username) ?? null);
 }
 
 export function countAdmins() {
@@ -154,22 +219,154 @@ export async function createUser({ username, password, role = 'user' }) {
   return getUser(Number(info.lastInsertRowid));
 }
 
-export async function updateUser(id, { role, password }) {
+// EL NOMBRE ESTÁ LIBRE PARA ESTE id. Privadas y compartidas por los dos caminos que
+// renombran —el propio (PATCH /api/me) y el de un admin (PATCH /api/admin/users/:id)—,
+// que es lo que hace que la REGLA sea una sola aunque las funciones sean dos.
+//
+// `taken.id !== id` y no `taken` a secas: renombrarse al nombre que uno ya tiene no es
+// un conflicto, es no hacer nada, y contestarle 409 a eso sería absurdo.
+function assertNombreLibre(id, name) {
+  const taken = findByUsername(name);
+  if (taken && taken.id !== id) throw new UserError(409, `Ya existe el usuario "${name}".`);
+}
+
+// El SELECT de arriba es solo para el mensaje; la garantía real es el UNIQUE de la
+// tabla, así que el UPDATE igual va con catch — dos renombres al mismo nombre en el
+// mismo instante saldrían como un SQLITE_CONSTRAINT crudo. Es la misma pareja de
+// comprobaciones que ya hace createUser.
+function writeUsername(id, name) {
+  try {
+    db.prepare('UPDATE users SET username = ? WHERE id = ?').run(name, id);
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) throw new UserError(409, `Ya existe el usuario "${name}".`);
+    throw e;
+  }
+}
+
+/** Cambia el NOMBRE y nada más. El email no se toca acá ni en ningún otro sitio de
+ *  este archivo: es la identidad con la que el login por Google encuentra la cuenta
+ *  (api/auth.js), y moverla desde una pantalla de "cambiar mi nombre" es exactamente
+ *  cómo se le entrega la cuenta de alguien a otra persona. */
+export function renameUser(id, username) {
+  mustGet(id);
+  const name = normalizeUsername(username);
+  assertNombreLibre(id, name);
+  writeUsername(id, name);
+  return getUser(id);
+}
+
+/** Cambia la PROPIA contraseña, y para eso exige la actual. No lo pide el esquema ni
+ *  el token: lo pide el hecho de que una sesión abierta en un teléfono prestado o sin
+ *  bloquear alcanzaría, si no, para dejar a su dueño afuera de su propia cuenta.
+ *
+ *  Un ADMIN no pasa por acá: `updateUser` cambia la contraseña de otro sin conocerla,
+ *  que es justo para lo que existe —alguien que la perdió—. Son dos operaciones
+ *  distintas y por eso son dos funciones. */
+export async function changeOwnPassword(id, { currentPassword, newPassword }) {
+  const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(id);
+  if (!row) throw new UserError(404, 'No existe ese usuario.');
+
+  // La nueva se valida ANTES de mirar la actual: si la nueva no sirve, el resultado
+  // es el mismo sepa o no la actual, y hacer el bcrypt.compare primero sería trabajo
+  // tirado. `String(...)` porque bcrypt.compare(undefined, hash) RECHAZA en vez de
+  // devolver false, y eso no es un 401: es una promesa sin dueño.
+  assertPassword(newPassword);
+  if (!(await bcrypt.compare(String(currentPassword ?? ''), row.password_hash))) {
+    throw new UserError(401, 'La contraseña actual no es correcta.');
+  }
+
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(newPassword), id);
+  return getUser(id);
+}
+
+// ---- Avatar ----
+//
+// ⚠️ EL ORDEN DE LAS DOS ESCRITURAS NO ES CASUAL, y es la misma regla en las tres:
+// **la base manda y el archivo solo se sirve si ella lo dice.** Por eso, cuando hay
+// que BORRAR el archivo, primero se actualiza la base y después se hace el unlink: si
+// el proceso muere en el medio, queda un archivo huérfano que nadie sirve — invisible
+// y pisado por la próxima subida. Al revés (unlink y después UPDATE) quedaría la base
+// diciendo "hay foto" y el endpoint devolviendo 404, que sí se ve.
+//
+// Cuando hay que CREARLO el orden se invierte por obligación: no se puede apuntar a un
+// archivo que todavía no existe. Ahí el corte deja el archivo escrito y la columna en
+// null, que cae del mismo lado seguro.
+
+/** Pone el emoji, o lo quita con `null`.
+ *
+ *  Poner uno BORRA la foto: son excluyentes por diseño (ver el invariante en
+ *  db/database.js). Quitarlo con `null` toca solo el emoji y deja la foto donde esté —
+ *  que por ese mismo invariante es "en ningún lado". Para llevarse las dos cosas sin
+ *  preguntar está `clearAvatar`. */
+export function setAvatarEmoji(id, raw) {
+  mustGet(id);
+
+  if (raw === null) {
+    db.prepare('UPDATE users SET avatar_emoji = NULL WHERE id = ?').run(id);
+    return getUser(id);
+  }
+
+  const emoji = assertEmoji(raw);
+  db.prepare('UPDATE users SET avatar_emoji = ?, avatar_updated_at = NULL WHERE id = ?').run(emoji, id);
+  deleteAvatarPhoto(id);
+  return getUser(id);
+}
+
+/** Guarda la foto ya procesada y se lleva el emoji. */
+export async function setAvatarPhoto(id, buffer) {
+  mustGet(id);
+
+  let cuando;
+  try {
+    cuando = await writeAvatarPhoto(id, buffer);
+  } catch {
+    // Lo que sabe el que llama es que mandó bytes con un Content-Type de imagen; que
+    // libvips no los entienda es un 400 suyo, no un 500 nuestro. El detalle de sharp
+    // no sube: diría más de nuestras tripas que del problema.
+    throw new UserError(400, 'No se pudo leer la imagen.');
+  }
+
+  db.prepare('UPDATE users SET avatar_emoji = NULL, avatar_updated_at = ? WHERE id = ?').run(cuando, id);
+  return getUser(id);
+}
+
+/** Deja la cuenta sin avatar de ningún tipo. */
+export function clearAvatar(id) {
+  mustGet(id);
+  db.prepare('UPDATE users SET avatar_emoji = NULL, avatar_updated_at = NULL WHERE id = ?').run(id);
+  deleteAvatarPhoto(id);
+  return getUser(id);
+}
+
+export async function updateUser(id, { role, password, username, emoji }) {
   const user = mustGet(id);
 
-  if (role === undefined && password === undefined) {
-    throw new UserError(400, 'No hay nada que cambiar: mandá role, password o los dos.');
+  if (role === undefined && password === undefined && username === undefined && emoji === undefined) {
+    throw new UserError(400, 'No hay nada que cambiar: mandá role, password, username, emoji o varios.');
   }
 
   // Se valida TODO antes de escribir NADA. Con un PATCH de rol y contraseña juntos,
   // validar sobre la marcha dejaría el rol cambiado y la contraseña sin cambiar.
+  //
+  // Por eso el username NO se hace llamando a renameUser, que valida y escribe de una:
+  // se usan sus DOS mitades por separado, la comprobación acá arriba y la escritura
+  // abajo. La regla sigue siendo una sola —las dos mitades son las mismas— y este
+  // PATCH conserva su promesa de no dejar la fila a medias.
   const rol = role === undefined ? undefined : normalizeRole(role);
   const hash = password === undefined ? undefined : await hashPassword(password);
+  const nombre = username === undefined ? undefined : normalizeUsername(username);
+  // `null` es "quitalo" y no un valor a validar, así que no pasa por assertEmoji.
+  const emo = emoji === undefined || emoji === null ? emoji : assertEmoji(emoji);
 
+  if (nombre !== undefined) assertNombreLibre(id, nombre);
   if (rol === 'user') assertNotLastAdmin(user, 'bajarlo a usuario normal');
 
   if (rol !== undefined) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(rol, id);
   if (hash !== undefined) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
+  if (nombre !== undefined) writeUsername(id, nombre);
+  // Va último y por setAvatarEmoji para no repetir el borrado del archivo ni el
+  // cuidado del orden entre la base y el disco, que está explicado ahí arriba.
+  if (emo !== undefined) setAvatarEmoji(id, emo);
 
   return getUser(id);
 }

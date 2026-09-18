@@ -48,6 +48,9 @@ import {
   findByUsername,
   createUser,
   updateUser,
+  renameUser,
+  setAvatarEmoji,
+  clearAvatar,
   deleteUser,
   assertPassword,
   ROLES,
@@ -225,18 +228,24 @@ async function passwd(username, { generate }) {
 
 // ---- create ----
 
-// QUÉ PONER DE USERNAME, que no es cosmético: si el username es el EMAIL de la
-// persona, el día que entre al web con Google, upsertUserByEmail() encuentra esta
-// misma fila y la ADOPTA (auth.js: SELECT por username, y si existe la devuelve).
-// O sea, una sola cuenta y las mismas playlists desde la app y desde el navegador.
-// Con un nombre corto pasa lo contrario: el SSO crea una SEGUNDA cuenta con su
-// email y la persona termina con dos, cada una con sus playlists.
+// QUÉ PONER DE USERNAME. Si es el EMAIL de la persona, el día que entre al web con
+// Google upsertUserByEmail() encuentra esta misma fila y la ADOPTA, así que es una
+// sola cuenta y las mismas playlists desde la app y desde el navegador. Con un nombre
+// corto, el SSO crea una SEGUNDA cuenta y la persona termina con dos.
 //   · Personas  → su email.
 //   · Cuentas técnicas (app-ios, apple-review) → nombre corto, NUNCA un email:
 //     no son nadie y no deben cruzarse con una identidad real.
-// El costo de la primera regla está anotado en list(): con emails de los dos lados
-// se pierde la única pista para distinguir SSO de contraseña. Se acepta a
-// conciencia; la solución de verdad sería una columna, y eso es una migración.
+//
+// ⚠️ DESDE 1.17.0 ESTO ES UNA COMODIDAD Y YA NO UNA TRAMPA. Antes el username ERA la
+// identidad: poner un nombre corto condenaba a la persona a tener dos cuentas, y
+// renombrarla después se la partía en dos. Ahora la identidad es la columna `email`,
+// y el primer login por Google adopta la fila que tenga ese correo como nombre y le
+// escribe el email de una vez (auth.js). O sea que la regla sigue valiendo —ahorra el
+// paso— pero equivocarse ya no es irreversible.
+//
+// Ese mismo cambio cerró el costo que este comentario anotaba: la columna que "sería
+// una migración" existe, así que ya NO hace falta adivinar si una cuenta es de SSO o
+// de contraseña mirando si su nombre tiene arroba.
 async function create(username, { generate, admin }) {
   // El duplicado se adelanta acá para no hacer tipear una contraseña que va a
   // fallar igual. La garantía real sigue siendo createUser() + el UNIQUE de la
@@ -285,6 +294,58 @@ async function setRole(username, role) {
   console.log('        así que no hace falta que vuelva a entrar ni que expire su token.');
 }
 
+// ---- rename ----
+
+// Cambiarle el NOMBRE a alguien. El email ni se menciona acá: no se toca por ninguna
+// vía de administración (users/service.js), y es lo que hace que renombrar sea seguro
+// — la cuenta sigue siendo la misma para el login por Google.
+//
+// Es la misma renameUser que usa PATCH /api/me, así que las reglas —largo, espacios,
+// nombre ocupado— son idénticas por los tres caminos. No hay ninguna validación acá.
+async function rename(username, nuevo) {
+  const user = mustFind(username);
+
+  const after = renameUser(user.id, nuevo);
+
+  if (after.username === user.username) {
+    console.log(`[USERS] "${user.username}" ya se llamaba así. No se cambió nada.`);
+    return;
+  }
+
+  console.log(`[USERS] "${user.username}" ahora se llama "${after.username}" (id=${after.id}).`);
+  if (after.email) {
+    console.log(`        Su correo sigue siendo ${after.email}, así que el login por Google`);
+    console.log('        encuentra la MISMA cuenta.');
+  } else {
+    // Sin email, el login por Google no tiene por dónde reconocerla: buscaría por
+    // nombre y el nombre acaba de cambiar. Es el caso de las cuentas de contraseña
+    // creadas con un nombre corto, y conviene decirlo en vez de que se descubra solo.
+    console.log('        No tiene correo asociado, así que esta cuenta no entra por Google.');
+  }
+  console.log('        Su token actual sigue valiendo: el servidor decide por id, no por nombre.');
+}
+
+// ---- avatar ----
+
+// Poner o quitar el avatar de alguien desde la terminal. La FOTO no se puede subir por
+// acá y no es una carencia: subir un archivo desde el CLI pediría una ruta del sistema
+// de ficheros del contenedor, y la foto la elige cada quien desde su teléfono. Lo que
+// sí hace falta desde la terminal es QUITAR una que no corresponde, y eso es --clear.
+async function avatar(username, { emoji, clear }) {
+  const user = mustFind(username);
+
+  if (clear) {
+    const after = clearAvatar(user.id);
+    console.log(`[USERS] "${after.username}" se quedó sin avatar. La app le dibuja su inicial.`);
+    return;
+  }
+
+  // assertEmoji (users/service.js) es quien decide si sirve, igual que por la API. Acá
+  // no se repite ninguna regla: si aparece una, ya empezó a divergir.
+  const after = setAvatarEmoji(user.id, emoji);
+  console.log(`[USERS] "${after.username}" ahora usa ${after.avatar.value} como avatar.`);
+}
+
 // ---- delete ----
 
 async function remove(username) {
@@ -331,6 +392,14 @@ const USAGE = `
                                      en Windows el prompt se cuelga y no se usa.
   node src/admin/users.js set-role <usuario> user|admin
                                    Cambia el rol. Se niega a dejar la base sin admins.
+  node src/admin/users.js rename <usuario> <nuevo>
+                                   Cambia el NOMBRE. No toca el correo, así que el
+                                   login por Google sigue encontrando la misma cuenta,
+                                   y el token actual de la persona sigue valiendo.
+  node src/admin/users.js avatar <usuario> --emoji <emoji>
+  node src/admin/users.js avatar <usuario> --clear
+                                   Pone un emoji de avatar, o quita el que haya (emoji
+                                   o foto). La FOTO se sube desde la app, no desde acá.
   node src/admin/users.js delete <usuario>
                                    Borra el usuario y, EN CASCADA, sus playlists y sus
                                    reproducciones. Pide escribir el usuario para
@@ -351,6 +420,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const flags = {
     generate: rest.includes('--generate'),
     admin: rest.includes('--admin'),
+    clear: rest.includes('--clear'),
   };
 
   // Un UserError es una regla del servicio que se incumplió, y la persona necesita
@@ -392,6 +462,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         break;
       }
 
+      case 'rename': {
+        if (libres.length < 2) {
+          console.error('[USERS] Uso: users.js rename <usuario> <nuevo>');
+          process.exit(1);
+        }
+        await rename(libres[0], libres[1]);
+        break;
+      }
+
+      case 'avatar': {
+        // El emoji entra como argumento libre (no empieza con --), así que es el
+        // segundo de la lista: `avatar juan --emoji 🎵` deja libres = ['juan', '🎵'].
+        if (!libres[0] || (!flags.clear && !libres[1])) {
+          console.error('[USERS] Uso: users.js avatar <usuario> --emoji <emoji> | --clear');
+          process.exit(1);
+        }
+        await avatar(libres[0], { emoji: libres[1], clear: flags.clear });
+        break;
+      }
+
       case 'delete': {
         if (!libres[0]) {
           console.error('[USERS] Falta el usuario. Uso: users.js delete <username>');
@@ -414,4 +504,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { list, create, passwd, setRole, remove };
+export { list, create, passwd, setRole, rename, avatar, remove };
