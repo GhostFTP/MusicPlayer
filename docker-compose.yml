@@ -16,9 +16,9 @@ services:
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
     volumes:
-      # 🎵 Biblioteca de música: host /mnt/storage → contenedor /music, SOLO LECTURA.
+      # 🎵 Biblioteca de música: host /mnt/storage/Musica → contenedor /music/Musica, SOLO LECTURA.
       #    El ":ro" lo impone el kernel: nada del contenedor puede escribir tu música.
-      - /mnt/storage:/music:ro
+      - /mnt/storage/Musica:/music/Musica:ro
       # 💾 Datos persistentes (music.db + WAL + covers/) entre reinicios/redeploys.
       - musicplayer-data:/app/music-server/data
     expose:
