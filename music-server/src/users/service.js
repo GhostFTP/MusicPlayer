@@ -12,6 +12,7 @@
 // mismo: el router necesita un status HTTP y el CLI un mensaje para imprimir y un
 // código de salida. UserError lleva las dos cosas, así que la regla se escribe una
 // vez y cada lado la presenta como le corresponde.
+import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import db from '../db/database.js';
 import { avatarDe, deleteAvatarPhoto, writeAvatarPhoto } from './avatars.js';
@@ -76,6 +77,16 @@ export function normalizeRole(raw) {
 
 export function hashPassword(password) {
   return bcrypt.hash(assertPassword(password), BCRYPT_ROUNDS);
+}
+
+/** El hash de una cuenta SIN contraseña utilizable: un bcrypt real de un UUID que nadie
+ *  conoce. Existe para cumplir el NOT NULL de `password_hash` en las cuentas que entran
+ *  solo por una identidad de afuera —las que da de alta /cf y, desde 1.19.0, las que un
+ *  admin crea con correo y sin contraseña—. Nadie puede entrar con él por /login, y en la
+ *  tabla se ve igual que cualquier otro hash. Vive acá para que sea UNO: antes estaba
+ *  escrito a mano en api/auth.js. */
+export function hashInservible() {
+  return bcrypt.hash(randomUUID(), BCRYPT_ROUNDS);
 }
 
 // ---- El emoji del avatar ----
@@ -334,27 +345,49 @@ function assertNotLastAdmin(user, accion) {
 
 // ---- Escritura ----
 
-export async function createUser({ username, password, role = 'user' }) {
+/** Da de alta una cuenta. Desde 1.19.0 acepta `email` opcional, con las reglas de "El
+ *  correo" (arriba), y ahí la CONTRASEÑA PASA A SER OPCIONAL: una cuenta con correo y sin
+ *  contraseña entra solo con Google —el login por Google la encuentra por ese correo—
+ *  hasta que un admin le ponga una. SIN correo, la contraseña sigue siendo obligatoria,
+ *  porque sería la única forma de entrar.
+ *
+ *  "Sin contraseña" es `undefined`, `null` o `""`: los tres dicen lo mismo, y un cliente
+ *  que manda el campo vacío no tiene por qué recibir un "necesita 8 caracteres". */
+export async function createUser({ username, password, role = 'user', email }, { actor } = {}) {
   const name = normalizeUsername(username);
   const rol = normalizeRole(role);
-  const hash = await hashPassword(password);
+  const mail = email === undefined || email === null ? null : normalizeEmail(email);
+  const sinPassword = password === undefined || password === null || password === '';
+  if (sinPassword && !mail) {
+    throw new UserError(400, 'Falta la contraseña: sin correo, es la única forma de entrar.');
+  }
+  const hash = sinPassword ? await hashInservible() : await hashPassword(password);
 
   // El SELECT previo es SOLO para el mensaje; la garantía real es el UNIQUE de la
   // tabla, y por eso el INSERT igual va con catch. Sin él, dos altas del mismo
   // nombre en el mismo instante saldrían como un SQLITE_CONSTRAINT crudo.
   if (findByUsername(name)) throw new UserError(409, `Ya existe el usuario "${name}".`);
+  // 0 como id: la cuenta todavía no existe, así que cualquier choque es con OTRA.
+  if (mail) assertCorreoLibre(0, mail);
 
   let info;
   try {
     info = db
-      .prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
-      .run(name, hash, rol);
+      .prepare('INSERT INTO users (username, password_hash, role, email) VALUES (?, ?, ?, ?)')
+      .run(name, hash, rol, mail);
   } catch (e) {
+    // Dos UNIQUE pueden saltar acá: el del nombre (columna) y el del correo (índice), y
+    // SQLite dice cuál en el mensaje ("users.email").
+    if (String(e.message).includes('users.email')) throw new UserError(409, 'Ese correo ya es de otra cuenta.');
     if (String(e.message).includes('UNIQUE')) throw new UserError(409, `Ya existe el usuario "${name}".`);
     throw e;
   }
 
-  return getUser(Number(info.lastInsertRowid));
+  const creado = getUser(Number(info.lastInsertRowid));
+  // Nacer con correo también es ponerle un correo, así que deja su línea como cualquier
+  // cambio (ver `registrarCorreo`).
+  if (mail) registrarCorreo({ actor, user: creado, antes: null, despues: mail });
+  return creado;
 }
 
 // EL NOMBRE ESTÁ LIBRE PARA ESTE id. Privadas y compartidas por los dos caminos que

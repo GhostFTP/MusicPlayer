@@ -37,9 +37,13 @@ router.get('/', handle(async (_req, res) => {
   res.json(listUsers());
 }));
 
+// `email` desde el 1.19.0: con correo, la contraseña es opcional —la cuenta entra solo
+// con Google hasta que alguien le ponga una—. Las reglas, en createUser.
 router.post('/', handle(async (req, res) => {
-  const { username, password, role } = req.body ?? {};
-  res.status(201).json(await createUser({ username, password, role: role ?? 'user' }));
+  const { username, password, role, email } = req.body ?? {};
+  res.status(201).json(
+    await createUser({ username, password, role: role ?? 'user', email }, { actor: actorDe(req) }),
+  );
 }));
 
 // `username` y `emoji` desde el 1.17.0: un admin puede renombrar a otro y ponerle o

@@ -1,12 +1,11 @@
 import { Router } from 'express';
-import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import db from '../db/database.js';
 import { signToken } from '../auth/jwt.js';
 import { verifyCfAccess, cfAccessEnabled } from '../auth/cloudflare.js';
 import { googleEnabled, verifyGoogle } from '../auth/google.js';
 import { limitePorIp } from '../auth/rate-limit.js';
-import { CONFLICTO_IDENTIDAD, UserError, findByEmailOrLegacy, leerMe } from '../users/service.js';
+import { CONFLICTO_IDENTIDAD, UserError, findByEmailOrLegacy, hashInservible, leerMe } from '../users/service.js';
 import { handle } from './handle.js';
 
 const router = Router();
@@ -63,7 +62,8 @@ export async function upsertUserByEmail(email) {
   }
   if (existente) return existente;
 
-  const hash = await bcrypt.hash(randomUUID(), 12);
+  // El mismo hash inservible que usa el alta de un admin sin contraseña (users/service.js).
+  const hash = await hashInservible();
   const info = db.prepare('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)')
     .run(mail, mail, hash);
   return { id: Number(info.lastInsertRowid), username: mail };
