@@ -12,6 +12,7 @@
     "smoke:admin": "node --env-file-if-exists=.env scripts/smoke-admin.mjs",
     "smoke:account": "node --env-file-if-exists=.env scripts/smoke-account.mjs",
     "smoke:upsert": "node scripts/upsert-identity.mjs",
+    "smoke:google": "node scripts/smoke-google.mjs",
     "build": "cd ../music-client && npm run build && cp -r dist ../music-server/public",
     "build:prod": "npm run build && NODE_ENV=production node server.js"
   },
