@@ -4,7 +4,7 @@
 // ya empezó a divergir.
 import { Router } from 'express';
 import { authMiddleware, requireAdmin } from '../auth/jwt.js';
-import { UserError, listUsers, createUser, updateUser, deleteUser, clearAvatar } from '../users/service.js';
+import { UserError, listUsers, getUser, createUser, updateUser, deleteUser, clearAvatar } from '../users/service.js';
 import { handle } from './handle.js';
 
 const router = Router();
@@ -15,6 +15,14 @@ const router = Router();
 // que se olvide el día que se agregue la quinta queda abierta a cualquiera con
 // sesión, y eso no se ve en un diff.
 router.use(authMiddleware, requireAdmin);
+
+// Quién hace el cambio, para el log del correo (users/service.js). El nombre sale de la
+// BASE y no del token, que lo congela en el login: un admin que se renombró aparecería
+// con el nombre viejo.
+function actorDe(req) {
+  const yo = getUser(req.user.id);
+  return `el admin ${req.user.id} (${yo?.username ?? req.user.username})`;
+}
 
 // El id viene de la URL, así que es texto hasta que alguien lo mire. Sin esto, un
 // /api/admin/users/abc entraría como NaN y el SELECT no encontraría nada: saldría un
@@ -39,15 +47,18 @@ router.post('/', handle(async (req, res) => {
 // ver updateUser, que usa las dos mitades de renameUser en vez de llamarlo, para no
 // perder su promesa de validar todo antes de escribir nada.
 //
-// El EMAIL no está acá y no es un olvido: no se edita por ninguna vía de
-// administración (users/service.js).
+// `email` desde el 1.19.0: `string` lo pone y `null` lo quita (desliga la cuenta de su
+// Google). Las reglas —minúsculas, formato, único, que no sea el nombre de otra cuenta— y
+// la línea de log viven en updateUser (users/service.js). Ya no se deja fuera "por las
+// dudas": era lo que obligaba a ligar cuentas renombrándolas al correo, y esa vuelta rompe
+// más de lo que protege.
 //
 // Y LA FOTO TAMPOCO SE SUBE ACÁ, a propósito: un admin puede QUITAR la de otro (el
 // DELETE de abajo) pero no ponérsela. Elegir la cara con la que aparece otra persona
 // no es administrar, y quitar una foto que no corresponde ya cubre el caso real.
 router.patch('/:id', handle(async (req, res) => {
-  const { role, password, username, emoji } = req.body ?? {};
-  res.json(await updateUser(idParam(req), { role, password, username, emoji }));
+  const { role, password, username, emoji, email } = req.body ?? {};
+  res.json(await updateUser(idParam(req), { role, password, username, emoji, email }, { actor: actorDe(req) }));
 }));
 
 // Quitarle el avatar a otro: la foto Y el emoji. 204 y sin cuerpo, idempotente como el
