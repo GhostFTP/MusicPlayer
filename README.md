@@ -40,7 +40,7 @@ MusicPlayer/
 │   │   ├── auth/              # JWT middleware + gateo por rol
 │   │   ├── users/             # reglas de usuarios (las comparten la API y el CLI)
 │   │   └── admin/             # CLI de usuarios
-│   ├── scripts/               # smoke test de /api/admin/users
+│   ├── scripts/               # smoke tests (usuarios, cuenta, login con Google)
 │   ├── music/                 # ← pon aquí tus archivos de audio
 │   ├── data/                  # music.db + carátulas (auto-generado)
 │   └── public/                # build del frontend (auto-generado)
@@ -148,9 +148,34 @@ por petición —el nombre o la contraseña, no las dos a la vez— y devuelve `
 
 - La contraseña **exige la actual**: sin eso, una sesión abierta en un teléfono prestado
   alcanzaría para dejar a su dueño fuera de su propia cuenta. Si no coincide, `401`.
-- El **correo no se toca acá, ni por ninguna otra vía de administración**. Lo escribe solo
-  el inicio de sesión por Cloudflare Access, que es el único que tiene una identidad
-  verificada para hacerlo.
+- El **correo no se toca acá, ni por ninguna otra vía de administración**. Lo escriben solo
+  los inicios de sesión que traen una identidad verificada —Cloudflare Access y Google
+  desde la app—, y solo para vincular una cuenta existente con su correo.
+
+### Entrar con Google desde la app — `POST /api/auth/google`
+
+La app del teléfono obtiene un **ID token** de Google con su cliente OAuth de iOS y lo
+manda acá; el servidor lo verifica y devuelve el JWT de siempre.
+
+```jsonc
+// POST /api/auth/google
+{ "idToken": "<el ID token de Google>" }
+// 200
+{ "token": "<JWT>", "me": { /* lo mismo que GET /api/me */ } }
+```
+
+- Se verifica con `google-auth-library`: la firma, el emisor, el vencimiento y que la
+  **audiencia** sea `GOOGLE_IOS_CLIENT_ID`. Sin esa variable la ruta responde `503`.
+- Tiene que venir con **`email_verified`**; si no, `401`.
+- **No crea cuentas**, a diferencia de Cloudflare Access: ahí la política de Access ya
+  decidió quién entra, y acá no filtra nadie antes. Entra quien ya tiene cuenta con ese
+  correo —o la tenía con el correo como nombre, y en ese caso se vincula—; el resto recibe
+  `403`. Si el correo coincide con el **nombre** de otra cuenta que tiene otro correo,
+  `409`, igual que Cloudflare.
+- **10 intentos por IP cada 15 minutos**; del 11º en adelante, `429` con `Retry-After`. La
+  IP sale de `CF-Connecting-IP`.
+- Prueba: `npm run smoke:google` levanta sus propios servidores sobre una base temporal,
+  con un verificador falso (`GOOGLE_FAKE=1`, que no arranca en producción).
 - El `token` que devuelve es **por comodidad, no una revocación**: el anterior sigue
   siendo válido, porque el servidor decide siempre por el id y nunca por el nombre. Sirve
   para que el cliente no muestre el nombre viejo durante los siete días que dura la sesión.
@@ -257,6 +282,7 @@ El repo incluye `Dockerfile`, `.dockerignore` y `docker-compose.yml` para desple
 
 1. Crea un servicio tipo **Compose** apuntando a este repo y a la branch a desplegar. Dokploy detecta el `docker-compose.yml` de la raíz.
 2. En **Environment**, define `JWT_SECRET` con un valor fuerte (genera uno con `openssl rand -base64 48`). El compose **falla el arranque si está vacío**, para no usar nunca el default inseguro. El resto de variables (`MUSIC_DIR=/music`, `PORT`, `NODE_ENV`) ya vienen fijadas en el compose.
+   - **Login con Google desde la app (opcional):** define también `GOOGLE_IOS_CLIENT_ID` con el ID del cliente OAuth de **iOS** (Google Cloud Console → APIs y servicios → Credenciales → Crear ID de cliente de OAuth → iOS, con el ID de paquete de la app, `com.sonorarev.app`). Sin ella, `POST /api/auth/google` responde `503` y el resto sigue igual. `GOOGLE_FAKE` **nunca** va en Dokploy.
 3. Asegúrate de que el RAID esté montado en el host en `/mnt/storage` (o ajusta el bind mount del compose a tu ruta real).
 4. Asigna un dominio al servicio en el puerto **3000** (Dokploy gestiona Traefik + TLS).
 5. **Primer escaneo:** la base de datos arranca vacía. Abre la terminal del contenedor (Dokploy → Terminal, o `docker exec`) y ejecuta:
@@ -276,6 +302,7 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | POST | `/api/auth/login` | Iniciar sesión → devuelve JWT |
+| POST | `/api/auth/google` | Entrar con Google desde la app: `{ idToken }` → `{ token, me }`. Sin sesión. **No crea cuentas** (`403`); `503` sin `GOOGLE_IOS_CLIENT_ID`; 10 intentos por IP cada 15 min |
 | GET | `/api/tracks` | Listar canciones (`?search=`, `?artist=`, `?album=`) |
 | GET | `/api/tracks/:id` | Detalle de una canción |
 | GET | `/api/tracks/:id/cover` | Carátula |
@@ -306,6 +333,8 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 | `PORT` | `3000` | Puerto del servidor |
 | `MUSIC_DIR` | `../music` | Raíz de la biblioteca a escanear (en Docker: `/music`) |
 | `JWT_SECRET` | `change-me-in-production` | Clave secreta para firmar tokens |
+| `GOOGLE_IOS_CLIENT_ID` | *(vacía)* | ID del cliente OAuth de **iOS** con el que la app pide el token de Google: es la audiencia que se exige. Vacía = `POST /api/auth/google` responde `503` |
+| `GOOGLE_FAKE` | *(vacía)* | **Solo pruebas locales.** Con `1`, un verificador falso acepta `fake:<correo>`. Con `NODE_ENV=production` el servidor **no arranca** |
 
 ```bash
 JWT_SECRET=mi-clave-segura PORT=8080 node server.js

@@ -3,6 +3,19 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.18.0] - 2026-09-18
+
+### Añadido
+- **Entrar con tu cuenta de Google desde la app del teléfono**: el servidor ya está
+  listo para que la app te deje iniciar sesión con Google en lugar de escribir usuario y
+  contraseña (el botón llega con la próxima versión de la app). **No crea cuentas**: solo
+  entra quien ya tiene una en SonoraRev con ese correo, y si el tuyo no está dado de alta
+  verás "Esta cuenta no tiene acceso" y tendrás que pedirla. Si un administrador te dio de
+  alta usando tu correo como nombre, la primera vez que entres con Google la cuenta queda
+  vinculada a ese correo, con tus playlists y tu historial. Solo se aceptan correos que
+  Google ya verificó, y hay un límite de intentos seguidos para frenar a quien pruebe
+  una y otra vez.
+
 ## [1.17.0] - 2026-09-17
 
 ### Añadido
