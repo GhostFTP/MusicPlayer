@@ -87,7 +87,7 @@ router.delete('/:id', handle(async (req, res) => {
   // usuario de la tabla. Un admin que se borra pierde el acceso en el acto, con la
   // sesión abierta y sin forma de volver.
   if (id === req.user.id) {
-    throw new UserError(400, 'No podés borrar tu propio usuario.');
+    throw new UserError(400, 'No puedes borrar tu propio usuario.');
   }
 
   deleteUser(id, { confirm: req.body?.confirm });

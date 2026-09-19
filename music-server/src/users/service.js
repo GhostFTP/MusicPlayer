@@ -132,7 +132,7 @@ export function assertEmoji(raw) {
     throw new UserError(400, 'Tiene que ser un solo emoji.');
   }
   if (!PICTOGRAFICO.test(emoji) || ALFANUMERICO.test(emoji)) {
-    throw new UserError(400, 'Eso no es un emoji: elegí uno del teclado de emojis.');
+    throw new UserError(400, 'Eso no es un emoji: elige uno del teclado de emojis.');
   }
   return emoji;
 }
@@ -519,7 +519,7 @@ export async function updateUser(id, { role, password, username, emoji, email },
     role === undefined && password === undefined && username === undefined
     && emoji === undefined && email === undefined
   ) {
-    throw new UserError(400, 'No hay nada que cambiar: mandá role, password, username, emoji, email o varios.');
+    throw new UserError(400, 'No hay nada que cambiar: manda role, password, username, emoji, email o varios.');
   }
 
   // Se valida TODO antes de escribir NADA. Con un PATCH de rol y contraseña juntos,
