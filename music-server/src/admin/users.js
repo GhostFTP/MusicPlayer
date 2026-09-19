@@ -296,9 +296,9 @@ async function setRole(username, role) {
 
 // ---- rename ----
 
-// Cambiarle el NOMBRE a alguien. El email ni se menciona acá: no se toca por ninguna
-// vía de administración (users/service.js), y es lo que hace que renombrar sea seguro
-// — la cuenta sigue siendo la misma para el login por Google.
+// Cambiarle el NOMBRE a alguien. El email NO se toca acá —para eso está `set-email`, más
+// abajo—, y es lo que hace que renombrar sea seguro: la cuenta sigue siendo la misma
+// para el login por Google.
 //
 // Es la misma renameUser que usa PATCH /api/me, así que las reglas —largo, espacios,
 // nombre ocupado— son idénticas por los tres caminos. No hay ninguna validación acá.
@@ -323,6 +323,47 @@ async function rename(username, nuevo) {
     console.log('        No tiene correo asociado, así que esta cuenta no entra por Google.');
   }
   console.log('        Su token actual sigue valiendo: el servidor decide por id, no por nombre.');
+}
+
+// ---- set-email ----
+
+// Ponerle o quitarle el CORREO a una cuenta (1.19.0): el correo es con lo que el login por
+// Google la encuentra. `-` es desligar. Es el mismo updateUser que PATCH
+// /api/admin/users/:id, así que las reglas —minúsculas, formato, único, que no sea el
+// nombre de otra cuenta— son las mismas por los dos caminos, y el cambio deja la misma
+// línea de log, con "el CLI" como autor. No hay ninguna validación acá.
+async function setEmail(username, correo) {
+  const user = mustFind(username);
+  const antes = user.email ?? null;
+
+  const after = await updateUser(user.id, { email: correo === '-' ? null : correo }, { actor: 'el CLI' });
+  const despues = after.email ?? null;
+
+  if (despues === antes) {
+    console.log(`[USERS] "${user.username}" ya ${antes ? `tenía el correo ${antes}` : 'estaba sin correo'}. No se cambió nada.`);
+    return;
+  }
+
+  if (despues) {
+    console.log(`[USERS] "${after.username}" ahora tiene el correo ${despues}${antes ? ` (antes ${antes})` : ''}.`);
+    console.log('        Desde su próximo login con Google, entra con ese correo.');
+  } else {
+    console.log(`[USERS] "${after.username}" quedó sin correo (antes ${antes}).`);
+    // Desligar no se sostiene si el NOMBRE es ese mismo correo: el login por Google la
+    // encuentra por el nombre y le vuelve a escribir el correo (findByEmailOrLegacy).
+    if (after.username.toLowerCase() === antes) {
+      console.log('        Ojo: su nombre ES ese correo, así que el próximo login con Google la vuelve');
+      console.log('        a ligar. Para desligarla de verdad, cámbiale también el nombre.');
+    }
+  }
+  // /cf DA DE ALTA a quien no encuentra (api/auth.js): con el correo viejo, el próximo
+  // login por Cloudflare en el reproductor web crearía otra cuenta, vacía. Salvo que el
+  // NOMBRE de esta cuenta sea ese correo: ahí /cf la encuentra por el nombre y no crea nada.
+  if (antes && after.username.toLowerCase() !== antes) {
+    console.log(`        Si usa el reproductor web, su próximo login por Cloudflare con ${antes}`);
+    console.log('        le va a crear una cuenta nueva vacía.');
+  }
+  console.log('        Su sesión actual sigue valiendo: el correo no viaja en el token.');
 }
 
 // ---- avatar ----
@@ -396,6 +437,11 @@ const USAGE = `
                                    Cambia el NOMBRE. No toca el correo, así que el
                                    login por Google sigue encontrando la misma cuenta,
                                    y el token actual de la persona sigue valiendo.
+  node src/admin/users.js set-email <usuario> <correo|->
+                                   Pone el CORREO con el que la cuenta entra por Google,
+                                   o lo quita con \`-\`. Mismas reglas que la API: se
+                                   guarda en minúsculas, tiene que tener forma de correo
+                                   y no puede ser de otra cuenta ni el nombre de otra.
   node src/admin/users.js avatar <usuario> --emoji <emoji>
   node src/admin/users.js avatar <usuario> --clear
                                    Pone un emoji de avatar, o quita el que haya (emoji
@@ -471,6 +517,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         break;
       }
 
+      case 'set-email': {
+        // `-` no empieza con `--`, así que llega como argumento libre.
+        if (libres.length < 2) {
+          console.error('[USERS] Uso: users.js set-email <usuario> <correo|->');
+          process.exit(1);
+        }
+        await setEmail(libres[0], libres[1]);
+        break;
+      }
+
       case 'avatar': {
         // El emoji entra como argumento libre (no empieza con --), así que es el
         // segundo de la lista: `avatar juan --emoji 🎵` deja libres = ['juan', '🎵'].
@@ -504,4 +560,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { list, create, passwd, setRole, rename, avatar, remove };
+export { list, create, passwd, setRole, rename, setEmail, avatar, remove };
