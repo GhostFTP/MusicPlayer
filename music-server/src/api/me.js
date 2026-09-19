@@ -22,10 +22,9 @@ const router = Router();
 router.get('/', authMiddleware, (req, res) => {
   const user = leerMe(req.user.id);
 
-  // Token válido de un usuario que ya no está (lo borró un admin mientras su sesión
-  // seguía viva). No es 401: el token no tiene nada de malo — el que no existe es el
-  // usuario, y decirle "credenciales inválidas" mandaría a buscar el problema al
-  // lado equivocado.
+  // Desde 1.19.0 un usuario borrado ya no llega acá: authMiddleware lo corta antes con
+  // 401 (auth/jwt.js). Este 404 queda para la carrera de que lo borren entre la
+  // comprobación del middleware y esta lectura.
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   res.json(user);
@@ -53,10 +52,10 @@ router.patch('/', authMiddleware, handle(async (req, res) => {
     .filter(Boolean).length;
 
   if (pedidos === 0) {
-    throw new UserError(400, 'No hay nada que cambiar: mandá username, newPassword o emoji.');
+    throw new UserError(400, 'No hay nada que cambiar: manda username, newPassword o emoji.');
   }
   if (pedidos > 1) {
-    throw new UserError(400, 'Cambiá una cosa a la vez: el nombre, la contraseña o el emoji.');
+    throw new UserError(400, 'Cambia una cosa a la vez: el nombre, la contraseña o el emoji.');
   }
 
   if (newPassword !== undefined) await changeOwnPassword(req.user.id, { currentPassword, newPassword });
@@ -115,7 +114,7 @@ router.delete('/avatar', authMiddleware, handle(async (req, res) => {
 // JSON no sabe leer.
 router.use((err, _req, res, next) => {
   if (err?.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'La imagen pesa más de 6 MB. Elegí una más chica.' });
+    return res.status(413).json({ error: 'La imagen pesa más de 6 MB. Elige una más chica.' });
   }
   next(err);
 });

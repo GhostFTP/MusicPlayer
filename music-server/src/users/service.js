@@ -12,6 +12,7 @@
 // mismo: el router necesita un status HTTP y el CLI un mensaje para imprimir y un
 // código de salida. UserError lleva las dos cosas, así que la regla se escribe una
 // vez y cada lado la presenta como le corresponde.
+import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import db from '../db/database.js';
 import { avatarDe, deleteAvatarPhoto, writeAvatarPhoto } from './avatars.js';
@@ -78,6 +79,16 @@ export function hashPassword(password) {
   return bcrypt.hash(assertPassword(password), BCRYPT_ROUNDS);
 }
 
+/** El hash de una cuenta SIN contraseña utilizable: un bcrypt real de un UUID que nadie
+ *  conoce. Existe para cumplir el NOT NULL de `password_hash` en las cuentas que entran
+ *  solo por una identidad de afuera —las que da de alta /cf y, desde 1.19.0, las que un
+ *  admin crea con correo y sin contraseña—. Nadie puede entrar con él por /login, y en la
+ *  tabla se ve igual que cualquier otro hash. Vive acá para que sea UNO: antes estaba
+ *  escrito a mano en api/auth.js. */
+export function hashInservible() {
+  return bcrypt.hash(randomUUID(), BCRYPT_ROUNDS);
+}
+
 // ---- El emoji del avatar ----
 //
 // UN SOLO GRAFEMA, y se cuenta con Intl.Segmenter porque es lo único que sabe que
@@ -121,7 +132,7 @@ export function assertEmoji(raw) {
     throw new UserError(400, 'Tiene que ser un solo emoji.');
   }
   if (!PICTOGRAFICO.test(emoji) || ALFANUMERICO.test(emoji)) {
-    throw new UserError(400, 'Eso no es un emoji: elegí uno del teclado de emojis.');
+    throw new UserError(400, 'Eso no es un emoji: elige uno del teclado de emojis.');
   }
   return emoji;
 }
@@ -137,11 +148,12 @@ export function assertEmoji(raw) {
 // tenga 3 playlists y 500 plays da 1500 filas, y COUNT() devolvería 1500 en las dos
 // columnas. Con UNA sola tabla el JOIN anda —así lo hacía list() del CLI— y por eso
 // el bug no aparece hasta que alguien agrega la segunda.
-// `email` va acá y NO en ninguna de las vías de administración: se muestra, pero no se
-// edita a mano. Lo escriben solo los logins que traen una identidad VERIFICADA —el de
-// Cloudflare y el de Google (api/auth.js)—, y los dos pasan por findByEmailOrLegacy, más
-// abajo, que es el único UPDATE de email de este archivo. Un admin que pudiera cambiarlo
-// a mano podría, sin querer, apuntar la cuenta de alguien a la identidad de Google de otro.
+// `email` lo escriben DOS caminos, y solo esos dos: los logins que traen una identidad
+// VERIFICADA —el de Cloudflare y el de Google (api/auth.js), por findByEmailOrLegacy— y,
+// desde 1.19.0, un ADMIN a mano (updateUser, con las reglas de "El correo", más abajo). El
+// riesgo que durante 1.16-1.18 lo dejó fuera de la administración sigue ahí —un admin que
+// se equivoca de correo le apunta la cuenta de alguien a la identidad de Google de otro—,
+// y por eso cada cambio deja una línea en el log con quién, a quién, antes y después.
 const SELECT_PUBLIC = `
   SELECT u.id, u.username, u.email, u.role, u.created_at,
          u.avatar_emoji, u.avatar_updated_at,
@@ -236,6 +248,83 @@ export function findByEmailOrLegacy(email) {
   return { id: legado.id, username: legado.username };
 }
 
+// ---- El correo ----
+//
+// Las reglas del correo que pone un ADMIN (desde la API o desde el CLI). No las usan los
+// logins de Cloudflare y Google: esos traen el correo ya verificado por alguien de afuera
+// y pasan por findByEmailOrLegacy, que tiene su propio cuidado.
+
+// El techo práctico de una dirección (RFC 5321: 254 en el camino SMTP). No es por la
+// base, que no tiene límite: es para que un error de pegado no guarde un párrafo.
+export const MAX_EMAIL = 254;
+
+// El formato BÁSICO y nada más: una @, algo antes, un dominio con punto, sin espacios. No
+// pretende cumplir el RFC —un validador "completo" rechaza direcciones reales y acepta
+// basura rara—; lo que evita es el error de dedo ("kister@", "kister@gmail"). Es la misma
+// regla que usa la app para avisar antes de mandar (`pareceCorreo`).
+const FORMATO_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Limpia y valida un correo, o lanza UserError 400. Lo guarda en MINÚSCULAS, y no es
+ *  cosmético: POST /api/auth/login busca con `email = ident.toLowerCase()` (api/auth.js),
+ *  así que uno guardado con mayúsculas dejaría de servir para entrar con contraseña. */
+export function normalizeEmail(raw) {
+  const mail = String(raw ?? '').trim().toLowerCase();
+  if (!mail) throw new UserError(400, 'El correo no puede estar vacío. Para quitarlo, manda null.');
+  if (mail.length > MAX_EMAIL) {
+    throw new UserError(400, `El correo no puede tener más de ${MAX_EMAIL} caracteres.`);
+  }
+  if (!FORMATO_CORREO.test(mail)) {
+    throw new UserError(400, `"${mail}" no parece un correo: tiene que ser algo como nombre@dominio.com.`);
+  }
+  return mail;
+}
+
+/** El correo está libre para la cuenta `id` (0 si todavía no existe). Dos choques:
+ *
+ *   1. YA ES EL CORREO DE OTRA CUENTA. El índice único (db/database.js) lo impediría
+ *      igual, pero con un SQLITE_CONSTRAINT crudo; esto es para el mensaje, y el catch de
+ *      `writeEmail` sigue siendo la garantía si dos cambios llegan a la vez.
+ *   2. ES EL NOMBRE DE OTRA CUENTA. Ese es el caso que el índice NO ve y el que más
+ *      rompe: findByEmailOrLegacy busca primero por correo, así que Google entraría a
+ *      ESTA cuenta y la otra —que se habría ligado por su nombre la primera vez— no se
+ *      ligaría nunca; y /login, que busca primero por nombre, abriría la OTRA con ese
+ *      texto. Dos puertas que llevan a dos cuentas con la misma llave. */
+function assertCorreoLibre(id, mail) {
+  const deOtra = db.prepare('SELECT username FROM users WHERE lower(email) = ? AND id <> ?').get(mail, id);
+  if (deOtra) throw new UserError(409, `Ese correo ya es de «${deOtra.username}».`);
+
+  const nombreDeOtra = db.prepare('SELECT username FROM users WHERE lower(username) = ? AND id <> ?').get(mail, id);
+  if (nombreDeOtra) {
+    throw new UserError(
+      409,
+      `Ese correo es el nombre de usuario de «${nombreDeOtra.username}»: si también fuera el `
+      + 'correo de esta cuenta, Google no sabría a cuál entrar.',
+    );
+  }
+}
+
+// El SELECT de arriba es solo para el mensaje; la garantía es el índice único, así que el
+// UPDATE va con catch. Es la misma pareja que writeUsername.
+function writeEmail(id, mail) {
+  try {
+    db.prepare('UPDATE users SET email = ? WHERE id = ?').run(mail, id);
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) throw new UserError(409, 'Ese correo ya es de otra cuenta.');
+    throw e;
+  }
+}
+
+// UNA LÍNEA POR CAMBIO, y no es opcional: el correo es con lo que Google encuentra una
+// cuenta, y un admin que lo cambia mal le da a otra persona las playlists y el historial
+// de alguien (o su rol de admin). Sin esto no queda ningún rastro de quién lo hizo. Va a
+// la salida del proceso, que es lo que Dokploy guarda como log del contenedor.
+function registrarCorreo({ actor, user, antes, despues }) {
+  console.log(
+    `[usuarios] correo de la cuenta ${user.id} (${user.username}): ${antes ?? 'sin correo'} → `
+    + `${despues ?? 'sin correo'} · lo cambió ${actor ?? 'alguien sin nombre'}`,
+  );
+}
+
 // Exige el usuario y explota con 404 si no está. Lo usan las tres escrituras, para
 // que "no existe" se diga igual en todas.
 function mustGet(id) {
@@ -256,27 +345,49 @@ function assertNotLastAdmin(user, accion) {
 
 // ---- Escritura ----
 
-export async function createUser({ username, password, role = 'user' }) {
+/** Da de alta una cuenta. Desde 1.19.0 acepta `email` opcional, con las reglas de "El
+ *  correo" (arriba), y ahí la CONTRASEÑA PASA A SER OPCIONAL: una cuenta con correo y sin
+ *  contraseña entra solo con Google —el login por Google la encuentra por ese correo—
+ *  hasta que un admin le ponga una. SIN correo, la contraseña sigue siendo obligatoria,
+ *  porque sería la única forma de entrar.
+ *
+ *  "Sin contraseña" es `undefined`, `null` o `""`: los tres dicen lo mismo, y un cliente
+ *  que manda el campo vacío no tiene por qué recibir un "necesita 8 caracteres". */
+export async function createUser({ username, password, role = 'user', email }, { actor } = {}) {
   const name = normalizeUsername(username);
   const rol = normalizeRole(role);
-  const hash = await hashPassword(password);
+  const mail = email === undefined || email === null ? null : normalizeEmail(email);
+  const sinPassword = password === undefined || password === null || password === '';
+  if (sinPassword && !mail) {
+    throw new UserError(400, 'Falta la contraseña: sin correo, es la única forma de entrar.');
+  }
+  const hash = sinPassword ? await hashInservible() : await hashPassword(password);
 
   // El SELECT previo es SOLO para el mensaje; la garantía real es el UNIQUE de la
   // tabla, y por eso el INSERT igual va con catch. Sin él, dos altas del mismo
   // nombre en el mismo instante saldrían como un SQLITE_CONSTRAINT crudo.
   if (findByUsername(name)) throw new UserError(409, `Ya existe el usuario "${name}".`);
+  // 0 como id: la cuenta todavía no existe, así que cualquier choque es con OTRA.
+  if (mail) assertCorreoLibre(0, mail);
 
   let info;
   try {
     info = db
-      .prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
-      .run(name, hash, rol);
+      .prepare('INSERT INTO users (username, password_hash, role, email) VALUES (?, ?, ?, ?)')
+      .run(name, hash, rol, mail);
   } catch (e) {
+    // Dos UNIQUE pueden saltar acá: el del nombre (columna) y el del correo (índice), y
+    // SQLite dice cuál en el mensaje ("users.email").
+    if (String(e.message).includes('users.email')) throw new UserError(409, 'Ese correo ya es de otra cuenta.');
     if (String(e.message).includes('UNIQUE')) throw new UserError(409, `Ya existe el usuario "${name}".`);
     throw e;
   }
 
-  return getUser(Number(info.lastInsertRowid));
+  const creado = getUser(Number(info.lastInsertRowid));
+  // Nacer con correo también es ponerle un correo, así que deja su línea como cualquier
+  // cambio (ver `registrarCorreo`).
+  if (mail) registrarCorreo({ actor, user: creado, antes: null, despues: mail });
+  return creado;
 }
 
 // EL NOMBRE ESTÁ LIBRE PARA ESTE id. Privadas y compartidas por los dos caminos que
@@ -303,10 +414,11 @@ function writeUsername(id, name) {
   }
 }
 
-/** Cambia el NOMBRE y nada más. El email no se toca acá ni en ningún otro sitio de
- *  este archivo: es la identidad con la que el login por Google encuentra la cuenta
- *  (api/auth.js), y moverla desde una pantalla de "cambiar mi nombre" es exactamente
- *  cómo se le entrega la cuenta de alguien a otra persona. */
+/** Cambia el NOMBRE y nada más. El email NO se toca acá: es la identidad con la que el
+ *  login por Google encuentra la cuenta (api/auth.js), y moverla desde una pantalla de
+ *  "cambiar mi nombre" es exactamente cómo se le entrega la cuenta de alguien a otra
+ *  persona. El único camino a mano para el correo es `updateUser`, que solo usa un admin,
+ *  con sus reglas y su línea de log. */
 export function renameUser(id, username) {
   mustGet(id);
   const name = normalizeUsername(username);
@@ -398,11 +510,16 @@ export function clearAvatar(id) {
   return getUser(id);
 }
 
-export async function updateUser(id, { role, password, username, emoji }) {
+/** Lo que un admin le cambia a una cuenta. `actor` es quién lo hace, para el log del
+ *  correo: el router pasa el admin de la sesión y el CLI dice que fue él. */
+export async function updateUser(id, { role, password, username, emoji, email }, { actor } = {}) {
   const user = mustGet(id);
 
-  if (role === undefined && password === undefined && username === undefined && emoji === undefined) {
-    throw new UserError(400, 'No hay nada que cambiar: mandá role, password, username, emoji o varios.');
+  if (
+    role === undefined && password === undefined && username === undefined
+    && emoji === undefined && email === undefined
+  ) {
+    throw new UserError(400, 'No hay nada que cambiar: manda role, password, username, emoji, email o varios.');
   }
 
   // Se valida TODO antes de escribir NADA. Con un PATCH de rol y contraseña juntos,
@@ -417,13 +534,23 @@ export async function updateUser(id, { role, password, username, emoji }) {
   const nombre = username === undefined ? undefined : normalizeUsername(username);
   // `null` es "quitalo" y no un valor a validar, así que no pasa por assertEmoji.
   const emo = emoji === undefined || emoji === null ? emoji : assertEmoji(emoji);
+  // El correo: `null` es DESLIGAR —la cuenta deja de tener correo—. Y el mismo valor que ya
+  // tiene no es un cambio: no se escribe ni se loguea, y el PATCH contesta 200 igual.
+  const mail = email === undefined || email === null ? email : normalizeEmail(email);
+  const correoAntes = user.email ?? null;
+  const cambiaCorreo = mail !== undefined && mail !== (correoAntes === null ? null : correoAntes.toLowerCase());
 
   if (nombre !== undefined) assertNombreLibre(id, nombre);
+  if (cambiaCorreo && mail !== null) assertCorreoLibre(id, mail);
   if (rol === 'user') assertNotLastAdmin(user, 'bajarlo a usuario normal');
 
   if (rol !== undefined) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(rol, id);
   if (hash !== undefined) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
   if (nombre !== undefined) writeUsername(id, nombre);
+  if (cambiaCorreo) {
+    writeEmail(id, mail);
+    registrarCorreo({ actor, user, antes: correoAntes, despues: mail });
+  }
   // Va último y por setAvatarEmoji para no repetir el borrado del archivo ni el
   // cuidado del orden entre la base y el disco, que está explicado ahí arriba.
   if (emo !== undefined) setAvatarEmoji(id, emo);
