@@ -137,11 +137,11 @@ export function assertEmoji(raw) {
 // tenga 3 playlists y 500 plays da 1500 filas, y COUNT() devolvería 1500 en las dos
 // columnas. Con UNA sola tabla el JOIN anda —así lo hacía list() del CLI— y por eso
 // el bug no aparece hasta que alguien agrega la segunda.
-// `email` va acá y NO en ningún UPDATE de este archivo: se muestra, pero no se edita
-// por ninguna de las vías de administración. Lo escribe solo el login por Cloudflare
-// (api/auth.js), que es quien tiene una identidad verificada para escribirlo. Un admin
-// que pudiera cambiarlo a mano podría, sin querer, apuntar la cuenta de alguien a la
-// identidad de Google de otro.
+// `email` va acá y NO en ninguna de las vías de administración: se muestra, pero no se
+// edita a mano. Lo escriben solo los logins que traen una identidad VERIFICADA —el de
+// Cloudflare y el de Google (api/auth.js)—, y los dos pasan por findByEmailOrLegacy, más
+// abajo, que es el único UPDATE de email de este archivo. Un admin que pudiera cambiarlo
+// a mano podría, sin querer, apuntar la cuenta de alguien a la identidad de Google de otro.
 const SELECT_PUBLIC = `
   SELECT u.id, u.username, u.email, u.role, u.created_at,
          u.avatar_emoji, u.avatar_updated_at,
@@ -174,6 +174,66 @@ export function findByUsername(username) {
 
 export function countAdmins() {
   return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n;
+}
+
+// ---- Quién soy ----
+//
+// Las columnas que ve uno de SU PROPIA cuenta: sin los conteos de SELECT_PUBLIC, que son
+// del panel de administración, y sin `password_hash`, por lo mismo que allá. Vive acá y
+// no en api/me.js porque desde el login por Google tiene dos consumidores —GET /api/me y
+// POST /api/auth/google, que devuelve `me` junto con el token— y la forma tiene que ser
+// la misma en los dos: la app arma su sesión con cualquiera de las dos respuestas.
+const SELECT_ME = `
+  SELECT id, username, email, role, created_at, avatar_emoji, avatar_updated_at
+  FROM users WHERE id = ?
+`;
+
+export function leerMe(id) {
+  const row = db.prepare(SELECT_ME).get(id);
+  if (!row) return null;
+  const { avatar_emoji, avatar_updated_at, ...resto } = row;
+  return { ...resto, avatar: avatarDe(row) };
+}
+
+// ---- Identidad por correo ----
+
+// El mensaje del conflicto vive acá porque lo dicen los dos logins que llegan con un
+// correo verificado (Cloudflare y Google), y tiene que decirse igual en los dos.
+export const CONFLICTO_IDENTIDAD =
+  'Ese correo coincide con el nombre de otra cuenta. Avisa a quien administra el servidor.';
+
+/**
+ * La cuenta de un correo YA VERIFICADO por alguien de afuera (Cloudflare Access o
+ * Google), o `null` si no hay ninguna. NO CREA NADA: crear es decisión de cada login
+ * —/cf da de alta, porque ahí la política de Access ya filtró quién puede entrar;
+ * /google no, porque nadie filtró nada antes de llegar acá—.
+ *
+ * Los dos caminos, en este orden:
+ *   1. POR EMAIL — el caso normal. `lower(email)` y no `email` a secas: hoy se guarda
+ *      siempre en minúsculas, pero la comparación no depende de que nadie se olvide.
+ *   2. LEGADO: la fila guarda el correo en el username y todavía no tiene email. Pasa
+ *      con las cuentas que un admin dio de alta usando el correo como nombre. Se le
+ *      ESCRIBE el email —la única escritura de esta función— y queda resuelto para
+ *      siempre.
+ *
+ * ⚠️ EL PASO 2 ADOPTA SOLO SI LA FILA NO TIENE EMAIL. Desde que existe el rename,
+ * alguien podría llamarse igual que el correo de otra persona: si esa fila YA tiene un
+ * email distinto, el nombre coincide pero la identidad no, y fusionarlas le daría a
+ * quien entra la cuenta de otro. Ahí no se adivina: UserError 409.
+ */
+export function findByEmailOrLegacy(email) {
+  const mail = String(email ?? '').trim().toLowerCase();
+  if (!mail) return null;
+
+  const porEmail = db.prepare('SELECT id, username FROM users WHERE lower(email) = ?').get(mail);
+  if (porEmail) return porEmail;
+
+  const legado = db.prepare('SELECT id, username, email FROM users WHERE lower(username) = ?').get(mail);
+  if (!legado) return null;
+
+  if (legado.email != null) throw new UserError(409, CONFLICTO_IDENTIDAD);
+  db.prepare('UPDATE users SET email = ? WHERE id = ?').run(mail, legado.id);
+  return { id: legado.id, username: legado.username };
 }
 
 // Exige el usuario y explota con 404 si no está. Lo usan las tres escrituras, para
