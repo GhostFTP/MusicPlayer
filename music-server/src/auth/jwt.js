@@ -12,18 +12,46 @@ export function verifyToken(token) {
   return jwt.verify(token, SECRET);
 }
 
+// ¿LA CUENTA DEL TOKEN TODAVÍA EXISTE? Desde 1.19.0, sí se pregunta en cada petición.
+//
+// Hasta ahí un token bien firmado y sin vencer bastaba, y un usuario BORRADO por un admin
+// seguía viendo el catálogo y escuchando música con su sesión vieja hasta 7 días: solo
+// /api/me y las rutas de admin se enteraban. Ahora borrar corta al momento.
+//
+// El precio es UNA lectura por clave primaria por petición —medida en ~5 µs con la base de
+// desarrollo, contra ~1,1 ms que tarda una petición entera de catálogo—, así que no hay
+// caché: una caché de 30 s justo reabriría la ventana que esto viene a cerrar.
+//
+// Lo usan los DOS porteros: `authMiddleware` y el de /stream (src/stream/stream.js), que
+// no pasa por el middleware porque acepta el token por query para `<audio src>`. Si hay un
+// tercero algún día, tiene que llamar a esto también, o una cuenta borrada entra por ahí.
+const EXISTE = db.prepare('SELECT 1 FROM users WHERE id = ?');
+
+export function cuentaExiste(id) {
+  // Un token sin `id` entero no es de ninguna cuenta (y bindear `undefined` lanzaría).
+  return Number.isInteger(id) && EXISTE.get(id) !== undefined;
+}
+
 export function authMiddleware(req, res, next) {
   const header = req.headers.authorization ?? '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : req.query.token ?? null;
 
   if (!token) return res.status(401).json({ error: 'No token' });
 
+  let payload;
   try {
-    req.user = verifyToken(token);
-    next();
+    payload = verifyToken(token);
   } catch {
-    res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ error: 'Invalid token' });
   }
+
+  // 401 y no 404: para quien llama, una sesión de una cuenta que ya no existe es una
+  // sesión que ya no sirve, y lo que tiene que hacer es lo mismo que con una vencida —
+  // volver a entrar—. La app lo trata así.
+  if (!cuentaExiste(payload?.id)) return res.status(401).json({ error: 'User not found' });
+
+  req.user = payload;
+  next();
 }
 
 // Gatea por ROL, y va SIEMPRE detrás de authMiddleware, que es quien deja `req.user`.
@@ -43,9 +71,9 @@ export function authMiddleware(req, res, next) {
 export function requireAdmin(req, res, next) {
   const row = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user?.id);
 
-  // Un usuario BORRADO con un token todavía vigente cae acá: la fila ya no existe,
-  // así que no es admin y no pasa. Es 403 y no 401 a propósito — el token está bien
-  // firmado y no vencido; lo que falta es el permiso, no la identidad.
+  // Un usuario BORRADO ya no llega acá desde 1.19.0: authMiddleware lo corta antes con
+  // 401. Si igual la fila no está (lo borraron entre una lectura y la otra), no es admin y
+  // no pasa, con 403.
   if (row?.role !== 'admin') return res.status(403).json({ error: 'admin required' });
 
   next();

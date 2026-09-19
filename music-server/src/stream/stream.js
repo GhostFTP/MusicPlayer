@@ -1,11 +1,15 @@
 import { createReadStream, statSync } from 'node:fs';
 import { Router } from 'express';
 import db from '../db/database.js';
-import { verifyToken } from '../auth/jwt.js';
+import { cuentaExiste, verifyToken } from '../auth/jwt.js';
 
 const router = Router();
 
 // Auth via query-param token so <audio src="..."> funciona sin JS extra
+//
+// No pasa por authMiddleware, así que la comprobación de que la cuenta EXISTE (1.19.0)
+// está repetida acá con la misma función: sin ella, una cuenta borrada seguiría
+// escuchando música con su token viejo hasta que venciera (ver auth/jwt.js).
 function resolveUser(req) {
   const header = req.headers.authorization ?? '';
   const token = header.startsWith('Bearer ')
@@ -13,8 +17,10 @@ function resolveUser(req) {
     : req.query.token;
 
   if (!token) return null;
-  try { return verifyToken(token); }
+  let user;
+  try { user = verifyToken(token); }
   catch { return null; }
+  return cuentaExiste(user?.id) ? user : null;
 }
 
 // GET /stream/:id

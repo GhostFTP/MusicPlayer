@@ -22,10 +22,9 @@ const router = Router();
 router.get('/', authMiddleware, (req, res) => {
   const user = leerMe(req.user.id);
 
-  // Token válido de un usuario que ya no está (lo borró un admin mientras su sesión
-  // seguía viva). No es 401: el token no tiene nada de malo — el que no existe es el
-  // usuario, y decirle "credenciales inválidas" mandaría a buscar el problema al
-  // lado equivocado.
+  // Desde 1.19.0 un usuario borrado ya no llega acá: authMiddleware lo corta antes con
+  // 401 (auth/jwt.js). Este 404 queda para la carrera de que lo borren entre la
+  // comprobación del middleware y esta lectura.
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   res.json(user);
