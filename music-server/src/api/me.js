@@ -52,10 +52,10 @@ router.patch('/', authMiddleware, handle(async (req, res) => {
     .filter(Boolean).length;
 
   if (pedidos === 0) {
-    throw new UserError(400, 'No hay nada que cambiar: mandá username, newPassword o emoji.');
+    throw new UserError(400, 'No hay nada que cambiar: manda username, newPassword o emoji.');
   }
   if (pedidos > 1) {
-    throw new UserError(400, 'Cambiá una cosa a la vez: el nombre, la contraseña o el emoji.');
+    throw new UserError(400, 'Cambia una cosa a la vez: el nombre, la contraseña o el emoji.');
   }
 
   if (newPassword !== undefined) await changeOwnPassword(req.user.id, { currentPassword, newPassword });
@@ -114,7 +114,7 @@ router.delete('/avatar', authMiddleware, handle(async (req, res) => {
 // JSON no sabe leer.
 router.use((err, _req, res, next) => {
   if (err?.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'La imagen pesa más de 6 MB. Elegí una más chica.' });
+    return res.status(413).json({ error: 'La imagen pesa más de 6 MB. Elige una más chica.' });
   }
   next(err);
 });

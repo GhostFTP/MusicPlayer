@@ -24,8 +24,8 @@ Novedades destacables de **SonoraRev**. El formato sigue
 - **Si un administrador borra una cuenta, esa sesión se corta en el momento**: hasta
   ahora, quien ya tenía la app o el navegador abiertos seguía viendo la biblioteca y
   escuchando música hasta que se le vencía la sesión, hasta una semana después.
-- Los avisos de error al administrar cuentas ahora te hablan de tú, como el resto de la
-  app.
+- Los avisos de error al administrar cuentas y al cambiar tu propia cuenta ahora te
+  hablan de tú, como el resto de la app.
 
 ## [1.18.0] - 2026-09-18
 
