@@ -3,6 +3,30 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.19.0] - 2026-09-19
+
+### Añadido
+- **Un administrador ya puede ponerle, cambiarle o quitarle el correo a una cuenta**: el
+  correo es con lo que el botón de Google te encuentra, así que para que alguien pueda
+  entrar con Google basta con que un administrador le cargue el correo de su cuenta de
+  Google. Antes había que darle de alta con el correo como nombre y esperar a que
+  entrara. El correo se guarda sin mayúsculas, tiene que ser un correo de verdad y no
+  puede ser el de otra cuenta. **Cada cambio queda anotado en el servidor**: quién lo
+  hizo, en qué cuenta y qué correo había antes. Tu correo sigue siendo lo que identifica
+  tu cuenta —en la 1.17.0 te dijimos que no cambiaba nunca—; lo que cambia es que ahora un
+  administrador lo puede corregir si hace falta.
+- **Cuentas que entran solo con Google**: al dar de alta a alguien con su correo, la
+  contraseña ya no es obligatoria. Esa cuenta entra con Google hasta que un administrador
+  le ponga una. Sin correo, la contraseña sigue siendo obligatoria, porque sería la única
+  forma de entrar.
+
+### Cambiado
+- **Si un administrador borra una cuenta, esa sesión se corta en el momento**: hasta
+  ahora, quien ya tenía la app o el navegador abiertos seguía viendo la biblioteca y
+  escuchando música hasta que se le vencía la sesión, hasta una semana después.
+- Los avisos de error al administrar cuentas ahora te hablan de tú, como el resto de la
+  app.
+
 ## [1.18.0] - 2026-09-18
 
 ### Añadido

@@ -136,6 +136,32 @@ resultado.
 Los cuatro endpoints están detrás de sesión **y** de rol `admin`; a un usuario normal
 le responden `403`. Están en la tabla de la [API](#api).
 
+**El correo, desde la 1.19.0.** Es con lo que el login por Google encuentra una cuenta, y
+un admin lo pone, lo cambia o lo quita con `PATCH /api/admin/users/:id`:
+
+```jsonc
+{ "email": "persona@gmail.com" }   // lo pone o lo cambia
+{ "email": null }                  // lo quita: la cuenta deja de entrar con Google
+```
+
+- Se guarda **en minúsculas y sin espacios**; tiene que tener forma de correo (una `@`,
+  algo antes, un dominio con punto, 254 caracteres como mucho). Si no, `400`.
+- No puede ser el correo de **otra** cuenta (`409`, con su nombre) ni el **nombre** de
+  otra cuenta (`409`): esa otra se ligaría a Google por su nombre, y con las dos puertas
+  abiertas Google no sabría a cuál entrar.
+- Mandar el que ya tiene es un no-op: `200`, sin escribir nada.
+- **Cada cambio deja una línea en el log del servidor**, con quién lo hizo, en qué cuenta
+  y el correo de antes y el de después. Un correo equivocado le da a otra persona las
+  playlists, el historial y hasta el rol de alguien, y sin esa línea no queda rastro.
+- ⚠️ **Cambiar o quitar un correo no cierra ninguna sesión**: el correo no viaja en el
+  token. Y a quien usa el reproductor web, su próximo login por Cloudflare con el correo
+  viejo le **crea una cuenta nueva vacía** (Cloudflare sí da de alta), salvo que su nombre
+  sea ese mismo correo.
+
+**El alta con correo** (`POST /api/admin/users` con `email`) hace **opcional la
+contraseña**: sin ella, la cuenta entra solo con Google hasta que alguien le ponga una.
+Sin correo, la contraseña sigue siendo obligatoria.
+
 ### Cada quien, con lo suyo — `PATCH /api/me`
 
 Lo único de la API de cuentas que **no** pide ser admin. Cambia **una** de las dos cosas
@@ -148,9 +174,9 @@ por petición —el nombre o la contraseña, no las dos a la vez— y devuelve `
 
 - La contraseña **exige la actual**: sin eso, una sesión abierta en un teléfono prestado
   alcanzaría para dejar a su dueño fuera de su propia cuenta. Si no coincide, `401`.
-- El **correo no se toca acá, ni por ninguna otra vía de administración**. Lo escriben solo
-  los inicios de sesión que traen una identidad verificada —Cloudflare Access y Google
-  desde la app—, y solo para vincular una cuenta existente con su correo.
+- El **correo no se toca acá**: uno no puede cambiarse el suyo. Lo pone un admin (arriba, o
+  con `set-email` desde el CLI) y lo escriben los inicios de sesión que traen una identidad
+  verificada —Cloudflare Access y Google desde la app— para vincular una cuenta existente.
 
 ### Entrar con Google desde la app — `POST /api/auth/google`
 
@@ -223,6 +249,8 @@ npm run users -- create <usuario> [--admin]  # crea; --admin lo hace administrad
 npm run users -- passwd <usuario>            # cambia la contraseña
 npm run users -- set-role <usuario> user|admin
 npm run users -- rename <usuario> <nuevo>    # cambia el NOMBRE; no toca el correo
+npm run users -- set-email <usuario> <correo> # pone o cambia el CORREO con el que entra por Google
+npm run users -- set-email <usuario> -       # le quita el correo
 npm run users -- avatar <usuario> --emoji 🎵 # pone un emoji de avatar
 npm run users -- avatar <usuario> --clear    # quita el avatar (emoji o foto)
 npm run users -- delete <usuario>            # borra en CASCADA; pide escribir el usuario
@@ -244,6 +272,10 @@ SSO crea una segunda cuenta y la persona termina con dos. Para cuentas técnicas
 > equivocarse ya no es irreversible, y **renombrar a alguien no le parte la cuenta en
 > dos** — que es lo que habría pasado antes, en silencio y con sus playlists quedándose en
 > la cuenta vieja.
+>
+> Desde la **1.19.0** ni siquiera hace falta el truco: el correo se le pone aparte
+> (`set-email`, o el alta con `email` por la API) y el nombre queda libre para ser un
+> nombre. Una cuenta con el correo como nombre se sigue ligando igual en su primer login.
 
 **Dos protecciones que no se pueden saltear**, ni por API ni por CLI: no se puede bajar de
 rol ni borrar al **último administrador** —una base sin admins no se arregla desde la web—,
@@ -299,6 +331,8 @@ El repo incluye `Dockerfile`, `.dockerignore` y `docker-compose.yml` para desple
 
 Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authorization: Bearer <token>`. Los endpoints de imagen y stream también aceptan `?token=` como query param (necesario para atributos `src` de `<img>` y `<audio>`).
 
+Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si un admin la borra, su sesión deja de servir al momento (`401`), también en `/stream`. Es una lectura por clave primaria por petición (~5 µs medidos, contra ~1 ms que tarda una petición de catálogo).
+
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | POST | `/api/auth/login` | Iniciar sesión → devuelve JWT |
@@ -319,8 +353,8 @@ Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authori
 | DELETE | `/api/me/avatar` | Quitarme el avatar (foto y emoji) |
 | GET | `/api/users/:id/avatar` | La foto de alguien. Pide sesión, no rol |
 | GET | `/api/admin/users` | Listar usuarios con sus conteos de playlists y plays *(solo admin)* |
-| POST | `/api/admin/users` | Crear usuario *(solo admin)* |
-| PATCH | `/api/admin/users/:id` | Cambiar rol, contraseña, **nombre** o **emoji** *(solo admin)* |
+| POST | `/api/admin/users` | Crear usuario. Con `email`, la contraseña es opcional *(solo admin)* |
+| PATCH | `/api/admin/users/:id` | Cambiar rol, contraseña, **nombre**, **emoji** o **correo** (`email`; `null` lo quita) *(solo admin)* |
 | DELETE | `/api/admin/users/:id/avatar` | Quitarle el avatar a alguien *(solo admin)* |
 | DELETE | `/api/admin/users/:id` | Borrar usuario y, en cascada, sus playlists y sus plays *(solo admin)* |
 | GET | `/api/changelog` | Notas de versión (CHANGELOG.md) |
