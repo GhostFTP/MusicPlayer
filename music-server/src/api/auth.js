@@ -4,7 +4,10 @@ import bcrypt from 'bcrypt';
 import db from '../db/database.js';
 import { signToken } from '../auth/jwt.js';
 import { verifyCfAccess, cfAccessEnabled } from '../auth/cloudflare.js';
-import { CONFLICTO_IDENTIDAD, UserError, findByEmailOrLegacy } from '../users/service.js';
+import { googleEnabled, verifyGoogle } from '../auth/google.js';
+import { limitePorIp } from '../auth/rate-limit.js';
+import { CONFLICTO_IDENTIDAD, UserError, findByEmailOrLegacy, leerMe } from '../users/service.js';
+import { handle } from './handle.js';
 
 const router = Router();
 
@@ -110,6 +113,76 @@ router.post('/cf', async (req, res) => {
 
   res.json({ token: signToken({ id: user.id, username: user.username }) });
 });
+
+// ---- Login con Google desde la app ----
+//
+// La app manda el ID token que le dio Google (su cliente OAuth de iOS) y recibe el JWT de
+// siempre. SIN authMiddleware: es un login, el que llama todavía no tiene token.
+//
+// ⚠️ NO CREA CUENTAS, y es la diferencia de fondo con /cf. Allá la política de Cloudflare
+// Access ya decidió quién puede entrar antes de que la petición llegue, así que dar de
+// alta es seguro. Acá no filtró nadie: cualquiera con una cuenta de Google puede sacar un
+// token para nuestra app. Si esto creara cuentas, el login con Google sería un registro
+// abierto al mundo. Así que solo entra quien YA tiene cuenta —por su correo, o por el
+// legado del correo guardado como nombre— y el resto recibe 403.
+//
+// EL VERIFICADOR ENTRA INYECTADO (`verificar`), para poder probar la ruta entera sin un
+// token real de Google: scripts/smoke-google.mjs levanta el servidor con el falso.
+export function crearLoginGoogle({ verificar, habilitado }) {
+  return handle(async (req, res) => {
+    if (!habilitado) return res.status(503).json({ error: 'Google no está configurado' });
+
+    const idToken = req.body?.idToken;
+    if (typeof idToken !== 'string' || !idToken.trim()) {
+      return res.status(400).json({ error: 'Falta el idToken.' });
+    }
+
+    let identidad;
+    try {
+      identidad = await verificar(idToken.trim());
+    } catch (e) {
+      // El motivo va al log y NO a la respuesta: "audiencia equivocada" es exactamente
+      // lo que hay que ver cuando se configura el cliente, y exactamente lo que no hay
+      // que contarle a quien está probando tokens. El token no se loguea nunca.
+      console.warn('[google] token rechazado:', e?.message ?? e);
+      return res.status(401).json({ error: 'No se pudo verificar tu cuenta de Google.' });
+    }
+
+    if (typeof identidad?.email !== 'string' || !identidad.email.trim()) {
+      return res.status(401).json({ error: 'No se pudo verificar tu cuenta de Google.' });
+    }
+    // `=== true` y no "truthy": un correo sin verificar es un correo que cualquiera
+    // pudo escribir, y es justo con lo que se busca la cuenta.
+    if (identidad.email_verified !== true) {
+      return res.status(401).json({ error: 'Tu correo de Google no está verificado.' });
+    }
+
+    // Lanza UserError 409 si el correo choca con el nombre de otra cuenta: `handle` lo
+    // convierte en el mismo 409 que da /cf.
+    const user = findByEmailOrLegacy(identidad.email);
+    if (!user) {
+      return res.status(403).json({ error: 'Esta cuenta no tiene acceso. Pídeselo a Oscar.' });
+    }
+
+    // El token es el de /login, firmado igual. `me` va además para que la app no tenga
+    // que pedir GET /api/me enseguida: es la misma forma que devuelve esa ruta.
+    res.json({
+      token: signToken({ id: user.id, username: user.username }),
+      me: leerMe(user.id),
+    });
+  });
+}
+
+// 10 intentos por IP cada 15 minutos. Un login legítimo es uno; diez ya es alguien
+// probando tokens o un cliente roto en un bucle, y en los dos casos conviene frenar antes
+// de pedirle a Google que verifique cada uno.
+const limiteGoogle = limitePorIp({
+  max: 10,
+  ventanaMs: 15 * 60 * 1000,
+  mensaje: 'Demasiados intentos. Espera unos minutos y vuelve a probar.',
+});
+
+router.post('/google', limiteGoogle, crearLoginGoogle({ verificar: verifyGoogle, habilitado: googleEnabled }));
 
 // Config PÚBLICA del login: SIN auth middleware (este router es público — es la pantalla
 // de login, el usuario aún no tiene token; gatearlo sería un catch-22). Solo expone si el

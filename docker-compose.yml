@@ -15,6 +15,11 @@ services:
       # auto-login queda desactivado y solo funciona el login por contraseña.
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      # Login con Google desde la app del teléfono (opcional): el ID del cliente OAuth
+      # de iOS. Vacío = POST /api/auth/google responde 503 y todo lo demás sigue igual.
+      # Tiene que estar NOMBRADA acá: una variable de Dokploy que el compose no nombra
+      # no llega al contenedor.
+      GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID:-}
     volumes:
       # 🎵 Biblioteca de música: host /mnt/storage/Musica → contenedor /music/Musica, SOLO LECTURA.
       #    El ":ro" lo impone el kernel: nada del contenedor puede escribir tu música.
