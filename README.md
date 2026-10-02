@@ -316,6 +316,7 @@ El repo incluye `Dockerfile`, `.dockerignore` y `docker-compose.yml` para desple
 2. En **Environment**, define `JWT_SECRET` con un valor fuerte (genera uno con `openssl rand -base64 48`). El compose **falla el arranque si está vacío**, para no usar nunca el default inseguro. El resto de variables (`MUSIC_DIR=/music`, `PORT`, `NODE_ENV`) ya vienen fijadas en el compose.
    - **Login con Google desde la app (opcional):** define también `GOOGLE_IOS_CLIENT_ID` con el ID del cliente OAuth de **iOS** (Google Cloud Console → APIs y servicios → Credenciales → Crear ID de cliente de OAuth → iOS, con el ID de paquete de la app, `com.sonorarev.app`). Sin ella, `POST /api/auth/google` responde `503` y el resto sigue igual. `GOOGLE_FAKE` **nunca** va en Dokploy.
 3. Asegúrate de que el RAID esté montado en el host en `/mnt/storage` (o ajusta el bind mount del compose a tu ruta real).
+   - **Videos (opcional):** el compose monta `/mnt/storage/Video` en `/videos` (`:ro`), fuera de `/music` para que el escáner de música no lo recorra, y fija `VIDEO_DIR`. Si esa carpeta no existe en el host, el servidor arranca igual y la lista de videos sale vacía. No hace falta escanear: se leen solos.
 4. Asigna un dominio al servicio en el puerto **3000** (Dokploy gestiona Traefik + TLS).
 5. **Primer escaneo:** la base de datos arranca vacía. Abre la terminal del contenedor (Dokploy → Terminal, o `docker exec`) y ejecuta:
    ```bash
@@ -359,6 +360,11 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 | DELETE | `/api/admin/users/:id` | Borrar usuario y, en cascada, sus playlists y sus plays *(solo admin)* |
 | GET | `/api/changelog` | Notas de versión (CHANGELOG.md) |
 | GET | `/stream/:id` | Stream de audio con Range Requests |
+| GET | `/api/videos` | Lista de videos: `{ videos: [{ id, title, artist, year, ext, size, mime, duration, has_cover }] }`, por artista A→Z y año del más nuevo al más viejo |
+| GET | `/api/videos/:id/cover` | Portada del video (el `.jpg` de al lado); `404` si no tiene |
+| GET | `/stream/video/:id` | Stream de video con Range Requests (el mismo manejo que el audio) |
+
+**Los videos** no pasan por el escáner ni por la base: el servidor lee `VIDEO_DIR` (en Docker, `/videos`; dos niveles, `<Artista>/<Título (año)>.mp4`) y guarda el índice en memoria, que se rehace solo cada minuto, así que un video subido con `scp` aparece sin reiniciar ni escanear nada. Solo se listan `.mp4`, `.m4v` y `.mov` (lo que los teléfonos reproducen sin transcodificar); el resto, los ocultos y los symlinks que salgan de la carpeta se ignoran. El `id` son los 16 primeros caracteres del sha1 de la ruta relativa: no cambia al reiniciar, y cambia si se renombra o se mueve el archivo. El artista sale de la carpeta, el año del `(AAAA)` del final del nombre y el título del nombre sin el año; la duración se lee de la pista de audio del MP4 y es `null` si no se puede. Usan la misma autenticación que `/stream` (Bearer o `?token=`).
 
 ## Variables de entorno
 
@@ -366,6 +372,7 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 |----------|---------|-------------|
 | `PORT` | `3000` | Puerto del servidor |
 | `MUSIC_DIR` | `../music` | Raíz de la biblioteca a escanear (en Docker: `/music`) |
+| `VIDEO_DIR` | *(vacía)* | Carpeta de videos (en Docker: `/videos`, montada `:ro` desde `/mnt/storage/Video`, fuera de `MUSIC_DIR`). Vacía o inexistente = `GET /api/videos` responde una lista vacía y queda un aviso en el log |
 | `JWT_SECRET` | `change-me-in-production` | Clave secreta para firmar tokens |
 | `GOOGLE_IOS_CLIENT_ID` | *(vacía)* | ID del cliente OAuth de **iOS** con el que la app pide el token de Google: es la audiencia que se exige. Vacía = `POST /api/auth/google` responde `503` |
 | `GOOGLE_FAKE` | *(vacía)* | **Solo pruebas locales.** Con `1`, un verificador falso acepta `fake:<correo>`. Con `NODE_ENV=production` el servidor **no arranca** |

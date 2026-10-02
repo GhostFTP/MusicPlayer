@@ -3,6 +3,12 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.20.0] - 2026-10-01
+
+### Añadido
+- **Videos**: el servidor ya puede mostrar y transmitir videos (conciertos); se estrena en
+  la app pronto.
+
 ## [1.19.0] - 2026-09-19
 
 ### Añadido
