@@ -9,6 +9,10 @@ services:
       NODE_ENV: production
       PORT: "3000"
       MUSIC_DIR: /music
+      # 🎬 Videos (opcional): la carpeta montada abajo. Si falta o no existe, el servidor
+      # arranca igual y GET /api/videos responde una lista vacía. Va FUERA de /music a
+      # propósito: el escáner de música recorre todo MUSIC_DIR y no tiene por qué ver videos.
+      VIDEO_DIR: /videos
       # Falla aposta el arranque si no lo defines en Dokploy (evita el default inseguro)
       JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET en las env vars de Dokploy}
       # Auto-login vía Cloudflare Access (opcional). Si ambas están vacías, el
@@ -24,6 +28,9 @@ services:
       # 🎵 Biblioteca de música: host /mnt/storage/Musica → contenedor /music/Musica, SOLO LECTURA.
       #    El ":ro" lo impone el kernel: nada del contenedor puede escribir tu música.
       - /mnt/storage/Musica:/music/Musica:ro
+      # 🎬 Videos: host /mnt/storage/Video → contenedor /videos, SOLO LECTURA. Forma:
+      #    <Artista>/<Título (año)>.mp4, con la portada al lado (<Título (año)>.jpg).
+      - /mnt/storage/Video:/videos:ro
       # 💾 Datos persistentes (music.db + WAL + covers/) entre reinicios/redeploys.
       - musicplayer-data:/app/music-server/data
     expose:

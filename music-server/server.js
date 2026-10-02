@@ -17,6 +17,7 @@ import meRoutes        from './src/api/me.js';
 import usersRoutes     from './src/api/users.js';
 import adminUsersRoutes from './src/api/admin-users.js';
 import streamRoutes    from './src/stream/stream.js';
+import { videosApi, videosStream } from './src/videos/routes.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const DIST  = join(__dir, 'public');
@@ -43,6 +44,9 @@ app.use('/api/me',        meRoutes);
 // son rutas distintas, no una anidada en la otra: esta no pide rol.
 app.use('/api/users',     usersRoutes);
 app.use('/api/admin/users', adminUsersRoutes);
+app.use('/api/videos',    videosApi);
+// Antes que /stream: /stream/video/:id es del video, no un track con id "video".
+app.use('/stream/video',  videosStream);
 app.use('/stream',        streamRoutes);
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

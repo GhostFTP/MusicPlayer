@@ -10,7 +10,7 @@ const router = Router();
 // No pasa por authMiddleware, así que la comprobación de que la cuenta EXISTE (1.19.0)
 // está repetida acá con la misma función: sin ella, una cuenta borrada seguiría
 // escuchando música con su token viejo hasta que venciera (ver auth/jwt.js).
-function resolveUser(req) {
+export function resolveUser(req) {
   const header = req.headers.authorization ?? '';
   const token = header.startsWith('Bearer ')
     ? header.slice(7)
@@ -35,17 +35,24 @@ router.get('/:id', (req, res) => {
   try { stat = statSync(track.file_path); }
   catch { return res.status(404).json({ error: 'File not found on disk' }); }
 
-  const fileSize = stat.size;
+  enviarConRange(req, res, track.file_path, track.mime_type, stat.size);
+});
+
+// El manejo de Range, sacado del handler de arriba con la misma lógica (solo cambian los
+// nombres de la ruta y del tipo) para que lo use también el stream de video
+// (src/videos/routes.js). Sin Range manda el archivo entero (200); con Range, el pedazo
+// (206 + Content-Range); un rango imposible, 416.
+export function enviarConRange(req, res, filePath, mimeType, fileSize) {
   const rangeHeader = req.headers.range;
 
   if (!rangeHeader) {
     // Sin Range: enviamos el archivo completo (útil para descargas)
     res.writeHead(200, {
-      'Content-Type': track.mime_type,
+      'Content-Type': mimeType,
       'Content-Length': fileSize,
       'Accept-Ranges': 'bytes',
     });
-    createReadStream(track.file_path).pipe(res);
+    createReadStream(filePath).pipe(res);
     return;
   }
 
@@ -65,10 +72,10 @@ router.get('/:id', (req, res) => {
     'Content-Range': `bytes ${start}-${end}/${fileSize}`,
     'Accept-Ranges': 'bytes',
     'Content-Length': chunkSize,
-    'Content-Type': track.mime_type,
+    'Content-Type': mimeType,
   });
 
-  createReadStream(track.file_path, { start, end }).pipe(res);
-});
+  createReadStream(filePath, { start, end }).pipe(res);
+}
 
 export default router;

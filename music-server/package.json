@@ -1,6 +1,6 @@
 {
   "name": "music-server",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "description": "Personal music streaming server",
   "main": "server.js",
   "type": "module",
@@ -13,6 +13,7 @@
     "smoke:account": "node --env-file-if-exists=.env scripts/smoke-account.mjs",
     "smoke:upsert": "node scripts/upsert-identity.mjs",
     "smoke:google": "node scripts/smoke-google.mjs",
+    "smoke:videos": "node scripts/smoke-videos.mjs",
     "build": "cd ../music-client && npm run build && cp -r dist ../music-server/public",
     "build:prod": "npm run build && NODE_ENV=production node server.js"
   },
