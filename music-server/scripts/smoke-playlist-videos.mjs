@@ -1,5 +1,6 @@
 // Smoke test de los VIDEOS EN PLAYLISTS (1.21.0): GET, POST y DELETE en
-// /api/playlists/:id/videos, y la tabla playlist_videos.
+// /api/playlists/:id/videos, y la tabla playlist_videos. Desde la 1.21.1, también
+// `video_count` en GET /api/playlists y `year` en GET /:id/videos (sección [9b]).
 //
 // CÓMO SE CORRE
 //   npm run smoke:playlist-videos
@@ -63,9 +64,11 @@ const VIDEOS = join(dir, 'videos');
 const ALICIA = 'Alicia Keys/NPR Music Tiny Desk Concert (2020).mp4';
 const TYLER = 'Tyler, the Creator/NPR Music Tiny Desk Concert (2017).mp4';
 const BORRABLE = 'Tyler, the Creator/Se va (2018).mp4';
+const SIN_ANIO = 'Alicia Keys/Ensayo.mp4'; // sin "(AAAA)": disponible, pero sin año
 const ID_ALICIA = idDeRuta(ALICIA);
 const ID_TYLER = idDeRuta(TYLER);
 const ID_BORRABLE = idDeRuta(BORRABLE);
+const ID_SIN_ANIO = idDeRuta(SIN_ANIO);
 const ID_FANTASMA = 'ffffffffffffffff'; // forma válida, pero no es ningún video
 
 // Un MP4 mínimo con una pista de audio, para que music-metadata saque la duración (125,5 s).
@@ -103,6 +106,7 @@ writeFileSync(join(VIDEOS, ALICIA), mp4Minimo());
 writeFileSync(join(VIDEOS, 'Alicia Keys/NPR Music Tiny Desk Concert (2020).jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]));
 writeFileSync(join(VIDEOS, TYLER), Buffer.alloc(2000));
 writeFileSync(join(VIDEOS, BORRABLE), Buffer.alloc(300));
+writeFileSync(join(VIDEOS, SIN_ANIO), Buffer.alloc(100));
 
 const env = { ...process.env };
 for (const k of ['GOOGLE_IOS_CLIENT_ID', 'GOOGLE_FAKE', 'CF_ACCESS_TEAM_DOMAIN', 'CF_ACCESS_AUD', 'PORT', 'VIDEO_DIR']) delete env[k];
@@ -217,9 +221,10 @@ try {
       'Alicia: disponible, con duración y portada', JSON.stringify(a));
     check(t?.id === ID_TYLER && t?.available === true && t?.size === 2000 && t?.has_cover === false,
       'Tyler: disponible, tamaño 2000 y sin portada', JSON.stringify(t));
+    check(a?.year === 2020 && t?.year === 2017, 'year (1.21.1): el del índice, 2020 y 2017', `${a?.year} ${t?.year}`);
     const claves = Object.keys(a ?? {}).sort().join();
-    check(claves === 'added_at,artist,available,duration,has_cover,id,position,size,title',
-      'cada video trae exactamente sus nueve campos (y ninguna ruta del disco)', claves);
+    check(claves === 'added_at,artist,available,duration,has_cover,id,position,size,title,year',
+      'cada video trae exactamente sus diez campos (y ninguna ruta del disco)', claves);
     check(typeof a?.added_at === 'string' && a.added_at.length > 0, 'added_at viene', String(a?.added_at));
 
     const otra = await pedir(principal, 'POST', '/api/playlists/700001/videos', { body: { video_ids: [ID_TYLER, ID_BORRABLE] } });
@@ -271,6 +276,7 @@ try {
       'GET con 500: los que no están en el índice salen available:false con su título guardado', `${g.data?.videos?.length} ${ausentes.length}`);
     check(ausentes[0].duration === null && ausentes[0].size === null && ausentes[0].has_cover === false,
       'un ausente trae duration y size null y has_cover false', JSON.stringify(ausentes[0]));
+    check(ausentes[0].year === null, 'un ausente trae year null (1.21.1)', JSON.stringify(ausentes[0]));
   }
 
   // ---- [6] DELETE ----
@@ -302,6 +308,7 @@ try {
     check(g.data?.index === 'ok', 'el índice sigue ok', g.data?.index);
     check(b?.available === false && b?.title === 'Se va' && b?.artist === 'Tyler, the Creator',
       'sale available:false con el título y el artista guardados', JSON.stringify(b));
+    check(b?.year === null, 'available:false → year null (la fila no guarda el año)', JSON.stringify(b));
     const a = (g.data?.videos ?? []).find((v) => v.id === ID_ALICIA);
     check(a?.available === true, 'los demás siguen disponibles', JSON.stringify(a));
   }
@@ -316,6 +323,7 @@ try {
     check(g.status === 200 && g.data?.index === 'unavailable', `${srv.nombre}: GET → 200 con index unavailable`, `${g.status} ${g.text}`);
     check(v?.available === null && v?.title === 'NPR Music Tiny Desk Concert' && v?.duration === null && v?.has_cover === null,
       `${srv.nombre}: el video sale available:null (no se sabe), con su título guardado`, JSON.stringify(v));
+    check(v?.year === null, `${srv.nombre}: available:null → year null`, JSON.stringify(v));
     const p = await pedir(srv, 'POST', '/api/playlists/700004/videos', { body: { video_id: ID_TYLER } });
     check(p.status === 503 && p.data?.error === 'video index unavailable', `${srv.nombre}: POST → 503`, `${p.status} ${p.text}`);
     const pl = await pedir(srv, 'POST', '/api/playlists/700004/videos', { body: { video_ids: [ID_TYLER] } });
@@ -330,14 +338,56 @@ try {
   {
     const lista = await pedir(principal, 'GET', '/api/playlists');
     const claves = [...new Set((lista.data ?? []).flatMap((p) => Object.keys(p)))].join();
-    check(claves === 'id,name,emoji,user_id,created_at,track_count,sample_covers',
-      'GET /api/playlists no gana ningún campo', claves);
+    check(claves === 'id,name,emoji,user_id,created_at,track_count,sample_covers,video_count',
+      'GET /api/playlists: los campos de siempre, en su orden, y video_count AL FINAL (1.21.1)', claves);
     const c = (lista.data ?? []).find((p) => p.id === 700001);
     check(c?.track_count === 0, 'los videos no cuentan como pistas (track_count 0)', JSON.stringify(c));
     const v = await pedir(principal, 'GET', '/api/videos');
-    check(Object.keys(v.data ?? {}).join() === 'videos' && v.data.videos.length === 2, '/api/videos sigue igual: { videos }, con los 2 que quedan', v.text);
+    check(Object.keys(v.data ?? {}).join() === 'videos' && v.data.videos.length === 3, '/api/videos sigue igual: { videos }, con los 3 que quedan', v.text);
     const tracks = await pedir(principal, 'GET', '/api/playlists/700001/tracks');
     check(tracks.status === 200 && tracks.text === '[]', 'GET /:id/tracks no ve los videos', tracks.text);
+  }
+
+  // ---- [9b] video_count y year (1.21.1) ----
+  console.log('\n[9b] video_count y year (1.21.1)');
+  {
+    // Una playlist con 2 CANCIONES y 3 VIDEOS: si video_count fuera otro LEFT JOIN, el GROUP BY
+    // multiplicaría las filas y track_count daría 6. Una vacía, para el 0.
+    crearPlaylist(700005, 'Mezcla');
+    crearPlaylist(700006, 'Vacía');
+    const pista = db.prepare('INSERT INTO tracks (id, title, file_path) VALUES (?, ?, ?)');
+    pista.run(800001, 'Pista 1', join(dir, 'p1.flac'));
+    pista.run(800002, 'Pista 2', join(dir, 'p2.flac'));
+    const pt = db.prepare('INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (700005, ?, ?)');
+    pt.run(800001, 1); pt.run(800002, 2);
+    const r = await pedir(principal, 'POST', '/api/playlists/700005/videos', { body: { video_ids: [ID_ALICIA, ID_TYLER, ID_SIN_ANIO] } });
+    check(r.status === 201 && r.data?.added === 3, 'la playlist de prueba recibe 3 videos', `${r.status} ${r.text}`);
+
+    const fila = async (id) => ((await pedir(principal, 'GET', '/api/playlists')).data ?? []).find((p) => p.id === id);
+    const m = await fila(700005);
+    check(m?.video_count === 3, 'video_count cuenta los videos (3)', JSON.stringify(m));
+    check(m?.track_count === 2, 'track_count INTACTO con videos en la playlist (2, no 6)', JSON.stringify(m));
+    check(m?.sample_covers === '[]', 'sample_covers igual que antes (las pistas no tienen carátula)', JSON.stringify(m));
+    const vacia = await fila(700006);
+    check(vacia?.video_count === 0 && vacia?.track_count === 0, 'playlist sin nada → video_count 0 y track_count 0', JSON.stringify(vacia));
+    const c1 = await fila(700001);
+    check(c1?.video_count === filas(700001).length && c1?.track_count === 0,
+      'una playlist solo con videos: video_count = sus filas, track_count 0 (incluye los que ya no existen)', JSON.stringify(c1));
+
+    const d = await pedir(principal, 'DELETE', `/api/playlists/700005/videos/${ID_TYLER}`);
+    check(d.status === 204, 'quitar un video → 204', String(d.status));
+    const m2 = await fila(700005);
+    check(m2?.video_count === 2 && m2?.track_count === 2, 'video_count baja a 2 tras el DELETE; track_count sigue en 2', JSON.stringify(m2));
+
+    const g = await pedir(principal, 'GET', '/api/playlists/700005/videos');
+    const sinAnio = (g.data?.videos ?? []).find((v) => v.id === ID_SIN_ANIO);
+    check(sinAnio?.available === true && sinAnio?.year === null,
+      'disponible sin "(AAAA)" en el nombre → year null', JSON.stringify(sinAnio));
+    const conAnio = (g.data?.videos ?? []).find((v) => v.id === ID_ALICIA);
+    check(conAnio?.year === 2020, 'disponible con "(2020)" → year 2020', JSON.stringify(conAnio));
+
+    const ajena = await pedir(principal, 'GET', '/api/playlists');
+    check(!(ajena.data ?? []).some((p) => p.id === 700009), 'video_count no cambia el filtro por dueño (la ajena no aparece)');
   }
 
   // ---- [10] Borrar la playlist se lleva sus videos ----
