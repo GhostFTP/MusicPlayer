@@ -1,3 +1,4 @@
+import { memo, useCallback, useRef } from 'react';
 import { coverUrl } from '../api/client.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
@@ -30,39 +31,63 @@ export default function AlbumGrid({ albums, onOpen, secondary = 'artist', hue })
   // cerrada. No trae onPointerDown → no le pisa el suyo a bindPress, así que el long-press del
   // menú en móvil sigue igual; y como el arrastre suprime el click, abrir el álbum tampoco cambia.
   const { dragProps } = useDragQueue();
+
+  // Handlers ESTABLES para GridAlbumCard (memo). `onOpen` llega inline desde Artistas/Años (se
+  // recrea en cada render del padre) → se lee por ref para no romperle el memo a las tarjetas.
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+  const openCard = useCallback((album) => onOpenRef.current(album), []);
+  const onCtx = useCallback((e, album) => openMenu(e, { type: 'album', item: album }), [openMenu]);
+
   return (
     <div className="album-grid album-grid-anim" style={hue != null ? { '--h': hue } : undefined}>
       {albums.map((album, i) => (
-        <div
+        <GridAlbumCard
           key={`${album.album}-${album.album_artist}`}
-          className="album-card"
-          style={{ '--i': i }}
-          {...bindPress(album, {
-            onClick: () => onOpen(album),
-            onContextMenu: (e) => openMenu(e, { type: 'album', item: album }),
-          })}
-          {...dragProps(album, 'album')}
-        >
-          {/* Marco que recorta el zoom-on-hover de la carátula (overflow:hidden) sin que
-              la imagen desborde sus esquinas redondeadas. NADA la tapa. */}
-          <div className="album-cover-frame">
-            {/* draggable={false}: una <img> es arrastrable NATIVAMENTE y la carátula ES la
-                tarjeta — sin esto, agarrar por ahí arrancaría el arrastre de la imagen en vez
-                del de la tarjeta y el drop no encolaría nada. */}
-            {album.sample_track_id
-              ? <img className="album-cover" src={coverUrl(album.sample_track_id, { thumb: true })} alt="" loading="lazy" draggable={false} />
-              : <div className="album-cover-placeholder">♫</div>
-            }
-          </div>
-          {/* En modo año el kicker va ARRIBA del título: es la cronología la que ordena la
-              grilla, así que el año se lee primero. Sin año conocido, se reserva el hueco
-              para que las tarjetas no queden desalineadas entre sí. */}
-          {byYear && <div className="album-year">{album.year ?? '—'}</div>}
-          <div className="album-name">{album.album}</div>
-          {!byYear && <div className="album-artist">{album.album_artist ?? '—'}</div>}
-          <div className="album-count">{album.track_count} canciones</div>
-        </div>
+          album={album}
+          index={i}
+          byYear={byYear}
+          bindPress={bindPress}
+          dragProps={dragProps}
+          onOpen={openCard}
+          onCtx={onCtx}
+        />
       ))}
     </div>
   );
 }
+
+// Tarjeta memoizada. El `style={{ '--i' }}` del escalonado se arma ACÁ adentro: como objeto inline en
+// el padre sería una prop nueva en cada render.
+const GridAlbumCard = memo(function GridAlbumCard({ album, index, byYear, bindPress, dragProps, onOpen, onCtx }) {
+  return (
+    <div
+      className="album-card"
+      style={{ '--i': index }}
+      {...bindPress(album, {
+        onClick: () => onOpen(album),
+        onContextMenu: (e) => onCtx(e, album),
+      })}
+      {...dragProps(album, 'album')}
+    >
+      {/* Marco que recorta el zoom-on-hover de la carátula (overflow:hidden) sin que
+          la imagen desborde sus esquinas redondeadas. NADA la tapa. */}
+      <div className="album-cover-frame">
+        {/* draggable={false}: una <img> es arrastrable NATIVAMENTE y la carátula ES la
+            tarjeta — sin esto, agarrar por ahí arrancaría el arrastre de la imagen en vez
+            del de la tarjeta y el drop no encolaría nada. */}
+        {album.sample_track_id
+          ? <img className="album-cover" src={coverUrl(album.sample_track_id, { thumb: true })} alt="" loading="lazy" draggable={false} />
+          : <div className="album-cover-placeholder">♫</div>
+        }
+      </div>
+      {/* En modo año el kicker va ARRIBA del título: es la cronología la que ordena la
+          grilla, así que el año se lee primero. Sin año conocido, se reserva el hueco
+          para que las tarjetas no queden desalineadas entre sí. */}
+      {byYear && <div className="album-year">{album.year ?? '—'}</div>}
+      <div className="album-name">{album.album}</div>
+      {!byYear && <div className="album-artist">{album.album_artist ?? '—'}</div>}
+      <div className="album-count">{album.track_count} canciones</div>
+    </div>
+  );
+});

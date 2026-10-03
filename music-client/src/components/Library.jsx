@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
@@ -101,6 +101,12 @@ export default function Library({ target, clearTarget }) {
     () => sortTracks(tracks, sortMode, sortDir),
     [tracks, sortMode, sortDir]
   );
+
+  // Handlers ESTABLES para LibraryRow (memo): la fila los llama con SUS datos (índice / pista), así
+  // ninguna closure nueva por render le rompe el memo. onPlay sólo cambia si cambia la lista visible
+  // — y ahí todas las filas cambian de verdad.
+  const onPlay = useCallback((i) => play(displayTracks, i), [play, displayTracks]);
+  const onCtx  = useCallback((e, track) => openMenu(e, { type: 'track', item: track }), [openMenu]);
 
   // Contador animado: el número sube 0→N SOLO en la carga inicial; en búsqueda
   // snapea + tick (ver useCountUp). El pill queda montado desde el primer load
@@ -230,53 +236,17 @@ export default function Library({ target, clearTarget }) {
             {displayTracks.map((track, i) => {
               const active = currentTrack?.id === track.id;
               return (
-                <tr
+                <LibraryRow
                   key={track.id}
-                  className={`track-row${active ? ' playing' : ''}`}
-                  {...bindPress(track, {
-                    onClick: () => play(displayTracks, i),
-                    onContextMenu: (e) => openMenu(e, { type: 'track', item: track }),
-                  })}
-                  {...dragProps(track)}
-                >
-                  <td className="col-num">
-                    <span className={`track-num${active ? ' active' : ''}`}>
-                      {active && isPlaying ? '▶' : i + 1}
-                    </span>
-                    <span className="track-play-icon">▶</span>
-                  </td>
-                  <td>
-                    <div className="track-info-cell">
-                      {/* draggable={false}: ver TrackTable — si no, agarrar por la carátula
-                          arrancaría el arrastre nativo de la imagen en vez del de la fila. */}
-                      {track.cover_path
-                        ? <img className="track-art" src={coverUrl(track.id, { thumb: true })} alt="" loading="lazy" draggable={false} />
-                        : <div className="track-art-placeholder">♪</div>
-                      }
-                      <div className="track-text">
-                        <div className={`track-title${active ? ' active' : ''}`}>
-                          {track.title ?? 'Sin título'}
-                        </div>
-                        <div className="track-sub">
-                          <span className="track-artist">{track.artist ?? '—'}</span>
-                          {/* En móvil las columnas colapsan: el chip viaja junto al título */}
-                          <QualityChip track={track} className="chip-inline" />
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="col-artist track-artist">{track.artist ?? '—'}</td>
-                  <td className="col-album track-album">{track.album ?? '—'}</td>
-                  <td className="col-quality">
-                    <QualityChip track={track} />
-                  </td>
-                  <td className="col-time">{fmt(track.duration)}</td>
-                  {/* Ver el comentario de TrackTable: el "⋯" reemplaza al "+" (playlist es un
-                      ítem del menú desde la fase D) y en modo lista manda el clic derecho. */}
-                  <td className="col-actions">
-                    <ContextMenuButton type="track" item={track} />
-                  </td>
-                </tr>
+                  track={track}
+                  index={i}
+                  active={active}
+                  playing={active && isPlaying}
+                  bindPress={bindPress}
+                  dragProps={dragProps}
+                  onPlay={onPlay}
+                  onCtx={onCtx}
+                />
               );
             })}
           </tbody>
@@ -286,6 +256,61 @@ export default function Library({ target, clearTarget }) {
     </div>
   );
 }
+
+// Fila memoizada. Props primitivas o estables: `active`/`playing` se calculan en el padre, así que
+// al cambiar de canción sólo cambian 2 filas (la que deja de sonar y la nueva) y en play/pausa 1.
+// bindPress (useLongPress) y dragProps (useDragQueue) son estables; onPlay/onCtx vienen con
+// useCallback. Las closures de abajo se crean SÓLO cuando la fila se re-renderiza.
+const LibraryRow = memo(function LibraryRow({ track, index, active, playing, bindPress, dragProps, onPlay, onCtx }) {
+  return (
+    <tr
+      className={`track-row${active ? ' playing' : ''}`}
+      {...bindPress(track, {
+        onClick: () => onPlay(index),
+        onContextMenu: (e) => onCtx(e, track),
+      })}
+      {...dragProps(track)}
+    >
+      <td className="col-num">
+        <span className={`track-num${active ? ' active' : ''}`}>
+          {playing ? '▶' : index + 1}
+        </span>
+        <span className="track-play-icon">▶</span>
+      </td>
+      <td>
+        <div className="track-info-cell">
+          {/* draggable={false}: ver TrackTable — si no, agarrar por la carátula
+              arrancaría el arrastre nativo de la imagen en vez del de la fila. */}
+          {track.cover_path
+            ? <img className="track-art" src={coverUrl(track.id, { thumb: true })} alt="" loading="lazy" draggable={false} />
+            : <div className="track-art-placeholder">♪</div>
+          }
+          <div className="track-text">
+            <div className={`track-title${active ? ' active' : ''}`}>
+              {track.title ?? 'Sin título'}
+            </div>
+            <div className="track-sub">
+              <span className="track-artist">{track.artist ?? '—'}</span>
+              {/* En móvil las columnas colapsan: el chip viaja junto al título */}
+              <QualityChip track={track} className="chip-inline" />
+            </div>
+          </div>
+        </div>
+      </td>
+      <td className="col-artist track-artist">{track.artist ?? '—'}</td>
+      <td className="col-album track-album">{track.album ?? '—'}</td>
+      <td className="col-quality">
+        <QualityChip track={track} />
+      </td>
+      <td className="col-time">{fmt(track.duration)}</td>
+      {/* Ver el comentario de TrackTable: el "⋯" reemplaza al "+" (playlist es un
+          ítem del menú desde la fase D) y en modo lista manda el clic derecho. */}
+      <td className="col-actions">
+        <ContextMenuButton type="track" item={track} />
+      </td>
+    </tr>
+  );
+});
 
 // Modos del Riel de orden. "Artista" NO es un sort plano: delega en groupedCompare
 // (album_artist → álbum → track#) para no romper la agrupación de Various Artists

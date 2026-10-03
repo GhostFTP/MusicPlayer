@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
@@ -18,6 +18,16 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   const bindPress = useLongPress((album, ev) => openMenu(ev, { type: 'album', item: album, via: 'longpress' }));
   // Drag-to-enqueue fase (b): misma tarjeta que AlbumGrid, mismo trato (ver el comentario de allá).
   const { dragProps } = useDragQueue();
+
+  // Handlers ESTABLES para AlbumCard (memo). `navigate` llega de Layout y se recrea en cada render
+  // de Layout → se lee por ref para que el callback no cambie de identidad.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const onOpen = useCallback(
+    (album) => navigateRef.current('albums', { album: album.album, album_artist: album.album_artist }),
+    [],
+  );
+  const onCtx = useCallback((e, album) => openMenu(e, { type: 'album', item: album }), [openMenu]);
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -136,27 +146,41 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
 
       <div className="album-grid">
         {albums.map(album => (
-          <div
+          <AlbumCard
             key={`${album.album}-${album.album_artist}`}
-            className="album-card"
-            {...bindPress(album, {
-              onClick: () => navigate('albums', { album: album.album, album_artist: album.album_artist }),
-              onContextMenu: (e) => openMenu(e, { type: 'album', item: album }),
-            })}
-            {...dragProps(album, 'album')}
-          >
-            {/* draggable={false}: ver AlbumGrid — si no, agarrar por la carátula arrancaría el
-                arrastre nativo de la imagen en vez del de la tarjeta. */}
-            {album.sample_track_id
-              ? <img className="album-cover" src={coverUrl(album.sample_track_id, { thumb: true })} alt="" loading="lazy" draggable={false} />
-              : <div className="album-cover-placeholder">♫</div>
-            }
-            <div className="album-name">{album.album}</div>
-            <div className="album-artist">{album.album_artist ?? '—'}</div>
-            <div className="album-count">{album.track_count} canciones</div>
-          </div>
+            album={album}
+            bindPress={bindPress}
+            dragProps={dragProps}
+            onOpen={onOpen}
+            onCtx={onCtx}
+          />
         ))}
       </div>
     </div>
   );
 }
+
+// Tarjeta memoizada: Albums se re-renderiza al cambiar de canción (consume PlayerContext por `play`),
+// pero con props estables las tarjetas no.
+const AlbumCard = memo(function AlbumCard({ album, bindPress, dragProps, onOpen, onCtx }) {
+  return (
+    <div
+      className="album-card"
+      {...bindPress(album, {
+        onClick: () => onOpen(album),
+        onContextMenu: (e) => onCtx(e, album),
+      })}
+      {...dragProps(album, 'album')}
+    >
+      {/* draggable={false}: ver AlbumGrid — si no, agarrar por la carátula arrancaría el
+          arrastre nativo de la imagen en vez del de la tarjeta. */}
+      {album.sample_track_id
+        ? <img className="album-cover" src={coverUrl(album.sample_track_id, { thumb: true })} alt="" loading="lazy" draggable={false} />
+        : <div className="album-cover-placeholder">♫</div>
+      }
+      <div className="album-name">{album.album}</div>
+      <div className="album-artist">{album.album_artist ?? '—'}</div>
+      <div className="album-count">{album.track_count} canciones</div>
+    </div>
+  );
+});

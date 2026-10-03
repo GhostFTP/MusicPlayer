@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
@@ -25,6 +25,13 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   // (no trae onPointerDown). Acá no hace falta ningún draggable={false}: la tarjeta no tiene <img>
   // —su "carátula" es el emoji, que es texto— así que no hay imagen que robe el arrastre.
   const { dragProps } = useDragQueue();
+
+  // Handlers ESTABLES para GenreItem (memo). `navigate` llega de Layout y se recrea con cada render
+  // de Layout → por ref.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const onOpen = useCallback((g) => navigateRef.current('genres', { genre: g.genre }), []);
+  const onCtx  = useCallback((e, g) => openMenu(e, { type: 'genre', item: g }), [openMenu]);
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -118,24 +125,39 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
       </div>
       <ul className="browse-list">
         {genres.map((g, idx) => (
-          <li
+          <GenreItem
             key={g.genre}
-            className="browse-item genre-item"
-            style={{ '--h': emojiHue(genreEmoji(g.genre)), '--i': idx }}
-            {...bindPress(g, {
-              onClick: () => navigate('genres', { genre: g.genre }),
-              onContextMenu: (e) => openMenu(e, { type: 'genre', item: g }),
-            })}
-            {...dragProps(g, 'genre')}
-          >
-            <span className="genre-item-main">
-              <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>
-              <span className="browse-item-name">{g.genre}</span>
-            </span>
-            <span className="browse-item-meta">{g.track_count} pistas · {g.album_count} álbumes</span>
-          </li>
+            g={g}
+            index={idx}
+            bindPress={bindPress}
+            dragProps={dragProps}
+            onOpen={onOpen}
+            onCtx={onCtx}
+          />
         ))}
       </ul>
     </div>
   );
 }
+
+// Tarjeta memoizada: Genres consume PlayerContext (por `play`) y se re-renderiza al cambiar de canción;
+// con props estables las tarjetas no. El style (hue + escalonado) se arma adentro.
+const GenreItem = memo(function GenreItem({ g, index, bindPress, dragProps, onOpen, onCtx }) {
+  return (
+    <li
+      className="browse-item genre-item"
+      style={{ '--h': emojiHue(genreEmoji(g.genre)), '--i': index }}
+      {...bindPress(g, {
+        onClick: () => onOpen(g),
+        onContextMenu: (e) => onCtx(e, g),
+      })}
+      {...dragProps(g, 'genre')}
+    >
+      <span className="genre-item-main">
+        <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>
+        <span className="browse-item-name">{g.genre}</span>
+      </span>
+      <span className="browse-item-meta">{g.track_count} pistas · {g.album_count} álbumes</span>
+    </li>
+  );
+});
