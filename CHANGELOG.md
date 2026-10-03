@@ -3,6 +3,14 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.21.0] - 2026-10-02
+
+### Añadido
+- **Videos en tus playlists**: el servidor ya puede guardar videos dentro de una playlist,
+  además de canciones; se estrena en la app pronto. Si un video se borra o se le cambia el
+  nombre en el servidor, la playlist no lo pierde de vista: sigue sabiendo cuál era y lo
+  marca como no disponible. Caben hasta 500 videos por playlist.
+
 ## [1.20.0] - 2026-10-01
 
 ### Añadido

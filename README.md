@@ -348,6 +348,9 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 | GET | `/api/playlists/:id/tracks` | Canciones de una playlist |
 | POST | `/api/playlists/:id/tracks` | Añadir canción a playlist |
 | DELETE | `/api/playlists/:id/tracks/:trackId` | Quitar canción de playlist |
+| GET | `/api/playlists/:id/videos` | Videos de una playlist: `{ index, videos: [{ id, position, added_at, title, artist, available, duration, size, has_cover }] }`, por `position` |
+| POST | `/api/playlists/:id/videos` | Añadir videos: `{ video_ids: [...] }` → `201 { added, already, skipped }`, o `{ video_id }` → `201 { position }` / `200 { already: true }` / `404`. Máx. 200 por envío (`413`) y 500 por playlist (`409`, no inserta ninguno); `503` si no se pudo leer `VIDEO_DIR` |
+| DELETE | `/api/playlists/:id/videos/:videoId` | Quitar un video de la playlist (`204`, también si no estaba) |
 | GET | `/api/me` | Quién soy: id, usuario, **correo**, **rol**, **avatar** y fecha de alta |
 | PATCH | `/api/me` | Cambiar **una** cosa mía: `username`, `newPassword` (+`currentPassword`) o `emoji`. Devuelve `{ me, token }` |
 | PUT | `/api/me/avatar` | Subir mi **foto**. El cuerpo *es* la imagen (JPEG/PNG/WebP, máx. 6 MB) |
@@ -365,6 +368,8 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 | GET | `/stream/video/:id` | Stream de video con Range Requests (el mismo manejo que el audio) |
 
 **Los videos** no pasan por el escáner ni por la base: el servidor lee `VIDEO_DIR` (en Docker, `/videos`; dos niveles, `<Artista>/<Título (año)>.mp4`) y guarda el índice en memoria, que se rehace solo cada minuto, así que un video subido con `scp` aparece sin reiniciar ni escanear nada. Solo se listan `.mp4`, `.m4v` y `.mov` (lo que los teléfonos reproducen sin transcodificar); el resto, los ocultos y los symlinks que salgan de la carpeta se ignoran. El `id` son los 16 primeros caracteres del sha1 de la ruta relativa: no cambia al reiniciar, y cambia si se renombra o se mueve el archivo. El artista sale de la carpeta, el año del `(AAAA)` del final del nombre y el título del nombre sin el año; la duración se lee de la pista de audio del MP4 y es `null` si no se puede. Usan la misma autenticación que `/stream` (Bearer o `?token=`).
+
+**Los videos de una playlist** van en su propia tabla (`playlist_videos`), aparte de las canciones: `GET /api/playlists` no cambia y `track_count` sigue contando solo canciones. Como un video no tiene fila en la base, cada uno se guarda con una copia de su título y su artista. `available` dice qué pasa con cada uno: `true` si está en el índice de videos (y entonces los datos son los de ahora), `false` si el índice se leyó y ese video ya no está —se borró o se renombró, y el `id` cambió—, y `null` si no se sabe porque el índice no se pudo leer (`index: "unavailable"`, por ejemplo sin `VIDEO_DIR`). Borrar la playlist se lleva sus videos. Estas rutas usan la sesión normal (Bearer), como el resto de `/api/playlists`.
 
 ## Variables de entorno
 
