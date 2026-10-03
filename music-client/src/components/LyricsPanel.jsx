@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
-import { usePlayer } from '../context/PlayerContext.jsx';
+import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
 
 // ── Río continuo (Dirección B) ─────────────────────────────────────────────
 // El cuerpo de karaoke NO scrollea nativo: el track (.lyrics-synced) se mueve por
@@ -106,7 +106,8 @@ function findActiveIdx(lines, t) {
 // Letra con el expandido (invariante: nunca expandido montado + Letra en modo
 // panel — su franja inferior taparía la barra real → "barra fantasma").
 export default function LyricsPanel({ onClose, immersive = false, onToggleImmersive }) {
-  const { currentTrack, currentTime, duration, isPlaying, seek } = usePlayer();
+  const { currentTrack, isPlaying, seek } = usePlayer();
+  const { currentTime, duration } = usePlayerTime();
   const [data, setData]       = useState(null);   // { instrumental, synced, lyrics }
   const [loading, setLoading] = useState(false);
   // Ajuste fino de sincronía por canción (segundos). Desplaza el tiempo efectivo

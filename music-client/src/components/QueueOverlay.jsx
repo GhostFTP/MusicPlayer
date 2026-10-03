@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { coverUrl } from '../api/client.js';
-import { usePlayer } from '../context/PlayerContext.jsx';
+import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
@@ -45,7 +45,7 @@ const LIFT = 'scale(1.03) rotate(-1.2deg)';
 // (cambian ~4 Hz). Al re-renderizarse por cada tick, SOLO se re-pinta ella — las filas de la cola
 // (memoizadas, con props estables por tick) NO se re-renderizan (cuidado 3: sin jank en 50 pistas).
 function NowPlayingProgress() {
-  const { currentTime, duration } = usePlayer();
+  const { currentTime, duration } = usePlayerTime();
   const pct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
   return (
     <div className="queue-progress" aria-hidden="true">

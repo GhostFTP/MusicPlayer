@@ -1,11 +1,16 @@
 import {
-  createContext, useContext, useRef, useState, useEffect, useCallback,
+  createContext, useContext, useRef, useState, useEffect, useCallback, useMemo,
 } from 'react';
 import { streamUrl, coverUrl } from '../api/client.js';
 import { resolveTrackMeta, isComplete } from '../utils/trackMeta.js';
 import { useAuth } from './AuthContext.jsx';
 
 const PlayerContext = createContext(null);
+// El tiempo va en un contexto APARTE: currentTime cambia en cada 'timeupdate' (~4 Hz) y, si
+// viajara en PlayerContext, re-renderizaría a TODO consumidor del player (las 680 filas de la
+// Biblioteca, la grilla de Álbumes…) aunque no muestre el tiempo. Sólo se suscriben acá los que
+// de verdad lo pintan: Player (barra + expandido), LyricsPanel y el progreso de la cola.
+const PlayerTimeContext = createContext(null);
 
 // Acciones de MediaSession que cableamos. Se listan aparte para poder desregistrarlas
 // todas en el cleanup sin repetir la lista.
@@ -438,20 +443,44 @@ export function PlayerProvider({ children }) {
     } catch { /* motor viejo → sin scrubber; el resto sigue */ }
   }, [currentTime, duration]);
 
+  // Se lee del ref en cada render del provider y entra como dep del useMemo de abajo: toda
+  // mutación que mueve idxRef (playIndex, insertar, quitar, reordenar) también setea estado
+  // (currentTrack o queue), así que el provider re-renderiza y el value se recalcula.
   const queueIndex = idxRef.current;
 
+  // _qid "a continuación" desde ESTADO (reactivo); forcedNextRef sigue siendo la verdad del motor.
+  // Memoizado: un Set nuevo por render invalidaba el value entero.
+  const upNext = useMemo(() => new Set(upNextIds), [upNextIds]);
+
+  // Value ESTABLE: sin currentTime/duration (viven en PlayerTimeContext), así que un tick de
+  // 'timeupdate' re-renderiza el provider pero NO cambia esta identidad → los consumidores que
+  // no pintan el tiempo no se enteran. Todas las funciones ya son useCallback estables.
+  const value = useMemo(() => ({
+    currentTrack, trackMeta, isPlaying, volume, queueIndex,
+    shuffle, repeat,
+    queue, upNext,
+    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+  }), [
+    currentTrack, trackMeta, isPlaying, volume, queueIndex, shuffle, repeat, queue, upNext,
+    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+  ]);
+
+  const timeValue = useMemo(() => ({ currentTime, duration }), [currentTime, duration]);
+
   return (
-    <PlayerContext.Provider value={{
-      currentTrack, trackMeta, isPlaying, currentTime, duration, volume, queueIndex,
-      shuffle, repeat,
-      queue, upNext: new Set(upNextIds),   // _qid "a continuación" desde ESTADO (reactivo); forcedNextRef sigue siendo la verdad del motor
-      play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
-    }}>
-      {children}
+    <PlayerContext.Provider value={value}>
+      <PlayerTimeContext.Provider value={timeValue}>
+        {children}
+      </PlayerTimeContext.Provider>
     </PlayerContext.Provider>
   );
 }
 
 export function usePlayer() {
   return useContext(PlayerContext);
+}
+
+// { currentTime, duration } — cambia ~4 Hz mientras suena. Usarlo SÓLO donde se pinta el tiempo.
+export function usePlayerTime() {
+  return useContext(PlayerTimeContext);
 }

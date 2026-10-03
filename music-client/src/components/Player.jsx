@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { usePlayer } from '../context/PlayerContext.jsx';
+import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
@@ -174,8 +174,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   const [repeatSpin, setRepeatSpin] = useState(false);
   const preMuteVol = useRef(0.7);          // volumen a restaurar al quitar el mute
   const player = usePlayer();
-  const { currentTrack, trackMeta, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
+  const { currentTrack, trackMeta, isPlaying, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
+  const { currentTime, duration } = usePlayerTime();   // ~4 Hz: Player SÍ pinta el tiempo (barra + expandido)
 
   // ── Estado del swipe de la carátula ──
   const [dragX, setDragX]     = useState(0);                // desplazamiento crudo durante el arrastre
