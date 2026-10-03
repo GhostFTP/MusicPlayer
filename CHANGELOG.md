@@ -3,6 +3,14 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.21.1] - 2026-10-03
+
+### Añadido
+- **La lista de playlists ya dice cuántos videos tiene cada una**, además de sus canciones,
+  para que la app pueda mostrarlo sin abrirlas una por una.
+- **Los videos de una playlist ahora traen su año**, como en la lista de videos. Un video
+  que ya no está en el servidor sigue sin año.
+
 ## [1.21.0] - 2026-10-02
 
 ### Añadido
