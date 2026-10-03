@@ -179,13 +179,30 @@ const MAX_VIDEOS_POR_ENVIO = 200;
 const MAX_VIDEOS_POR_PLAYLIST = 500;
 const ID_VIDEO = /^[0-9a-f]{16}$/;
 
+// GET y POST son async (esperan al índice de videos), y en Express 4 un throw DESPUÉS de un
+// await no lo atrapa nadie: es una promesa rechazada sin dueño, y Node 22 por defecto MATA
+// EL PROCESO (medido: exit 1). Un error de la base ahí —una tabla que no está, un
+// SQLITE_BUSY— tumbaría el servidor entero para todos. Esto lo convierte en un 500, con la
+// misma respuesta que `handle()` (api/handle.js): nada del mensaje de SQLite sale al
+// cliente. El log dice la ruta y el error; nunca el cuerpo, el token ni quién pidió.
+function protegido(ruta, fn) {
+  return async (req, res) => {
+    try {
+      await fn(req, res);
+    } catch (e) {
+      console.error(`[playlists/videos] ${ruta}:`, e);
+      if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
+    }
+  };
+}
+
 // GET /api/playlists/:id/videos → { index, videos }
 // `index` dice si el índice de videos se pudo leer ('ok' | 'unavailable'). Cada video:
 //   - available: true  → está en el índice; los datos son los de AHORA;
 //   - available: false → el índice se leyó y el video ya no está (se renombró o borró);
 //                        se devuelven el título y el artista guardados al agregarlo;
 //   - available: null  → no se sabe: el índice no se pudo leer. No es "desapareció".
-router.get('/:id/videos', async (req, res) => {
+router.get('/:id/videos', protegido('GET /:id/videos', async (req, res) => {
   const pl = db.prepare('SELECT id FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!pl) return res.status(404).json({ error: 'Playlist not found' });
 
@@ -214,14 +231,14 @@ router.get('/:id/videos', async (req, res) => {
     };
   });
   res.json({ index, videos });
-});
+}));
 
 // POST /api/playlists/:id/videos  { video_ids: [...] }  o  { video_id }
 // Las dos formas, como /tracks: la de lote devuelve { added, already, skipped } y la simple
 // responde como la simple de /tracks ({ position } con 201, { already: true } con 200, o
 // 404 si el video no está en el índice). Con el índice sin poder leerse, 503 y no se
 // inserta nada: sin índice no hay forma de saber si el id es un video de verdad.
-router.post('/:id/videos', async (req, res) => {
+router.post('/:id/videos', protegido('POST /:id/videos', async (req, res) => {
   const body = req.body ?? {};
   const bulk = Array.isArray(body.video_ids);
   const ids  = bulk ? body.video_ids : [body.video_id];
@@ -259,9 +276,17 @@ router.post('/:id/videos', async (req, res) => {
                              VALUES (?, ?, ?, ?, ?)`);
 
   // A mano, como /tracks: node:sqlite no tiene db.transaction().
+  //
+  // El BEGIN va DENTRO del try y `abierta` dice si de verdad se abrió: si falla el BEGIN no
+  // hay nada que deshacer. Si falla un INSERT o el COMMIT, se deshace todo. Y el ROLLBACK
+  // va en su propio try: si él también falla, el error no se escapa del handler; queda en
+  // el log y la respuesta es el mismo 500. (La conexión es UNA para todo el servidor, así
+  // que una transacción que quedara abierta bloquearía las escrituras de todos.)
   let added = 0, already = 0, skipped = 0;
-  db.exec('BEGIN');
+  let abierta = false;
   try {
+    db.exec('BEGIN');
+    abierta = true;
     for (const id of clean) {
       const v = indice.porId.get(id);
       if (!v) { skipped++; continue; }
@@ -269,8 +294,13 @@ router.post('/:id/videos', async (req, res) => {
       if (r.changes) { added++; position++; } else already++;
     }
     db.exec('COMMIT');
-  } catch {
-    db.exec('ROLLBACK');
+    abierta = false;
+  } catch (e) {
+    console.error('[playlists/videos] POST /:id/videos: no se pudieron agregar:', e);
+    if (abierta) {
+      try { db.exec('ROLLBACK'); }
+      catch (e2) { console.error('[playlists/videos] POST /:id/videos: el ROLLBACK también falló:', e2); }
+    }
     return res.status(500).json({ error: 'could not add videos' });
   }
 
@@ -280,7 +310,7 @@ router.post('/:id/videos', async (req, res) => {
     return res.status(201).json({ position: position - 1 });
   }
   res.status(201).json({ added, already, skipped });
-});
+}));
 
 // DELETE /api/playlists/:id/videos/:videoId → 204, también si no estaba (como /tracks).
 router.delete('/:id/videos/:videoId', (req, res) => {

@@ -348,6 +348,49 @@ try {
     check(d.status === 204, 'DELETE de la playlist → 204', String(d.status));
     check(filas(700003).length === 0, 'el ON DELETE CASCADE se llevó sus videos');
   }
+
+  // ---- [11] Un error de la base no tumba el servidor ----
+  // Se provoca SIN tocar el código del servidor, desde la conexión de esta prueba:
+  //   - renombrar la tabla hace que el SELECT de después del `await` lance "no such
+  //     table". En Express 4 un throw así dentro de una ruta async es una promesa
+  //     rechazada sin dueño, y Node 22 MATA EL PROCESO (medido);
+  //   - tomar el lock de escritura (BEGIN IMMEDIATE) hace que el INSERT del servidor
+  //     lance SQLITE_BUSY a mitad de la transacción, que tiene que deshacerse entera.
+  console.log('\n[11] errores de la base');
+  const vivo = async () => {
+    try { return (await fetch(`${principal.base}/api/health`)).ok; } catch { return false; }
+  };
+  const intento = async (method, path, body) => {
+    try { return await pedir(principal, method, path, body !== undefined ? { body } : {}); }
+    catch (e) { return { status: `sin respuesta (${e.name})`, data: null, text: '' }; }
+  };
+  {
+    db.exec('ALTER TABLE playlist_videos RENAME TO playlist_videos_fuera');
+    try {
+      const g = await intento('GET', '/api/playlists/700001/videos');
+      check(g.status === 500 && g.data?.error === 'Internal error', 'tabla caída: GET → 500 Internal error', `${g.status} ${g.text}`);
+      const p = await intento('POST', '/api/playlists/700001/videos', { video_id: ID_TYLER });
+      check(p.status === 500 && p.data?.error === 'Internal error', 'tabla caída: POST → 500 Internal error', `${p.status} ${p.text}`);
+      check(await vivo(), 'el servidor sigue vivo después de los dos errores');
+    } finally {
+      db.exec('ALTER TABLE playlist_videos_fuera RENAME TO playlist_videos');
+    }
+    // Tyler ya está en la 700001 desde [6]: se saca, para pedir uno que la playlist NO tiene.
+    db.prepare('DELETE FROM playlist_videos WHERE playlist_id = 700001 AND video_id = ?').run(ID_TYLER);
+    const sinTyler = filas(700001).map((x) => x.video_id).join();
+    db.exec('BEGIN IMMEDIATE');
+    let q;
+    try {
+      q = await intento('POST', '/api/playlists/700001/videos', { video_ids: [ID_TYLER] });
+    } finally {
+      db.exec('ROLLBACK');
+    }
+    check(q.status === 500 && q.data?.error === 'could not add videos', 'lock tomado: el INSERT falla → 500 could not add videos', `${q.status} ${q.text}`);
+    check(filas(700001).map((x) => x.video_id).join() === sinTyler, 'y no quedó nada a medias');
+    const r = await intento('POST', '/api/playlists/700001/videos', { video_ids: [ID_TYLER] });
+    check(r.status === 201 && r.data?.added === 1, 'soltado el lock, el mismo POST entra (no quedó una transacción abierta)', `${r.status} ${r.text}`);
+    check(await vivo(), 'el servidor sigue vivo al final');
+  }
 } catch (e) {
   fail++;
   console.error('[SMOKE-PLAYLIST-VIDEOS] se cortó:', e);
