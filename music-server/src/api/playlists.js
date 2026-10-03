@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../auth/jwt.js';
+import { estadoIndice, obtenerIndice } from '../videos/index.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -165,6 +166,128 @@ router.patch('/:id', (req, res) => {
 // DELETE /api/playlists/:id
 router.delete('/:id', (req, res) => {
   db.prepare('DELETE FROM playlists WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.status(204).send();
+});
+
+// ---- VIDEOS EN PLAYLISTS (1.21.0) ----
+// Rutas NUEVAS: nada de lo de arriba cambió, y GET /api/playlists no gana ningún campo.
+// Los videos van en su propia tabla (playlist_videos) y no se mezclan con las pistas.
+
+// Topes. 200 por envío es de sobra para elegir a mano; 500 por playlist frena a un
+// cliente descontrolado con un catálogo de videos que hoy son siete.
+const MAX_VIDEOS_POR_ENVIO = 200;
+const MAX_VIDEOS_POR_PLAYLIST = 500;
+const ID_VIDEO = /^[0-9a-f]{16}$/;
+
+// GET /api/playlists/:id/videos → { index, videos }
+// `index` dice si el índice de videos se pudo leer ('ok' | 'unavailable'). Cada video:
+//   - available: true  → está en el índice; los datos son los de AHORA;
+//   - available: false → el índice se leyó y el video ya no está (se renombró o borró);
+//                        se devuelven el título y el artista guardados al agregarlo;
+//   - available: null  → no se sabe: el índice no se pudo leer. No es "desapareció".
+router.get('/:id/videos', async (req, res) => {
+  const pl = db.prepare('SELECT id FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!pl) return res.status(404).json({ error: 'Playlist not found' });
+
+  const indice = await obtenerIndice();
+  const index = estadoIndice();
+  const filas = db.prepare(`
+    SELECT video_id, position, added_at, title, artist
+    FROM playlist_videos
+    WHERE playlist_id = ?
+    ORDER BY position
+  `).all(req.params.id);
+
+  const videos = filas.map((f) => {
+    const v = index === 'ok' ? indice.porId.get(f.video_id) : undefined;
+    if (v) {
+      return {
+        id: f.video_id, position: f.position, added_at: f.added_at,
+        title: v.title, artist: v.artist, available: true,
+        duration: v.duration, size: v.size, has_cover: v.has_cover,
+      };
+    }
+    return {
+      id: f.video_id, position: f.position, added_at: f.added_at,
+      title: f.title, artist: f.artist, available: index === 'ok' ? false : null,
+      duration: null, size: null, has_cover: index === 'ok' ? false : null,
+    };
+  });
+  res.json({ index, videos });
+});
+
+// POST /api/playlists/:id/videos  { video_ids: [...] }  o  { video_id }
+// Las dos formas, como /tracks: la de lote devuelve { added, already, skipped } y la simple
+// responde como la simple de /tracks ({ position } con 201, { already: true } con 200, o
+// 404 si el video no está en el índice). Con el índice sin poder leerse, 503 y no se
+// inserta nada: sin índice no hay forma de saber si el id es un video de verdad.
+router.post('/:id/videos', async (req, res) => {
+  const body = req.body ?? {};
+  const bulk = Array.isArray(body.video_ids);
+  const ids  = bulk ? body.video_ids : [body.video_id];
+
+  const pl = db.prepare('SELECT id FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!pl) return res.status(404).json({ error: 'Playlist not found' });
+
+  // Solo strings con forma de id, y sin repetidos (dos iguales gastarían dos `position`).
+  const clean = [...new Set(ids.filter((id) => typeof id === 'string' && ID_VIDEO.test(id)))];
+  if (!clean.length) return res.status(400).json({ error: 'video_id or video_ids required' });
+  if (clean.length > MAX_VIDEOS_POR_ENVIO) {
+    return res.status(413).json({ error: `too many video_ids (max ${MAX_VIDEOS_POR_ENVIO})` });
+  }
+
+  const indice = await obtenerIndice();
+  if (estadoIndice() !== 'ok') return res.status(503).json({ error: 'video index unavailable' });
+
+  // De acá en adelante TODO es síncrono: entre la cuenta del tope y el COMMIT no hay
+  // ningún await, así que dos POST no pueden pasarse del tope intercalándose. Y se vuelve
+  // a comprobar la playlist, porque durante el await la pudieron borrar.
+  if (!db.prepare('SELECT id FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id)) {
+    return res.status(404).json({ error: 'Playlist not found' });
+  }
+
+  const yaEstan = new Set(db.prepare('SELECT video_id FROM playlist_videos WHERE playlist_id = ?')
+    .all(req.params.id).map((r) => r.video_id));
+  const nuevos = clean.filter((id) => !yaEstan.has(id) && indice.porId.has(id));
+  if (yaEstan.size + nuevos.length > MAX_VIDEOS_POR_PLAYLIST) {
+    return res.status(409).json({ error: `playlist video limit reached (max ${MAX_VIDEOS_POR_PLAYLIST})` });
+  }
+
+  const max = db.prepare('SELECT MAX(position) AS m FROM playlist_videos WHERE playlist_id = ?').get(req.params.id);
+  let position = (max?.m ?? 0) + 1;
+  const insert = db.prepare(`INSERT OR IGNORE INTO playlist_videos (playlist_id, video_id, position, title, artist)
+                             VALUES (?, ?, ?, ?, ?)`);
+
+  // A mano, como /tracks: node:sqlite no tiene db.transaction().
+  let added = 0, already = 0, skipped = 0;
+  db.exec('BEGIN');
+  try {
+    for (const id of clean) {
+      const v = indice.porId.get(id);
+      if (!v) { skipped++; continue; }
+      const r = insert.run(req.params.id, id, position, v.title, v.artist);
+      if (r.changes) { added++; position++; } else already++;
+    }
+    db.exec('COMMIT');
+  } catch {
+    db.exec('ROLLBACK');
+    return res.status(500).json({ error: 'could not add videos' });
+  }
+
+  if (!bulk) {
+    if (skipped) return res.status(404).json({ error: 'Video not found' });
+    if (!added)  return res.json({ already: true });
+    return res.status(201).json({ position: position - 1 });
+  }
+  res.status(201).json({ added, already, skipped });
+});
+
+// DELETE /api/playlists/:id/videos/:videoId → 204, también si no estaba (como /tracks).
+router.delete('/:id/videos/:videoId', (req, res) => {
+  const pl = db.prepare('SELECT id FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!pl) return res.status(404).json({ error: 'Playlist not found' });
+
+  db.prepare('DELETE FROM playlist_videos WHERE playlist_id = ? AND video_id = ?').run(req.params.id, req.params.videoId);
   res.status(204).send();
 });
 

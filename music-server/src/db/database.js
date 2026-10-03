@@ -217,4 +217,24 @@ for (const [col, type] of Object.entries(AVATAR_COLUMNS)) {
   if (!userCols.has(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
 }
 
+// VIDEOS EN PLAYLISTS (1.21.0). Una tabla APARTE de playlist_tracks a proposito: un video
+// no es una fila de tracks (vive en un indice en memoria, no en music.db), asi que no hay
+// clave foranea posible hacia el video. Va solo la de la playlist, para que borrarla se
+// lleve sus videos. CREATE IF NOT EXISTS y nada de ALTER: las tablas viejas no se tocan.
+//   - video_id: los 16 hex del indice de videos. El CHECK frena cualquier otra cosa.
+//   - title / artist: una COPIA de cuando se agrego. Si el archivo se renombra o se borra,
+//     el id deja de existir en el indice, y la fila todavia sabe que era.
+//   - position: MAX(position) + 1, como playlist_tracks; tampoco se recompacta.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS playlist_videos (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    video_id    TEXT    NOT NULL CHECK (length(video_id) = 16 AND video_id NOT GLOB '*[^0-9a-f]*'),
+    position    INTEGER NOT NULL,
+    title       TEXT,
+    artist      TEXT,
+    added_at    TEXT    DEFAULT (datetime('now')),
+    PRIMARY KEY (playlist_id, video_id)
+  );
+`);
+
 export default db;

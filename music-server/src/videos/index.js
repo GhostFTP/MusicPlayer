@@ -194,6 +194,17 @@ export async function obtenerIndice() {
   return cache.indice;
 }
 
+/** ¿El índice que devolvió `obtenerIndice()` es uno bueno? 'ok' si se leyó la carpeta;
+ *  'unavailable' sin VIDEO_DIR, o si la última lectura falló. Se llama DESPUÉS de
+ *  `await obtenerIndice()`. No cambia nada de lo que devuelve /api/videos: solo deja
+ *  distinguir "la carpeta está vacía" de "no se pudo leer", que para las playlists no es
+ *  lo mismo (con la carpeta caída, un video guardado no "desapareció"). Una lectura
+ *  fallida deja `mtime` en null (ver `reconstruir`), y por eso alcanza con mirarlo. */
+export function estadoIndice() {
+  if (!RAIZ || !cache) return 'unavailable';
+  return cache.mtime === null ? 'unavailable' : 'ok';
+}
+
 /** Lo que ve la API de un video: sin rutas del disco. */
 export function publico(v) {
   const { rutaRelativa, ruta, portada, ...resto } = v;
