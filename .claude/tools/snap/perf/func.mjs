@@ -33,7 +33,12 @@ const page = await ctx.newPage();
 const wait = (ms) => page.waitForTimeout(ms);
 async function menu(i, label) {
   for (let k = 0; k < 3; k++) {
-    await page.locator('.library-tracks .track-row').nth(i).click({ button: 'right' });
+    // Scroll a la fila y 2 frames de espera ANTES del clic derecho: el evento scroll llega en el frame
+    // siguiente y ContextMenu se cierra con él (carrera del script, ya pasaba en baseline).
+    const row = page.locator('.library-tracks .track-row').nth(i);
+    await row.scrollIntoViewIfNeeded();
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await row.click({ button: 'right' });
     if (await page.waitForSelector('.ctx-menu [role="menuitem"]', { timeout: 1500 }).then(() => true).catch(() => false)) break;
   }
   await wait(250);
