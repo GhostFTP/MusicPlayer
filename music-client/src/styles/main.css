@@ -3041,7 +3041,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   height: 4px; border-radius: 2px;
   background: var(--accent);
   overflow: hidden;                   /* confina el shimmer a lo reproducido */
-  transition: width .12s linear;
+  /* SIN transición de ancho (Frente 1, sub-paso 3b): `transition: width .12s linear` animaba un
+     ancho (no se compone en GPU) en cada timeupdate (~4/s) y mantenía el hilo principal en ~42
+     frames/s, cada uno con hit-test + pintado de toda la página. El salto por tick es sub-píxel en
+     pistas normales; el seek ahora salta al instante. Para revertir: volver a poner esa línea. */
 }
 .seek-shimmer {                       /* destello tenue y lento, sólo en play */
   position: absolute; inset: 0;
