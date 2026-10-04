@@ -4960,7 +4960,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @keyframes queue-eq { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
 
 .queue-progress { position: absolute; left: 10px; right: 10px; bottom: 2px; height: 2px; background: rgba(255, 255, 255, .12); border-radius: 2px; overflow: hidden; }
-.queue-progress-fill { height: 100%; background: var(--time-elapsed); border-radius: 2px; transition: width .25s linear; }
+.queue-progress-fill { height: 100%; background: var(--time-elapsed); border-radius: 2px; }
+/* SIN transición de ancho (Frente 2, sub-paso Q1), como .seek-fill en el 3b: `transition: width .25s
+   linear` animaba un ancho (no se compone en GPU) en cada timeupdate (~4/s) → layout casi continuo
+   con la cola abierta (medido: a 4× con 3000 pistas, ~2,9 s de cada 5 s sonando). El salto por tick
+   es sub-píxel en pistas normales. Para revertir: volver a poner esa transición. */
 
 .queue-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 60px 20px; color: var(--text-muted); }
 .queue-empty-icon { font-size: 40px; opacity: .5; }
@@ -4968,7 +4972,6 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .queue-panel { animation: none; }
   .queue-eq i { animation: none; }
-  .queue-progress-fill { transition: none; }
 }
 
 /* ── Cola en MÓVIL: el overlay standalone se RETIRA (M4) ───────────────────────────────────────
