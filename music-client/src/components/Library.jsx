@@ -330,7 +330,8 @@ const LibraryRow = memo(function LibraryRow({ track, index, active, playing, bin
         <span className={`track-num${active ? ' active' : ''}`}>
           {playing ? '▶' : index + 1}
         </span>
-        <span className="track-play-icon">▶</span>
+        {/* El ▶ del hover es un ::after de esta celda (.library-tracks en main.css), no un nodo por
+            fila: mismo lugar (último hijo de la celda), mismo display y color. */}
       </td>
       <td>
         <div className="track-info-cell">
@@ -346,8 +347,9 @@ const LibraryRow = memo(function LibraryRow({ track, index, active, playing, bin
             </div>
             <div className="track-sub">
               <span className="track-artist">{track.artist ?? '—'}</span>
-              {/* En móvil las columnas colapsan: el chip viaja junto al título */}
-              <QualityChip track={track} className="chip-inline" />
+              {/* Sin chip inline (Frente 1, sub-paso 7): .chip-inline está en display:none en los tres
+                  modos de la Biblioteca (tabla, lista ≤1024 y móvil: el modo lista lo apaga por
+                  especificidad) → era un nodo por fila que nunca se ve. La calidad está en su columna. */}
             </div>
           </div>
         </div>

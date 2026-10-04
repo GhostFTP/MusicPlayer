@@ -519,6 +519,11 @@ button, input, select, textarea { font-family: inherit; }
 .track-play-icon { display: none; color: var(--text); }
 .track-row:hover .track-num { display: none; }
 .track-row:hover .track-play-icon { display: block; }
+/* Biblioteca (Frente 1, sub-paso 7): el ▶ del hover es un pseudo-elemento de la celda # en vez de
+   un <span class="track-play-icon"> por fila — un nodo menos en cada una de las cientos de filas.
+   Mismo glifo, display y color que .track-play-icon; las demás tablas (TrackTable, Playlists)
+   siguen con el span. */
+.library-tracks .track-row:hover td.col-num::after { content: '\25B6'; display: block; color: var(--text); }
 
 /* Duración */
 .track-row td.col-time {

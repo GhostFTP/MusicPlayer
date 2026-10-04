@@ -637,7 +637,9 @@ export function ContextMenuButton({ type, item, label = 'Más acciones', extra }
 function IconMore() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="5" cy="12" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="19" cy="12" r="1.9" />
+      {/* Los tres puntos en UN path (mismos centros 5/12/19 y radio 1.9 que los <circle> de antes):
+          2 nodos menos por fila en las tablas largas (Frente 1, sub-paso 7). */}
+      <path d="M3.1 12a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0-3.8 0ZM10.1 12a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0-3.8 0ZM17.1 12a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0-3.8 0Z" />
     </svg>
   );
 }
