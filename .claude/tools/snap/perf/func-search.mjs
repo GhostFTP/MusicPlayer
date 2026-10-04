@@ -90,7 +90,7 @@ ok('siguiente_en_filtrada', (await playingTitle()) === t3, { suena: await playin
 // 6) la cola se armó desde la lista filtrada
 await page.click('.player-bar [aria-label="Cola"]');
 await page.waitForSelector('.queue-panel .queue-row');
-const q0 = await page.locator('.queue-panel .queue-row').count();
+const q0 = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 ok('cola_desde_filtrada', q0 === filtered.length, { cola: q0, filtradas: filtered.length });
 // 7) clic derecho y arrastre desde una fila filtrada
 let menu = false;
@@ -98,7 +98,7 @@ for (let i = 0; i < 3 && !menu; i++) { await page.locator(ROWS).nth(5).click({ b
 ok('clic_derecho_filtrada', menu);
 await page.keyboard.press('Escape'); await wait(300);
 await page.locator(ROWS).nth(6).dragTo(page.locator('.queue-panel')); await wait(800);
-ok('arrastre_filtrada_a_cola', (await page.locator('.queue-panel .queue-row').count()) === q0 + 1, { cola: `${q0}→${await page.locator('.queue-panel .queue-row').count()}` });
+ok('arrastre_filtrada_a_cola', (await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0))) === q0 + 1, { cola: `${q0}→${await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0))}` });
 await page.click('.player-bar [aria-label="Cola"]'); await wait(300);
 // 8) la barra sigue normal mientras se busca
 const a1 = await page.evaluate(() => window.__audio.currentTime);

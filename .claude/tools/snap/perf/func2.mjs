@@ -68,15 +68,15 @@ await page.keyboard.press('Escape'); await wait(300);
 // arrastrar una fila a la cola
 await page.click('.player-bar [aria-label="Cola"]');
 await page.waitForSelector('.queue-panel .queue-row');
-const q0 = await page.locator('.queue-panel .queue-row').count();
+const q0 = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 await page.locator(LIB).nth(20).dragTo(page.locator('.queue-panel'));
 await wait(800);
-const q1 = await page.locator('.queue-panel .queue-row').count();
+const q1 = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 ok('drag_fila_a_cola', q1 === q0 + 1, { cola: `${q0}→${q1}` });
 // arrastrar a la barra (2º destino)
 await page.locator(LIB).nth(21).dragTo(page.locator('.player-bar'));
 await wait(800);
-ok('drag_fila_a_barra', (await page.locator('.queue-panel .queue-row').count()) === q1 + 1);
+ok('drag_fila_a_barra', (await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0))) === q1 + 1);
 await page.click('.player-bar [aria-label="Cola"]'); await wait(300);
 
 // Álbumes: tarjeta abre el detalle; "Reproducir" del detalle; auto-scroll a la que suena
@@ -100,10 +100,10 @@ ok('tarjeta_album_menu', albMenu, { cards: nCards, items: await page.locator('.c
 await page.keyboard.press('Escape'); await wait(300);
 // arrastrar tarjeta de álbum a la barra encola el álbum
 await page.click('.player-bar [aria-label="Cola"]'); await page.waitForSelector('.queue-panel .queue-row');
-const qa0 = await page.locator('.queue-panel .queue-row').count();
+const qa0 = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 const albCount = Number((await page.locator('.album-grid .album-card').nth(0).locator('.album-count').textContent()).match(/\d+/)[0]);
 await page.locator('.album-grid .album-card').nth(0).dragTo(page.locator('.queue-panel')); await wait(1200);
-ok('drag_album_a_cola', (await page.locator('.queue-panel .queue-row').count()) === qa0 + albCount, { cola: `${qa0}→${await page.locator('.queue-panel .queue-row').count()}`, pistas: albCount });
+ok('drag_album_a_cola', (await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0))) === qa0 + albCount, { cola: `${qa0}→${await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0))}`, pistas: albCount });
 await page.click('.player-bar [aria-label="Cola"]'); await wait(300);
 
 // TrackTable auto-scroll: tocar una pista lejana en un detalle largo, salir y volver a entrar

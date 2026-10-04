@@ -109,9 +109,9 @@ ok('playAfterCurrent', (await playingTitle()) === t10, { playing: await playingT
 // 7) agregar a la cola + cola: abrir, progreso, saltar a una fila
 await page.click('.player-bar [aria-label="Cola"]');
 await page.waitForSelector('.queue-panel .queue-row');
-const qn0 = await page.locator('.queue-panel .queue-row').count();
+const qn0 = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 await menu(20, 'Agregar a la cola'); await wait(400);
-const qn1 = await page.locator('.queue-panel .queue-row').count();
+const qn1 = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 ok('addToQueue', qn1 === qn0 + 1, { cola: `${qn0}→${qn1}` });
 const qw = () => page.evaluate(() => parseFloat(document.querySelector('.queue-progress-fill')?.style.width ?? 'NaN'));
 const w1 = await qw(); await wait(2200); const w2 = await qw();
