@@ -9,26 +9,34 @@ import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { fmtTotal } from '../utils/formatTotal.js';
 import { foldForSearch, trackHaystack } from '../utils/searchText.js';
 import { readCache, fetchFresh } from '../api/viewCache.js';
+import { useWindowedRows } from '../utils/useWindowedRows.js';
 
 // Clave de la caché de vistas (viewCache.js): la biblioteca completa.
 const LIB_CACHE_KEY = 'tracks:all';
 
+// Comparadores de texto (Frente 1, sub-paso 9): UN Intl.Collator por configuración, creado una vez.
+// `a.localeCompare(b, 'es', opts)` hace lo mismo (la especificación lo define como
+// `new Intl.Collator('es', opts).compare`) pero resuelve el idioma en CADA comparación: ordenar 3000
+// pistas pasaba de ~130 ms en el montaje. Mismo orden, verificado en los 10 modos/direcciones.
+const COLL_ES = new Intl.Collator('es', { sensitivity: 'base' });
+const COLL_ES_NUM = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
+
 // Orden AGRUPADO de la biblioteca (modo "Artista", DEFAULT): ALBUMARTIST → álbum
 // → nº de pista → título. Así queda agrupada por artista/álbum y navegable;
-// localeCompare respeta acentos. `sign` invierte SOLO el eje de artista (la
+// el collator respeta acentos. `sign` invierte SOLO el eje de artista (la
 // agrupación): dentro de cada artista los álbumes y las pistas quedan siempre en
 // orden natural (1→N), para que un disco se lea igual en asc y en desc. Con
 // sign=1 es idéntico al orden que ve el usuario hoy → el default no cambia.
 function groupedCompare(a, b, sign = 1) {
   const aa = (a.album_artist || a.artist || '').trim();
   const ba = (b.album_artist || b.artist || '').trim();
-  let c = sign * aa.localeCompare(ba, 'es', { sensitivity: 'base' });
+  let c = sign * COLL_ES.compare(aa, ba);
   if (c) return c;
-  c = (a.album || '').localeCompare(b.album || '', 'es', { sensitivity: 'base' });
+  c = COLL_ES.compare((a.album || ''), b.album || '');
   if (c) return c;
   const at = a.track_number ?? 0, bt = b.track_number ?? 0;
   if (at !== bt) return at - bt;
-  return (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' });
+  return COLL_ES.compare((a.title || ''), b.title || '');
 }
 
 export default function Library({ target, clearTarget }) {
@@ -150,25 +158,62 @@ export default function Library({ target, clearTarget }) {
   const onPlay = useCallback((i) => play(visibleRef.current, i), [play]);
   const onCtx  = useCallback((e, track) => openMenu(e, { type: 'track', item: track }), [openMenu]);
 
+  // Ventana (Frente 1, sub-paso 9): sólo se montan las filas visibles + overscan; el resto son
+  // espaciadoras del mismo alto (ver utils/useWindowedRows.js). Quedan montadas aunque salgan de la
+  // ventana la fila que se arrastra (sin ella se pierde su dragend) y la que tiene el foco.
+  const [dragIndex, setDragIndex] = useState(null);
+  const [focusIndex, setFocusIndex] = useState(null);
+  const pinned = useMemo(() => [dragIndex, focusIndex], [dragIndex, focusIndex]);
+  const { tbodyRef, segments, pitch, tableMode } = useWindowedRows(visibleTracks.length, { overscan: 10, pinned });
+  const rowIndexOf = (e) => {
+    const tr = e.target.closest?.('tr[data-index]');
+    return tr ? Number(tr.dataset.index) : null;
+  };
+  const tbodyHandlers = {
+    onDragStart: (e) => setDragIndex(rowIndexOf(e)),
+    onDragEnd:   () => setDragIndex(null),
+    onFocus:     (e) => setFocusIndex(rowIndexOf(e)),
+    onBlur:      (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocusIndex(null); },
+  };
+
   // Filas memoizadas como ARREGLO: al teclear, el render urgente (sólo cambió `search`) recibe los
-  // MISMOS elementos y React salta la tabla entera sin comparar fila por fila. Se rearman sólo
-  // cuando cambia la lista visible (render diferido) o lo que suena.
-  const rowElements = useMemo(() => visibleTracks.map((track, i) => {
-    const active = currentTrack?.id === track.id;
-    return (
-      <LibraryRow
-        key={track.id}
-        track={track}
-        index={i}
-        active={active}
-        playing={active && isPlaying}
-        bindPress={bindPress}
-        dragProps={dragProps}
-        onPlay={onPlay}
-        onCtx={onCtx}
-      />
-    );
-  }), [visibleTracks, currentTrack, isPlaying, bindPress, dragProps, onPlay, onCtx]);
+  // MISMOS elementos y React salta la tabla entera sin comparar fila por fila. Se rearman cuando
+  // cambia la lista visible (render diferido), lo que suena o la ventana (al scrollear: las filas que
+  // siguen en la ventana conservan su nodo y, por el memo, no se re-renderizan).
+  const rowElements = useMemo(() => {
+    const out = [];
+    for (const seg of segments) {
+      if (seg.type === 'gap') {
+        // Espaciadora: alto = filas que representa × paso medido. Key estable para la de arriba y la
+        // de abajo (no se remontan al scrollear); las intermedias (filas fijadas) por su inicio.
+        const key = seg.from === 0 ? 'gap-top' : seg.to === visibleTracks.length ? 'gap-end' : `gap-${seg.from}`;
+        out.push(
+          <tr key={key} aria-hidden="true">
+            <td colSpan={7} style={GAP_TD(seg.to - seg.from, pitch, tableMode)} />
+          </tr>,
+        );
+        continue;
+      }
+      for (let i = seg.from; i < seg.to; i++) {
+        const track = visibleTracks[i];
+        const active = currentTrack?.id === track.id;
+        out.push(
+          <LibraryRow
+            key={track.id}
+            track={track}
+            index={i}
+            active={active}
+            playing={active && isPlaying}
+            bindPress={bindPress}
+            dragProps={dragProps}
+            onPlay={onPlay}
+            onCtx={onCtx}
+          />,
+        );
+      }
+    }
+    return out;
+  }, [segments, pitch, tableMode, visibleTracks, currentTrack, isPlaying, bindPress, dragProps, onPlay, onCtx]);
 
   // Contador animado: el número sube 0→N SOLO en la carga inicial; en búsqueda
   // snapea + tick (ver useCountUp). El pill queda montado desde el primer load
@@ -302,7 +347,7 @@ export default function Library({ target, clearTarget }) {
               <th className="col-actions"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody ref={tbodyRef} {...tbodyHandlers}>
             {rowElements}
           </tbody>
         </table>
@@ -312,6 +357,15 @@ export default function Library({ target, clearTarget }) {
   );
 }
 
+// Estilo de la celda espaciadora de la ventana (ver rowElements): alto = n filas × paso.
+// · Tabla (border-collapse): borde inferior transparente de 1 px como el de las filas reales; sin él,
+//   la fila vecina pierde medio píxel del borde compartido.
+// · Lista/móvil (filas en bloque): display:block y sin borde; una celda de tabla suelta crearía una
+//   tabla anónima que hereda border-collapse y sumaría medio píxel.
+const GAP_TD = (n, pitch, tableMode) => (tableMode
+  ? { height: n * pitch, padding: 0, border: 0, borderBottom: '1px solid transparent' }
+  : { display: 'block', height: n * pitch, padding: 0, border: 0 });
+
 // Fila memoizada. Props primitivas o estables: `active`/`playing` se calculan en el padre, así que
 // al cambiar de canción sólo cambian 2 filas (la que deja de sonar y la nueva) y en play/pausa 1.
 // bindPress (useLongPress) y dragProps (useDragQueue) son estables; onPlay/onCtx vienen con
@@ -320,6 +374,7 @@ const LibraryRow = memo(function LibraryRow({ track, index, active, playing, bin
   return (
     <tr
       className={`track-row${active ? ' playing' : ''}`}
+      data-index={index}
       {...bindPress(track, {
         onClick: () => onPlay(index),
         onContextMenu: (e) => onCtx(e, track),
@@ -382,7 +437,7 @@ const SORT_MODES = [
 
 // Ordena una COPIA (nunca muta el array del fetch). Nulos/vacíos SIEMPRE al fondo
 // en ambas direcciones (no se invierten con el toggle). "artista" delega en el
-// comparador agrupado; texto (título/álbum) usa localeCompare; año/duración son
+// comparador agrupado; texto (título/álbum) usa el collator; año/duración son
 // numéricos con desempate ESTABLE (año por artista→álbum→track#, duración por título).
 function sortTracks(tracks, mode, dir) {
   const arr = [...tracks];
@@ -415,13 +470,13 @@ function sortTracks(tracks, mode, dir) {
     if (aEmpty && bEmpty) return 0;
     if (aEmpty) return 1;   // vacío al fondo, sin importar la dirección
     if (bEmpty) return -1;
-    const c = sign * av.localeCompare(bv, 'es', { sensitivity: 'base', numeric: true });
+    const c = sign * COLL_ES_NUM.compare(av, bv);
     if (c) return c;
     // Álbum: desempatar por track# → título para que el disco se lea 1→N.
     if (field === 'album') {
       const at = a.track_number ?? 0, bt = b.track_number ?? 0;
       if (at !== bt) return at - bt;
-      return (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' });
+      return COLL_ES.compare((a.title || ''), b.title || '');
     }
     return 0;
   });
@@ -437,7 +492,7 @@ function numOrNull(v) {
 // Desempate ESTABLE: "año" agrupa por artista→álbum→track#; "duración" por título.
 function tieBreak(a, b, mode) {
   if (mode === 'year') return groupedCompare(a, b, 1);
-  return (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' });
+  return COLL_ES.compare((a.title || ''), b.title || '');
 }
 
 // Cuenta 0→N con requestAnimationFrame SOLO en la carga inicial (primer load, sin
