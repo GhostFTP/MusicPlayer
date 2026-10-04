@@ -335,9 +335,13 @@ export default function Library({ target, clearTarget }) {
             );
           })}
         </div>
-        <table className="track-table library-tracks">
+        {/* aria-rowcount / aria-rowindex (sub-paso 10): con la ventana sólo están montadas las filas
+            cercanas a la vista; así el lector anuncia el TOTAL de la lista actual (la filtrada si hay
+            búsqueda) y la posición real de cada fila. Cabecera = fila 1, datos desde la 2. Sin
+            aria-colcount: las 7 columnas están siempre en el DOM. */}
+        <table className="track-table library-tracks" aria-rowcount={visibleTracks.length + 1}>
           <thead>
-            <tr>
+            <tr aria-rowindex={1}>
               <th className="col-num">#</th>
               <th>Título</th>
               <th className="col-artist">Artista</th>
@@ -375,6 +379,7 @@ const LibraryRow = memo(function LibraryRow({ track, index, active, playing, bin
     <tr
       className={`track-row${active ? ' playing' : ''}`}
       data-index={index}
+      aria-rowindex={index + 2}
       {...bindPress(track, {
         onClick: () => onPlay(index),
         onContextMenu: (e) => onCtx(e, track),
