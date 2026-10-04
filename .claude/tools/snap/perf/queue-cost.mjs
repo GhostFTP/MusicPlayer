@@ -9,8 +9,12 @@
 //   6. quitar una pista de la cola y "Reproducir a continuación" desde Biblioteca
 //   7. re-mix con la cola ABIERTA (el atajo M se puede apretar así)
 //   8. cola cerrada: nodos y heap de JS antes del mix / después (con GC)
+// "filas" = filas re-renderizadas (identidad de __reactProps$) + filas montadas NUEVAS por la acción.
 // Salida: una línea JSON por corrida (para agregar) + un resumen legible.
-// Uso: SNAP_BASE=http://localhost:4173 CPU=1|4 [SCALE=3000] [EXTRA_CSS='...'] node queue-cost.mjs
+// Uso: SNAP_BASE=http://localhost:4173 CPU=1|4 [SCALE=3000] [EXTRA_CSS='...'] [GPU=1] [MOBILE=1] node queue-cost.mjs
+//   GPU=1: rasterizado por GPU (flags del skill). MOBILE=1: hoja móvil 390×844 (isMobile+hasTouch),
+//   abierta desde la mini barra; sólo mix, abrir, scroll, tick y cola cerrada (sin barra de escritorio
+//   no hay "siguiente"/aleatorio ni el menú por clic derecho).
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 import { readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,11 +22,15 @@ import { join } from 'node:path';
 
 const CPU = Number(process.env.CPU ?? 1);
 const SCALE = Number(process.env.SCALE ?? 0);
+const GPU = process.env.GPU === '1';
+const MOBILE = process.env.MOBILE === '1';
 await preflight();
 const token = await getToken();
 const { chromium } = await loadPlaywright();
-const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const args = ['--autoplay-policy=no-user-gesture-required'];
+if (GPU) args.push('--enable-gpu', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu-rasterization');
+const browser = await chromium.launch({ args });
+const ctx = await browser.newContext(MOBILE ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } : { viewport: { width: 1440, height: 900 } });
 
 function wav(sec = 900, sr = 8000) {
   const n = sec * sr, b = Buffer.alloc(44 + n * 2);
@@ -71,6 +79,8 @@ const heap = async () => { await cdp.send('HeapProfiler.collectGarbage'); const 
 const R = { cpu: CPU, scale: SCALE || 680 };
 const wait = (ms) => page.waitForTimeout(ms);
 const QUEUE_BTN = '.player-bar [aria-label="Cola"]';
+// Móvil: la 1.ª vez desde la mini barra (promueve al expandido); después, desde el header del expandido.
+const OPEN_SELS = MOBILE ? ['.exp-head-actions .exp-icon-btn[title="Cola"]', '.player-mini-controls .queue-mini'] : [QUEUE_BTN];
 
 await page.goto(BASE + '/');
 await page.waitForSelector('.library-tracks .track-row');
@@ -104,16 +114,17 @@ R.filasColaCerrada = await page.evaluate(() => document.querySelectorAll('.queue
 R.heapDespuesMB = await heap();
 
 // ── 2) abrir la cola (3 veces) ──
-const openQueue = () => busy(() => page.evaluate(async (sel) => {
+const openQueue = () => busy(() => page.evaluate(async (sels) => {
+  const btn = sels.map((s) => document.querySelector(s)).find((b) => b && b.offsetParent !== null);
   window.__lt = [];
   const t0 = performance.now();
-  document.querySelector(sel).click();
+  btn.click();
   await new Promise((res) => { const f = () => { if (document.querySelector('.queue-row.current') || performance.now() - t0 > 60000) return res(); requestAnimationFrame(f); }; requestAnimationFrame(f); });
   const t = performance.now() - t0;
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   return { ms: Math.round(t), lt: window.__lt.length, ltMax: Math.round(Math.max(0, ...window.__lt)) };
-}, QUEUE_BTN));
-const closeQueue = async () => { await page.click(QUEUE_BTN); await page.waitForSelector('.queue-panel', { state: 'detached' }); await wait(300); };
+}, OPEN_SELS));
+const closeQueue = async () => { await page.click(MOBILE ? '.exp-drawer .queue-close' : QUEUE_BTN); await page.waitForSelector('.queue-panel', { state: 'detached' }); await wait(300); };
 const opens = [];
 for (let k = 0; k < 3; k++) { opens.push(await openQueue()); if (k < 2) await closeQueue(); }
 R.abrir = { ms: med(opens.map((o) => o.ms)), msTodas: opens.map((o) => o.ms), task: med(opens.map((o) => o.task)), lt: med(opens.map((o) => o.lt)), ltMax: Math.max(...opens.map((o) => o.ltMax)) };
@@ -158,20 +169,26 @@ const rerenders = (action, settleMs = 700) => busy(() => page.evaluate(async ([a
   const tFrame = await new Promise((r) => requestAnimationFrame(() => setTimeout(() => r(performance.now() - t0), 0)));
   await new Promise((r) => setTimeout(r, settleMs));
   const alive = nodes.filter((n) => n.isConnected);
-  return { filas: nodes.filter((n, i) => n.isConnected && n[key(n)] !== a[i]).length, de: nodes.length, desmontadas: nodes.length - alive.length, commits: window.__commits - c0, frame: Math.round(tFrame), lt: window.__lt.length, ltMax: Math.round(Math.max(0, ...window.__lt)) };
+  // Con ventana, una acción también MONTA filas nuevas (la ventana se mueve): ésas son renders igual.
+  const before = new Set(nodes);
+  const nuevas = [...document.querySelectorAll('.queue-row')].filter((n) => !before.has(n)).length;
+  return { filas: nodes.filter((n, i) => n.isConnected && n[key(n)] !== a[i]).length + nuevas, rerender: nodes.filter((n, i) => n.isConnected && n[key(n)] !== a[i]).length, nuevas, de: nodes.length, desmontadas: nodes.length - alive.length, commits: window.__commits - c0, frame: Math.round(tFrame), lt: window.__lt.length, ltMax: Math.round(Math.max(0, ...window.__lt)) };
 }, [action, settleMs]));
 const NEXT = "document.querySelector('.player-bar .ctrl-next').click()";
-const pick = (xs) => ({ filas: med(xs.map((x) => x.filas)), de: xs[0].de, commits: med(xs.map((x) => x.commits)), frame: med(xs.map((x) => x.frame)), task: med(xs.map((x) => x.task)), lt: med(xs.map((x) => x.lt)), ltMax: Math.max(...xs.map((x) => x.ltMax)) });
+const pick = (xs) => ({ filas: med(xs.map((x) => x.filas)), nuevas: med(xs.map((x) => x.nuevas)), de: xs[0].de, commits: med(xs.map((x) => x.commits)), frame: med(xs.map((x) => x.frame)), task: med(xs.map((x) => x.task)), lt: med(xs.map((x) => x.lt)), ltMax: Math.max(...xs.map((x) => x.ltMax)) });
 
+if (!MOBILE) {
 // ── 4) cambio de canción: con aleatorio (encendido por el mix) y sin él ──
 R.shuffleEncendido = await page.evaluate(() => document.querySelector('.player-bar .shuffle-btn')?.getAttribute('aria-pressed'));
 { const xs = []; for (let k = 0; k < 3; k++) xs.push(await rerenders(NEXT)); R.siguienteAleatorio = pick(xs); }
 await page.click('.player-bar .shuffle-btn'); await wait(400);
 { const xs = []; for (let k = 0; k < 3; k++) xs.push(await rerenders(NEXT)); R.siguienteEnOrden = pick(xs); }
 
+}
 // ── 5) tick: 5 s sonando con la cola abierta ──
 R.tick5s = await rerenders('void 0', 5000);
 
+if (!MOBILE) {
 // ── 6a) quitar una pista (la 3ª después de la actual) ──
 {
   const xs = [];
@@ -212,9 +229,11 @@ R.mixAbierta = await busy(() => page.evaluate(async () => {
   return { clicFrame: Math.round(tFrame), lt: window.__lt.length, ltMax: Math.round(Math.max(0, ...window.__lt)) };
 }));
 
+}
+R.gpu = GPU; R.mobile = MOBILE;
 console.log('JSON ' + JSON.stringify(R));
-const f = (o) => Object.entries(o).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join('/') : v}`).join(' · ');
-console.log(`[cpu x${CPU} · ${R.scale}] cola: ${R.kicker} · filas ${R.filasCola} · nodos/fila ${R.nodosPorFila} · alto ${R.altoFila}`);
+const f = (o) => !o ? 'n/a' : Object.entries(o).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join('/') : v}`).join(' · ');
+console.log(`[cpu x${CPU}${GPU ? ' gpu' : ''}${MOBILE ? ' móvil' : ''} · ${R.scale}] cola: ${R.kicker} · filas ${R.filasCola} · nodos/fila ${R.nodosPorFila} · alto ${R.altoFila}`);
 console.log(`  mix (cola cerrada): ${f(R.mixCerrada)}`);
 console.log(`  abrir cola: ${f(R.abrir)} · nodos ${R.nodosAntes}→${R.nodosColaAbierta}`);
 console.log(`  scroll 3 s: ${f(R.scroll)}`);
