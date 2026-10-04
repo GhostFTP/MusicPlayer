@@ -33,7 +33,21 @@ const wait = (ms) => page.waitForTimeout(ms);
 const ROWS = '.library-tracks .track-row';
 const R = {};
 const ok = (k, v, extra) => { R[k] = extra === undefined ? v : { ok: v, ...extra }; };
-const rowKeys = () => page.evaluate(() => [...document.querySelectorAll('.library-tracks .track-row')].map((r) => r.querySelector('.track-title').textContent + ' | ' + r.querySelector('.track-artist').textContent));
+// Con la ventana de Biblioteca (sub-paso 9) sólo están montadas las filas cercanas a la vista: para ver
+// la lista COMPLETA se recorre el scroller y se juntan las filas por su data-index.
+const rowKeys = () => page.evaluate(async () => {
+  const sc = document.querySelector('.main-content');
+  const keyOf = (r) => r.querySelector('.track-title').textContent + ' | ' + r.querySelector('.track-artist').textContent;
+  const seen = new Map();
+  // sin data-index (build sin ventana) todas las filas están montadas: su posición es su índice
+  const grab = () => { [...document.querySelectorAll('.library-tracks .track-row')].forEach((r, i) => seen.set(Number(r.dataset.index ?? i), keyOf(r))); };
+  const frame = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+  const top0 = sc.scrollTop;
+  sc.scrollTop = 0; await frame(); grab();
+  while (sc.scrollTop + sc.clientHeight < sc.scrollHeight - 1) { sc.scrollTop += sc.clientHeight; await frame(); grab(); }
+  sc.scrollTop = top0; await frame();
+  return [...seen.entries()].sort((a, b) => a[0] - b[0]).map(([, k]) => k);
+});
 const type = async (q) => { await page.fill('.search-box input', q); await wait(700); };
 const playingTitle = () => page.evaluate(() => document.querySelector('.track-row.playing .track-title')?.textContent ?? null);
 
@@ -52,7 +66,10 @@ let k = 0; for (const x of full) if (x === got[k]) k++;
 ok('escribir_daf_resultados', sameSet && k === got.length, { filas: got.length, servidor: srv.length, mismoConjunto: sameSet, ordenComoListaCompleta: k === got.length, contador: await page.locator('.library-count').getAttribute('aria-label') });
 // 2) borrar
 await type('');
-ok('borrar_vuelve_todo', (await page.locator(ROWS).count()) === full.length, { filas: await page.locator(ROWS).count(), contador: await page.locator('.library-count').getAttribute('aria-label') });
+// Con la ventana no están montadas todas las filas: se compara el CONTADOR y la lista completa recorrida.
+const contadorBorrado = await page.locator('.library-count').getAttribute('aria-label');
+const tras = await rowKeys();
+ok('borrar_vuelve_todo', contadorBorrado === `${full.length} canciones` && tras.length === full.length, { filas: tras.length, contador: contadorBorrado });
 // 3) estado vacío
 await type('zzzqqq');
 ok('sin_resultados', (await page.locator('.empty-title').textContent().catch(() => null)) === 'Sin resultados para «zzzqqq»', { texto: await page.locator('.empty-title').textContent().catch(() => null), sub: await page.locator('.empty-state .empty-sub').count() });
@@ -99,7 +116,8 @@ await p2.fill('.search-box input', 'daf');
 const spinner = await p2.locator('.spinner').count();
 await p2.waitForSelector(ROWS, { timeout: 15000 });
 await p2.waitForTimeout(800);
-ok('escribir_antes_de_cargar', (await p2.locator(ROWS).count()) === got.length && (await p2.inputValue('.search-box input')) === 'daf', { spinnerMientrasCarga: spinner, filas: await p2.locator(ROWS).count(), input: await p2.inputValue('.search-box input') });
+const contadorP2 = await p2.locator('.library-count').getAttribute('aria-label');
+ok('escribir_antes_de_cargar', contadorP2 === `${got.length} resultados` && (await p2.inputValue('.search-box input')) === 'daf', { spinnerMientrasCarga: spinner, contador: contadorP2, input: await p2.inputValue('.search-box input') });
 
 console.log(JSON.stringify(R, null, 1));
 await browser.close();
