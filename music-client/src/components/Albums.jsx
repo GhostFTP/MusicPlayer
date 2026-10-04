@@ -6,11 +6,19 @@ import TrackTable from './TrackTable.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
+import { readCache, fetchFresh } from '../api/viewCache.js';
+
+// Clave de la caché de vistas (viewCache.js): la lista de álbumes.
+const ALBUMS_CACHE_KEY = 'albums:list';
 
 export default function Albums({ target, clearTarget, setDetailOpen, navigate }) {
-  const [albums,   setAlbums]   = useState([]);
+  // Stale-while-revalidate (Frente 1, sub-paso 5): con la lista ya cacheada en esta sesión, el
+  // primer render pinta las tarjetas (sin spinner) y se revalida en segundo plano.
+  const [cached] = useState(() => readCache(ALBUMS_CACHE_KEY));   // { data, sig } | undefined
+  const sigRef = useRef(cached?.sig ?? null);
+  const [albums,   setAlbums]   = useState(() => cached?.data ?? []);
   const [selected, setSelected] = useState(null); // { album, tracks }
-  const [loading,  setLoading]  = useState(true);
+  const [loading,  setLoading]  = useState(!cached);
   const [error,    setError]    = useState(null);
   const { play } = usePlayer();
   const { openMenu } = useContextMenu();   // clic derecho sobre la tarjeta (desktop; el gate lo pone el menú)
@@ -30,15 +38,23 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   const onCtx = useCallback((e, album) => openMenu(e, { type: 'album', item: album }), [openMenu]);
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
-  // el botón "Reintentar" del estado de error.
-  function loadAlbums() {
-    setLoading(true);
-    setError(null);
-    api.albums().then(setAlbums).catch(setError).finally(() => setLoading(false));
+  // el botón "Reintentar" del estado de error. `background === true`: revalidación con datos ya
+  // en pantalla → sin spinner, y si falla se queda lo cacheado sin mostrar error.
+  function loadAlbums(background = false) {
+    const bg = background === true;
+    if (!bg) { setLoading(true); setError(null); }
+    fetchFresh(ALBUMS_CACHE_KEY, () => api.albums())
+      .then((fresh) => {
+        if (!fresh || fresh.sig === sigRef.current) return;   // otra cuenta, o sin cambios → nada
+        sigRef.current = fresh.sig;
+        setAlbums(fresh.data);
+      })
+      .catch((e) => { if (!bg) setError(e); })
+      .finally(() => { if (!bg) setLoading(false); });
   }
 
   useEffect(() => {
-    loadAlbums();
+    loadAlbums(!!cached);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

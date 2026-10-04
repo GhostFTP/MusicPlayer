@@ -1,3 +1,5 @@
+import { clearViewCache } from './viewCache.js';
+
 const BASE = '';
 
 function getToken() {
@@ -63,6 +65,7 @@ async function request(path, options = {}) {
     // como parte de su flujo normal, ver el comentario de cfLogin abajo) para
     // no generar un loop de reintentos.
     if (res.status === 401 && !path.startsWith('/api/auth/')) {
+      clearViewCache();   // sesión inválida: nada cacheado de esta cuenta sobrevive al reauth
       onUnauthorized?.();
     }
     throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status });
@@ -73,11 +76,12 @@ async function request(path, options = {}) {
 
 export const api = {
   // Auth
-  login:    (username, password) => request('/api/auth/login',    { method: 'POST', body: JSON.stringify({ username, password }) }),
+  // Iniciar sesión vacía la caché de vistas (viewCache.js): la cuenta nueva arranca sin datos ajenos.
+  login:    (username, password) => { clearViewCache(); return request('/api/auth/login',    { method: 'POST', body: JSON.stringify({ username, password }) }); },
   // Auto-login vía Cloudflare Access: si la petición pasa por Cloudflare, el edge
   // inyecta las cabeceras de identidad y el backend devuelve un token. Si no
   // (red local), responde 401 y caemos al login tradicional.
-  cfLogin:  () => request('/api/auth/cf', { method: 'POST' }),
+  cfLogin:  () => { clearViewCache(); return request('/api/auth/cf', { method: 'POST' }); },
   // Config pública del login: ¿hay auto-login por Cloudflare Access? (para el botón Google).
   authConfig: () => request('/api/auth/config'),
 

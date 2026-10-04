@@ -8,6 +8,10 @@ import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { fmtTotal } from '../utils/formatTotal.js';
 import { foldForSearch, trackHaystack } from '../utils/searchText.js';
+import { readCache, fetchFresh } from '../api/viewCache.js';
+
+// Clave de la caché de vistas (viewCache.js): la biblioteca completa.
+const LIB_CACHE_KEY = 'tracks:all';
 
 // Orden AGRUPADO de la biblioteca (modo "Artista", DEFAULT): ALBUMARTIST → álbum
 // → nº de pista → título. Así queda agrupada por artista/álbum y navegable;
@@ -28,12 +32,17 @@ function groupedCompare(a, b, sign = 1) {
 }
 
 export default function Library({ target, clearTarget }) {
-  const [tracks,  setTracks]  = useState([]);   // biblioteca COMPLETA del backend (sin ordenar en cliente)
+  // Stale-while-revalidate (Frente 1, sub-paso 5): si ya se visitó la Biblioteca en esta sesión, el
+  // PRIMER render ya trae la lista cacheada (sin spinner) y se revalida en segundo plano. Se lee en
+  // el inicializador para que no haya ni un frame de "Cargando…".
+  const [cached] = useState(() => readCache(LIB_CACHE_KEY));   // { data, sig } | undefined
+  const sigRef = useRef(cached?.sig ?? null);                   // firma de lo que está en pantalla
+  const [tracks,  setTracks]  = useState(() => cached?.data ?? []);   // biblioteca COMPLETA del backend (sin ordenar en cliente)
   const [search,  setSearch]  = useState('');   // lo que hay en el input: se actualiza al instante
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [error,   setError]   = useState(null);
-  const [hasLoaded, setHasLoaded] = useState(false); // hubo al menos un load OK → el pill del contador queda montado
-  const [libStats, setLibStats] = useState(null);    // stats de la biblioteca COMPLETA (se congelan; ver fetch)
+  const [hasLoaded, setHasLoaded] = useState(!!cached); // hubo al menos un load OK → el pill del contador queda montado
+  const [libStats, setLibStats] = useState(() => (cached ? computeLibStats(cached.data) : null));    // stats de la biblioteca COMPLETA (se congelan; ver fetch)
   const [sortMode, setSortMode] = useState('artist'); // 'title'|'artist'|'album'|'year'|'duration'
   const [sortDir,  setSortDir]  = useState('asc');    // 'asc' | 'desc'
   const { play, currentTrack, isPlaying } = usePlayer();
@@ -46,30 +55,39 @@ export default function Library({ target, clearTarget }) {
   // Búsqueda LOCAL (Frente 1, sub-paso 4): se trae la biblioteca completa UNA vez y el buscador
   // filtra en memoria — sin request por tecla, sin debounce y sin spinner que desmonte la tabla.
   // El servidor sigue aceptando `search` (lo usa la app iOS); acá simplemente ya no se le pide.
-  const fetchTracks = useCallback(async () => {
-    setLoading(true);
+  // `background`: revalidación con datos ya en pantalla → sin spinner y, si falla, se queda lo
+  // cacheado sin mostrar error.
+  const fetchTracks = useCallback(async ({ background = false } = {}) => {
+    if (!background) setLoading(true);
     try {
       // Hogar central: traemos TODA la biblioteca (no el tope de 50 por defecto).
-      const data = await api.tracks({ limit: 10000 });
-      // Guardamos el array crudo; el orden visible se deriva en cliente (useMemo)
-      // según el Riel, para que el índice de play() coincida con la fila visible.
-      setTracks(data);
+      const fresh = await fetchFresh(LIB_CACHE_KEY, () => api.tracks({ limit: 10000 }));
+      if (!fresh) return;   // cambió la cuenta mientras la petición estaba en vuelo → se descarta
+      // Sólo si cambió algo: una revalidación idéntica no toca el estado (cero re-renders de filas).
+      if (fresh.sig !== sigRef.current) {
+        sigRef.current = fresh.sig;
+        // Guardamos el array crudo; el orden visible se deriva en cliente (useMemo)
+        // según el Riel, para que el índice de play() coincida con la fila visible.
+        setTracks(fresh.data);
+        // Stats del subtítulo: de la biblioteca completa (`data` lo es siempre) → el subtítulo
+        // queda estable mientras el pill refleja el conteo filtrado.
+        setLibStats(computeLibStats(fresh.data));
+      }
       setHasLoaded(true);
-      // Stats del subtítulo: de la biblioteca completa (`data` lo es siempre) → el subtítulo
-      // queda estable mientras el pill refleja el conteo filtrado.
-      setLibStats(computeLibStats(data));
       setError(null);
     } catch (e) {
       // No tragar el error: sin esto, un 401 dejaba `tracks` en su valor previo
       // y se veía "Biblioteca vacía" — indistinguible de una biblioteca real
       // vacía. Un 401 además dispara la reautenticación automática (client.js).
-      setError(e);
+      // En segundo plano no se muestra: se queda lo cacheado.
+      if (!background) setError(e);
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchTracks(); }, [fetchTracks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchTracks({ background: !!cached }); }, [fetchTracks]);
 
   // Tap en la pestaña ya activa → limpiar el buscador (volver a la lista completa).
   // La Biblioteca no tiene "detalle", pero el filtro de búsqueda es su estado navegable.
@@ -156,7 +174,7 @@ export default function Library({ target, clearTarget }) {
   // snapea + tick (ver useCountUp). El pill queda montado desde el primer load
   // (hasLoaded) para que el snap+tick se vea (no parpadea al re-buscar).
   const total = visibleTracks.length;
-  const { shown, seq } = useCountUp(total, !loading);
+  const { shown, seq } = useCountUp(total, !loading, !!cached);
   const noun = countWord(total, !!deferredSearch);
   const finalLabel = `${total} ${noun}`;   // texto FINAL (aria) — número real
 
@@ -425,10 +443,14 @@ function tieBreak(a, b, mode) {
 // el número directo. En cambios posteriores (búsqueda) snapea al valor y bumpea `seq`
 // para disparar el tick. Cancela el rAF si el target/estado cambia a mitad o al
 // desmontar. `active` = !loading (no animamos mientras carga).
-function useCountUp(target, active) {
-  const [shown, setShown] = useState(0);
+// `fromCache`: la vista volvió con datos cacheados → el número arranca ya en su valor, sin el
+// count-up 0→N (eso es para la PRIMERA carga de la sesión). Un valor igual al ya mostrado (volver
+// con caché, revalidación sin cambios) no hace ni snap ni tick; uno distinto, el tick de siempre.
+function useCountUp(target, active, fromCache = false) {
+  const [shown, setShown] = useState(fromCache ? target : 0);
   const [seq,   setSeq]   = useState(0);   // 0 = aún sin cambio posterior; >0 = búsqueda → tick
-  const didInit = useRef(false);
+  const didInit = useRef(fromCache);
+  const lastTarget = useRef(fromCache ? target : null);
   const raf     = useRef(0);
 
   useEffect(() => {
@@ -440,6 +462,7 @@ function useCountUp(target, active) {
 
     if (!didInit.current) {
       didInit.current = true;
+      lastTarget.current = target;
       if (reduce || target < 15) { setShown(target); return; }  // salta el count-up
       setShown(0);
       const dur = 900, t0 = performance.now();
@@ -453,6 +476,8 @@ function useCountUp(target, active) {
       return () => cancelAnimationFrame(raf.current);
     }
 
+    if (target === lastTarget.current) return;   // mismo número → nada que animar
+    lastTarget.current = target;
     setShown(target);          // ya inicializado → snap directo
     setSeq(s => s + 1);        // → tick (el key remonta el span y replaya time-tick)
   }, [active, target]);
