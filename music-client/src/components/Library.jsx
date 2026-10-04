@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { memo, useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
@@ -7,6 +7,7 @@ import { useContextMenu, ContextMenuButton } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { fmtTotal } from '../utils/formatTotal.js';
+import { foldForSearch, trackHaystack } from '../utils/searchText.js';
 
 // Orden AGRUPADO de la biblioteca (modo "Artista", DEFAULT): ALBUMARTIST → álbum
 // → nº de pista → título. Así queda agrupada por artista/álbum y navegable;
@@ -27,8 +28,8 @@ function groupedCompare(a, b, sign = 1) {
 }
 
 export default function Library({ target, clearTarget }) {
-  const [tracks,  setTracks]  = useState([]);   // crudo del backend (sin ordenar en cliente)
-  const [search,  setSearch]  = useState('');
+  const [tracks,  setTracks]  = useState([]);   // biblioteca COMPLETA del backend (sin ordenar en cliente)
+  const [search,  setSearch]  = useState('');   // lo que hay en el input: se actualiza al instante
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
   const [hasLoaded, setHasLoaded] = useState(false); // hubo al menos un load OK → el pill del contador queda montado
@@ -42,21 +43,21 @@ export default function Library({ target, clearTarget }) {
   // Drag-to-enqueue (fase a): misma fila que TrackTable, mismo trato (ver el comentario de allá).
   const { dragProps } = useDragQueue();
 
-  const fetchTracks = useCallback(async (q) => {
+  // Búsqueda LOCAL (Frente 1, sub-paso 4): se trae la biblioteca completa UNA vez y el buscador
+  // filtra en memoria — sin request por tecla, sin debounce y sin spinner que desmonte la tabla.
+  // El servidor sigue aceptando `search` (lo usa la app iOS); acá simplemente ya no se le pide.
+  const fetchTracks = useCallback(async () => {
     setLoading(true);
     try {
       // Hogar central: traemos TODA la biblioteca (no el tope de 50 por defecto).
-      const params = { limit: 10000 };
-      if (q) params.search = q;
-      const data = await api.tracks(params);
+      const data = await api.tracks({ limit: 10000 });
       // Guardamos el array crudo; el orden visible se deriva en cliente (useMemo)
       // según el Riel, para que el índice de play() coincida con la fila visible.
       setTracks(data);
       setHasLoaded(true);
-      // Stats del subtítulo: SOLO en fetch sin búsqueda (`data` = biblioteca
-      // completa). Con búsqueda no se tocan → el subtítulo queda estable mientras
-      // el pill refleja el conteo filtrado.
-      if (!q) setLibStats(computeLibStats(data));
+      // Stats del subtítulo: de la biblioteca completa (`data` lo es siempre) → el subtítulo
+      // queda estable mientras el pill refleja el conteo filtrado.
+      setLibStats(computeLibStats(data));
       setError(null);
     } catch (e) {
       // No tragar el error: sin esto, un 401 dejaba `tracks` en su valor previo
@@ -68,10 +69,7 @@ export default function Library({ target, clearTarget }) {
     }
   }, []);
 
-  useEffect(() => {
-    const t = setTimeout(() => fetchTracks(search), 280);
-    return () => clearTimeout(t);
-  }, [search, fetchTracks]);
+  useEffect(() => { fetchTracks(); }, [fetchTracks]);
 
   // Tap en la pestaña ya activa → limpiar el buscador (volver a la lista completa).
   // La Biblioteca no tiene "detalle", pero el filtro de búsqueda es su estado navegable.
@@ -102,18 +100,64 @@ export default function Library({ target, clearTarget }) {
     [tracks, sortMode, sortDir]
   );
 
+  // Texto normalizado de cada pista, calculado UNA vez por carga (no por tecla).
+  const haystacks = useMemo(() => {
+    const m = new Map();
+    for (const t of tracks) m.set(t, trackHaystack(t));
+    return m;
+  }, [tracks]);
+
+  // El input se pinta con `search` (urgente); la lista filtra con la versión DIFERIDA, así el
+  // filtrado de cientos de filas nunca traba el tecleo (React lo hace en segundo plano y lo
+  // descarta si llega otra tecla). Mismo criterio que el LIKE del servidor: subcadena de la frase
+  // completa sobre título/artista/álbum, sin recortar espacios; "" = todo. Diferencia buscada:
+  // también ignora acentos (ver foldForSearch). Filtrar la lista YA ordenada conserva el orden.
+  const deferredSearch = useDeferredValue(search);
+  const visibleTracks = useMemo(() => {
+    const q = foldForSearch(deferredSearch);
+    if (!q) return displayTracks;
+    return displayTracks.filter((t) => haystacks.get(t).includes(q));
+  }, [displayTracks, haystacks, deferredSearch]);
+
+  // La cola se arma desde la lista VISIBLE (filtrada), como antes con los resultados del servidor.
+  // Se lee de un ref que se fija DESPUÉS del commit: así onPlay es estable (las filas memoizadas no
+  // se re-renderizan por cada tecla) y un render diferido descartado no puede dejar una lista que
+  // no está en pantalla.
+  const visibleRef = useRef(visibleTracks);
+  useLayoutEffect(() => { visibleRef.current = visibleTracks; }, [visibleTracks]);
+
   // Handlers ESTABLES para LibraryRow (memo): la fila los llama con SUS datos (índice / pista), así
   // ninguna closure nueva por render le rompe el memo. onPlay sólo cambia si cambia la lista visible
   // — y ahí todas las filas cambian de verdad.
-  const onPlay = useCallback((i) => play(displayTracks, i), [play, displayTracks]);
+  const onPlay = useCallback((i) => play(visibleRef.current, i), [play]);
   const onCtx  = useCallback((e, track) => openMenu(e, { type: 'track', item: track }), [openMenu]);
+
+  // Filas memoizadas como ARREGLO: al teclear, el render urgente (sólo cambió `search`) recibe los
+  // MISMOS elementos y React salta la tabla entera sin comparar fila por fila. Se rearman sólo
+  // cuando cambia la lista visible (render diferido) o lo que suena.
+  const rowElements = useMemo(() => visibleTracks.map((track, i) => {
+    const active = currentTrack?.id === track.id;
+    return (
+      <LibraryRow
+        key={track.id}
+        track={track}
+        index={i}
+        active={active}
+        playing={active && isPlaying}
+        bindPress={bindPress}
+        dragProps={dragProps}
+        onPlay={onPlay}
+        onCtx={onCtx}
+      />
+    );
+  }), [visibleTracks, currentTrack, isPlaying, bindPress, dragProps, onPlay, onCtx]);
 
   // Contador animado: el número sube 0→N SOLO en la carga inicial; en búsqueda
   // snapea + tick (ver useCountUp). El pill queda montado desde el primer load
   // (hasLoaded) para que el snap+tick se vea (no parpadea al re-buscar).
-  const total = displayTracks.length;
+  const total = visibleTracks.length;
   const { shown, seq } = useCountUp(total, !loading);
-  const noun = countWord(total, !!search);
+  const noun = countWord(total, !!deferredSearch);
   const finalLabel = `${total} ${noun}`;   // texto FINAL (aria) — número real
 
   // Stats del header: identidad ESTABLE de la biblioteca completa (no repite el
@@ -153,7 +197,7 @@ export default function Library({ target, clearTarget }) {
 
       {/* Banner de acción: Mix aleatorio + contador */}
       <div className="library-actions">
-        <ShuffleButton tracks={displayTracks} />
+        <ShuffleButton tracks={visibleTracks} />
         {hasLoaded && !error && (
           // Pill accent-ghost (hermano muteado de Mezclar). aria-label lleva el
           // texto FINAL; los dígitos animados van aria-hidden → el lector no lee
@@ -181,15 +225,23 @@ export default function Library({ target, clearTarget }) {
           <div className="empty-icon">⚠️</div>
           <div className="empty-title">No se pudo cargar la biblioteca</div>
           <div className="empty-sub">Intenta de nuevo en un momento.</div>
-          <button className="btn-primary" onClick={() => fetchTracks(search)}>Reintentar</button>
+          <button className="btn-primary" onClick={() => fetchTracks()}>Reintentar</button>
         </div>
-      ) : tracks.length === 0 ? (
+      ) : visibleTracks.length === 0 ? (
+        // Mismo bloque y mismas clases para los dos vacíos; sólo cambia el texto. Con búsqueda activa
+        // sobre una biblioteca que SÍ tiene pistas, no es "Biblioteca vacía": es que nada coincide.
         <div className="empty-state">
           <div className="empty-icon">🎵</div>
-          <div className="empty-title">Biblioteca vacía</div>
-          <div className="empty-sub">
-            Copia tus archivos de audio a <code>music/</code> y ejecuta <code>npm run scan</code>.
-          </div>
+          {deferredSearch && tracks.length > 0 ? (
+            <div className="empty-title">Sin resultados para «{deferredSearch}»</div>
+          ) : (
+            <>
+              <div className="empty-title">Biblioteca vacía</div>
+              <div className="empty-sub">
+                Copia tus archivos de audio a <code>music/</code> y ejecuta <code>npm run scan</code>.
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -233,22 +285,7 @@ export default function Library({ target, clearTarget }) {
             </tr>
           </thead>
           <tbody>
-            {displayTracks.map((track, i) => {
-              const active = currentTrack?.id === track.id;
-              return (
-                <LibraryRow
-                  key={track.id}
-                  track={track}
-                  index={i}
-                  active={active}
-                  playing={active && isPlaying}
-                  bindPress={bindPress}
-                  dragProps={dragProps}
-                  onPlay={onPlay}
-                  onCtx={onCtx}
-                />
-              );
-            })}
+            {rowElements}
           </tbody>
         </table>
         </>
