@@ -1,9 +1,10 @@
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { coverUrl } from '../api/client.js';
 import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
+import { useWindowedRows } from '../utils/useWindowedRows.js';
 
 // Vista de cola — overlay del player (dirección A "Lista de sala" + eq-bars/progreso de B).
 // Lectura + salto: sonó / suena / viene, la actual marcada, tap salta a la fila. El clic DERECHO
@@ -69,7 +70,10 @@ function fmt(s) {
 // Fila memoizada. Sus props son valores ESTABLES por tick (track: misma ref; zone/isCurrent:
 // mismo valor salvo que cambie la actual; isUpNext: booleano; onJump/onCtx: useCallback estables)
 // → en cada tick de progreso la fila NO se re-renderiza. Solo cambia cuando su estado real cambia.
-const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNext, onJump, onCtx }) {
+// Ventana (frente 2 · Q): `index` es la posición GLOBAL en la cola (no la del nodo en el DOM) y va
+// también en data-index; el arrastre y el hook de la ventana leen ése. `setsize` = largo de la cola,
+// para que el lector anuncie "N de M" aunque sólo estén montadas las filas cercanas a la vista.
+const QueueRow = memo(function QueueRow({ track, index, setsize, zone, isCurrent, isUpNext, onJump, onCtx }) {
   // C1 · long-press = menú también acá. El hook devuelve handlers estables (el callback viaja por
   // ref), así que la memoización de la fila queda intacta: sigue sin re-renderizarse por tick.
   //
@@ -82,6 +86,9 @@ const QueueRow = memo(function QueueRow({ track, index, zone, isCurrent, isUpNex
     <li
       className={`queue-row queue-${zone}${isCurrent ? ' current' : ''}`}
       data-qid={track._qid}
+      data-index={index}
+      aria-setsize={setsize}
+      aria-posinset={index + 1}
       {...bindPress(track, {
         onClick: () => onJump(index),
         onContextMenu: (e) => onCtx(e, track, isCurrent),
@@ -114,6 +121,27 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
   const { openMenu } = useContextMenu();
   const hasCover = !!currentTrack?.cover_path;
   const bodyRef = useRef(null);
+
+  // ── Ventana de filas (frente 2 · Q) ────────────────────────────────────────────────────────
+  //
+  // Con un mix de toda la biblioteca la cola trae cientos o miles de pistas; montarlas todas
+  // congelaba la UI al abrir y re-renderizaba O(n) filas al quitar o insertar (medido en M1). Ahora
+  // sólo se montan las visibles + overscan, con <li> espaciadores de alto exacto arriba y abajo: el
+  // scroll y su barra quedan iguales. El scroll lo hace .queue-body (columna, drawer y hoja móvil).
+  // Filas FIJADAS (montadas aunque salgan de la ventana):
+  //  · la actual — lleva el progreso y el ecualizador, y es la que se centra al cambiar de pista;
+  //  · la que se arrastra — el gesto escribe transform/clases sobre ESE nodo, no puede desmontarse;
+  //  · la que tiene el foco — desmontarla tiraría el foco al <body>.
+  const [dragIndex, setDragIndex] = useState(null);
+  const [focusIndex, setFocusIndex] = useState(null);
+  const pinned = useMemo(() => [queueIndex, dragIndex, focusIndex], [queueIndex, dragIndex, focusIndex]);
+  const { listRef, segments, pitch, syncWindow } = useWindowedRows(queue.length, { overscan: 10, pinned, scroller: '.queue-body' });
+  // Largo de la cola para el gesto (que vive fuera del render).
+  const countRef = useRef(queue.length);
+  countRef.current = queue.length;
+  const rowIndexOf = (e) => { const li = e.target.closest?.('.queue-row[data-index]'); return li ? Number(li.dataset.index) : null; };
+  const onListFocus = (e) => setFocusIndex(rowIndexOf(e));
+  const onListBlur = (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocusIndex(null); };
 
   // ── Drag-to-enqueue · el DESTINO ────────────────────────────────────────────────────────────
   //
@@ -164,8 +192,11 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
       d.marked = null;
     }
     if (to === d.index) return;                                  // vuelve a su sitio: sin marca
-    d.marked = d.rows[to];
-    d.marked.classList.add(to > d.index ? 'queue-row--drop-after' : 'queue-row--drop-before');
+    // Por ÍNDICE GLOBAL (data-index), no por posición en el DOM: con la ventana los hijos del <ul>
+    // no son la cola entera. El destino queda cerca del puntero, que está a la vista → montado; si
+    // justo no lo estuviera, la marca aparece en el próximo cambio de destino.
+    d.marked = d.list.querySelector(`:scope > [data-index="${to}"]`);
+    d.marked?.classList.add(to > d.index ? 'queue-row--drop-after' : 'queue-row--drop-before');
   };
 
   // Pinta el estado del arrastre. El desplazamiento se mide en COORDENADAS DE CONTENIDO, no de
@@ -179,7 +210,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
   const updateDrag = (d) => {
     const dy = (d.lastY - d.y0) + (d.body.scrollTop - d.top0);
     d.row.style.transform = `translateY(${dy}px) ${LIFT}`;   // D2d · sigue al puntero, ya despegada
-    const to = Math.max(0, Math.min(d.index + Math.round(dy / d.h), d.rows.length - 1));
+    const to = Math.max(0, Math.min(d.index + Math.round(dy / d.h), d.count - 1));
     if (to !== d.to) { d.to = to; paintDrop(d, to); }
   };
 
@@ -252,6 +283,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
     cleanupGesture(d);
     d.row.style.transform = '';
     d.row.classList.remove('queue-row--dragging');
+    setDragIndex(null);                                 // la fila ya no necesita quedar fijada
   }, []);
 
   // ── D2b · El snap al soltar ─────────────────────────────────────────────────────────────────
@@ -280,6 +312,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
     s.row.style.transform  = '';
     s.row.classList.remove('queue-row--dragging');
     s.commit();
+    setDragIndex(null);                                 // después del commit: ya está en su lugar nuevo
   }, []);
 
   const settleDrag = (d) => {
@@ -291,6 +324,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
       row.style.transform = '';
       row.classList.remove('queue-row--dragging');
       commit();
+      setDragIndex(null);
       return;
     }
     // La transición va INLINE y sólo acá: durante el arrastre la fila sigue al puntero 1:1, sin
@@ -309,7 +343,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
   const onListPointerDown = (e) => {
     didDragRef.current = false;                                   // gesto nuevo → guard limpio
     // Snap en curso: se cierra YA (la cola queda consistente) y este gesto se cede. Arrancar un
-    // arrastre acá tomaría `rows`/`index` de un DOM que está por reordenarse en el commit. Son
+    // arrastre acá tomaría el `index` de un DOM que está por reordenarse en el commit. Son
     // ~190ms y el click sigue funcionando, así que lo único que se pierde es encadenar dos
     // arrastres a velocidad inhumana.
     if (settleRef.current) { finishSettle(); return; }
@@ -319,9 +353,10 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
     const row = e.target.closest?.('.queue-row');
     if (!row) return;
     const list = e.currentTarget;
-    const rows = Array.from(list.children);
-    const index = rows.indexOf(row);
-    if (index < 0) return;
+    // Índice GLOBAL de la cola (data-index), no la posición del nodo: con la ventana los hijos del
+    // <ul> son sólo las filas montadas + espaciadoras.
+    const index = Number(row.dataset.index);
+    if (!Number.isInteger(index) || index < 0) return;
     if (!row.offsetHeight) return;   // alto 0 (fila oculta): dy/h daría NaN y el destino se iría a undefined
     const body = bodyRef.current;
     if (!body) return;
@@ -331,7 +366,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
     // que ni el move ni el loop de autoscroll toquen layout.
     dragRef.current = {
       id: e.pointerId, qid: Number(row.dataset.qid),
-      list, row, rows, index, to: index, body,
+      list, row, index, count: countRef.current, to: index, body,
       y0: e.clientY, lastY: e.clientY, top0: body.scrollTop,
       rect: body.getBoundingClientRect(),
       maxScroll: body.scrollHeight - body.clientHeight,
@@ -351,6 +386,9 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
       try { d.list.setPointerCapture(d.id); } catch { /* noop */ }
       d.list.classList.add('queue-dragging');
       d.row.classList.add('queue-row--dragging');
+      // Fijar la fila arrastrada: el autoscroll mueve la ventana y no puede desmontarla. Es UN
+      // render (la fila es memo y no cambia de props); el gesto sigue sin pasar por React por frame.
+      setDragIndex(d.index);
     }
     updateDrag(d);
     setAutoScroll(d, edgeVelocity(d));                            // entrar/salir de la franja de borde
@@ -405,7 +443,16 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
   // behavior:'auto' (salto directo, SIEMPRE): con shuffle + cola larga "siguiente" salta cientos de
   // filas y animar ese trayecto marea; el salto instantáneo orienta sin recorrerlo (auto = sin
   // motion → también respeta prefers-reduced-motion). block:'center' orienta mejor en saltos grandes.
-  useEffect(() => {
+  //
+  // Ventana (frente 2 · Q): la posición se CALCULA por índice × paso medido, sin depender de que el
+  // nodo exista, y es la misma cuenta que hacía scrollIntoView({block:'center'}) (centro de la fila
+  // al centro del área visible, recortado a los límites del scroll). Corre en un LAYOUT effect y
+  // después mueve la ventana (syncWindow) → el frame que se pinta ya tiene las filas del destino,
+  // sin un cuadro de espaciadora vacía. Espera a que el paso esté medido (al abrir, el primer render
+  // todavía no tiene espaciadoras y el scroll quedaría recortado); `centeredRef` evita re-centrar
+  // cuando sólo cambia el paso y no la pista.
+  const centeredRef = useRef(null);
+  useLayoutEffect(() => {
     // D3 · Con un arrastre en curso este efecto se ABSTIENE. Si la canción termina a mitad del
     // gesto, centrar la nueva actual movería el scroll de golpe por debajo del dedo: el arrastre
     // lo leería como desplazamiento y el destino pegaría un salto. Los dos scrollean el mismo
@@ -413,10 +460,48 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
     // D2b · Y también mientras la fila se asienta: ahí el arrastre ya terminó (dragRef en null),
     // pero un scroll de golpe partiría la animación al medio.
     if (dragRef.current || settleRef.current) return;
-    const row = bodyRef.current?.querySelector('.queue-row.current');
-    if (!row) return;
-    row.scrollIntoView({ block: 'center', behavior: 'auto' });
-  }, [currentTrack?._qid]);
+    const qid = currentTrack?._qid;
+    const body = bodyRef.current;
+    const list = listRef.current;
+    if (!pitch || qid == null || !body || !list || queueIndex < 0) return;
+    if (centeredRef.current === qid) return;
+    centeredRef.current = qid;
+    const listTop = list.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+    const center = listTop + queueIndex * pitch + pitch / 2 - body.clientHeight / 2;
+    body.scrollTop = Math.max(0, Math.min(center, body.scrollHeight - body.clientHeight));
+    syncWindow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?._qid, pitch]);
+
+  // Filas montadas + espaciadoras. Memoizado: un re-render del panel que no cambia la ventana ni la
+  // cola (p. ej. iluminar el drop) entrega los MISMOS elementos y React no compara fila por fila.
+  const rowElements = useMemo(() => {
+    const out = [];
+    for (const seg of segments) {
+      if (seg.type === 'gap') {
+        const key = seg.from === 0 ? 'gap-top' : seg.to === queue.length ? 'gap-end' : `gap-${seg.from}`;
+        out.push(<li key={key} className="queue-gap" aria-hidden="true" style={{ height: (seg.to - seg.from) * pitch }} />);
+        continue;
+      }
+      for (let i = seg.from; i < seg.to; i++) {
+        const t = queue[i];
+        out.push(
+          <QueueRow
+            key={t._qid}
+            track={t}
+            index={i}
+            setsize={queue.length}
+            zone={i < queueIndex ? 'played' : i > queueIndex ? 'coming' : 'now'}
+            isCurrent={i === queueIndex}
+            isUpNext={upNext.has(t._qid)}
+            onJump={jumpTo}
+            onCtx={onCtx}
+          />,
+        );
+      }
+    }
+    return out;
+  }, [segments, pitch, queue, queueIndex, upNext, jumpTo, onCtx]);
 
   return (
     <div
@@ -456,7 +541,10 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
           </div>
         ) : (
           <ul
+            ref={listRef}
             className="queue-list"
+            onFocus={onListFocus}
+            onBlur={onListBlur}
             onPointerDown={onListPointerDown}
             onPointerMove={onListPointerMove}
             onPointerUp={onListPointerUp}
@@ -464,18 +552,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
             onLostPointerCapture={endDrag}
             onClickCapture={onListClickCapture}
           >
-            {queue.map((t, i) => (
-              <QueueRow
-                key={t._qid}
-                track={t}
-                index={i}
-                zone={i < queueIndex ? 'played' : i > queueIndex ? 'coming' : 'now'}
-                isCurrent={i === queueIndex}
-                isUpNext={upNext.has(t._qid)}
-                onJump={jumpTo}
-                onCtx={onCtx}
-              />
-            ))}
+            {rowElements}
           </ul>
         )}
       </div>

@@ -8,18 +8,24 @@ import { flushSync } from 'react-dom';
 // · El PASO de fila no se escribe en JS: se mide en el DOM (distancia entre dos filas consecutivas
 //   montadas, que incluye el borde colapsado de la tabla). Cambia por modo (tabla/lista/móvil) y se
 //   vuelve a medir cuando la tabla cambia de tamaño (ResizeObserver: viewport, cola abierta, modo).
-// · El scroll lo hace `.main-content` (Layout). Listener PASIVO + un requestAnimationFrame por frame,
-//   y setState SÓLO si cambia el inicio o el tamaño de la ventana (no en cada píxel).
+// · El scroll lo hace el CONTENEDOR que se indique (`scroller`: selector que se busca hacia arriba
+//   desde la lista con closest). Por defecto `.main-content` (Layout), que es el de Biblioteca; la
+//   cola usa su `.queue-body`. Listener PASIVO + un requestAnimationFrame por frame, y setState SÓLO
+//   si cambia el inicio o el tamaño de la ventana (no en cada píxel).
+// · Las filas reales se reconocen por `data-index` (su índice en la lista COMPLETA); las espaciadoras
+//   no lo llevan. Qué elemento es la espaciadora (<tr><td>, <li>…) lo decide la vista.
 // · `pinned`: índices que deben quedar montados aunque estén fuera de la ventana (la fila que se
 //   arrastra — si se desmonta se pierde su dragend —, y la que tiene el foco del teclado).
 //
 // Devuelve `segments`: [{ type: 'rows', from, to }] y [{ type: 'gap', from, to }] en orden, para que
-// la vista arme filas y espaciadoras. `tbodyRef` va en el <tbody> de la tabla.
+// la vista arme filas y espaciadoras. `tbodyRef` (alias `listRef`) va en el contenedor DIRECTO de las
+// filas (<tbody>, <ul>). `syncWindow()` recalcula la ventana YA (p. ej. tras mover el scroll a mano
+// en un layout effect, para que el frame que se pinta ya tenga las filas de destino).
 
 const INITIAL_ROWS = 60;   // primer render, antes de poder medir (se corrige antes de pintar)
 const HYST = 3;            // filas de margen antes de mover la ventana (ver compute)
 
-export function useWindowedRows(count, { overscan = 10, pinned = [] } = {}) {
+export function useWindowedRows(count, { overscan = 10, pinned = [], scroller: scrollerSel = '.main-content' } = {}) {
   const tbodyRef = useRef(null);
   const [pitch, setPitch] = useState(0);              // px por fila (0 = todavía sin medir)
   // ¿El <tbody> se pinta como TABLA (escritorio) o como bloques (modo lista ≤1024 / cola abierta /
@@ -28,7 +34,7 @@ export function useWindowedRows(count, { overscan = 10, pinned = [] } = {}) {
   const [win, setWin] = useState({ start: 0, size: INITIAL_ROWS });
   const raf = useRef(0);
 
-  const scroller = () => tbodyRef.current?.closest('.main-content') ?? null;
+  const scroller = () => tbodyRef.current?.closest(scrollerSel) ?? null;
 
   // Paso de fila: dos filas montadas con índices consecutivos (data-index) → distancia entre sus tops.
   // Se toma un par del MEDIO de lo montado: las filas pegadas a una espaciadora pueden diferir medio
@@ -36,7 +42,7 @@ export function useWindowedRows(count, { overscan = 10, pinned = [] } = {}) {
   const measure = useCallback(() => {
     const body = tbodyRef.current;
     if (!body) return 0;
-    const rows = body.querySelectorAll(':scope > tr[data-index]');
+    const rows = body.querySelectorAll(':scope > [data-index]');
     const mid = Math.max(0, Math.floor(rows.length / 2) - 1);
     for (let k = mid; k + 1 < rows.length; k++) {
       if (Number(rows[k + 1].dataset.index) === Number(rows[k].dataset.index) + 1) {
@@ -86,7 +92,8 @@ export function useWindowedRows(count, { overscan = 10, pinned = [] } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count]);
 
-  // Scroll (pasivo + rAF) y cambios de tamaño de la tabla (modo, viewport, cola).
+  // Scroll (pasivo + rAF) y cambios de tamaño: de la tabla/lista (modo, viewport, cola abierta) y del
+  // CONTENEDOR de scroll (en la hoja móvil de la cola cambia el alto visible sin que la lista cambie).
   useEffect(() => {
     const sc = scroller();
     const body = tbodyRef.current;
@@ -105,13 +112,23 @@ export function useWindowedRows(count, { overscan = 10, pinned = [] } = {}) {
       compute(p || pitch);
     });
     ro.observe(body.closest('table') ?? body);
+    if (sc !== body) ro.observe(sc);
     return () => {
       sc.removeEventListener('scroll', onScroll);
       ro.disconnect();
       cancelAnimationFrame(raf.current);
       raf.current = 0;
     };
-  }, [compute, measure, detectMode, pitch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compute, measure, detectMode, pitch, scrollerSel]);
+
+  // Devuelve el paso usado (0 si todavía no hay filas para medir).
+  const syncWindow = useCallback(() => {
+    const p = pitch || measure();
+    if (p && p !== pitch) setPitch(p);
+    compute(p);
+    return p;
+  }, [compute, measure, pitch]);
 
   // Segmentos: ventana ∪ filas fijadas, con espaciadoras en los huecos. Sin paso medido todavía
   // (primer render) no hay espaciadoras: se montan las primeras filas y se corrige antes de pintar.
@@ -146,5 +163,5 @@ export function useWindowedRows(count, { overscan = 10, pinned = [] } = {}) {
     return out;
   }, [count, win, pitch, pinned]);
 
-  return { tbodyRef, segments, pitch, tableMode };
+  return { tbodyRef, listRef: tbodyRef, segments, pitch, tableMode, syncWindow };
 }
