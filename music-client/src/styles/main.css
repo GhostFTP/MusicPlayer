@@ -351,12 +351,27 @@ button, input, select, textarea { font-family: inherit; }
   box-shadow: 0 8px 24px var(--accent-dim);
 }
 .mix-btn:active { transform: translateY(0) scale(.99); }
-.mix-btn:disabled {
+.mix-btn:disabled,
+.mix-btn[aria-busy="true"] {
   opacity: .45;
   cursor: default;
   transform: none;
   box-shadow: none;
 }
+/* Ocupado (Frente 2, M2c): mientras pide la lista el botón ya no es `disabled` nativo (así conserva
+   el foco del teclado) sino aria-busy; comparte el aspecto de :disabled (arriba) y además queda
+   QUIETO al pasar el mouse: sin lift/zoom ni giro del ícono. Especificidad por encima del :hover de
+   cada variante. */
+.mix-btn[aria-busy="true"]:hover,
+.mix-btn[aria-busy="true"]:active,
+.detail-actions .mix-btn[aria-busy="true"]:hover,
+.detail-actions .mix-btn[aria-busy="true"]:active,
+.library-actions .mix-btn[aria-busy="true"]:hover,
+.library-actions .mix-btn[aria-busy="true"]:active,
+.pl-detail-actions .mix-btn[aria-busy="true"]:hover,
+.pl-detail-actions .mix-btn[aria-busy="true"]:active { transform: none; }
+.detail-actions .mix-btn[aria-busy="true"]:hover svg,
+.library-actions .mix-btn[aria-busy="true"]:hover svg { animation: none; }
 /* Foco por teclado (Frente 2, M2b): el MISMO criterio que ya usan las variantes del Mix
    (.detail-actions / .library-actions / .pl-detail-actions .mix-btn:focus-visible): aro de 2px del
    hue de la vista. Faltaba en el .mix-btn global (el del hero de artista no tenía foco visible). */

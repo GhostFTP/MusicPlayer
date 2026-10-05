@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import { useToast } from './Toast.jsx';
 
 // Baraja una copia (Fisher–Yates) sin mutar el original.
 function shuffled(arr) {
@@ -13,6 +14,9 @@ function shuffled(arr) {
 
 // Con menos de esto no hay nada que mezclar: el botón queda visible pero deshabilitado.
 const MIN_TRACKS = 2;
+// Mientras el aviso de error sigue en pantalla (la variante 'warning' de Toast dura 3,5 s) no se
+// repite: clics seguidos con la red caída dan UN solo aviso, no una pila.
+const ERROR_TOAST_MS = 3500;
 
 // Botón "Mix aleatorio" reutilizable (los 10 usos de la app): baraja las pistas dadas, reproduce y
 // activa el modo shuffle del PlayerContext. Recibe la lista directa (`tracks`) o un cargador
@@ -26,11 +30,23 @@ const MIN_TRACKS = 2;
 //  · Un solo pedido y una sola reproducción por gesto: guard por ref (sobrevive al re-render) y el
 //    2.º clic de un doble clic (event.detail > 1) se ignora.
 //  · Si el pedido falla (401, red, cuenta cambiada → el helper devuelve []), vuelve a su estado
-//    normal sin reproducir ni dejar un rechazo sin atrapar. Aviso visual: pendiente de decisión.
+//    normal sin reproducir ni dejar un rechazo sin atrapar.
+//
+// Frente 2 · M2c:
+//  · Aviso de error: el toast ámbar de la casa (useToast, variant 'warning'), con el MISMO texto que
+//    el menú contextual y el arrastre a la cola. Uno por intento y sin repetirse mientras sigue en
+//    pantalla. Con 401 NO hay aviso: el cliente ya cierra la sesión. Con la cuenta cambiada a mitad
+//    del pedido (el helper devuelve []) tampoco: no es un error.
+//  · Mientras pide la lista el botón NO usa `disabled` nativo: un botón deshabilitado pierde el foco
+//    (se iba a <body> al activarlo con el teclado). Queda con aria-disabled + aria-busy, el clic
+//    repetido lo frena el guard de inFlight, y se ve igual que antes (main.css: [aria-busy="true"]
+//    comparte la regla de :disabled). Con < 2 pistas sigue siendo disabled real.
 export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix aleatorio' }) {
   const { play, shuffle, toggleShuffle } = usePlayer();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  const lastErrorToast = useRef(0);
 
   const known = tracks ? tracks.length : count;
   const tooFew = known != null && known < MIN_TRACKS;
@@ -43,7 +59,18 @@ export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix a
       let list = tracks;
       if ((!list || list.length === 0) && getTracks) {
         setBusy(true);
-        try { list = await getTracks(); } catch { list = null; } finally { setBusy(false); }
+        try {
+          list = await getTracks();
+        } catch (err) {
+          list = null;
+          const now = Date.now();
+          if (err?.status !== 401 && now - lastErrorToast.current > ERROR_TOAST_MS) {
+            lastErrorToast.current = now;
+            toast('No se pudieron cargar las pistas', { variant: 'warning' });
+          }
+        } finally {
+          setBusy(false);
+        }
       }
       if (!list || list.length < MIN_TRACKS) return;
       play(shuffled(list), 0);
@@ -53,7 +80,8 @@ export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix a
     }
   };
 
-  const disabled = busy || tooFew || (!tracks && !getTracks);
+  // disabled REAL sólo cuando no hay nada que mezclar; ocupado = aria-disabled (conserva el foco).
+  const disabled = tooFew || (!tracks && !getTracks);
 
   return (
     <button
@@ -61,7 +89,7 @@ export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix a
       className="mix-btn"
       onClick={run}
       disabled={disabled}
-      aria-disabled={disabled || undefined}
+      aria-disabled={disabled || busy || undefined}
       aria-busy={busy || undefined}
       title={tooFew ? 'No hay suficientes canciones para mezclar' : 'Baraja estas canciones y reproduce al azar'}
     >
