@@ -111,6 +111,9 @@ export const api = {
   addToPlaylist:   (id, trackId)=> request(`/api/playlists/${id}/tracks`,     { method: 'POST', body: JSON.stringify({ track_id: trackId }) }),
   removeFromPlaylist: (id, tid) => request(`/api/playlists/${id}/tracks/${tid}`, { method: 'DELETE' }),
 
+  // Escuchas (utils/playsOutbox.js): lote de { client_id, track_id, played_at, ms_played } → { added, already, skipped }
+  recordPlays:     (plays)      => request('/api/plays', { method: 'POST', body: JSON.stringify({ plays }) }),
+
   // Novedades (CHANGELOG.md del repo) → { content }
   changelog:       ()           => request('/api/changelog'),
 };

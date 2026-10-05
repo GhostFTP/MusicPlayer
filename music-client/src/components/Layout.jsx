@@ -14,6 +14,7 @@ import { DragQueueProvider } from '../context/DragQueueContext.jsx';
 import { pathToState, stateToPath } from '../utils/routes.js';
 import { clearViewCache } from '../api/viewCache.js';
 import { useMixShortcut } from '../utils/useMixShortcut.js';
+import { PlayLogger } from '../utils/usePlayLogger.js';
 
 // ── Gesto "atrás" en móvil: deslizar en el contenido para salir del detalle
 // actual (álbum/artista/género/playlist/año) y volver a su lista. Reusa el
@@ -230,6 +231,9 @@ export default function Layout() {
     // Ya NO recibe `enabled`: desde que la barra acepta drops hay destino siempre, así que el gate
     // del origen es sólo el ancho y lo resuelve el provider (ver §Destinos en DragQueueContext).
     <DragQueueProvider>
+      {/* Registro de escuchas (POST /api/plays): componente sin UI, aparte para que el tiempo del
+          player no re-renderice el Layout entero. Ver utils/usePlayLogger.js. */}
+      <PlayLogger />
       <div className={`layout${showQueue ? ' layout--queue' : ''}`}>
         <Sidebar view={view} navigate={navigate} />
 
