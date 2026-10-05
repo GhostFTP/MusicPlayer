@@ -34,12 +34,20 @@ código) o **[NO MEDÍ]**. Mejor un "no lo medí" que una suposición vendida co
 
 ## 3. Protocolo de medición
 
+- **Puertos de la sesión: 3100 (backend), 4173 (nuevo), 4174 (baseline).** El `:3000` NO se usa:
+  en esta máquina corren otros proyectos de Oscar en puertos comunes (CLASSIFY, Next.js, en
+  `:3000`). Ver §5 "Servidores".
+- **Backend local:** `PORT=3100 npm start` en `music-server`.
 - **Build de producción**, nunca dev: `npm run build` en `music-client` + `npx vite preview
-  --port <p> --strictPort` (el proxy `/api` y `/stream` a `:3000` lo hereda de `server.proxy`).
-- **Backend local:** `npm start` en `music-server` (puerto 3000).
+  --config <scratchpad>/vite-preview-<build>.config.mjs --port <4173|4174> --strictPort`. El
+  `server.proxy` de `vite.config.js` apunta fijo a `:3000` y **no se edita**: el config temporal
+  (en el scratchpad, sin importar `vite`) es un objeto plano
+  `{ root: '<ruta de music-client del build>', preview: { proxy: { '/api': 'http://localhost:3100',
+  '/stream': 'http://localhost:3100' } } }`.
 - **Baseline en la MISMA sesión:** `git worktree add --detach <scratchpad>/<nombre> <commit>`,
-  copiar `music-client/node_modules`, build y servirlo en otro puerto. Se comparan los dos en la
-  misma corrida, nunca contra números viejos.
+  copiar `music-client/node_modules`, build y servirlo en `:4174` con su propio config temporal
+  (`root` = el `music-client` del worktree). Se comparan los dos en la misma corrida, nunca
+  contra números viejos.
 - **Audio:** los FLAC no están en la máquina local (`/stream` da 404). Se intercepta `/stream/*`
   con un **WAV silencioso de 15 min** (8 kHz mono) **con soporte de Range** (sin 206 el seek falla).
 - **Matriz:** CPU **1x y 4x** (4x ≈ teléfono) × **software y GPU** (`--enable-gpu
@@ -86,17 +94,43 @@ Todos se corren con `SNAP_BASE=http://localhost:<puerto>` desde esa carpeta. Log
   `compositeFailed` y `unsupportedProperties` (unirlos por `id` con el evento que trae el nombre).
 - Una **variable CSS heredada que cambia en cada tick** alcanza al elemento animado y fuerza
   frames en el hilo principal aunque no la use; un elemento cuyo **tamaño** cambia, también.
-- `TaskStop` **no mata los hijos de node**: matar los servidores **por puerto** (3000, 4173…)
-  y verificar con `curl` que no responden (`000`). Desde Git Bash, no pasar el comando inline a
-  `powershell -Command` (bash expande `$_`): escribir un `.ps1` con heredoc `<<'EOF'` —
-  `Get-NetTCPConnection -LocalPort 3000,4173 -State Listen | % { Get-Process -Id
-  $_.OwningProcess } | ? ProcessName -eq 'node' | Stop-Process -Force` — y correrlo con
-  `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`. Las tareas de fondo quedan como
-  "failed, exit 127": es el efecto de matarlas, no un error de arranque.
-- Para esperar a que levanten: `curl` hasta 200 en `localhost:3000/api/auth/config` (público) y
-  en `localhost:<puerto>/`; ~2 s, con tope de 30 s.
-- Al cerrar: apagar servidores y `git worktree remove --force` + `git worktree prune` de los
-  temporales.
+- **Servidores: se apaga SÓLO lo que lanzó esta sesión.** En Q1 un apagado "por puerto" mató el
+  Next.js de CLASSIFY en `:3000`. Reglas:
+  1. **Nunca** matar por puerto genérico ni por nombre de proceso (`node`, `next`, `vite`).
+  2. **Antes de levantar:** `curl` a 3100/4173/4174 debe dar `000` (libres). Si alguno responde,
+     NO se toca: se avisa y se para. Anotar también qué responde `:3000` (`curl -s -o /dev/null
+     -w '%{http_code}' localhost:3000/`) para compararlo al cerrar.
+  3. **Al levantar:** cuando cada puerto responda 200, guardar en `<scratchpad>/session-pids.txt`
+     el PID que escucha (`puerto pid`). Como el puerto estaba libre antes, ese PID es de la sesión.
+  4. **Al cerrar:** matar sólo los PIDs de ese archivo, y sólo si (a) siguen escuchando en SU
+     puerto y (b) son de este proyecto: línea de comandos de `vite preview` con el config de la
+     sesión o ruta dentro de `MusicPlayer`, o (para el backend, cuya línea es sólo
+     `node … server.js`) un padre `npm … start`. Cualquier otro proceso: no se toca y se avisa.
+  5. **Después:** 3100/4173/4174 en `000` y `:3000` respondiendo **lo mismo que al empezar**.
+  `TaskStop` no mata los hijos de node, por eso hace falta el `.ps1`. Desde Git Bash no pasar el
+  comando inline a `powershell -Command` (bash expande `$_`): escribirlo con heredoc `<<'EOF'` y
+  correrlo con `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`. Esqueleto del cierre:
+  ```powershell
+  $pids = '<ruta del scratchpad>\session-pids.txt'   # la escribe el paso 3
+  Get-Content $pids | ForEach-Object {
+    $port, $procId = $_ -split ' '
+    $c = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    if (-not $c -or $c.OwningProcess -ne [int]$procId) { "puerto $port ya no es de la sesión: no toco"; return }
+    $p = Get-CimInstance Win32_Process -Filter "ProcessId=$procId"
+    $par = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ParentProcessId)"
+    $gpa = Get-CimInstance Win32_Process -Filter "ProcessId=$($par.ParentProcessId)"
+    $chain = "$($p.CommandLine) | $($par.CommandLine) | $($gpa.CommandLine)"
+    if ($chain -like '*MusicPlayer*' -or $chain -like '*vite-preview-*config*' -or $chain -like '*npm-cli.js*start*') {
+      "apago $procId (:$port)"; Stop-Process -Id $procId -Force
+    } else { "NO toco $procId (:$port): $($p.CommandLine)" }
+  }
+  ```
+  Las tareas de fondo quedan como "failed, exit 127": es el efecto de matarlas, no un error de
+  arranque.
+- Para esperar a que levanten: `curl` hasta 200 en `localhost:3100/api/auth/config` (público) y
+  en `localhost:<4173|4174>/api/auth/config` (prueba también el proxy); ~2 s, con tope de 30 s.
+- Al cerrar: apagar los servidores de la sesión (arriba) y `git worktree remove --force` +
+  `git worktree prune` de los temporales.
 - El parámetro de búsqueda del servidor es **`search`**, no `q`. Su `LIKE` ignora mayúsculas
   sólo en ASCII y no ignora acentos; la Biblioteca filtra local (`utils/searchText.js`).
 - **Capturas:** nunca reportar un PNG sin pegar `ls -la`/`dir` con su tamaño.
@@ -118,7 +152,8 @@ Todos se corren con `SNAP_BASE=http://localhost:<puerto>` desde esa carpeta. Log
 1. `npm run build` en exit 0.
 2. `git status` + `git diff --stat`: archivos tocados = los permitidos por el prompt.
 3. Scripts nuevos sin trackear, listados.
-4. Servidores apagados (verificado por puerto) y worktrees temporales borrados.
+4. Servidores de la sesión apagados (sólo los PIDs de `session-pids.txt`, §5): 3100/4173/4174 en
+   `000` y `:3000` respondiendo igual que al empezar. Worktrees temporales borrados.
 
 ## 7. Formato de entrega
 

@@ -30,12 +30,18 @@ lo cubre un script existente, **usalo** antes de escribir uno nuevo.
 1. **Freno — estado del repo.** `git status` + `git log --oneline -4`. Si no coincide con lo que
    dice el pedido (rama, commits, árbol), parás y avisás.
 2. **Baseline en worktree** del commit indicado dentro del scratchpad (copiar
-   `music-client/node_modules`), build de los dos (`npm run build`) y `vite preview` en puertos
-   distintos con `--strictPort`. Backend local en `:3000`. Confirmá con `curl` qué hash de bundle
-   sirve cada puerto.
+   `music-client/node_modules`), build de los dos (`npm run build`). Puertos de la sesión
+   (skill §3 y §5): backend `PORT=3100 npm start`, nuevo en `:4173` y baseline en `:4174` con
+   `vite preview --config <config temporal del scratchpad> --strictPort` (proxy a `:3100`). El
+   `:3000` NO se usa: es de otros proyectos de Oscar (CLASSIFY). Antes de levantar, comprobá que
+   3100/4173/4174 están libres (`curl` → `000`) y anotá qué responde `:3000`; al levantar,
+   registrá cada PID en `session-pids.txt`. Confirmá con `curl` qué hash de bundle sirve cada
+   puerto.
 3. **Medir** con los scripts de `perf/`: 3 corridas por escenario, CPU 1x y 4x, software y GPU si
    el escenario lo pide. Baseline y nuevo **intercalados** en la misma sesión.
-4. **Cerrar:** matar los servidores **por puerto** y verificar con `curl` que no responden;
+4. **Cerrar:** apagar **sólo** los PIDs de `session-pids.txt` que sigan en su puerto y sean de
+   este proyecto (skill §5; nunca por puerto genérico ni por nombre `node`/`next`/`vite`).
+   Verificar 3100/4173/4174 en `000` y `:3000` respondiendo igual que al empezar;
    `git worktree remove --force` + `git worktree prune` de los temporales.
 5. **Reporte** completo en `.claude/tools/snap/shots/reports/AAAA-MM-DD-<tema>.md` (verificá
    antes con `git check-ignore -v`).
