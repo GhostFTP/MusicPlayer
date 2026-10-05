@@ -6,6 +6,8 @@
 //   4. Tab + Enter activa el botón.
 //   5. Árbol de accesibilidad (CDP): nombre, descripción, deshabilitado y aria-busy durante el pedido.
 //   6. Espacio con el botón enfocado: se DOCUMENTA lo que pasa (es de M4, no se arregla acá).
+//   M2c: el foco se conserva mientras pide la lista (aria-busy en vez de disabled); fallo de red →
+//   UN toast ámbar (y uno solo con 3 clics seguidos); 401 → sin toast; la capa de toasts es anunciable.
 // Uso: SNAP_BASE=http://localhost:4173 node mix-a11y.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 
@@ -42,6 +44,9 @@ async function newPage({ albums, libRoute } = {}) {
   await ctx.addInitScript((t) => {
     localStorage.setItem('token', t);
     window.__errors = [];
+    window.__toasts = [];
+    new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && n.classList?.contains('toast')) window.__toasts.push({ texto: n.textContent.trim(), warning: n.classList.contains('warning') }); })
+      .observe(document, { childList: true, subtree: true });
     window.addEventListener('error', (e) => window.__errors.push(String(e.message)));
     window.addEventListener('unhandledrejection', (e) => window.__errors.push('rechazo: ' + String(e.reason?.message ?? e.reason)));
     const d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
@@ -62,6 +67,7 @@ const btnState = (p, sel = '.mix-btn') => p.evaluate((sel) => {
   return { disabled: b.disabled, ariaDisabled: b.getAttribute('aria-disabled'), ariaBusy: b.getAttribute('aria-busy'), type: b.getAttribute('type'), title: b.title, texto: b.textContent.trim(), svgOculto: b.querySelector('svg')?.getAttribute('aria-hidden') };
 }, sel);
 const played = (p) => p.evaluate(() => window.__srcSets ?? 0);
+const toasts = (p) => p.evaluate(() => window.__toasts ?? []);
 const pageErrs = async (p, errs) => [...errs, ...(await p.evaluate(() => window.__errors ?? []))];
 
 // 1) deshabilitado / habilitado
@@ -118,8 +124,23 @@ for (const [name, route] of [
   const st = await btnState(p, '.section-header .mix-btn');
   const e = await pageErrs(p, errs);
   const sesionCerrada = await p.locator('.section-header .mix-btn').count() === 0;
-  ok(name, !e.length && (await played(p)) === 0 && (sesionCerrada || (!st.disabled && st.texto === 'Mix aleatorio' && st.ariaBusy === null)),
-    { erroresSinAtrapar: e, sono: (await played(p)) > 0, boton: st, sesionCerrada });
+  const ts = await toasts(p);
+  const toastOk = name === 'error_401' ? ts.length === 0 : (ts.length === 1 && ts[0].warning && ts[0].texto.includes('No se pudieron cargar las pistas'));
+  ok(name, !e.length && (await played(p)) === 0 && toastOk && (sesionCerrada || (!st.disabled && st.texto === 'Mix aleatorio' && st.ariaBusy === null && st.ariaDisabled === null)),
+    { erroresSinAtrapar: e, sono: (await played(p)) > 0, toasts: ts, boton: st, sesionCerrada });
+  await ctx.close();
+}
+
+// 2b) tres clics seguidos con la red caída → UN solo toast (y ningún error sin atrapar)
+{
+  const { ctx, p, errs, libReqs } = await newPage({ libRoute: (r) => r.abort('failed') });
+  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
+  for (let k = 0; k < 3; k++) { await p.click('.section-header .mix-btn'); await p.waitForTimeout(250); }
+  await p.waitForTimeout(1200);
+  const ts = await toasts(p);
+  const capa = await p.evaluate(() => { const l = document.querySelector('.toast-layer'); const t = l?.querySelector('.toast'); return { ariaLive: l?.getAttribute('aria-live'), ariaAtomic: l?.getAttribute('aria-atomic'), role: t?.getAttribute('role') ?? null }; });
+  ok('tres_clics_con_fallo_un_toast', ts.length === 1 && !(await pageErrs(p, errs)).length, { toasts: ts.length, pedidos: libReqs() });
+  ok('toast_anunciable', capa.ariaLive === 'polite' && capa.role === 'status', capa);
   await ctx.close();
 }
 
@@ -166,16 +187,17 @@ const tabTo = async (p, sel) => {
   await ctx.close();
 }
 
-// 4b) ¿el foco sigue en el botón tras activarlo por teclado mientras pide la lista? (se documenta)
+// 4b) el foco sigue en el botón tras activarlo por teclado mientras pide la lista (M2c)
 {
   const { ctx, p } = await newPage({ libRoute: async (r) => { await new Promise((s) => setTimeout(s, 1200)); return r.fallback(); } });
   await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
   await tabTo(p, '.section-header .mix-btn');
   await p.keyboard.press('Enter'); await p.waitForTimeout(300);
-  const durante = await p.evaluate(() => document.activeElement?.className || document.activeElement?.tagName);
+  const durante = await p.evaluate(() => { const a = document.activeElement; return { clase: a?.className || a?.tagName, busy: a?.getAttribute('aria-busy'), ariaDisabled: a?.getAttribute('aria-disabled'), disabled: a?.disabled ?? null, texto: a?.textContent?.trim() }; });
   await p.waitForTimeout(1800);
   const despues = await p.evaluate(() => document.activeElement?.className || document.activeElement?.tagName);
-  ok('foco_tras_enter_con_pedido_DOCUMENTA', true, { focoDurante: durante, focoDespues: despues, nota: 'mientras pide, el botón queda disabled (ya era así antes de M2b)' });
+  ok('foco_se_conserva_mientras_pide', durante.clase === 'mix-btn' && durante.busy === 'true' && durante.ariaDisabled === 'true' && durante.disabled === false && despues === 'mix-btn',
+    { focoDurante: durante, focoDespues: despues });
   await ctx.close();
 }
 

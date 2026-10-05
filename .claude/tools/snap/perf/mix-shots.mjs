@@ -5,6 +5,8 @@
 //   · DESHABILITADO: álbum de 1 pista (Alive 1997), Biblioteca con una búsqueda de 1 resultado y la
 //     playlist de 1 pista;
 //   · FOCO por teclado (Tab hasta el Mix): Álbumes, detalle de artista (hero) y detalle de playlist.
+//   · M2c: "Cargando…" congelado (pedido de la biblioteca colgado) con el mouse afuera y con foco de
+//     teclado (Tab + Enter), y el TOAST de error (pedido abortado) en pantalla completa.
 // Recorte: la zona alrededor del botón (rect del botón ± margen), el mismo en los dos builds.
 // Salida: shots/sub3/<OUT>/x-<ancho>-<caso>.png. Uso: SNAP_BASE=http://localhost:4173 OUT=m2b-despues node mix-shots.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
@@ -73,6 +75,20 @@ for (const [w, opts] of [
   // foco: listado de Álbumes y hero de artista
   await go('/albums'); if (await focusMix()) await shot('albumes-foco');
   await go(`/artists/${enc('Daft Punk')}`); if (await focusMix()) await shot('artista-foco');
+  // M2c · "Cargando…" congelado: el pedido de la biblioteca no responde nunca (en frío, URL directa)
+  const isLib = (u) => { const x = new URL(u); return x.pathname === '/api/tracks' && x.searchParams.get('limit') === '10000' && [...x.searchParams.keys()].length === 1; };
+  const hang = () => {};   // no fulfill: queda pendiente
+  await p.route(isLib, hang);
+  await go('/albums'); await p.locator('.section-header .mix-btn').click(); await p.waitForTimeout(600); await shot('albumes-cargando');
+  await go('/albums'); if (await focusMix()) { await p.keyboard.press('Enter'); await p.waitForTimeout(600); await shot('albumes-cargando-foco'); }
+  await p.unroute(isLib, hang);
+  // M2c · toast de error: el pedido se aborta
+  const abort = (r) => r.abort('failed');
+  await p.route(isLib, abort);
+  await go('/albums'); await p.locator('.section-header .mix-btn').click(); await p.waitForTimeout(700);
+  await p.mouse.move(2, 2);
+  { const path = join(OUT, `x-${w}-toast.png`); await p.screenshot({ path, animations: 'disabled' }); saved.push(path); }
+  await p.unroute(isLib, abort);
   await ctx.close();
 }
 console.log(`búsqueda de 1 resultado: «${one.title}»`);
