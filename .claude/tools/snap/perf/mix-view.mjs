@@ -60,7 +60,7 @@ async function clickMix() {
   const r0 = reqs;
   const r = await page.evaluate(async () => {
     window.__lt = []; window.__srcAt = null;
-    const btn = document.querySelector('.section-header .mix-btn');
+    const btn = document.querySelector(':is(.section-header, .view-actions) .mix-btn');
     const prev = window.__audio;
     const t0 = performance.now();
     let tPlay = null;
@@ -93,7 +93,7 @@ for (const [key, label, path] of VIEWS) {
     await page.waitForSelector('.library-tracks .track-row');
     await page.waitForTimeout(1000);
     await page.click(`.sidebar button:has-text("${label}")`);
-    await page.waitForSelector('.section-header .mix-btn');
+    await page.waitForSelector(':is(.section-header, .view-actions) .mix-btn');
     await page.waitForTimeout(800);
     hot.push(await clickMix());
   }
@@ -101,7 +101,7 @@ for (const [key, label, path] of VIEWS) {
   const cold = [];
   for (let k = 0; k < 3; k++) {
     await page.goto(BASE + path);
-    await page.waitForSelector('.section-header .mix-btn');
+    await page.waitForSelector(':is(.section-header, .view-actions) .mix-btn');
     await page.waitForTimeout(1000);
     cold.push(await clickMix());
   }

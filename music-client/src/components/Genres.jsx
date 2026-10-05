@@ -80,13 +80,15 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
         </button>
         <div className="section-header" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
           <h1 className="section-title">{sel.genre}</h1>
-          {tracks && tracks.length > 0 && (
-            <div className="detail-actions">
-              <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
-              <ShuffleButton tracks={tracks} />
-            </div>
-          )}
         </div>
+        {/* Fila de acciones B (Frente 2, M2d): debajo del título, como en las demás vistas. Lleva el
+            mismo --h del encabezado (el hue del emoji del género) para no perder el color. */}
+        {tracks && tracks.length > 0 && (
+          <div className="view-actions" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
+            <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
+            <ShuffleButton tracks={tracks} />
+          </div>
+        )}
         {tracks ? <TrackTable tracks={tracks} /> : <div className="spinner">Cargando…</div>}
       </div>
     );
@@ -119,10 +121,12 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
     <div>
       <div className="section-header">
         <h1 className="section-title">Géneros</h1>
-        <div className="detail-actions">
-          <span className="section-count">{genres.length} géneros</span>
-          <ShuffleButton getTracks={genresViewTracks} count={genres.reduce((s, g) => s + (g.track_count ?? 0), 0)} />
-        </div>
+      </div>
+      {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
+          contador (los listados no tienen ▶ Reproducir). */}
+      <div className="view-actions">
+        <ShuffleButton getTracks={genresViewTracks} count={genres.reduce((s, g) => s + (g.track_count ?? 0), 0)} />
+        <span className="section-count">{genres.length} géneros</span>
       </div>
       <ul className="browse-list">
         {genres.map((g, idx) => (

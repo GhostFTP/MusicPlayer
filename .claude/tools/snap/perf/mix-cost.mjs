@@ -56,12 +56,12 @@ for (const [vista, path] of [['albums', '/albums'], ['artists', '/artists'], ['g
   const xs = [];
   for (let k = 0; k < 3; k++) {
     await page.goto(BASE + path);
-    await page.waitForSelector('.section-header .mix-btn');
+    await page.waitForSelector(':is(.section-header, .view-actions) .mix-btn');
     await page.waitForTimeout(1200);
     const r0 = reqs;
     const r = await page.evaluate(async () => {
       window.__lt = [];
-      const btn = document.querySelector('.section-header .mix-btn');
+      const btn = document.querySelector(':is(.section-header, .view-actions) .mix-btn');
       const t0 = performance.now();
       let tPlay = null;
       const prev = window.__audio;

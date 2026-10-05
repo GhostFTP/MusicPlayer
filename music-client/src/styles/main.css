@@ -322,35 +322,61 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 /* ── BIBLIOTECA: banner Mix aleatorio + contador ─────────── */
-.library-actions {
+/* Fila de acciones B (Frente 2, M2d): la de Biblioteca (.library-actions) es el molde; .view-actions
+   es la misma fila en los listados y detalles sin hero (Mix + contador, o ▶ + Mix). Con wrap para
+   que a 390 px no desborde. */
+.view-actions { flex-wrap: wrap; }
+.library-actions,
+.view-actions {
   display: flex;
   align-items: center;
   gap: 16px;
   margin: 2px 0 18px;
 }
 
+/* Mix = pill secundario GHOST, ÚNICO en toda la app (Frente 2, M2d): mismo hue que la vista
+   (--h; sin hue propio cae al 265 morado) y forma de pill → subordinado a ▶ Reproducir cuando lo hay.
+   Antes eran dos variantes por contenedor (.detail-actions/.library-actions y .pl-detail-actions) más
+   un relleno morado global que sólo usaba el hero de artista; ahora es una sola regla. */
 .mix-btn {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 999px;
-  padding: 12px 26px;
-  font-size: 15px;
-  font-weight: 700;
+  gap: 8px;
+  padding: 0 20px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: 0.1px;
+  background: hsl(var(--h, 265) 40% 30% / .22);
+  color: var(--text);
+  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
+  border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 4px 16px var(--accent-dim);
-  transition: transform .12s ease, box-shadow .15s ease, background .15s ease;
+  box-shadow: none;
+  transition: background .15s ease,
+              border-color .15s ease,
+              transform .18s cubic-bezier(.22, 1, .36, 1),
+              box-shadow .18s cubic-bezier(.22, 1, .36, 1);
 }
 .mix-btn:hover {
-  background: #b69bff;
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 8px 24px var(--accent-dim);
+  background: hsl(var(--h, 265) 45% 35% / .32);
+  border-color: hsl(var(--h, 265) 60% 60% / .45);
+  transform: translateY(-1.5px);
+  /* Glow tenue: el ghost pasa de "sin sombra" a un halo sutil del hue. */
+  box-shadow: 0 4px 14px hsl(var(--h, 265) 55% 40% / .25);
 }
-.mix-btn:active { transform: translateY(0) scale(.99); }
+.mix-btn:active {
+  transform: scale(.97);
+  transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
+}
+/* Ícono: un solo giro de 180° al entrar el hover (NO loop): sugiere "barajar" sin ser literal. */
+@keyframes shuffle-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(180deg); }
+}
+.mix-btn:hover svg {
+  animation: shuffle-spin .3s cubic-bezier(.34, 1.42, .5, 1);
+}
 .mix-btn:disabled,
 .mix-btn[aria-busy="true"] {
   opacity: .45;
@@ -360,30 +386,21 @@ button, input, select, textarea { font-family: inherit; }
 }
 /* Ocupado (Frente 2, M2c): mientras pide la lista el botón ya no es `disabled` nativo (así conserva
    el foco del teclado) sino aria-busy; comparte el aspecto de :disabled (arriba) y además queda
-   QUIETO al pasar el mouse: sin lift/zoom ni giro del ícono. Especificidad por encima del :hover de
-   cada variante. */
+   QUIETO al pasar el mouse: sin lift/zoom ni giro del ícono. */
 .mix-btn[aria-busy="true"]:hover,
-.mix-btn[aria-busy="true"]:active,
-.detail-actions .mix-btn[aria-busy="true"]:hover,
-.detail-actions .mix-btn[aria-busy="true"]:active,
-.library-actions .mix-btn[aria-busy="true"]:hover,
-.library-actions .mix-btn[aria-busy="true"]:active,
-.pl-detail-actions .mix-btn[aria-busy="true"]:hover,
-.pl-detail-actions .mix-btn[aria-busy="true"]:active { transform: none; }
-.detail-actions .mix-btn[aria-busy="true"]:hover svg,
-.library-actions .mix-btn[aria-busy="true"]:hover svg { animation: none; }
-/* Foco por teclado (Frente 2, M2b): el MISMO criterio que ya usan las variantes del Mix
-   (.detail-actions / .library-actions / .pl-detail-actions .mix-btn:focus-visible): aro de 2px del
-   hue de la vista. Faltaba en el .mix-btn global (el del hero de artista no tenía foco visible). */
+.mix-btn[aria-busy="true"]:active { transform: none; }
+.mix-btn[aria-busy="true"]:hover svg { animation: none; }
+/* Foco por teclado (Frente 2, M2b): aro de 2px del hue de la vista (criterio de la casa). */
 .mix-btn:focus-visible {
   outline: 2px solid hsl(var(--h, 265) 70% 70%);
   outline-offset: 2px;
 }
-/* reduced-motion: el lift/zoom del hover global no tenía guarda (lo cubrían sólo las variantes). */
+/* reduced-motion: sin lift/press/giro (movimiento); se conservan relleno, borde y glow (color). */
 @media (prefers-reduced-motion: reduce) {
   .mix-btn,
   .mix-btn:hover,
   .mix-btn:active { transform: none; }
+  .mix-btn:hover svg { animation: none; }
 }
 
 /* Contador de la Biblioteca: pill accent-ghost SECUNDARIO — hermano MUTEADO del
@@ -993,7 +1010,8 @@ button, input, select, textarea { font-family: inherit; }
    (Reintentar, Login, formularios de playlist) NO se tocan: overrides
    puramente contextuales, mismo patrón documentado en playlist-lab. */
 
-.detail-actions .btn-primary {
+.detail-actions .btn-primary,
+.view-actions .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1011,7 +1029,8 @@ button, input, select, textarea { font-family: inherit; }
               transform .18s cubic-bezier(.22, 1, .36, 1),
               box-shadow .18s cubic-bezier(.22, 1, .36, 1);
 }
-.detail-actions .btn-primary:hover {
+.detail-actions .btn-primary:hover,
+.view-actions .btn-primary:hover {
   opacity: 1;                                   /* neutraliza el hover global (opacity:.85) */
   background: hsl(var(--h, 265) 60% 48%);
   transform: translateY(-1.5px);
@@ -1019,87 +1038,26 @@ button, input, select, textarea { font-family: inherit; }
 }
 /* Press: spring-back (.34,1.42,.6,1, el de los gestos) SOLO en transform — se
    nota al hundir, y al soltar vuelve a hover/reposo con la easing de arriba. */
-.detail-actions .btn-primary:active {
+.detail-actions .btn-primary:active,
+.view-actions .btn-primary:active {
   transform: scale(.97);
   transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
 }
-.detail-actions .btn-primary:focus-visible {
+.detail-actions .btn-primary:focus-visible,
+.view-actions .btn-primary:focus-visible {
   outline: 2px solid hsl(var(--h, 265) 70% 70%);
   outline-offset: 2px;
 }
 
-/* Mix = pill secundario GHOST, mismo hue y forma → subordinado (o único, en los
-   headers de lista/artista/año que no tienen Reproducir al lado). .library-actions
-   (banner de Mix + contador de la Biblioteca, Library.jsx) comparte selector: es
-   el ÚNICO contenedor de ShuffleButton que NO es .detail-actions ni .pl-detail-actions
-   (confirmado por grep de <ShuffleButton en toda music-client/src), y tampoco tiene
-   hue propio (no hay emoji/color de "biblioteca") → mismo fallback --accent que
-   Álbum/Años. Un solo bloque de reglas para los dos selectores, sin duplicar CSS. */
-.detail-actions .mix-btn,
-.library-actions .mix-btn {
-  gap: 8px;
-  padding: 0 20px;
-  min-height: 44px;
-  font-size: 14px;
-  font-weight: 600;
-  background: hsl(var(--h, 265) 40% 30% / .22);
-  color: var(--text);
-  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
-  box-shadow: none;
-  transition: background .15s ease,
-              border-color .15s ease,
-              transform .18s cubic-bezier(.22, 1, .36, 1),
-              box-shadow .18s cubic-bezier(.22, 1, .36, 1);
-}
-.detail-actions .mix-btn:hover,
-.library-actions .mix-btn:hover {
-  background: hsl(var(--h, 265) 45% 35% / .32);
-  border-color: hsl(var(--h, 265) 60% 60% / .45);
-  transform: translateY(-1.5px);
-  /* Glow tenue — el ghost pasa de "sin sombra" a un halo sutil del hue, mismo
-     lenguaje de "brillo al activarse" que el resto de botones con identidad. */
-  box-shadow: 0 4px 14px hsl(var(--h, 265) 55% 40% / .25);
-}
-.detail-actions .mix-btn:active,
-.library-actions .mix-btn:active {
-  transform: scale(.97);
-  transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
-}
-.detail-actions .mix-btn:focus-visible,
-.library-actions .mix-btn:focus-visible {
-  outline: 2px solid hsl(var(--h, 265) 70% 70%);
-  outline-offset: 2px;
-}
-/* :disabled (busy/sin pistas del ShuffleButton) sigue cayendo en el .mix-btn:disabled
-   GLOBAL (opacity/cursor/transform) — no lo repetimos acá, igual que en .pl-detail-actions. */
-
-/* Ícono de Mix: un solo giro de 180° al entrar el hover (NO loop) — sugiere
-   "barajar" sin ser literal. Selector por descendiente puro (el SVG de
-   ShuffleIcon no lleva clase propia); no toca ShuffleButton.jsx. Corre una vez
-   por entrada de hover (la animación se retira al salir del :hover). */
-@keyframes shuffle-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(180deg); }
-}
-.detail-actions .mix-btn:hover svg,
-.library-actions .mix-btn:hover svg {
-  animation: shuffle-spin .3s cubic-bezier(.34, 1.42, .5, 1);
-}
-
-/* reduced-motion: sin lift/press/giro (movimiento); se conservan relleno,
-   borde y glow (cambios de color) de ambos pills. */
+/* reduced-motion: sin lift/press (movimiento) del ▶ Reproducir; se conservan relleno y glow.
+   (La guarda del Mix vive con su regla base.) */
 @media (prefers-reduced-motion: reduce) {
   .detail-actions .btn-primary,
+  .view-actions .btn-primary,
   .detail-actions .btn-primary:hover,
+  .view-actions .btn-primary:hover,
   .detail-actions .btn-primary:active,
-  .detail-actions .mix-btn,
-  .detail-actions .mix-btn:hover,
-  .detail-actions .mix-btn:active,
-  .library-actions .mix-btn,
-  .library-actions .mix-btn:hover,
-  .library-actions .mix-btn:active { transform: none; }
-  .detail-actions .mix-btn:hover svg,
-  .library-actions .mix-btn:hover svg { animation: none; }
+  .view-actions .btn-primary:active { transform: none; }
 }
 
 /* ── BROWSE · GÉNEROS / AÑOS (listas) ───── */
@@ -1340,15 +1298,9 @@ button, input, select, textarea { font-family: inherit; }
 .artist-chip-q.q-lossless { color: var(--q-lossless); }
 .artist-chip-q.q-lossy    { color: var(--q-lossy-high); }
 
-/* Botón Mix del hero: el fill sigue morado (--accent = "acción" en toda la app), pero el
-   GLOW toma el hue del artista → ata la acción a su identidad sin perder reconocimiento.
-   Solo el Mix del hero; el resto de .mix-btn de la app queda intacto. */
-.artist-hero-chips .mix-btn {
-  box-shadow: 0 4px 16px hsl(var(--h, 265) 60% 45% / .6);
-}
-.artist-hero-chips .mix-btn:hover {
-  box-shadow: 0 8px 24px hsl(var(--h, 265) 60% 45% / .7);
-}
+/* Fila de acciones B dentro del hero de artista (Frente 2, M2d): el Mix salió de los chips y toma
+   el --h del artista (lo define .artist-hero). */
+.artist-hero .view-actions { margin: 16px 0 0; }
 
 /* reduced-motion: se va el movimiento (elevación, zoom, stagger de entrada y revelado del
    hero), NO el feedback: el hover pasa a ser un cambio de color (regla de la casa). El aro,
@@ -2263,7 +2215,8 @@ button, input, select, textarea { font-family: inherit; }
    Reproducir + Mix pasan a pills HERMANADOS (misma forma/altura) y llevan el hue
    --h de la playlist. Overrides CONTEXTUALES de .btn-primary / .mix-btn (clases
    GLOBALES usadas por Albums/Artists/Genres/AlbumDetail): solo aplican dentro del
-   hero de playlist (.pl-detail-actions), el resto de la app queda intacto. */
+   hero de playlist (.pl-detail-actions), el resto de la app queda intacto. Desde M2d
+   (Frente 2) el Mix ya no tiene override acá: usa la regla base .mix-btn. */
 
 /* Reproducir = pill primario TEÑIDO y relleno → acción dominante. */
 .pl-detail-actions .btn-primary {
@@ -2301,31 +2254,7 @@ button, input, select, textarea { font-family: inherit; }
   box-shadow: none;
 }
 
-/* Mix = pill secundario GHOST, mismo hue y forma → subordinado (mismo lenguaje
-   que el segmento activo del Riel Prisma, .pl-sort-seg.active). */
-.pl-detail-actions .mix-btn {
-  gap: 8px;
-  padding: 0 20px;
-  min-height: 44px;
-  font-size: 14px;
-  font-weight: 600;
-  background: hsl(var(--h, 265) 40% 30% / .22);
-  color: var(--text);
-  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
-  box-shadow: none;
-  transition: background .15s ease, border-color .15s ease, transform .15s ease;
-}
-.pl-detail-actions .mix-btn:hover {
-  background: hsl(var(--h, 265) 45% 35% / .32);
-  border-color: hsl(var(--h, 265) 60% 60% / .45);
-  transform: translateY(-1px);
-  box-shadow: none;
-}
-.pl-detail-actions .mix-btn:active { transform: scale(.98); }
-.pl-detail-actions .mix-btn:focus-visible {
-  outline: 2px solid hsl(var(--h, 265) 70% 70%);
-  outline-offset: 2px;
-}
+/* El Mix de la playlist usa la regla base (.mix-btn, fantasma único desde M2d). */
 
 /* Papelera: lejos de la principal (flota a la derecha), hover rojo destructivo. */
 .pl-detail-actions .pl-del-action { margin-left: auto; }
@@ -2379,14 +2308,11 @@ button, input, select, textarea { font-family: inherit; }
 @keyframes pl-del-confirm-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
 
 /* reduced-motion: sin lift/press (movimiento); se conservan relleno, borde y glow
-   (cambios de color). Cubre el .mix-btn scopeado, que en global no tiene guard. */
+   (cambios de color). Cubre el .btn-primary de la playlist (el Mix tiene su guarda en la base). */
 @media (prefers-reduced-motion: reduce) {
   .pl-detail-actions .btn-primary,
   .pl-detail-actions .btn-primary:hover,
-  .pl-detail-actions .btn-primary:active,
-  .pl-detail-actions .mix-btn,
-  .pl-detail-actions .mix-btn:hover,
-  .pl-detail-actions .mix-btn:active { transform: none; }
+  .pl-detail-actions .btn-primary:active { transform: none; }
   /* Confirmación de borrado: sin entrada ni lift/press (movimiento); se conservan
      relleno, borde y tint rojo (color/estado). */
   .pl-del-confirm { animation: none; }

@@ -156,7 +156,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
         {/* Hero: la foto a sangre. Esta era la ÚNICA vista con detalle sin hero — el nombre
             era un <h1> desnudo sobre la grilla de álbumes. El kicker "ARTISTA" en morado es
             lo que la separa de un detalle de álbum de un vistazo.
-            `--h`: identidad Prisma por artista (kicker, aro, chips de género y glow del Mix).
+            `--h`: identidad Prisma por artista (kicker, aro, chips de género y el hue del Mix).
             Solo tiñe el CROMO — la foto (.artist-hero-bg) queda intacta. */}
         <div className="artist-hero" style={{ '--h': stringHue(sel.artist) }}>
           <ArtistImage artist={sel} className="artist-hero-bg" />
@@ -173,6 +173,10 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
               {q?.hires    > 0 && <span className="artist-chip artist-chip-q q-hires">{q.hires} hi-res</span>}
               {q?.lossless > 0 && <span className="artist-chip artist-chip-q q-lossless">{q.lossless} lossless</span>}
               {q?.lossy    > 0 && <span className="artist-chip artist-chip-q q-lossy">{q.lossy} lossy</span>}
+            </div>
+            {/* Fila de acciones B (Frente 2, M2d): el Mix salió de los chips. El contador ya está en
+                .artist-hero-stats (arriba), así que la fila lleva sólo el Mix. */}
+            <div className="view-actions">
               <ShuffleButton getTracks={() => api.tracks({ album_artist: sel.artist, limit: 10000 })} count={sel.track_count} />
             </div>
           </div>
@@ -212,10 +216,12 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
     <div>
       <div className="section-header">
         <h1 className="section-title">Artistas</h1>
-        <div className="detail-actions">
-          <span className="section-count">{artists.length} artistas</span>
-          <ShuffleButton getTracks={artistsViewTracks} count={artists.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
-        </div>
+      </div>
+      {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
+          contador (los listados no tienen ▶ Reproducir). */}
+      <div className="view-actions">
+        <ShuffleButton getTracks={artistsViewTracks} count={artists.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
+        <span className="section-count">{artists.length} artistas</span>
       </div>
       {/* Grilla propia, NO `.album-grid`: la tarjeta ES la foto (retrato 3:4 a sangre, texto
           encima). Antes esto era literalmente la tarjeta de Álbumes con la miniatura

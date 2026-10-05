@@ -155,10 +155,12 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
     <div>
       <div className="section-header">
         <h1 className="section-title">Álbumes</h1>
-        <div className="detail-actions">
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{albums.length} álbumes</span>
-          <ShuffleButton getTracks={albumsViewTracks} count={loading || error ? undefined : albums.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
-        </div>
+      </div>
+      {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
+          contador (los listados no tienen ▶ Reproducir). */}
+      <div className="view-actions">
+        <ShuffleButton getTracks={albumsViewTracks} count={loading || error ? undefined : albums.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
+        <span className="section-count">{albums.length} álbumes</span>
       </div>
 
       <div className="album-grid">

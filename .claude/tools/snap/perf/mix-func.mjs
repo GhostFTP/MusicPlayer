@@ -97,18 +97,18 @@ for (const [key, label, path, pred] of [
   const esperado = LIB.filter(pred).length;
   // frío
   { const { ctx, p, errs, reqs } = await newPage();
-    await p.goto(BASE + path); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
+    await p.goto(BASE + path); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
     const r0 = reqs.length;
-    await p.click('.section-header .mix-btn'); await p.waitForTimeout(1500);
+    await p.click(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1500);
     const n = reqs.length - r0; const cola = await queueLen(p);
     ok(`${key}_frio`, n === 1 && cola === esperado && !errs.length, { requests: n, cola, esperado });
     await ctx.close(); }
   // caliente
   { const { ctx, p, errs, reqs } = await newPage();
     await p.goto(BASE + '/'); await p.waitForSelector('.library-tracks .track-row'); await p.waitForTimeout(1200);
-    await p.click(`.sidebar button:has-text("${label}")`); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(800);
+    await p.click(`.sidebar button:has-text("${label}")`); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(800);
     const r0 = reqs.length;
-    await p.click('.section-header .mix-btn'); await p.waitForTimeout(1500);
+    await p.click(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1500);
     const n = reqs.length - r0; const cola = await queueLen(p);
     ok(`${key}_caliente`, n === 0 && cola === esperado && !errs.length, { requests: n, cola, esperado });
     await ctx.close(); }
@@ -117,9 +117,9 @@ for (const [key, label, path, pred] of [
 // 4) 0 y 1 pista
 for (const [name, body] of [['vista_0_pistas', []], ['vista_1_pista', [LIB.find((t) => t.album != null)]]]) {
   const { ctx, p, errs } = await newPage({ tracksBody: body });
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
-  await p.click('.section-header .mix-btn'); await p.waitForTimeout(1500);
-  const st = await p.evaluate(() => ({ srcSets: window.__srcSets ?? 0, errores: window.__errors, disabled: document.querySelector('.section-header .mix-btn').disabled, texto: document.querySelector('.section-header .mix-btn').textContent }));
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
+  await p.click(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1500);
+  const st = await p.evaluate(() => ({ srcSets: window.__srcSets ?? 0, errores: window.__errors, disabled: document.querySelector(':is(.section-header, .view-actions) .mix-btn').disabled, texto: document.querySelector(':is(.section-header, .view-actions) .mix-btn').textContent }));
   const cola = 0;   // nada que encolar (ver okk)
   // Desde M2b (ShuffleButton) con < 2 pistas no se reproduce nada: un mix de 1 no es un mix.
   const okk = !errs.length && !st.errores.length && !st.disabled && st.srcSets === 0;
@@ -131,10 +131,10 @@ for (const [name, body] of [['vista_0_pistas', []], ['vista_1_pista', [LIB.find(
 {
   const { ctx, p, errs, reqs } = await newPage();
   await p.goto(BASE + '/'); await p.waitForSelector('.library-tracks .track-row'); await p.waitForTimeout(1200);   // caché de la cuenta A
-  await p.click('.sidebar button:has-text("Álbumes")'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(800);
+  await p.click('.sidebar button:has-text("Álbumes")'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(800);
   await p.evaluate((t) => localStorage.setItem('token', t), OTHER);   // "otra cuenta"
   const r0 = reqs.length;
-  await p.click('.section-header .mix-btn').catch(() => {});
+  await p.click(':is(.section-header, .view-actions) .mix-btn').catch(() => {});
   await p.waitForTimeout(2000);
   const nuevas = reqs.slice(r0);
   const st = await p.evaluate(() => ({ srcSets: window.__srcSets ?? 0 }));
@@ -146,8 +146,8 @@ for (const [name, body] of [['vista_0_pistas', []], ['vista_1_pista', [LIB.find(
 // 6) cambio de cuenta con el pedido EN VUELO (biblioteca demorada 1,5 s)
 {
   const { ctx, p, errs, reqs } = await newPage({ delayTracks: 1500 });
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(800);
-  await p.click('.section-header .mix-btn');
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(800);
+  await p.click(':is(.section-header, .view-actions) .mix-btn');
   await p.waitForTimeout(300);
   await p.evaluate((t) => localStorage.setItem('token', t), OTHER);   // cambia la cuenta con el pedido en vuelo
   await p.waitForTimeout(2500);

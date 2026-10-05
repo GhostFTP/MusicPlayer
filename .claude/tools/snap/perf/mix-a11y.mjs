@@ -89,9 +89,9 @@ for (const [name, albums] of [
   ['listado_2plus', null],
 ]) {
   const { ctx, p, errs } = await newPage({ albums: albums ?? undefined });
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
-  const st = await btnState(p, '.section-header .mix-btn');
-  await p.locator('.section-header .mix-btn').click({ force: true }).catch(() => {});
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
+  const st = await btnState(p, ':is(.section-header, .view-actions) .mix-btn');
+  await p.locator(':is(.section-header, .view-actions) .mix-btn').click({ force: true }).catch(() => {});
   await p.waitForTimeout(800);
   const sono = await played(p);
   const esperaDeshab = albums !== null;
@@ -118,12 +118,12 @@ for (const [name, route] of [
   ['error_401', (r) => r.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'Invalid token' }) })],
 ]) {
   const { ctx, p, errs } = await newPage({ libRoute: route });
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
-  await p.click('.section-header .mix-btn');
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
+  await p.click(':is(.section-header, .view-actions) .mix-btn');
   await p.waitForTimeout(1500);
-  const st = await btnState(p, '.section-header .mix-btn');
+  const st = await btnState(p, ':is(.section-header, .view-actions) .mix-btn');
   const e = await pageErrs(p, errs);
-  const sesionCerrada = await p.locator('.section-header .mix-btn').count() === 0;
+  const sesionCerrada = await p.locator(':is(.section-header, .view-actions) .mix-btn').count() === 0;
   const ts = await toasts(p);
   const toastOk = name === 'error_401' ? ts.length === 0 : (ts.length === 1 && ts[0].warning && ts[0].texto.includes('No se pudieron cargar las pistas'));
   ok(name, !e.length && (await played(p)) === 0 && toastOk && (sesionCerrada || (!st.disabled && st.texto === 'Mix aleatorio' && st.ariaBusy === null && st.ariaDisabled === null)),
@@ -134,8 +134,8 @@ for (const [name, route] of [
 // 2b) tres clics seguidos con la red caída → UN solo toast (y ningún error sin atrapar)
 {
   const { ctx, p, errs, libReqs } = await newPage({ libRoute: (r) => r.abort('failed') });
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
-  for (let k = 0; k < 3; k++) { await p.click('.section-header .mix-btn'); await p.waitForTimeout(250); }
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
+  for (let k = 0; k < 3; k++) { await p.click(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(250); }
   await p.waitForTimeout(1200);
   const ts = await toasts(p);
   const capa = await p.evaluate(() => { const l = document.querySelector('.toast-layer'); const t = l?.querySelector('.toast'); return { ariaLive: l?.getAttribute('aria-live'), ariaAtomic: l?.getAttribute('aria-atomic'), role: t?.getAttribute('role') ?? null }; });
@@ -146,11 +146,11 @@ for (const [name, route] of [
 
 // 3) doble clic y clic repetido mientras pide (biblioteca demorada 1,2 s, en frío)
 for (const [name, gesto] of [
-  ['doble_clic', async (p) => { await p.dblclick('.section-header .mix-btn'); }],
-  ['clic_repetido_mientras_pide', async (p) => { await p.click('.section-header .mix-btn'); await p.waitForTimeout(400); await p.click('.section-header .mix-btn', { force: true }).catch(() => {}); await p.waitForTimeout(400); await p.click('.section-header .mix-btn', { force: true }).catch(() => {}); }],
+  ['doble_clic', async (p) => { await p.dblclick(':is(.section-header, .view-actions) .mix-btn'); }],
+  ['clic_repetido_mientras_pide', async (p) => { await p.click(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(400); await p.click(':is(.section-header, .view-actions) .mix-btn', { force: true }).catch(() => {}); await p.waitForTimeout(400); await p.click(':is(.section-header, .view-actions) .mix-btn', { force: true }).catch(() => {}); }],
 ]) {
   const { ctx, p, errs, libReqs } = await newPage({ libRoute: async (r) => { await new Promise((s) => setTimeout(s, 1200)); return r.fallback(); } });
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
   const r0 = libReqs(); const s0 = await played(p);
   await gesto(p);
   await p.waitForTimeout(2500);
@@ -161,9 +161,9 @@ for (const [name, gesto] of [
 {
   const { ctx, p, errs, libReqs } = await newPage();
   await p.goto(BASE + '/'); await p.waitForSelector('.library-tracks .track-row'); await p.waitForTimeout(1200);
-  await p.click('.sidebar button:has-text("Álbumes")'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(800);
+  await p.click('.sidebar button:has-text("Álbumes")'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(800);
   const r0 = libReqs(); const s0 = await played(p);
-  await p.dblclick('.section-header .mix-btn'); await p.waitForTimeout(1500);
+  await p.dblclick(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1500);
   ok('doble_clic_en_caliente', libReqs() - r0 === 0 && (await played(p)) - s0 === 1 && !(await pageErrs(p, errs)).length, { peticiones: libReqs() - r0, reproducciones: (await played(p)) - s0 });
   await ctx.close();
 }
@@ -178,8 +178,8 @@ const tabTo = async (p, sel) => {
 };
 {
   const { ctx, p, errs } = await newPage();
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
-  const llego = await tabTo(p, '.section-header .mix-btn');
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
+  const llego = await tabTo(p, ':is(.section-header, .view-actions) .mix-btn');
   const focoVisible = await p.evaluate(() => { const b = document.activeElement; const cs = getComputedStyle(b); return { outline: `${cs.outlineStyle} ${cs.outlineWidth}`, matches: b.matches(':focus-visible') }; });
   const s0 = await played(p);
   await p.keyboard.press('Enter'); await p.waitForTimeout(1500);
@@ -190,8 +190,8 @@ const tabTo = async (p, sel) => {
 // 4b) el foco sigue en el botón tras activarlo por teclado mientras pide la lista (M2c)
 {
   const { ctx, p } = await newPage({ libRoute: async (r) => { await new Promise((s) => setTimeout(s, 1200)); return r.fallback(); } });
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
-  await tabTo(p, '.section-header .mix-btn');
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
+  await tabTo(p, ':is(.section-header, .view-actions) .mix-btn');
   await p.keyboard.press('Enter'); await p.waitForTimeout(300);
   const durante = await p.evaluate(() => { const a = document.activeElement; return { clase: a?.className || a?.tagName, busy: a?.getAttribute('aria-busy'), ariaDisabled: a?.getAttribute('aria-disabled'), disabled: a?.disabled ?? null, texto: a?.textContent?.trim() }; });
   await p.waitForTimeout(1800);
@@ -212,14 +212,14 @@ const tabTo = async (p, sel) => {
     return { nombre: n.name?.value, descripcion: n.description?.value ?? null, deshabilitado: prop('disabled') ?? false, ocupado: prop('busy') ?? false, foco: prop('focusable') ?? null };
   };
   let { ctx, p } = await newPage();
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
   const normal = await ax(p); await ctx.close();
   ({ ctx, p } = await newPage({ albums: [{ ...ALBUMS.find((a) => a.album_artist), track_count: 1 }] }));
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
   const deshab = await ax(p); await ctx.close();
   ({ ctx, p } = await newPage({ libRoute: async (r) => { await new Promise((s) => setTimeout(s, 2000)); return r.fallback(); } }));
-  await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
-  await p.click('.section-header .mix-btn'); await p.waitForTimeout(400);
+  await p.goto(BASE + '/albums'); await p.waitForSelector(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(1000);
+  await p.click(':is(.section-header, .view-actions) .mix-btn'); await p.waitForTimeout(400);
   const ocupado = await ax(p); await ctx.close();
   ok('ax_nombre_deshabilitado_busy',
     normal?.nombre === 'Mix aleatorio' && !normal.deshabilitado && deshab?.deshabilitado === true && /suficientes/.test(deshab.descripcion ?? '') && !!ocupado?.ocupado,

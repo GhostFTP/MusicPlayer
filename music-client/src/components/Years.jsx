@@ -43,10 +43,11 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
         </button>
         <div className="section-header">
           <h1 className="section-title">{sel.year}</h1>
-          <div className="detail-actions">
-            <span className="section-count">{sel.album_count} álbumes · {sel.track_count} pistas</span>
-            <ShuffleButton getTracks={() => api.tracks({ year: sel.year, limit: 10000 })} count={sel.track_count} />
-          </div>
+        </div>
+        {/* Fila de acciones B (Frente 2, M2d): debajo del título — Mix y contador. */}
+        <div className="view-actions">
+          <ShuffleButton getTracks={() => api.tracks({ year: sel.year, limit: 10000 })} count={sel.track_count} />
+          <span className="section-count">{sel.album_count} álbumes · {sel.track_count} pistas</span>
         </div>
         {albums ? <AlbumGrid albums={albums} onOpen={(a) => navigate('albums', { album: a.album, album_artist: a.album_artist })} /> : <div className="spinner">Cargando…</div>}
       </div>
@@ -69,10 +70,12 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
     <div>
       <div className="section-header">
         <h1 className="section-title">Años</h1>
-        <div className="detail-actions">
-          <span className="section-count">{years.length} años</span>
-          <ShuffleButton getTracks={yearsViewTracks} count={years.reduce((s, y) => s + (y.track_count ?? 0), 0)} />
-        </div>
+      </div>
+      {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
+          contador (los listados no tienen ▶ Reproducir). */}
+      <div className="view-actions">
+        <ShuffleButton getTracks={yearsViewTracks} count={years.reduce((s, y) => s + (y.track_count ?? 0), 0)} />
+        <span className="section-count">{years.length} años</span>
       </div>
       <ul className="browse-list">
         {years.map(y => (

@@ -79,13 +79,13 @@ for (const [w, opts] of [
   const isLib = (u) => { const x = new URL(u); return x.pathname === '/api/tracks' && x.searchParams.get('limit') === '10000' && [...x.searchParams.keys()].length === 1; };
   const hang = () => {};   // no fulfill: queda pendiente
   await p.route(isLib, hang);
-  await go('/albums'); await p.locator('.section-header .mix-btn').click(); await p.waitForTimeout(600); await shot('albumes-cargando');
+  await go('/albums'); await p.locator(':is(.section-header, .view-actions) .mix-btn').click(); await p.waitForTimeout(600); await shot('albumes-cargando');
   await go('/albums'); if (await focusMix()) { await p.keyboard.press('Enter'); await p.waitForTimeout(600); await shot('albumes-cargando-foco'); }
   await p.unroute(isLib, hang);
   // M2c · toast de error: el pedido se aborta
   const abort = (r) => r.abort('failed');
   await p.route(isLib, abort);
-  await go('/albums'); await p.locator('.section-header .mix-btn').click(); await p.waitForTimeout(700);
+  await go('/albums'); await p.locator(':is(.section-header, .view-actions) .mix-btn').click(); await p.waitForTimeout(700);
   await p.mouse.move(2, 2);
   { const path = join(OUT, `x-${w}-toast.png`); await p.screenshot({ path, animations: 'disabled' }); saved.push(path); }
   await p.unroute(isLib, abort);
