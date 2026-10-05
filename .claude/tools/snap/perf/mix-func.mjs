@@ -3,7 +3,7 @@
 //      filas montadas por la ventana.
 //   2. Listados en frío (URL directa, sin Biblioteca en memoria): 1 solo request y funciona.
 //   3. Listados en caliente (Biblioteca → vista por la sidebar): 0 requests.
-//   4. Vista con 0 pistas y con 1 pista: sin errores (y con 1, suena esa).
+//   4. Vista con 0 pistas y con 1 pista: sin errores y no suena nada (desde M2b, < 2 no se mezcla).
 //   5. Cambio de cuenta con la lista EN MEMORIA: el Mix no reproduce la lista de la cuenta anterior.
 //   6. Cambio de cuenta con el pedido EN VUELO: el resultado se descarta, no suena nada.
 //      (5 y 6 usan un JWT con OTRO id en el payload, sin firma válida: el servidor lo rechaza; sólo
@@ -120,8 +120,9 @@ for (const [name, body] of [['vista_0_pistas', []], ['vista_1_pista', [LIB.find(
   await p.goto(BASE + '/albums'); await p.waitForSelector('.section-header .mix-btn'); await p.waitForTimeout(1000);
   await p.click('.section-header .mix-btn'); await p.waitForTimeout(1500);
   const st = await p.evaluate(() => ({ srcSets: window.__srcSets ?? 0, errores: window.__errors, disabled: document.querySelector('.section-header .mix-btn').disabled, texto: document.querySelector('.section-header .mix-btn').textContent }));
-  const cola = body.length ? await queueLen(p) : 0;
-  const okk = !errs.length && !st.errores.length && !st.disabled && (body.length ? st.srcSets > 0 && cola === 1 : st.srcSets === 0);
+  const cola = 0;   // nada que encolar (ver okk)
+  // Desde M2b (ShuffleButton) con < 2 pistas no se reproduce nada: un mix de 1 no es un mix.
+  const okk = !errs.length && !st.errores.length && !st.disabled && st.srcSets === 0;
   ok(name, okk, { suenaAlgo: st.srcSets > 0, cola, errores: [...errs, ...st.errores], botonVuelveAEstado: st.texto.trim() });
   await ctx.close();
 }
