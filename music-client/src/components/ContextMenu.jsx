@@ -8,6 +8,7 @@ import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
 import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
+import { trackMessage, albumMessage, shareText } from '../utils/share.js';
 
 // ── Menú contextual GLOBAL (actions-lab · dirección visual C, "Lista seca") ──────────────
 //
@@ -252,6 +253,16 @@ export function ContextMenuProvider({ children }) {
     } catch { toast('No se pudieron cargar las pistas', { variant: 'warning' }); }
   }, [toast]);
 
+  // Compartir (utils/share.js, mismo texto que iOS): hoja del sistema si existe, si no el
+  // portapapeles. Sólo el portapapeles se confirma con un toast: la hoja del sistema ya dice lo que
+  // pasó, y cerrarla sin elegir no avisa nada (igual que iOS). Se llama dentro del clic: fuera del
+  // gesto el navegador niega las dos cosas.
+  const share = useCallback((text) => {
+    shareText(text)
+      .then((r) => { if (r === 'copied') toast('Copiado para compartir'); })
+      .catch(() => toast('No se pudo compartir', { variant: 'warning' }));
+  }, [toast]);
+
   // ── Selector de playlists: el QUÉ (llamada + aviso) sale de utils/playlistActions.js, el
   //    mismo módulo que usa el "+". Acá sólo el candado `busy` y cerrar el menú al terminar.
   const plTrackId = menu?.item?.id;
@@ -333,12 +344,19 @@ export function ContextMenuProvider({ children }) {
       }
     };
 
+    // Compartir va AL FINAL y con separador: no es cola ni navegación, es sacar algo de la app.
+    // El texto se arma al elegir (no al abrir el menú), con el origen de la página.
+    const pushShare = (makeText) => {
+      list.push({ id: 'share', sep: list.length > 0, label: 'Compartir', short: 'Compartir', tone: 'nav', icon: <IconShare />, run: () => share(makeText(window.location.origin)) });
+    };
+
     switch (menu.type) {
       // ── Pista de una lista ──
       case 'track': {
         pushQueueActions(it);
         pushAddToPlaylist();
         pushTrackNav(it);
+        pushShare((o) => trackMessage(it, o));
         break;
       }
 
@@ -360,6 +378,7 @@ export function ContextMenuProvider({ children }) {
         pushQueueActions(it);
         pushAddToPlaylist();
         pushTrackNav(it);
+        pushShare((o) => trackMessage(it, o));
         break;
       }
 
@@ -376,6 +395,7 @@ export function ContextMenuProvider({ children }) {
         }
         pushAddToPlaylist();
         pushTrackNav(it);
+        pushShare((o) => trackMessage(it, o));
         break;
       }
 
@@ -395,6 +415,8 @@ export function ContextMenuProvider({ children }) {
           }, 'Ese álbum no tiene pistas'),
         });
         pushGoArtist(it.album_artist, { album_artist: it.album_artist });
+        // Sin album_artist el link no abriría nada (Albums.jsx busca por ese campo): no aparece.
+        if (it.album && it.album_artist) pushShare((o) => albumMessage(it, o));
         break;
       }
 
@@ -437,7 +459,7 @@ export function ContextMenuProvider({ children }) {
       default: break;
     }
     return list;
-  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast]);
+  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast, share]);
 
   // C2b · Escalera INTERNA del menú. Con el selector de playlists abierto, el primer Esc/atrás
   // vuelve al grid y el segundo cierra — antes cerraba todo de una. Sigue valiendo "un Esc = una
@@ -720,6 +742,13 @@ function IconAlbum() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="2.5" />
+    </svg>
+  );
+}
+function IconShare() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v12" /><path d="M7.5 7.5 12 3l4.5 4.5" /><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
     </svg>
   );
 }
