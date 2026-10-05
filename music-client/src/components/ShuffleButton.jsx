@@ -1,22 +1,10 @@
 import { useRef, useState } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from './Toast.jsx';
+import { shuffled, MIN_TRACKS, ERROR_TOAST_MS, MIX_ERROR_TEXT } from '../utils/mixPlayback.js';
 
-// Baraja una copia (Fisher–Yates) sin mutar el original.
-function shuffled(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// Con menos de esto no hay nada que mezclar: el botón queda visible pero deshabilitado.
-const MIN_TRACKS = 2;
-// Mientras el aviso de error sigue en pantalla (la variante 'warning' de Toast dura 3,5 s) no se
-// repite: clics seguidos con la red caída dan UN solo aviso, no una pila.
-const ERROR_TOAST_MS = 3500;
+// shuffled, MIN_TRACKS, ERROR_TOAST_MS y el texto del aviso viven en utils/mixPlayback.js (Frente 2,
+// M3): los comparte el atajo de teclado M, así botón y atajo se comportan igual.
 
 // Botón "Mix aleatorio" reutilizable (los 10 usos de la app): baraja las pistas dadas, reproduce y
 // activa el modo shuffle del PlayerContext. Recibe la lista directa (`tracks`) o un cargador
@@ -66,7 +54,7 @@ export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix a
           const now = Date.now();
           if (err?.status !== 401 && now - lastErrorToast.current > ERROR_TOAST_MS) {
             lastErrorToast.current = now;
-            toast('No se pudieron cargar las pistas', { variant: 'warning' });
+            toast(MIX_ERROR_TEXT, { variant: 'warning' });
           }
         } finally {
           setBusy(false);

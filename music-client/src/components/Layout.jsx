@@ -13,6 +13,7 @@ import QueueOverlay from './QueueOverlay.jsx';
 import { DragQueueProvider } from '../context/DragQueueContext.jsx';
 import { pathToState, stateToPath } from '../utils/routes.js';
 import { clearViewCache } from '../api/viewCache.js';
+import { useMixShortcut } from '../utils/useMixShortcut.js';
 
 // ── Gesto "atrás" en móvil: deslizar en el contenido para salir del detalle
 // actual (álbum/artista/género/playlist/año) y volver a su lista. Reusa el
@@ -70,6 +71,10 @@ export default function Layout() {
   // Layout sólo está montado con sesión (App.jsx muestra Login sin ella): al desmontarse — cerrar
   // sesión, o el reauth que lo oculta mientras comprueba — la caché de vistas se vacía.
   useEffect(() => () => clearViewCache(), []);
+
+  // Atajo global M (Frente 2, M3): mezcla TODA la biblioteca. Vive acá porque Layout sólo existe con
+  // sesión iniciada; el hook escucha su propio keydown y no toca PlayerContext.
+  useMixShortcut();
 
   // F1.2/F1.3b: canoniza la entrada de historial al montar. Si la ruta inicial es un DETALLE
   // (deep-link / F5 sobre /artists/X), SINTETIZA la lista como entrada PADRE debajo del detalle:
