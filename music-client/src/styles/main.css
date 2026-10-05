@@ -357,6 +357,19 @@ button, input, select, textarea { font-family: inherit; }
   transform: none;
   box-shadow: none;
 }
+/* Foco por teclado (Frente 2, M2b): el MISMO criterio que ya usan las variantes del Mix
+   (.detail-actions / .library-actions / .pl-detail-actions .mix-btn:focus-visible): aro de 2px del
+   hue de la vista. Faltaba en el .mix-btn global (el del hero de artista no tenía foco visible). */
+.mix-btn:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+/* reduced-motion: el lift/zoom del hover global no tenía guarda (lo cubrían sólo las variantes). */
+@media (prefers-reduced-motion: reduce) {
+  .mix-btn,
+  .mix-btn:hover,
+  .mix-btn:active { transform: none; }
+}
 
 /* Contador de la Biblioteca: pill accent-ghost SECUNDARIO — hermano MUTEADO del
    botón Mezclar de al lado (misma familia --accent; --h cae al 265 morado), pero

@@ -173,7 +173,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
               {q?.hires    > 0 && <span className="artist-chip artist-chip-q q-hires">{q.hires} hi-res</span>}
               {q?.lossless > 0 && <span className="artist-chip artist-chip-q q-lossless">{q.lossless} lossless</span>}
               {q?.lossy    > 0 && <span className="artist-chip artist-chip-q q-lossy">{q.lossy} lossy</span>}
-              <ShuffleButton getTracks={() => api.tracks({ album_artist: sel.artist, limit: 10000 })} />
+              <ShuffleButton getTracks={() => api.tracks({ album_artist: sel.artist, limit: 10000 })} count={sel.track_count} />
             </div>
           </div>
         </div>
@@ -214,7 +214,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
         <h1 className="section-title">Artistas</h1>
         <div className="detail-actions">
           <span className="section-count">{artists.length} artistas</span>
-          <ShuffleButton getTracks={artistsViewTracks} />
+          <ShuffleButton getTracks={artistsViewTracks} count={artists.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
         </div>
       </div>
       {/* Grilla propia, NO `.album-grid`: la tarjeta ES la foto (retrato 3:4 a sangre, texto

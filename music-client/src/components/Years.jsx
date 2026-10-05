@@ -45,7 +45,7 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
           <h1 className="section-title">{sel.year}</h1>
           <div className="detail-actions">
             <span className="section-count">{sel.album_count} álbumes · {sel.track_count} pistas</span>
-            <ShuffleButton getTracks={() => api.tracks({ year: sel.year, limit: 10000 })} />
+            <ShuffleButton getTracks={() => api.tracks({ year: sel.year, limit: 10000 })} count={sel.track_count} />
           </div>
         </div>
         {albums ? <AlbumGrid albums={albums} onOpen={(a) => navigate('albums', { album: a.album, album_artist: a.album_artist })} /> : <div className="spinner">Cargando…</div>}
@@ -71,7 +71,7 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
         <h1 className="section-title">Años</h1>
         <div className="detail-actions">
           <span className="section-count">{years.length} años</span>
-          <ShuffleButton getTracks={yearsViewTracks} />
+          <ShuffleButton getTracks={yearsViewTracks} count={years.reduce((s, y) => s + (y.track_count ?? 0), 0)} />
         </div>
       </div>
       <ul className="browse-list">

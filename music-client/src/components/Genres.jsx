@@ -121,7 +121,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
         <h1 className="section-title">Géneros</h1>
         <div className="detail-actions">
           <span className="section-count">{genres.length} géneros</span>
-          <ShuffleButton getTracks={genresViewTracks} />
+          <ShuffleButton getTracks={genresViewTracks} count={genres.reduce((s, g) => s + (g.track_count ?? 0), 0)} />
         </div>
       </div>
       <ul className="browse-list">

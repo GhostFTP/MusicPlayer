@@ -157,7 +157,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
         <h1 className="section-title">Álbumes</h1>
         <div className="detail-actions">
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{albums.length} álbumes</span>
-          <ShuffleButton getTracks={albumsViewTracks} />
+          <ShuffleButton getTracks={albumsViewTracks} count={loading || error ? undefined : albums.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
         </div>
       </div>
 
