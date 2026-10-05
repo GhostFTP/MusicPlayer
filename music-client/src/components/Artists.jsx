@@ -5,6 +5,7 @@ import { stringHue } from '../utils/emojiHue.js';
 import AlbumGrid from './AlbumGrid.jsx';
 import ArtistImage from './ArtistImage.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { artistsViewTracks } from '../utils/viewTracks.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
@@ -213,7 +214,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
         <h1 className="section-title">Artistas</h1>
         <div className="detail-actions">
           <span className="section-count">{artists.length} artistas</span>
-          <ShuffleButton getTracks={() => api.tracks({ limit: 10000 })} />
+          <ShuffleButton getTracks={artistsViewTracks} />
         </div>
       </div>
       {/* Grilla propia, NO `.album-grid`: la tarjeta ES la foto (retrato 3:4 a sangre, texto

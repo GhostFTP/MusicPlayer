@@ -3,6 +3,7 @@ import { api } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { genresViewTracks } from '../utils/viewTracks.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
@@ -120,7 +121,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
         <h1 className="section-title">Géneros</h1>
         <div className="detail-actions">
           <span className="section-count">{genres.length} géneros</span>
-          <ShuffleButton getTracks={() => api.tracks({ limit: 10000 })} />
+          <ShuffleButton getTracks={genresViewTracks} />
         </div>
       </div>
       <ul className="browse-list">

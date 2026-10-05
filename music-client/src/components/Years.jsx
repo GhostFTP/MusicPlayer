@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
 import AlbumGrid from './AlbumGrid.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { yearsViewTracks } from '../utils/viewTracks.js';
 
 export default function Years({ target, clearTarget, setDetailOpen, navigate }) {
   const [years,    setYears]    = useState(null);
@@ -70,7 +71,7 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
         <h1 className="section-title">Años</h1>
         <div className="detail-actions">
           <span className="section-count">{years.length} años</span>
-          <ShuffleButton getTracks={() => api.tracks({ limit: 10000 })} />
+          <ShuffleButton getTracks={yearsViewTracks} />
         </div>
       </div>
       <ul className="browse-list">

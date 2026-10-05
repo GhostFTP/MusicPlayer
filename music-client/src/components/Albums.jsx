@@ -2,6 +2,7 @@ import { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { albumsViewTracks } from '../utils/viewTracks.js';
 import TrackTable from './TrackTable.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
@@ -156,7 +157,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
         <h1 className="section-title">Álbumes</h1>
         <div className="detail-actions">
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{albums.length} álbumes</span>
-          <ShuffleButton getTracks={() => api.tracks({ limit: 10000 })} />
+          <ShuffleButton getTracks={albumsViewTracks} />
         </div>
       </div>
 
