@@ -10,8 +10,10 @@ import { ALBUM_VIEW_MODES } from '../utils/albumsView.js';
 // Las teclas que maneja el selector NO siguen viaje: si no, ←/→ también adelantaría la canción y
 // Espacio la pausaría (los atajos globales de PlayerContext y el de "M" escuchan en window).
 
+// Nombres de la DENSIDAD, no de las columnas: cuántas entran por fila depende del ancho (2/3/4 son
+// las del teléfono, como en iOS; en escritorio son más). Van al aria-label, al title y al menú.
 export const MODE_LABEL = {
-  d2: '2 por fila', d3: '3 por fila', d4: '4 por fila', mosaic: 'Mosaico', list: 'Lista',
+  d2: 'Grande', d3: 'Mediana', d4: 'Pequeña', mosaic: 'Mosaico', list: 'Lista',
 };
 
 function GridIcon({ n }) {

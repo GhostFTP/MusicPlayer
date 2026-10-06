@@ -179,6 +179,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
           <AlbumCard
             key={`${album.album}-${album.album_artist}`}
             album={album}
+            mosaic={view === 'mosaic'}
             bindPress={bindPress}
             dragProps={dragProps}
             onOpen={onOpen}
@@ -192,10 +193,13 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
 
 // Tarjeta memoizada: Albums se re-renderiza al cambiar de canción (consume PlayerContext por `play`),
 // pero con props estables las tarjetas no.
-const AlbumCard = memo(function AlbumCard({ album, bindPress, dragProps, onOpen, onCtx }) {
+// `mosaic`: en Mosaico la tarjeta queda sin texto visible (sólo la carátula), así que lleva su nombre
+// en aria-label («álbum – artista»), sin nodos extra. Sólo cambia al cambiar de vista.
+const AlbumCard = memo(function AlbumCard({ album, mosaic, bindPress, dragProps, onOpen, onCtx }) {
   return (
     <div
       className="album-card"
+      aria-label={mosaic ? (album.album_artist ? `${album.album} – ${album.album_artist}` : album.album) : undefined}
       {...bindPress(album, {
         onClick: () => onOpen(album),
         onContextMenu: (e) => onCtx(e, album),

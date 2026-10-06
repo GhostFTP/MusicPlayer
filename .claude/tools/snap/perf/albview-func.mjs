@@ -43,18 +43,18 @@ const gotoAlbums = async (p) => { await p.goto(BASE + '/albums'); await p.waitFo
   await p.goto(BASE + '/'); await p.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('sonorarev.albumsView:')) localStorage.removeItem(k); });
   await gotoAlbums(p);
   let s = await state(p);
-  ok('predeterminado_sin_clave', s.cls === 'album-grid' && s.checked === '2 por fila', s);
+  ok('predeterminado_sin_clave', s.cls === 'album-grid' && s.checked === 'Grande', s);
 
-  // Elegir 3 por fila → se aplica y se guarda con la clave del usuario; sobrevive a recargar.
-  await p.locator('.avs-seg [role="radio"][aria-label="3 por fila"]').click();
+  // Elegir Mediana → se aplica y se guarda con la clave del usuario; sobrevive a recargar.
+  await p.locator('.avs-seg [role="radio"][aria-label="Mediana"]').click();
   s = await state(p);
   const saved = await p.evaluate((k) => localStorage.getItem(k), K1);
   await p.reload(); await p.waitForSelector('.album-grid .album-card');
   const s2 = await state(p);
-  ok('guarda_por_usuario_y_recarga', s.cls.includes('album-grid--d3') && saved === 'd3' && s2.cls.includes('album-grid--d3') && s2.checked === '3 por fila', { saved, antes: s.cls, despues: s2.cls });
+  ok('guarda_por_usuario_y_recarga', s.cls.includes('album-grid--d3') && saved === 'd3' && s2.cls.includes('album-grid--d3') && s2.checked === 'Mediana', { saved, antes: s.cls, despues: s2.cls });
 
   // Cambio de CUENTA real (segundo login): la otra cuenta arranca en el predeterminado, elige Lista;
-  // al volver a la primera sigue en 3 por fila.
+  // al volver a la primera sigue en Mediana.
   if (token2) {
     await p.evaluate((t) => localStorage.setItem('token', t), token2);
     await p.reload(); await p.waitForSelector('.album-grid .album-card');
@@ -72,7 +72,7 @@ const gotoAlbums = async (p) => { await p.goto(BASE + '/albums'); await p.waitFo
   await p.evaluate((k) => localStorage.setItem(k, 'grande'), K1);
   await p.reload(); await p.waitForSelector('.album-grid .album-card');
   s = await state(p);
-  ok('invalido_cae_al_predeterminado', s.cls === 'album-grid' && s.checked === '2 por fila', s);
+  ok('invalido_cae_al_predeterminado', s.cls === 'album-grid' && s.checked === 'Grande', s);
 
   // Teclado: el foco entra al elegido; flechas/Inicio/Fin cambian de modo y mueven el foco; ninguna
   // de esas teclas llega a window (donde ←/→ adelantan la canción y Espacio pausa).
@@ -85,8 +85,24 @@ const gotoAlbums = async (p) => { await p.goto(BASE + '/albums'); await p.waitFo
   }
   const leaked = await p.evaluate(() => window.__leaked);
   const tabStops = await p.locator('.avs-seg [tabindex="0"]').count();
-  ok('teclado_radiogroup', seq.map((x) => x.checked).join('|') === '3 por fila|4 por fila|Lista|2 por fila|Lista|Lista' && seq.every((x) => x.focus === x.checked) && leaked.length === 0 && tabStops === 1, { seq: seq.map((x) => x.checked), leaked, tabStops });
-  await p.locator('.avs-seg [role="radio"][aria-label="2 por fila"]').click();
+  ok('teclado_radiogroup', seq.map((x) => x.checked).join('|') === 'Mediana|Pequeña|Lista|Grande|Lista|Lista' && seq.every((x) => x.focus === x.checked) && leaked.length === 0 && tabStops === 1, { seq: seq.map((x) => x.checked), leaked, tabStops });
+  await p.locator('.avs-seg [role="radio"][aria-label="Grande"]').click();
+
+  // Rótulos de densidad (no de columnas) en aria-label y title.
+  ok('rotulos_densidad', await p.evaluate(() => [...document.querySelectorAll('.avs-seg [role="radio"]')].map((b) => `${b.getAttribute('aria-label')}=${b.title}`).join('|')) === 'Grande=Grande|Mediana=Mediana|Pequeña=Pequeña|Mosaico=Mosaico|Lista=Lista');
+
+  // Mosaico: cada tarjeta lleva aria-label «álbum – artista» (o sólo el álbum sin artista), SIN nodos
+  // extra; en los otros modos no lleva aria-label.
+  const nodes = () => p.evaluate(() => document.querySelectorAll('.album-grid *').length);
+  const n0 = await nodes();
+  await p.locator('.avs-seg [role="radio"][aria-label="Mosaico"]').click();
+  const mos = await p.evaluate(() => [...document.querySelectorAll('.album-grid .album-card')].map((el) => el.getAttribute('aria-label')));
+  const n1 = await nodes();
+  await p.locator('.avs-seg [role="radio"][aria-label="Grande"]').click();
+  const sinLabel = await p.evaluate(() => [...document.querySelectorAll('.album-grid .album-card')].every((el) => !el.hasAttribute('aria-label')));
+  const albs = await p.evaluate(async () => (await fetch('/api/albums', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } })).json());
+  const want = albs.map((a) => (a.album_artist ? `${a.album} – ${a.album_artist}` : a.album));
+  ok('mosaico_aria_label', mos.length === want.length && mos.every((l, i) => l === want[i]) && n1 === n0 && sinLabel, { primeros: mos.slice(0, 3), n0, n1, sinLabel });
 
   ok('caras_por_ancho_escritorio', await p.locator('.avs-seg').isVisible() && !(await p.locator('.avs-btn').isVisible()));
   ok('a11y_radiogroup', await p.evaluate(() => {
@@ -122,7 +138,7 @@ const gotoAlbums = async (p) => { await p.goto(BASE + '/albums'); await p.waitFo
 
   // Columnas de cada modo (tamaño de celda de iOS en 390): 2 · 3 · 4 · 5 · lista.
   const cols = {};
-  for (const [m, label] of [['d2', '2 por fila'], ['d3', '3 por fila'], ['d4', '4 por fila'], ['mosaic', 'Mosaico'], ['list', 'Lista']]) {
+  for (const [m, label] of [['d2', 'Grande'], ['d3', 'Mediana'], ['d4', 'Pequeña'], ['mosaic', 'Mosaico'], ['list', 'Lista']]) {
     await btn.click(); await p.waitForSelector('.avs-menu');
     await p.locator('.avs-menu [role="menuitemradio"]', { hasText: label }).click();
     await p.waitForTimeout(150);
@@ -150,7 +166,7 @@ const gotoAlbums = async (p) => { await p.goto(BASE + '/albums'); await p.waitFo
   const afterEsc = await state(p);
   const closed = (await p.locator('.avs-menu').count()) === 0;
   const leaked = await p.evaluate(() => window.__leaked.filter((k) => k !== 'Enter'));
-  ok('teclado_menu_movil', f0 === 'Lista' && f1 === '2 por fila' && after.cls === 'album-grid' && back && afterEsc.cls === 'album-grid' && closed && leaked.length === 0, { f0, f1, after: after.cls, back, afterEsc: afterEsc.cls, closed, leaked });
+  ok('teclado_menu_movil', f0 === 'Lista' && f1 === 'Grande' && after.cls === 'album-grid' && back && afterEsc.cls === 'album-grid' && closed && leaked.length === 0, { f0, f1, after: after.cls, back, afterEsc: afterEsc.cls, closed, leaked });
 
   // Tocar afuera cierra el menú.
   await btn.click(); await p.waitForSelector('.avs-menu');
