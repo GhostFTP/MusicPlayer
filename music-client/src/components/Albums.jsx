@@ -8,6 +8,7 @@ import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { readCache, fetchFresh } from '../api/viewCache.js';
+import BackButton from './BackButton.jsx';
 
 // Clave de la caché de vistas (viewCache.js): la lista de álbumes.
 const ALBUMS_CACHE_KEY = 'albums:list';
@@ -111,9 +112,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
     // desplaza a la vista dentro de TrackTable.
     return (
       <div>
-        <button className="back-btn" onClick={() => window.history.back()}>
-          ← Volver
-        </button>
+        <BackButton label="Volver" />
 
         <div className="detail-hero">
           {selected.sample_track_id

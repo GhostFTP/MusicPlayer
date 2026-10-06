@@ -3,6 +3,7 @@ import { api } from '../api/client.js';
 import AlbumGrid from './AlbumGrid.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { yearsViewTracks } from '../utils/viewTracks.js';
+import BackButton from './BackButton.jsx';
 
 export default function Years({ target, clearTarget, setDetailOpen, navigate }) {
   const [years,    setYears]    = useState(null);
@@ -38,9 +39,7 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
   if (sel) {
     return (
       <div>
-        <button className="back-btn" onClick={() => window.history.back()}>
-          ← Todos los años
-        </button>
+        <BackButton label="Todos los años" />
         <div className="section-header">
           <h1 className="section-title">{sel.year}</h1>
         </div>

@@ -9,6 +9,7 @@ import { artistsViewTracks } from '../utils/viewTracks.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
+import BackButton from './BackButton.jsx';
 
 const MAX_GENRE_CHIPS = 3;   // Kali Uchis tiene 5 géneros; sin tope el hero se satura
 
@@ -149,9 +150,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
 
     return (
       <div>
-        <button className="back-btn" onClick={() => window.history.back()}>
-          ← Todos los artistas
-        </button>
+        <BackButton label="Todos los artistas" />
 
         {/* Hero: la foto a sangre. Esta era la ÚNICA vista con detalle sin hero — el nombre
             era un <h1> desnudo sobre la grilla de álbumes. El kicker "ARTISTA" en morado es

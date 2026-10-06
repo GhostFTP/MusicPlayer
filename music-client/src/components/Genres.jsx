@@ -9,6 +9,7 @@ import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { genreEmoji } from '../utils/genreEmoji.js';
 import { emojiHue } from '../utils/emojiHue.js';
+import BackButton from './BackButton.jsx';
 
 export default function Genres({ target, clearTarget, setDetailOpen, navigate }) {
   const [genres, setGenres] = useState(null);
@@ -75,9 +76,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   if (sel) {
     return (
       <div>
-        <button className="back-btn" onClick={() => window.history.back()}>
-          ← Todos los géneros
-        </button>
+        <BackButton label="Todos los géneros" />
         <div className="section-header" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
           <h1 className="section-title">{sel.genre}</h1>
         </div>
