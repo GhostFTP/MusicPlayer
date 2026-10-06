@@ -162,6 +162,13 @@ un admin lo pone, lo cambia o lo quita con `PATCH /api/admin/users/:id`:
 contraseña**: sin ella, la cuenta entra solo con Google hasta que alguien le ponga una.
 Sin correo, la contraseña sigue siendo obligatoria.
 
+**Ver la contraseña de alguien, desde la 1.23.0** (`GET /api/admin/users/:id/password`).
+Contesta `{ "password": "…" }`, o `{ "disponible": false }` si no hay copia: una cuenta que
+entra solo con Google, una contraseña puesta antes de la 1.23.0, o un servidor sin
+`PASSWORD_VIEW_KEY`. Un admin ve la de cualquier usuario normal y la suya, **nunca la de
+otro admin** (`403`). La copia se guarda **cifrada** con una llave que vive fuera de la base,
+cada consulta deja su línea en el log (sin la contraseña) y la respuesta no se cachea.
+
 ### Cada quien, con lo suyo — `PATCH /api/me`
 
 Lo único de la API de cuentas que **no** pide ser admin. Cambia **una** de las dos cosas
@@ -359,6 +366,7 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 | GET | `/api/admin/users` | Listar usuarios con sus conteos de playlists y plays *(solo admin)* |
 | POST | `/api/admin/users` | Crear usuario. Con `email`, la contraseña es opcional *(solo admin)* |
 | PATCH | `/api/admin/users/:id` | Cambiar rol, contraseña, **nombre**, **emoji** o **correo** (`email`; `null` lo quita) *(solo admin)* |
+| GET | `/api/admin/users/:id/password` | Ver su contraseña (`{ password }` o `{ disponible: false }`); nunca la de otro admin *(solo admin)* |
 | DELETE | `/api/admin/users/:id/avatar` | Quitarle el avatar a alguien *(solo admin)* |
 | DELETE | `/api/admin/users/:id` | Borrar usuario y, en cascada, sus playlists y sus plays *(solo admin)* |
 | GET | `/api/changelog` | Notas de versión (CHANGELOG.md) |

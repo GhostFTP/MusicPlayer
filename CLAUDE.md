@@ -259,6 +259,26 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
   `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
   son obligatorias: el arranque falla si faltan.
+- **`PASSWORD_VIEW_KEY` (1.23.0), opcional**: la llave con la que se cifra la copia de cada
+  contraseña que un admin puede volver a ver (`GET /api/admin/users/:id/password`,
+  `music-server/src/users/password-view.js`). AES-256-GCM, el id de la cuenta como dato
+  autenticado, en la columna `users.password_view`.
+  - **Generarla:** `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
+    (base64 que decodifica a 32 bytes; cualquier otra cosa no sirve).
+  - ⚠️ **Vive SOLO en Dokploy**: nunca en el repo, en un `.env` versionado ni en un backup al
+    lado de `music.db`. Separada de la base es lo que hace que un backup robado no tenga las
+    contraseñas: con la llave al lado, la copia cifrada es como tenerlas en claro.
+  - **Sin ella (o con una que no sirve)** el servidor arranca igual y avisa UNA vez en el log
+    sin mostrar el valor; las contraseñas nuevas no se guardan (`password_view` queda NULL) y el
+    endpoint contesta `{ disponible: false }`. Cambiar contraseñas nunca se bloquea por esto.
+  - **Las contraseñas anteriores a 1.23.0 no se pueden ver** (solo existe su hash): se ven a
+    partir de su próximo cambio. Cambiar la llave deja ilegibles las copias viejas (salen como no
+    disponibles) hasta que cada contraseña se vuelva a poner.
+  - **Apagarlo del todo:** quitar la variable de Dokploy, redeploy, y borrar las copias con
+    `UPDATE users SET password_view = NULL;` sobre la base.
+  - Reglas: un admin ve la de cualquier usuario normal y la suya, **nunca la de otro admin**
+    (403). Cada consulta deja `[usuarios] el admin <id> (<nombre>) vio la contraseña de la cuenta
+    <id> (<nombre>)` en el log, sin el valor. La respuesta va con `Cache-Control: no-store`.
 
 ## Estado de ramas — nada sin mergear
 
