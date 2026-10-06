@@ -123,9 +123,17 @@ ok('sigue_una_sola', (await favLists()).length === 1 && creates.length === 1);
 
 // 5) Servidor falla → el corazón VUELVE a como estaba y aparece un toast ámbar.
 failTracks = true;
+// El 500 de la ruta vuelve en ~10-20 ms y el corazón se revierte enseguida: leer aria-pressed una
+// vez después de click() a veces llegaba tarde (falla intermitente). Un observer instalado ANTES
+// del clic registra si el corazón llegó a llenarse, sin depender de cuándo resuelve click().
+await heart().evaluate((h) => {
+  window.__favLleno = false;
+  new MutationObserver(() => { if (h.getAttribute('aria-pressed') === 'true') window.__favLleno = true; })
+    .observe(h, { attributes: true, attributeFilter: ['aria-pressed'] });
+});
 await heart().click();
-const opt = await heartOn();
 await wait(1200);
+const opt = await page.evaluate(() => window.__favLleno);
 const warn = await page.locator('.toast.warning').allTextContents();
 ok('falla_deshace_y_avisa', opt === true && !(await heartOn()) && warn.some((w) => w.includes('Mis favoritos')), { warn });
 if (process.env.SHOTS) await page.screenshot({ path: join(OUT, 'toast-ambar-1440.png') });
