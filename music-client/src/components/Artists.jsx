@@ -150,7 +150,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
 
     return (
       <div>
-        <BackButton label="Todos los artistas" />
+        <BackButton label="Todos los artistas" view="artists" onList={() => navigate('artists')} />
 
         {/* Hero: la foto a sangre. Esta era la ÚNICA vista con detalle sin hero — el nombre
             era un <h1> desnudo sobre la grilla de álbumes. El kicker "ARTISTA" en morado es

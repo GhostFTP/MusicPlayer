@@ -76,7 +76,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   if (sel) {
     return (
       <div>
-        <BackButton label="Todos los géneros" />
+        <BackButton label="Todos los géneros" view="genres" onList={() => navigate('genres')} />
         <div className="section-header" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
           <h1 className="section-title">{sel.genre}</h1>
         </div>

@@ -39,7 +39,7 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
   if (sel) {
     return (
       <div>
-        <BackButton label="Todos los años" />
+        <BackButton label="Todos los años" view="years" onList={() => navigate('years')} />
         <div className="section-header">
           <h1 className="section-title">{sel.year}</h1>
         </div>

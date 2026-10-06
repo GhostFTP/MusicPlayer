@@ -15,18 +15,22 @@
 // Puro salvo `shareText`: en pantallas táctiles, la hoja del sistema (navigator.share) si existe;
 // en escritorio, y si no hay hoja, el portapapeles. El aviso al usuario lo da quien llama.
 
+import { NO_ALBUM_ARTIST } from './routes.js';
+
 function limpio(v) {
   if (typeof v !== 'string') return null;
   const t = v.trim().normalize('NFC');
   return t ? t : null;
 }
 
+// Sin album_artist el link usa el centinela de routes.js (/albums/@/<álbum>), así abre ESE álbum y no
+// uno homónimo con artista. Es la única diferencia con iOS, que en ese caso no manda link.
 export function albumLink(baseUrl, album, albumArtist) {
   const base = typeof baseUrl === 'string' ? baseUrl.trim().replace(/\/+$/, '') : '';
   const a = limpio(album);
   const aa = limpio(albumArtist);
-  if (!base || !a || !aa) return null;
-  return `${base}/albums/${encodeURIComponent(aa)}/${encodeURIComponent(a)}`;
+  if (!base || !a) return null;
+  return `${base}/albums/${aa ? encodeURIComponent(aa) : NO_ALBUM_ARTIST}/${encodeURIComponent(a)}`;
 }
 
 const SIN_TITULO = 'Canción';

@@ -38,7 +38,12 @@ for (const [name, t] of Object.entries(tracks)) {
   const w = web.trackMessage(t, BASE);
   if (ios) {
     const i = ios.mensajeDeCancion(t, BASE);
-    ok(`paridad_${name}`, w === i, w === i ? { texto: w } : { web: w, ios: i });
+    // Única diferencia buscada con iOS: SIN album_artist la web agrega el link con el centinela de
+    // routes.js (/albums/@/<álbum>), que abre ESE álbum; iOS en ese caso manda sólo el texto.
+    const sinAA = !(typeof t.album_artist === 'string' && t.album_artist.trim()) && typeof t.album === 'string' && t.album.trim();
+    const esperado = sinAA ? `${i}
+${BASE}/albums/@/${encodeURIComponent(t.album.trim().normalize('NFC'))}` : i;
+    ok(`paridad_${name}`, w === esperado, w === esperado ? { texto: w } : { web: w, ios: i, esperado });
   }
 }
 ok('null_no_lanza', web.trackMessage(null, BASE) === 'Canción');
@@ -52,6 +57,12 @@ for (const name of ['normal', 'acentos', 'raros', 'comillas', 'nfd', 'emoji', 'f
   const s = routes.pathToState(new URL(link).pathname);
   const want = { album: t.album.trim().normalize('NFC'), album_artist: t.album_artist.trim().normalize('NFC') };
   ok(`ruta_${name}`, s.view === 'albums' && s.target?.album === want.album && s.target?.album_artist === want.album_artist, { link, target: s.target });
+}
+// El link SIN album_artist vuelve a leerse con routes.js como ese álbum con album_artist null.
+{
+  const link = web.albumLink(BASE, 'Californication', null);
+  const s = routes.pathToState(new URL(link).pathname);
+  ok('ruta_sin_album_artist', link === BASE + '/albums/@/Californication' && s.view === 'albums' && s.target?.album === 'Californication' && s.target?.album_artist === null, { link, target: s.target });
 }
 ok('sin_token_ni_query', !/[?#]|token/i.test(web.albumLink(BASE, 'Discovery', 'Daft Punk')));
 

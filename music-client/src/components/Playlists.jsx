@@ -160,7 +160,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     const heroCoverIds = tracks.filter(t => t.cover_path != null).slice(0, 4).map(t => t.id);
     return (
       <div>
-        <BackButton label="Todas las playlists" />
+        <BackButton label="Todas las playlists" view="playlists" onList={() => navigate('playlists')} />
 
         <div className="detail-hero pl-hero" style={{ '--h': emojiHue(playlist.emoji) }}>
           <div className="detail-hero-cover placeholder pl-hero-cover">

@@ -3,9 +3,19 @@
 // historial (Modelo 2: el detalle es una entrada de ruta), igual que antes; el gesto de deslizar
 // para volver (Layout) no pasa por acá y no cambia. Las cinco vistas comparten este componente
 // para que el botón sea el mismo en todas.
-export default function BackButton({ label }) {
+//
+// Red de seguridad: history.back() SÓLO si la entrada actual es un detalle de ESTA vista (el estado
+// que empuja Layout: { view, target }). Si no lo es —un detalle que por lo que sea no dejó su entrada—
+// back() se iría a lo ANTERIOR a la lista (otra vista, o fuera de la app): ahí se va a la lista con
+// `onList` (navigate de la vista). Los detalles normales tienen su entrada y no cambian.
+export default function BackButton({ label, view, onList }) {
+  const goBack = () => {
+    const st = window.history.state;
+    if (!onList || (st && st.view === view && st.target)) window.history.back();
+    else onList();
+  };
   return (
-    <button type="button" className="back-btn" onClick={() => window.history.back()}>
+    <button type="button" className="back-btn" onClick={goBack}>
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <polyline points="15 18 9 12 15 6" />
       </svg>

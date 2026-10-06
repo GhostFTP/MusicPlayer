@@ -91,18 +91,26 @@ const gotoAlbums = async (p) => { await p.goto(BASE + '/albums'); await p.waitFo
   // Rótulos de densidad (no de columnas) en aria-label y title.
   ok('rotulos_densidad', await p.evaluate(() => [...document.querySelectorAll('.avs-seg [role="radio"]')].map((b) => `${b.getAttribute('aria-label')}=${b.title}`).join('|')) === 'Grande=Grande|Mediana=Mediana|Pequeña=Pequeña|Mosaico=Mosaico|Lista=Lista');
 
-  // Mosaico: cada tarjeta lleva aria-label «álbum – artista» (o sólo el álbum sin artista), SIN nodos
-  // extra; en los otros modos no lleva aria-label.
+  // Mosaico: el nombre «álbum – artista» (o sólo el álbum) va en el ALT de la carátula (o en el "♫"
+  // como role=img sin carátula), SIN nodos extra; la tarjeta no lleva aria-label en ningún modo; en
+  // los otros modos el alt vuelve a "" (como siempre). Se cuenta además cuántas imágenes con ese
+  // nombre ve el árbol de accesibilidad (getByRole), que es lo que oye un lector de pantalla.
   const nodes = () => p.evaluate(() => document.querySelectorAll('.album-grid *').length);
+  const names = () => p.evaluate(() => [...document.querySelectorAll('.album-grid .album-card')].map((el) => {
+    const img = el.querySelector('img.album-cover'); const ph = el.querySelector('.album-cover-placeholder');
+    return { name: img ? img.getAttribute('alt') : ph?.getAttribute('aria-label') ?? null, cardLabel: el.getAttribute('aria-label') };
+  }));
   const n0 = await nodes();
   await p.locator('.avs-seg [role="radio"][aria-label="Mosaico"]').click();
-  const mos = await p.evaluate(() => [...document.querySelectorAll('.album-grid .album-card')].map((el) => el.getAttribute('aria-label')));
+  const mos = await names();
   const n1 = await nodes();
-  await p.locator('.avs-seg [role="radio"][aria-label="Grande"]').click();
-  const sinLabel = await p.evaluate(() => [...document.querySelectorAll('.album-grid .album-card')].every((el) => !el.hasAttribute('aria-label')));
   const albs = await p.evaluate(async () => (await fetch('/api/albums', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } })).json());
   const want = albs.map((a) => (a.album_artist ? `${a.album} – ${a.album_artist}` : a.album));
-  ok('mosaico_aria_label', mos.length === want.length && mos.every((l, i) => l === want[i]) && n1 === n0 && sinLabel, { primeros: mos.slice(0, 3), n0, n1, sinLabel });
+  const axOk = await p.getByRole('img', { name: want[1], exact: true }).count();
+  await p.locator('.avs-seg [role="radio"][aria-label="Grande"]').click();
+  const otros = await names();
+  ok('mosaico_alt', mos.length === want.length && mos.every((x, i) => x.name === want[i] && x.cardLabel == null) && n1 === n0 && axOk >= 1
+    && otros.every((x) => (x.name === '' || x.name == null) && x.cardLabel == null), { primeros: mos.slice(0, 3).map((x) => x.name), n0, n1, axOk });
 
   ok('caras_por_ancho_escritorio', await p.locator('.avs-seg').isVisible() && !(await p.locator('.avs-btn').isVisible()));
   ok('a11y_radiogroup', await p.evaluate(() => {
