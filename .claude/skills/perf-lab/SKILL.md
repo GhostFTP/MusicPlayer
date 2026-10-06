@@ -69,6 +69,7 @@ Todos se corren con `SNAP_BASE=http://localhost:<puerto>` desde esa carpeta. Log
 
 | Script | Qué hace · cómo se corre |
 |---|---|
+| `regresion.mjs` + `baseline.json` | **La regresión completa en un comando.** Build, levanta SU backend (3100) y SU preview (4173), corre los scripts de `baseline.json` en orden y da PASA / FALLA(claves) / NO CORRIÓ por fila, con código 0/1/2. Apaga sólo sus propios procesos (`taskkill /T /F` sobre sus hijos: aplica el espíritu de §5 —nunca por puerto ni por nombre— pero sin el `.ps1`, porque los PIDs son hijos directos del runner). Trabaja sobre una COPIA temporal de la base (nunca escribe en la original; `MUSIC_DB_PATH` elige el origen) y crea ahí la segunda cuenta de `albview-func` con el CLI del backend. El baseline se cambia sólo a mano y en un commit. `node regresion.mjs [--solo a,b] [--sin-build] [--baseline <ruta>]` (~7 min; reporte `AAAA-MM-DD-HHmm-regresion[-parcial].md`) |
 | `perf.mjs` | Diagnóstico general: Biblioteca/Álbumes/detalle 5 s sonando, re-renders por tick, búsqueda, navegación, scroll. `CPU=1\|4 node perf.mjs` |
 | `rows.mjs` | Filas/tarjetas re-renderizadas por **acción** (siguiente, pausa/play, carga) + commits. `CPU=1 node rows.mjs` |
 | `anim-solo.mjs` | Costo de cada animación de la barra **sola** (las otras apagadas por CSS): mediana/rango + frames/s. `CPU GPU ONLY EXTRA_CSS EXTRA_JS` |
@@ -149,7 +150,9 @@ Todos se corren con `SNAP_BASE=http://localhost:<puerto>` desde esa carpeta. Log
 
 ## 6. Checkpoint estándar (al cerrar cada sub-paso)
 
-1. `npm run build` en exit 0.
+0. **`node regresion.mjs`** (§4): build + regresión completa contra `baseline.json`, código 0. Es el
+   reemplazo de correr los scripts a mano y contar; su tabla va al reporte tal cual.
+1. `npm run build` en exit 0 (el runner lo incluye; con `--sin-build`, a mano).
 2. `git status` + `git diff --stat`: archivos tocados = los permitidos por el prompt.
 3. Scripts nuevos sin trackear, listados.
 4. Servidores de la sesión apagados (sólo los PIDs de `session-pids.txt`, §5): 3100/4173/4174 en

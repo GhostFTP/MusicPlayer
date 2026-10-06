@@ -1,0 +1,38 @@
+{
+  "_nota": "Baseline de regresion.mjs. Se cambia SOLO a mano y en un commit, nunca para que una corrida 'cuadre'. modo: ok-line = linea 'OK n/m' (mix-*); name-line = linea '<nombre>: n/m' + codigo de salida; json = solo JSON (cuenta true / {ok:true}); rows = lineas de log de rows.mjs comparadas por etiqueta. tolerados = claves que pueden fallar sin que la fila deje de PASAR; informativos = claves que no cuentan (se muestran con su chequeo); requiere = condiciones previas (si faltan, NO CORRIÓ).",
+  "build": { "exit": 0 },
+  "scripts": [
+    {
+      "nombre": "func", "archivo": "func.mjs", "modo": "json",
+      "esperado": { "ok": 12, "total": 12 },
+      "informativos": {
+        "barra_total": { "igual": "2:00" },
+        "mediasession_meta": { "textoNoVacio": true },
+        "letra_lineas_activas": { "algunaActiva": true }
+      }
+    },
+    { "nombre": "func2", "archivo": "func2.mjs", "modo": "json", "esperado": { "ok": 17, "total": 18 }, "tolerados": ["drag_album_a_cola"] },
+    { "nombre": "func-search", "archivo": "func-search.mjs", "modo": "json", "esperado": { "ok": 13, "total": 13 } },
+    { "nombre": "mix-func", "archivo": "mix-func.mjs", "modo": "ok-line", "esperado": { "ok": 14, "total": 14 } },
+    { "nombre": "mix-a11y", "archivo": "mix-a11y.mjs", "modo": "ok-line", "esperado": { "ok": 16, "total": 16 } },
+    { "nombre": "mix-shortcut", "archivo": "mix-shortcut.mjs", "modo": "ok-line", "esperado": { "ok": 15, "total": 15 } },
+    { "nombre": "plays-unit", "archivo": "plays-unit.mjs", "modo": "name-line", "esperado": { "ok": 14, "total": 14 } },
+    { "nombre": "plays-func", "archivo": "plays-func.mjs", "modo": "name-line", "esperado": { "ok": 18, "total": 18 } },
+    { "nombre": "share-unit", "archivo": "share-unit.mjs", "modo": "name-line", "esperado": { "ok": 26, "total": 26 }, "requiere": { "ruta": { "env": "IOS_REPO", "defecto": "C:/Dev/sonorarev-ios", "archivo": "lib/compartir.ts" } } },
+    { "nombre": "share-func", "archivo": "share-func.mjs", "modo": "name-line", "esperado": { "ok": 15, "total": 15 } },
+    { "nombre": "fav-func", "archivo": "fav-func.mjs", "modo": "name-line", "esperado": { "ok": 15, "total": 15 } },
+    { "nombre": "back-func", "archivo": "back-func.mjs", "modo": "name-line", "esperado": { "ok": 17, "total": 17 } },
+    { "nombre": "albview-func", "archivo": "albview-func.mjs", "modo": "name-line", "esperado": { "ok": 14, "total": 14 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
+    { "nombre": "routes-unit", "archivo": "routes-unit.mjs", "modo": "name-line", "esperado": { "ok": 33, "total": 33 } },
+    { "nombre": "nav-real", "archivo": "nav-real.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 } },
+    {
+      "nombre": "rows", "archivo": "rows.mjs", "modo": "rows", "cpu": 1,
+      "esperado": {
+        "Biblioteca sig.": 2, "Biblioteca pausa": 1,
+        "Álbumes sig.": 0, "Álbumes pausa": 0,
+        "Detalle sig.": 2, "Detalle pausa": 1
+      },
+      "informativos": { "Biblioteca play": 1 }
+    }
+  ]
+}
