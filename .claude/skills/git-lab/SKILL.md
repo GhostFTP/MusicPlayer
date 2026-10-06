@@ -104,7 +104,7 @@ GIT · <rol> · <rama> @ <sha corto>
 1. Rama / upstream: <rama> → origin/<rama> · adelante N · atrás M          (🔴 si atrás > 0)
 2. Árbol: <limpio | N modificados, M sin trackear>                          (🔴 rutas fuera de la guardia)
    <líneas de git status --porcelain --untracked-files=all>
-3. vs origin/main: adelante N · atrás M · commits de main que faltan: <lista corta>
+3. vs origin/main: adelante N · atrás M · commits de main que faltan: <lista corta>   (git-commiter: antes Y después, ambos medidos)
 4. Posibles conflictos (tocados por AMBOS lados desde el merge-base): <archivos | ninguno>
 5. Stash: <vacío | entradas>
 6. CHANGELOG (tope): <## [X.Y.Z] - fecha>
@@ -112,6 +112,25 @@ GIT · <rol> · <rama> @ <sha corto>
 7. Frenos: a ✔ rama · b ✔ preparado == esperado · c ✔ build 0 (o "build omitido: no hay archivos de music-client") · d diff --cached --stat · e commit <sha> · f push · g verificación
 8. Resultado: <sha> en origin/<rama> · árbol limpio · HEAD == origin/<rama>
 ```
+
+### Adelante / atrás: DOS conteos explícitos, nunca `--left-right`
+
+Las líneas 1 y 3 salen **siempre** de dos `rev-list --count` separados y etiquetados. Nada de
+`--left-right --count A...B`: devuelve dos números sin nombre, y cuál es cuál depende del orden de
+los operandos — así fue como un reporte dijo "adelante 4 · atrás 41" cuando era al revés.
+
+```
+adelante = git rev-list --count origin/main..HEAD   # commits que tengo y main no
+atrás    = git rev-list --count HEAD..origin/main   # commits de main que no tengo
+```
+
+Contra el upstream (línea 1), lo mismo con `@{u}` en lugar de `origin/main`
+(`@{u}..HEAD` = adelante, `HEAD..@{u}` = atrás). Control cruzado: `git log --oneline HEAD..origin/main`
+tiene que listar exactamente "atrás" commits.
+
+**Después de commitear o pushear, se RECALCULA:** se vuelven a correr los dos conteos y se reporta
+lo medido. Nunca se predice ("con este commit queda adelante N"): el número del reporte final es
+siempre la salida de un comando corrido después del commit.
 
 - Cada freno que dispara: "freno X: paro acá porque…", y nada más se ejecuta después.
 - Un 🔴 nunca va escondido al final: va en su línea, y si es un freno, también en el título

@@ -42,11 +42,14 @@ guardia de rutas y el formato fijo del reporte. Seguí ese formato — no lo rei
    de commitear.
 4. **Contra su upstream:** `git rev-parse --abbrev-ref --symbolic-full-name @{u}` (si no tiene,
    decilo: "sin upstream — el primer push necesita -u") y
-   `git rev-list --left-right --count HEAD...@{u}` → adelante / atrás.
+   dos conteos explícitos y etiquetados (ver `git-lab`, "Adelante / atrás"; nunca `--left-right`):
+   adelante = `git rev-list --count @{u}..HEAD` · atrás = `git rev-list --count HEAD..@{u}`.
    - adelante > 0 → 🔴 **push pendiente** (N commits locales sin subir).
    - atrás > 0 → 🔴 **rama detrás de su upstream** (alguien pusheó; hay que traerlo antes de
      commitear encima).
-5. **Contra `origin/main`:** `git rev-list --left-right --count HEAD...origin/main` y
+5. **Contra `origin/main`:** adelante = `git rev-list --count origin/main..HEAD` (commits que
+   tengo y main no) · atrás = `git rev-list --count HEAD..origin/main` (commits de main que no
+   tengo), dos comandos separados, y
    `git log --oneline HEAD..origin/main` (los commits de main que la rama no tiene; si son
    muchos, los primeros 10 y el total).
 6. **Posibles conflictos:** `B=$(git merge-base HEAD origin/main)`; los archivos tocados por la

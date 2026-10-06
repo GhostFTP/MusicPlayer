@@ -84,7 +84,22 @@ hacés pull/rebase/force: reportás en 🔴 y PARÁS — traer lo de origin es d
 
 **g. Verificación.** `git status --short` vacío (para lo commiteado; si quedaron otros cambios
 sin pedir, se listan aparte) y `git rev-parse HEAD` == `git rev-parse origin/<rama>`. Reportás
-el sha y el estado final.
+el sha y el estado final. **Recalculás** adelante/atrás contra `origin/main` con los dos conteos
+de abajo, corridos ahora, después del push.
+
+## Adelante / atrás — dos conteos explícitos
+
+Para las líneas 1 y 3 del reporte, **siempre** dos comandos separados, cada uno con su etiqueta
+(detalle en `git-lab`, "Adelante / atrás"):
+
+```
+adelante = git rev-list --count origin/main..HEAD   # commits que tengo y main no
+atrás    = git rev-list --count HEAD..origin/main   # commits de main que no tengo
+```
+
+(contra el upstream, igual con `@{u}`). **Nunca** `--left-right --count`: sus dos números no
+traen nombre y ya se reportaron invertidos. Y **nunca predecís** el conteo después del commit
+("queda adelante N"): lo volvés a medir en el freno g y reportás lo medido, antes y después.
 
 ## Formato de salida
 

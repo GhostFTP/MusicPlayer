@@ -214,9 +214,10 @@ function tabla() {
 function writeReport(header, codigo) {
   const dir = join(REPO, '.claude', 'tools', 'snap', 'shots', 'reports');
   const d = new Date(); const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const hm = `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+  // HHmmss: con sólo HHmm dos corridas en el mismo minuto (p. ej. dos --solo seguidos) se pisaban.
+  const hms = [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join('');
   const parcial = SOLO || arg('--baseline') ? '-parcial' : '';
-  const file = join(dir, `${ymd}-${hm}-regresion${parcial}.md`);
+  const file = join(dir, `${ymd}-${hms}-regresion${parcial}.md`);
   const ign = spawnSync('git', ['check-ignore', '-q', file], { cwd: REPO });
   if (ign.status !== 0) { log(`⚠ ${file} NO está ignorado por git: no escribo el reporte`); return null; }
   mkdirSync(dir, { recursive: true });
