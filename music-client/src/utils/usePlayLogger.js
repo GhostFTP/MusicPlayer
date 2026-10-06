@@ -24,15 +24,21 @@ export function usePlayLogger() {
   const { token } = useAuth();
   const owner = token ? currentOwner() : null;
 
-  // Al entrar (o cambiar de cuenta) y cada vez que vuelve la red: descartar lo ajeno y mandar lo
-  // pendiente. Sin toasts: si falla, queda guardado.
+  // Al entrar (o cambiar de cuenta): descartar lo ajeno YA, y mandar lo pendiente cuando el
+  // navegador esté libre (requestIdleCallback, a más tardar ~3 s; setTimeout donde no existe), para
+  // no competir con la primera carga de la vista. Cada vez que vuelve la red: mandar ya. Sin toasts:
+  // si falla, queda guardado.
   useEffect(() => {
     if (!owner) return undefined;
     discardForeign(owner);
-    flushPending(owner);
-    const onOnline = () => flushPending(owner);
-    window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
+    const flush = () => flushPending(owner);
+    const idle = typeof window.requestIdleCallback === 'function';
+    const handle = idle ? window.requestIdleCallback(flush, { timeout: 3000 }) : window.setTimeout(flush, 3000);
+    window.addEventListener('online', flush);
+    return () => {
+      if (idle) window.cancelIdleCallback(handle); else window.clearTimeout(handle);
+      window.removeEventListener('online', flush);
+    };
   }, [owner]);
 
   const qid = currentTrack?._qid;
