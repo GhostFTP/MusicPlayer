@@ -85,8 +85,10 @@ router.post('/login', async (req, res) => {
   // RECHAZA: en una ruta async eso es una promesa sin dueño, no un 401.
   if (!ident || !password) return res.status(401).json({ error: 'Invalid credentials' });
 
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(ident)
-    ?? db.prepare('SELECT * FROM users WHERE email = ?').get(ident.toLowerCase());
+  // Columnas NOMBRADAS y no `*`: el login no necesita más, y así ni el hash ni la copia
+  // cifrada de la contraseña (password_view, 1.23.0) andan sueltos por esta ruta.
+  const user = db.prepare('SELECT id, username, password_hash FROM users WHERE username = ?').get(ident)
+    ?? db.prepare('SELECT id, username, password_hash FROM users WHERE email = ?').get(ident.toLowerCase());
 
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     return res.status(401).json({ error: 'Invalid credentials' });

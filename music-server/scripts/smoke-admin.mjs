@@ -59,7 +59,7 @@ async function req(method, path, { token, body } = {}) {
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  return { status: res.status, data };
+  return { status: res.status, data, headers: res.headers };
 }
 
 // ---- Preparación ----
@@ -314,6 +314,89 @@ rcli = cli('set-email', 'smoke-correo-a', 'no-es-un-correo');
 check(rcli.code === 1 && /no parece un correo/.test(rcli.out), 'uno sin forma de correo → sale con 1', rcli.out.trim());
 rcli = cli('set-email', 'smoke-correo-a', '-');
 check(rcli.code === 0 && correoDe(correoA.id) === null, '`-` desliga', rcli.out.trim());
+
+// ---- 10. Ver la contraseña (1.23.0) ----
+//
+// ⚠️ EL SERVIDOR Y ESTE SCRIPT TIENEN QUE CORRER CON LA MISMA PASSWORD_VIEW_KEY (o los dos
+// sin ella): el script no puede preguntarle al servidor con qué llave arrancó, así que mira
+// la SUYA y espera lo que corresponde. Con llave, la contraseña sale tal cual; sin llave,
+// `disponible: false`. Para probar los dos caminos, se corre dos veces.
+// Generar una de prueba: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+
+const CON_LLAVE = !!(process.env.PASSWORD_VIEW_KEY ?? '').trim();
+console.log(`\n[10] ver la contraseña — ${CON_LLAVE ? 'CON' : 'SIN'} PASSWORD_VIEW_KEY`);
+const verPw = (id, token = tokAdmin) => req('GET', `/api/admin/users/${id}/password`, { token });
+const CLAVE = 'Ñandú-çà 🎧 contraseña 123';
+
+const pwUser = await req('POST', '/api/admin/users', { token: tokAdmin, body: { username: 'smoke-pw', password: CLAVE } });
+check(pwUser.status === 201, 'alta con contraseña → 201', `dio ${pwUser.status} ${JSON.stringify(pwUser.data)}`);
+check(!JSON.stringify(pwUser.data).includes('password_view'), 'la fila del alta no trae password_view');
+
+let rp = await verPw(pwUser.data.id);
+check(rp.status === 200, 'admin sobre un usuario normal → 200', `dio ${rp.status} ${JSON.stringify(rp.data)}`);
+check(
+  CON_LLAVE ? rp.data?.password === CLAVE : (rp.data?.disponible === false && !('password' in (rp.data ?? {}))),
+  CON_LLAVE ? 'con llave, la contraseña sale tal cual' : 'sin llave, { disponible: false } y sin contraseña',
+  JSON.stringify(rp.data),
+);
+check(/no-store/.test(rp.headers.get('cache-control') ?? ''), 'Cache-Control: no-store', rp.headers.get('cache-control'));
+check(rp.headers.get('pragma') === 'no-cache', 'Pragma: no-cache', rp.headers.get('pragma'));
+
+const enBase = db.prepare('SELECT password_view FROM users WHERE id = ?').get(pwUser.data.id).password_view;
+check(
+  CON_LLAVE ? (typeof enBase === 'string' && enBase.startsWith('v1:') && !enBase.includes(CLAVE)) : enBase === null,
+  CON_LLAVE ? 'en la base queda cifrada (v1:…), nunca en claro' : 'sin llave, en la base queda NULL',
+);
+
+// La cambia un admin, y después la propia persona: la copia sigue a la contraseña nueva.
+const CLAVE2 = 'otra-contrasena-456';
+rp = await req('PATCH', `/api/admin/users/${pwUser.data.id}`, { token: tokAdmin, body: { password: CLAVE2 } });
+check(rp.status === 200, 'PATCH password del admin → 200', `dio ${rp.status}`);
+rp = await verPw(pwUser.data.id);
+check(CON_LLAVE ? rp.data?.password === CLAVE2 : rp.data?.disponible === false, 'después del PATCH, la nueva', JSON.stringify(rp.data));
+
+const tokPw = signToken({ id: pwUser.data.id, username: 'smoke-pw' });
+const CLAVE3 = 'la-mia-propia-789';
+rp = await req('PATCH', '/api/me', { token: tokPw, body: { currentPassword: CLAVE2, newPassword: CLAVE3 } });
+check(rp.status === 200, 'PATCH /api/me con su contraseña → 200', `dio ${rp.status} ${JSON.stringify(rp.data)}`);
+check(!JSON.stringify(rp.data).includes('password_view'), 'la respuesta de /api/me no trae password_view');
+rp = await verPw(pwUser.data.id);
+check(CON_LLAVE ? rp.data?.password === CLAVE3 : rp.data?.disponible === false, 'después de cambiarla ella, la suya', JSON.stringify(rp.data));
+
+rp = await verPw(pwUser.data.id, tokNormal);
+check(rp.status === 403 && rp.data?.error === 'admin required', 'un usuario normal → 403', `dio ${rp.status} ${JSON.stringify(rp.data)}`);
+
+const google = db.prepare("SELECT id FROM users WHERE username = 'smoke-solo-google'").get();
+rp = await verPw(google.id);
+check(rp.status === 200 && rp.data?.disponible === false, 'cuenta solo con Google → { disponible: false }', `dio ${rp.status} ${JSON.stringify(rp.data)}`);
+
+rp = await verPw(victima.id);
+check(rp.status === 404, 'id que no existe → 404', `dio ${rp.status} ${JSON.stringify(rp.data)}`);
+rp = await verPw('abc');
+check(rp.status === 400, 'id que no es entero → 400', `dio ${rp.status}`);
+
+db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('smoke-admin2', 'x', 'admin')").run();
+const admin2 = db.prepare("SELECT id FROM users WHERE username = 'smoke-admin2'").get();
+rp = await verPw(admin2.id);
+check(
+  rp.status === 403 && rp.data?.error === 'No puedes ver la contraseña de otro administrador.',
+  'admin sobre OTRO admin → 403 en tú',
+  `dio ${rp.status} ${JSON.stringify(rp.data)}`,
+);
+rp = await verPw(admin.id);
+check(rp.status === 200 && ('password' in (rp.data ?? {}) || rp.data?.disponible === false), 'admin sobre sí mismo → 200', `dio ${rp.status}`);
+
+const listaPw = await req('GET', '/api/admin/users', { token: tokAdmin });
+const crudo = JSON.stringify(listaPw.data);
+check(!crudo.includes('password_view') && !crudo.includes('"v1:'), 'la lista de usuarios no trae password_view ni nada cifrado');
+const yoPw = await req('GET', '/api/me', { token: tokPw });
+check(!JSON.stringify(yoPw.data).includes('password_view'), 'GET /api/me no trae password_view');
+const loginPw = await req('POST', '/api/auth/login', { body: { username: 'smoke-pw', password: CLAVE3 } });
+check(
+  loginPw.status === 200 && Object.keys(loginPw.data ?? {}).join() === 'token',
+  '/login con la contraseña nueva → 200 y solo el token',
+  `dio ${loginPw.status} ${JSON.stringify(Object.keys(loginPw.data ?? {}))}`,
+);
 
 // ---- Limpieza ----
 
