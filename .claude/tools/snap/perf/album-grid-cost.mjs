@@ -5,6 +5,8 @@
 //   N>48 intercepta GET /api/albums con la lista real repetida (nombres únicos). STAGGER=1 inyecta en la
 //   grilla la entrada escalonada de AlbumGrid (emoji-pop + 24 ms × índice) para ver cuánto estorba.
 //   EXTRA_CSS="…" inyecta CSS (p. ej. Mosaico denso); UNIQUE_COVERS=1 da a cada sintético una carátula distinta (red real).
+//   VIEW=d2|d3|d4|mosaic|list deja guardado ese modo del listado (Frente 3) para el usuario antes de cargar.
+//   JSONL=<archivo> agrega una línea JSON por corrida (para alternar builds/modos desde afuera con RUNS=1).
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 import { readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,6 +19,7 @@ const STAGGER = process.env.STAGGER === '1';
 const LIGHT = process.env.LIGHT === '1';   // sólo montaje (sin scroll/quieto)
 const EXTRA_CSS = process.env.EXTRA_CSS ?? '';   // p. ej. grilla densa (Mosaico simulado)
 const UNIQUE = process.env.UNIQUE_COVERS === '1'; // sintéticos con sample_track_id distinto (carátulas que NO salen de caché)
+const VIEW = process.env.VIEW ?? null;
 await preflight();
 const token = await getToken();
 const { chromium } = await loadPlaywright();
@@ -35,7 +38,7 @@ const STAGGER_CSS = `.album-grid .album-card { animation: emoji-pop .34s cubic-b
 
 const med = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[s.length >> 1]; };
 const rng = (xs) => `${med(xs)} (${Math.min(...xs)}–${Math.max(...xs)})`;
-const tag = `[cpu x${CPU} · N=${N}${STAGGER ? ' · stagger' : ''}${EXTRA_CSS ? ' · css' : ''}${UNIQUE ? ' · únicas' : ''}]`;
+const tag = `[cpu x${CPU} · N=${N}${VIEW ? ` · vista ${VIEW}` : ''}${STAGGER ? ' · stagger' : ''}${EXTRA_CSS ? ' · css' : ''}${UNIQUE ? ' · únicas' : ''}]`;
 
 async function traceFrames(browser, page, fn, secs) {
   const p = join(tmpdir(), `agc-${process.pid}-${Date.now()}.json`);
@@ -52,8 +55,10 @@ async function traceFrames(browser, page, fn, secs) {
 async function run() {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await ctx.addInitScript(([t, stagger]) => {
+  const viewKey = `sonorarev.albumsView:id:${JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).id}`;
+  await ctx.addInitScript(([t, stagger, view, vk]) => {
     localStorage.setItem('token', t);
+    if (view) localStorage.setItem(vk, view); else localStorage.removeItem(vk);
     window.__lt = [];
     try { new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push(e.duration); }).observe({ type: 'longtask', buffered: true }); } catch {}
     if (stagger) {
@@ -61,7 +66,7 @@ async function run() {
       new MutationObserver(() => { const g = document.querySelector('.album-grid'); if (!g || g.__i) return; g.__i = 1; [...g.children].forEach((c, i) => c.style.setProperty('--i', i)); })
         .observe(document, { childList: true, subtree: true });
     }
-  }, [token, STAGGER]);
+  }, [token, STAGGER, VIEW, viewKey]);
   if (albums) {
     const body = JSON.stringify(albums);
     await ctx.route((url) => new URL(url).pathname === '/api/albums', (r) => r.fulfill({ status: 200, contentType: 'application/json', body }));
@@ -205,4 +210,5 @@ if (!LIGHT) {
   console.log(tag, `scroll 3 s: frames hilo ppal ${rng(F.map((r) => r.scroll.fps))}/s · LT ${rng(F.map((r) => r.scroll.lt))} máx ${rng(F.map((r) => r.scroll.ltMax))} · hilo ${rng(F.map((r) => r.scroll.task))} ms`);
   console.log(tag, `quieto 5 s: hilo ${rng(F.map((r) => r.idle.task))} ms · frames ${rng(F.map((r) => r.idle.fps))}/s`);
 }
+if (process.env.JSONL) { const { appendFileSync } = await import('node:fs'); for (const r of rs) appendFileSync(process.env.JSONL, JSON.stringify({ base: BASE, cpu: CPU, n: N, view: VIEW, ...r }) + '\n'); }
 if (process.env.RAW) { const { writeFileSync, mkdirSync } = await import('node:fs'); mkdirSync(process.env.RAW, { recursive: true }); writeFileSync(join(process.env.RAW, `agc-cpu${CPU}-n${N}${STAGGER ? '-stagger' : ''}${EXTRA_CSS ? '-css' : ''}${UNIQUE ? '-unicas' : ''}.json`), JSON.stringify(rs, null, 1)); }

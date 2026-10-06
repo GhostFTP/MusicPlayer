@@ -9,6 +9,9 @@ import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { readCache, fetchFresh } from '../api/viewCache.js';
 import BackButton from './BackButton.jsx';
+import AlbumViewSelector from './AlbumViewSelector.jsx';
+import { readAlbumView, writeAlbumView } from '../utils/albumsView.js';
+import { currentOwner } from '../utils/playsOutbox.js';
 
 // Clave de la caché de vistas (viewCache.js): la lista de álbumes.
 const ALBUMS_CACHE_KEY = 'albums:list';
@@ -22,6 +25,11 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   const [selected, setSelected] = useState(null); // { album, tracks }
   const [loading,  setLoading]  = useState(!cached);
   const [error,    setError]    = useState(null);
+  // Vista del listado (F3b–F3e): por usuario y por navegador (utils/albumsView.js). Se lee al
+  // montar: Albums se vuelve a montar al cambiar de cuenta (Layout se desmonta), así que una cuenta
+  // nunca arranca con la vista de otra.
+  const [view, setView] = useState(() => readAlbumView(currentOwner()));
+  const changeView = useCallback((m) => { setView(m); writeAlbumView(currentOwner(), m); }, []);
   const { play } = usePlayer();
   const { openMenu } = useContextMenu();   // clic derecho sobre la tarjeta (desktop; el gate lo pone el menú)
   // C1 · long-press = el mismo menú en móvil (misma tarjeta que AlbumGrid, misma puerta).
@@ -160,9 +168,13 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
       <div className="view-actions">
         <ShuffleButton getTracks={albumsViewTracks} count={loading || error ? undefined : albums.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
         <span className="section-count">{albums.length} álbumes</span>
+        <AlbumViewSelector mode={view} onChange={changeView} />
       </div>
 
-      <div className="album-grid">
+      {/* d2 es la grilla de siempre (sin modificador): el predeterminado se ve igual que antes. Los
+          demás modos son SÓLO CSS sobre la misma tarjeta (.album-grid--*): cambiar de vista no
+          remonta las tarjetas. */}
+      <div className={view === 'd2' ? 'album-grid' : `album-grid album-grid--${view}`}>
         {albums.map(album => (
           <AlbumCard
             key={`${album.album}-${album.album_artist}`}
