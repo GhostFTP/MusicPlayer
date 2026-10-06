@@ -3,6 +3,23 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.22.0] - 2026-10-04
+
+### Añadido
+- **Tu resumen de escucha, listo para la app**: el servidor ya puede armar, en una sola
+  consulta, lo que escuchaste en un periodo —por ejemplo, este año—: tus canciones,
+  artistas y álbumes más escuchados, tus géneros y años, cuántas canciones nuevas
+  descubriste, a qué hora y qué días escuchas más, y cuántos minutos van. Cada quien ve
+  solo lo suyo. Se estrena en la app pronto.
+
+## [1.21.1] - 2026-10-03
+
+### Añadido
+- **La lista de playlists ya dice cuántos videos tiene cada una**, además de sus canciones,
+  para que la app pueda mostrarlo sin abrirlas una por una.
+- **Los videos de una playlist ahora traen su año**, como en la lista de videos. Un video
+  que ya no está en el servidor sigue sin año.
+
 ## [1.21.0] - 2026-10-02
 
 ### Añadido

@@ -28,7 +28,12 @@ router.get('/', (req, res) => {
                 AND t.cover_path IS NOT NULL
               ORDER BY pt2.position
               LIMIT 4
-           )) AS sample_covers
+           )) AS sample_covers,
+           -- Cuántos VIDEOS tiene (1.21.1). Subconsulta correlacionada y NO otro LEFT
+           -- JOIN, a propósito: un segundo join multiplicaría las filas del GROUP BY y
+           -- track_count contaría canciones × videos. Va al final: ningún campo de antes
+           -- cambia de valor ni de orden. Lee la PK (playlist_id, video_id) como índice.
+           (SELECT COUNT(*) FROM playlist_videos pv WHERE pv.playlist_id = p.id) AS video_count
     FROM playlists p
     LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
     WHERE p.user_id = ?
@@ -202,6 +207,8 @@ function protegido(ruta, fn) {
 //   - available: false → el índice se leyó y el video ya no está (se renombró o borró);
 //                        se devuelven el título y el artista guardados al agregarlo;
 //   - available: null  → no se sabe: el índice no se pudo leer. No es "desapareció".
+// `year` (1.21.1) sale del índice, así que solo lo tiene un video disponible; la fila no
+// guarda el año al agregar (no hay columna), y sin índice no se sabe: en los dos casos, null.
 router.get('/:id/videos', protegido('GET /:id/videos', async (req, res) => {
   const pl = db.prepare('SELECT id FROM playlists WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!pl) return res.status(404).json({ error: 'Playlist not found' });
@@ -221,13 +228,13 @@ router.get('/:id/videos', protegido('GET /:id/videos', async (req, res) => {
       return {
         id: f.video_id, position: f.position, added_at: f.added_at,
         title: v.title, artist: v.artist, available: true,
-        duration: v.duration, size: v.size, has_cover: v.has_cover,
+        duration: v.duration, size: v.size, has_cover: v.has_cover, year: v.year ?? null,
       };
     }
     return {
       id: f.video_id, position: f.position, added_at: f.added_at,
       title: f.title, artist: f.artist, available: index === 'ok' ? false : null,
-      duration: null, size: null, has_cover: index === 'ok' ? false : null,
+      duration: null, size: null, has_cover: index === 'ok' ? false : null, year: null,
     };
   });
   res.json({ index, videos });
