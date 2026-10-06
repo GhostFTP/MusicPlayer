@@ -89,12 +89,27 @@ otra.
 Los tonos son los de la casa: **morado** (`--accent`) cola y navegación · **teal** (`--teal`)
 playlist · **ámbar** (`--amber`) info.
 
-| Tipo | Acciones (en orden) | Máx. |
+| Tipo | Acciones (en orden) | Hoy |
 |---|---|---|
-| **`track`** (fila de lista) | Reproducir a continuación · Agregar a la cola · Agregar a playlist ▸ · Ir al artista · Ir al álbum · Ver info | **6** |
-| **`queue-track`** (fila de la cola) | Quitar de la cola · Agregar a playlist ▸ · Ir al artista · Ir al álbum · Ver info | **5** |
-| **`album`** (tarjeta) | Reproducir álbum · Agregar a la cola · Ir al artista | **3** |
+| **`track`** (fila de lista) | Reproducir a continuación · Agregar a la cola · Agregar a playlist ▸ · Agregar/Quitar de favoritos · Ir al artista · Ir al álbum · Ver info · Compartir | **8** |
+| **`playlist-track`** (fila del detalle de playlist) | Quitar de esta playlist · lo mismo que `track` | **9** |
+| **`queue-track`** (fila de la cola) | Quitar de la cola · Agregar a playlist ▸ · Agregar/Quitar de favoritos · Ir al artista · Ir al álbum · Ver info · Compartir | **7** |
+| **`album`** (tarjeta) | Reproducir álbum · Agregar a la cola · Ir al artista · Compartir | **4** |
 | **`artist`** (retrato) | Reproducir todo · Agregar a la cola · Ir al artista | **3** |
+| **`genre`** (tarjeta) | Reproducir género · Agregar a la cola | **2** |
+
+**Ya no hay un tope de 6.** Era el contrato de la primera versión; con Favoritos y Compartir una
+pista llega a 8 (9 en una playlist). El tope real es de **presentación**: en el teléfono el grid
+es de 2 columnas, así que 8 acciones = 4 filas de tiles, y la caja se recorta contra
+`safeArea()` con el mismo flip/clamp. Si una acción nueva empujara el grid a 5 filas, antes de
+sumarla hay que mirar la captura a 390px (`.claude/tools/snap/perf/share-func.mjs` con `SHOTS=1`).
+
+- **Favoritos** = la playlist "Mis favoritos", la MISMA que usa la app iOS (`utils/favorites.js`).
+  El label dice lo que VA a pasar ("Agregar a favoritos" / "Quitar de favoritos"); es optimista y,
+  si el servidor falla, deshace y avisa con toast ámbar. Va junto a "Agregar a playlist".
+- **Compartir** va AL FINAL, con separador (no es cola ni navegación). Texto y link idénticos a iOS
+  (`utils/share.js`): en táctil la hoja del sistema, en escritorio el portapapeles + toast. En
+  `album` sólo aparece con `album_artist` (sin él el link no abriría nada).
 
 Lo que **NO** está, y por qué:
 

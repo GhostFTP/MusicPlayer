@@ -1884,6 +1884,35 @@ button, input, select, textarea { font-family: inherit; }
 .ptp-player { margin-left: 4px; }
 .ptp-player .ptp-menu { left: 0; right: auto; }
 
+/* ── FAVORITO (corazón de "Mis favoritos") ──
+   Barra de escritorio: misma caja que el "+" de al lado (30px, círculo), pero con la identidad
+   MORADA (--accent), la del corazón de la app iOS. Vacío en reposo (apagado, como el resto de la
+   barra); lleno y morado cuando la pista es favorita. En el expandido usa .exp-icon-btn tal cual:
+   .fav-on sólo le pone el color. */
+.fav-player {
+  flex-shrink: 0;
+  background: none; border: none; cursor: pointer;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  transition: color .15s, background .15s, transform .15s, box-shadow .15s;
+}
+.fav-player:hover {
+  color: var(--text);
+  background: var(--accent-dim);
+  transform: scale(1.12);
+  box-shadow: 0 0 14px rgba(167, 139, 250, .4);
+}
+.fav-player:active { transform: scale(.9); }
+.fav-player.fav-on,
+.exp-icon-btn.fav-on { color: var(--accent); }
+/* En la barra, sólo donde CABE sin apretar el título: le quita 42px (corazón + margen), medido
+   con fav-fit.mjs: a 1024 el título pasa de 163 a 121px. Debajo de 1280 (y en móvil, donde la barra
+   es la mini) el corazón vive en el expandido y en el menú contextual. */
+@media (max-width: 1279px) {
+  .player-bar .fav-tip { display: none; }
+}
+
 /* Player expandido (móvil): "+" alineado a la derecha del header. En desktop el
    "+" vive en .exp-actions (fila propia) y NO debe empujarse — de ahí el scope. */
 .exp-head-actions .ptp-exp { margin-left: auto; }
@@ -4372,6 +4401,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .repeat-icon.spin { animation: none; }
   .repeat-one-digit { animation: none; }
   .ptp-player .ptp-btn:hover, .ptp-exp .ptp-btn:hover { transform: none; }
+  .fav-player:hover, .fav-player:active { transform: none; }
 }
 
 .exp-volume {
@@ -4503,6 +4533,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-actions  { display: none; }
   .player-bar .player-quality { display: none; }
   .player-bar .ptp-player     { display: none; }
+  /* Header del expandido: el "Ahora reproduciendo" queda sólo con la flecha (el texto no entra al
+     lado de los 6 íconos). Caja cuadrada de 44px; el aria-label del botón conserva el nombre. */
+  .exp-back-label { display: none; }
+  .exp-back { padding: 8px 10px; min-width: 44px; justify-content: center; }
 
   /* ── Player expandido en móvil: aprovechar el alto ──
      Carátula más grande, centrada en el espacio libre; header arriba y el bloque de

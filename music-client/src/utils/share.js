@@ -12,8 +12,8 @@
 // · Sin token ni query: el link no da acceso a nadie; quien lo abre pasa por Cloudflare Access.
 // · Sólo familia (decisión de Oscar): nada de link público ni de backend.
 //
-// Puro salvo `shareText`, que usa la hoja del sistema (navigator.share) si existe y si no el
-// portapapeles. El aviso al usuario lo da quien llama, según el resultado.
+// Puro salvo `shareText`: en pantallas táctiles, la hoja del sistema (navigator.share) si existe;
+// en escritorio, y si no hay hoja, el portapapeles. El aviso al usuario lo da quien llama.
 
 function limpio(v) {
   if (typeof v !== 'string') return null;
@@ -51,11 +51,21 @@ export function albumMessage(item, baseUrl) {
   return shareMessage(t.album ?? 'Álbum', t.album_artist, albumLink(baseUrl, t.album, t.album_artist));
 }
 
-// Abre la hoja del sistema o copia al portapapeles. Resuelve 'shared' | 'copied' | 'cancelled';
-// rechaza si no se pudo ninguna de las dos. Hay que llamarla DENTRO del gesto (el clic): fuera de
-// él el navegador niega las dos cosas.
+// ¿Teléfono o tableta? Se decide por el puntero PRINCIPAL grueso (el dedo). En escritorio la hoja
+// del sistema (la de Windows o macOS) es más lenta que pegar, y el texto ya trae el link: ahí va
+// SIEMPRE el portapapeles. La hoja sólo tiene sentido donde se comparte a otra app del teléfono.
+// NO se usa navigator.maxTouchPoints: una PC o laptop con pantalla táctil reporta puntos de toque
+// (medido: 10 en el equipo de desarrollo) aunque se use con mouse, y caería en la hoja.
+export function isTouchDevice() {
+  if (typeof window === 'undefined') return false;
+  return !!window.matchMedia?.('(pointer: coarse)').matches;
+}
+
+// Abre la hoja del sistema (sólo en pantallas táctiles) o copia al portapapeles. Resuelve
+// 'shared' | 'copied' | 'cancelled'; rechaza si no se pudo ninguna de las dos. Hay que llamarla
+// DENTRO del gesto (el clic): fuera de él el navegador niega las dos cosas.
 export async function shareText(text) {
-  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+  if (isTouchDevice() && typeof navigator.share === 'function') {
     try {
       await navigator.share({ text });   // el link va DENTRO del texto, como en iOS
       return 'shared';
@@ -66,4 +76,13 @@ export async function shareText(text) {
   }
   await navigator.clipboard.writeText(text);
   return 'copied';
+}
+
+// shareText + el aviso de la casa: sólo el portapapeles se confirma con un toast (la hoja del
+// sistema ya dice lo que pasó, y cerrarla sin elegir no avisa nada, igual que iOS); si no se pudo,
+// toast ámbar. Lo usan el menú contextual y el botón del reproductor expandido.
+export function shareAndNotify(text, toast) {
+  return shareText(text)
+    .then((r) => { if (r === 'copied') toast('Copiado para compartir'); })
+    .catch(() => toast('No se pudo compartir', { variant: 'warning' }));
 }

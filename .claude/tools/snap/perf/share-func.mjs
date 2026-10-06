@@ -1,5 +1,6 @@
 // share-func.mjs — funcional de COMPARTIR (menú contextual → utils/share.js) en el navegador.
-// La hoja del sistema y el portapapeles se reemplazan por dobles que GRABAN lo que reciben y se
+// Dos modos: ESCRITORIO (sin táctil) usa SIEMPRE el portapapeles; MÓVIL/TABLETA (táctil) usa la hoja
+// del sistema. La hoja del sistema y el portapapeles se reemplazan por dobles que GRABAN lo que reciben y se
 // pueden poner en cada modo (sin share / share ok / el usuario cancela / share denegado; portapapeles
 // ok / falla). El texto copiado se valida contra la fila y su link se ABRE: tiene que llevar al
 // álbum de esa pista con una sesión iniciada.
@@ -97,37 +98,26 @@ if (link) {
   await page.goto(BASE + '/'); await page.waitForSelector(LIB);
 } else ok('link_abre_album_de_la_pista', false, { copied });
 
-// 3) CON hoja del sistema: se llama con { text } (el link dentro del texto, como iOS) y sin toast.
+// 3) ESCRITORIO (sin táctil) CON hoja del sistema disponible: igual va al PORTAPAPELES + toast; la
+//    hoja no se llama nunca.
 await clearToasts();
 await set('__shareMode', 'ok');
 const nCopied = (await got('__copied')).length;
 await menuOn(page.locator(LIB).nth(4));
 await wait(400);
-const sh = (await got('__shared')).at(-1);
-ok('share_sistema_text', !!sh && Object.keys(sh).join() === 'text' && sh.text === copied, { shared: sh });
-ok('share_sistema_sin_toast_ni_copia', (await toastTexts()).length === 0 && (await got('__copied')).length === nCopied);
-
-// 4) El usuario CANCELA la hoja: nada de avisos ni copia.
-await set('__shareMode', 'abort');
-await menuOn(page.locator(LIB).nth(5));
-await wait(400);
-ok('cancelar_no_avisa', (await toastTexts()).length === 0 && (await got('__copied')).length === nCopied);
-
-// 5) La hoja falla (permiso denegado): cae al portapapeles y avisa "copiado".
-await set('__shareMode', 'deny');
-await menuOn(page.locator(LIB).nth(5));
-await wait(400);
-ok('share_denegado_cae_a_portapapeles', (await got('__copied')).length === nCopied + 1 && (await toastTexts()).some((t) => t.includes('Copiado')));
+ok('escritorio_no_usa_hoja', (await got('__shared')).length === 0 && (await got('__copied')).length === nCopied + 1
+  && (await got('__copied')).at(-1) === copied && (await toastTexts()).some((t) => t.includes('Copiado para compartir')),
+  { touch: await page.evaluate(() => ({ coarse: matchMedia('(pointer: coarse)').matches, maxTouchPoints: navigator.maxTouchPoints })) });
 await clearToasts();
 
-// 6) Sin hoja y el portapapeles falla → toast ÁMBAR.
-await set('__shareMode', 'none'); await set('__clipMode', 'fail');
+// 4) ESCRITORIO y el portapapeles falla → toast ÁMBAR (no cae a la hoja).
+await set('__clipMode', 'fail');
 await menuOn(page.locator(LIB).nth(6));
 await wait(400);
 const warn = await page.locator('.toast.warning').allTextContents();
-ok('falla_toast_ambar', warn.some((t) => t.includes('No se pudo compartir')), { warn });
+ok('falla_toast_ambar', warn.some((t) => t.includes('No se pudo compartir')) && (await got('__shared')).length === 0, { warn });
 if (process.env.SHOTS) await page.screenshot({ path: join(OUT, 'toast-ambar-1440.png') });
-await set('__clipMode', 'ok');
+await set('__clipMode', 'ok'); await set('__shareMode', 'none');
 await clearToasts();
 
 // 7) Tarjeta de ÁLBUM: «Álbum – Artista del álbum» + link.
@@ -148,6 +138,23 @@ ok('cola_tiene_compartir', qLabels.some((l) => l.includes('Compartir')), { qLabe
 await page.keyboard.press('Escape'); await wait(300);
 await page.click('.player-bar [aria-label="Cola"]').catch(() => {}); await wait(300);
 
+// 8b) Fila de una PLAYLIST (tipo playlist-track): Compartir con el texto de esa pista. La playlist
+//     se crea y se borra acá (backend con COPIA de la base).
+const H = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+const allTracks = await (await fetch(BASE + '/api/tracks?limit=10000', { headers: H })).json();
+const pl = await (await fetch(BASE + '/api/playlists', { method: 'POST', headers: H, body: JSON.stringify({ name: 'share-func temporal' }) })).json();
+await fetch(BASE + `/api/playlists/${pl.id}/tracks`, { method: 'POST', headers: H, body: JSON.stringify({ track_ids: [allTracks[10].id, allTracks[20].id] }) });
+await page.goto(BASE + `/playlists/${pl.id}`);
+await page.waitForSelector('.track-table .track-row', { timeout: 8000 }).catch(() => {});
+const plRow = page.locator('.track-table .track-row').first();
+const plTitle = (await plRow.locator('.track-title').textContent().catch(() => '')).trim();
+const plLabels = await menuOn(plRow);
+await wait(400);
+const plText = (await got('__copied')).at(-1) ?? '';
+ok('playlist_track_compartir', plLabels.at(-1)?.includes('Compartir') && plLabels[0]?.includes('Quitar de esta playlist') && plText.startsWith(`${plTitle} – `) && plText.includes('/albums/'), { plLabels, plText });
+await fetch(BASE + `/api/playlists/${pl.id}`, { method: 'DELETE', headers: H });
+await clearToasts();
+
 // Capturas del menú (1440 y 1024).
 if (process.env.SHOTS) {
   for (const w of [1440, 1024]) {
@@ -164,21 +171,50 @@ if (process.env.SHOTS) {
 }
 await ctx.close();
 
-// 9) MÓVIL: long-press abre los tiles y "Compartir" está.
+// 9) MÓVIL (táctil): long-press abre los tiles; "Compartir" usa la HOJA DEL SISTEMA.
 const m = await context({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 const mp = await m.newPage();
 await mp.goto(BASE + '/'); await mp.waitForSelector(LIB);
-const box = await mp.locator(LIB).nth(3).boundingBox();
-await mp.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-await mp.mouse.down(); await mp.waitForTimeout(700); await mp.mouse.up();
-await mp.waitForTimeout(400);
-const tiles = await mp.locator('.ctx-menu--tiles [role="menuitem"]').allTextContents();
+async function longPressShare(i) {
+  const box = await mp.locator(LIB).nth(i).boundingBox();
+  await mp.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await mp.mouse.down(); await mp.waitForTimeout(700); await mp.mouse.up();
+  await mp.waitForTimeout(400);
+  const tiles = await mp.locator('.ctx-menu--tiles [role="menuitem"]').allTextContents();
+  return tiles;
+}
+const mset = (k, v) => mp.evaluate(([k, v]) => { window[k] = v; }, [k, v]);
+const mgot = (k) => mp.evaluate((k) => window[k], k);
+const mToasts = () => mp.locator('.toast').count();
+const clickTileShare = async () => { await mp.locator('.ctx-menu--tiles [role="menuitem"]', { hasText: 'Compartir' }).first().click(); await mp.waitForTimeout(400); };
+const mClear = () => mp.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 6000 }).catch(() => {});
+
+// 9a) hoja disponible → se llama con { text }, sin toast ni copia.
+await mset('__shareMode', 'ok');
+const tiles = await longPressShare(3);
 ok('movil_tile_compartir', tiles.some((t) => t.includes('Compartir')), { tiles });
 if (process.env.SHOTS) await mp.screenshot({ path: join(OUT, 'menu-390.png') });
-await mp.locator('.ctx-menu--tiles [role="menuitem"]', { hasText: 'Compartir' }).first().click();
-await mp.waitForTimeout(400);
-ok('movil_copia_y_toast', (await mp.evaluate(() => window.__copied.length)) === 1 && (await mp.locator('.toast').count()) === 1);
+await clickTileShare();
+const msh = (await mgot('__shared')).at(-1);
+ok('movil_usa_hoja', !!msh && Object.keys(msh).join() === 'text' && /^.+ – .+\nhttps?:\/\/[^/]+\/albums\//.test(msh.text) && (await mgot('__copied')).length === 0 && (await mToasts()) === 0,
+  { shared: msh, touch: await mp.evaluate(() => ({ coarse: matchMedia('(pointer: coarse)').matches, maxTouchPoints: navigator.maxTouchPoints })) });
+
+// 9b) el usuario CANCELA la hoja → nada.
+await mset('__shareMode', 'abort');
+await longPressShare(4); await clickTileShare();
+ok('movil_cancelar_no_avisa', (await mgot('__copied')).length === 0 && (await mToasts()) === 0);
+
+// 9c) la hoja falla (permiso) → cae al portapapeles + toast.
+await mset('__shareMode', 'deny');
+await longPressShare(4); await clickTileShare();
+ok('movil_denegado_cae_a_portapapeles', (await mgot('__copied')).length === 1 && (await mToasts()) === 1);
 if (process.env.SHOTS) await mp.screenshot({ path: join(OUT, 'toast-390.png') });
+await mClear();
+
+// 9d) táctil SIN hoja (navegador sin navigator.share) → portapapeles + toast.
+await mset('__shareMode', 'none');
+await longPressShare(5); await clickTileShare();
+ok('movil_sin_hoja_portapapeles', (await mgot('__copied')).length === 2 && (await mToasts()) === 1);
 await m.close();
 
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));

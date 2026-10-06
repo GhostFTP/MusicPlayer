@@ -8,7 +8,9 @@ import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
 import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
-import { trackMessage, albumMessage, shareText } from '../utils/share.js';
+import { trackMessage, albumMessage, shareAndNotify } from '../utils/share.js';
+import { useFavorites, loadFavorites } from '../utils/favorites.js';
+import { HeartIcon } from './FavButton.jsx';
 
 // ── Menú contextual GLOBAL (actions-lab · dirección visual C, "Lista seca") ──────────────
 //
@@ -253,15 +255,17 @@ export function ContextMenuProvider({ children }) {
     } catch { toast('No se pudieron cargar las pistas', { variant: 'warning' }); }
   }, [toast]);
 
-  // Compartir (utils/share.js, mismo texto que iOS): hoja del sistema si existe, si no el
-  // portapapeles. Sólo el portapapeles se confirma con un toast: la hoja del sistema ya dice lo que
-  // pasó, y cerrarla sin elegir no avisa nada (igual que iOS). Se llama dentro del clic: fuera del
-  // gesto el navegador niega las dos cosas.
-  const share = useCallback((text) => {
-    shareText(text)
-      .then((r) => { if (r === 'copied') toast('Copiado para compartir'); })
-      .catch(() => toast('No se pudo compartir', { variant: 'warning' }));
-  }, [toast]);
+  // Compartir (utils/share.js, mismo texto que iOS): en táctil la hoja del sistema, en escritorio
+  // el portapapeles; el aviso es el de shareAndNotify (el mismo que el botón del expandido). Se
+  // llama dentro del clic: fuera del gesto el navegador niega las dos cosas.
+  const share = useCallback((text) => { shareAndNotify(text, toast); }, [toast]);
+
+  // Favoritos ("Mis favoritos", utils/favorites.js): el menú lee si la pista ya es favorita para
+  // ofrecer agregar o quitar. useFavorites re-renderiza el provider sólo cuando cambia el conjunto.
+  // La carga se pide al ABRIR el menú (no al montar la app); cuando llega, `favVersion` cambia y los
+  // ítems se recalculan con el label correcto.
+  const { isFavorite, toggle: toggleFav, version: favVersion } = useFavorites();
+  useEffect(() => { if (menu) loadFavorites(); }, [menu]);
 
   // ── Selector de playlists: el QUÉ (llamada + aviso) sale de utils/playlistActions.js, el
   //    mismo módulo que usa el "+". Acá sólo el candado `busy` y cerrar el menú al terminar.
@@ -334,6 +338,16 @@ export function ContextMenuProvider({ children }) {
         run: () => { addToQueue(t); toast('Añadida a la cola'); },
       });
     };
+    // Favorito: al lado de "agregar a playlist" (los dos guardan la pista). Mismo texto y mismo
+    // aviso que el corazón del reproductor; el label dice lo que VA a pasar.
+    const pushFavorite = (t) => {
+      const on = isFavorite(t.id);
+      list.push({
+        id: 'fav', label: on ? 'Quitar de favoritos' : 'Agregar a favoritos', short: on ? 'Quitar ♥' : 'Favorito',
+        tone: 'nav', icon: <HeartIcon filled={on} size={14} />,
+        run: () => toggleFav(t.id, (msg) => toast(msg, { variant: 'warning' })),
+      });
+    };
     const pushTrackNav = (t) => {
       pushGoArtist(t.album_artist, t);
       if (host.goAlbum && t.album) {
@@ -355,6 +369,7 @@ export function ContextMenuProvider({ children }) {
       case 'track': {
         pushQueueActions(it);
         pushAddToPlaylist();
+        pushFavorite(it);
         pushTrackNav(it);
         pushShare((o) => trackMessage(it, o));
         break;
@@ -377,6 +392,7 @@ export function ContextMenuProvider({ children }) {
         }
         pushQueueActions(it);
         pushAddToPlaylist();
+        pushFavorite(it);
         pushTrackNav(it);
         pushShare((o) => trackMessage(it, o));
         break;
@@ -394,6 +410,7 @@ export function ContextMenuProvider({ children }) {
           });
         }
         pushAddToPlaylist();
+        pushFavorite(it);
         pushTrackNav(it);
         pushShare((o) => trackMessage(it, o));
         break;
@@ -459,7 +476,7 @@ export function ContextMenuProvider({ children }) {
       default: break;
     }
     return list;
-  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast, share]);
+  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast, share, isFavorite, toggleFav, favVersion]);
 
   // C2b · Escalera INTERNA del menú. Con el selector de playlists abierto, el primer Esc/atrás
   // vuelve al grid y el segundo cierra — antes cerraba todo de una. Sigue valiendo "un Esc = una
