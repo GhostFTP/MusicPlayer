@@ -335,6 +335,29 @@ El repo incluye `Dockerfile`, `.dockerignore` y `docker-compose.yml` para desple
 >
 > ℹ️ Si tu instalación de Dokploy requiere unir el servicio a la red `dokploy-network` para que Traefik lo enrute, añádelo en la config del servicio.
 
+### Respaldo de la base
+
+Una copia **consistente** de `music.db` en un solo archivo, **sin parar el servidor**: `VACUUM INTO` de SQLite incluye lo que todavía está en el WAL. Se hace en la terminal del contenedor (Dokploy → Terminal, o `docker exec`).
+
+Desde la 1.25.0:
+
+```bash
+cd /app/music-server && npm run respaldar
+```
+
+Deja `data/respaldos/music-AAAA-MM-DD-HHMM.db`, comprueba `integrity_check` y que las filas coinciden, e imprime el tamaño.
+
+Con cualquier versión (también antes de desplegar la 1.25.0), el mismo respaldo en una línea:
+
+```bash
+node -e "const {DatabaseSync}=require('node:sqlite');const f='/app/music-server/data/respaldo-'+new Date().toISOString().slice(0,10)+'.db';const d=new DatabaseSync('/app/music-server/data/music.db');d.exec(\"VACUUM INTO '\"+f+\"'\");d.close();console.log('listo: '+f)"
+ls -lh /app/music-server/data/respaldo-*.db
+```
+
+**Sacarlo del servidor** (en el host, por SSH, no en la terminal del contenedor): el nombre del contenedor se ve con `docker ps --format '{{.Names}}' | grep musicplayer` (o en la pestaña del servicio en Dokploy), y después `docker cp <contenedor>:/app/music-server/data/respaldo-AAAA-MM-DD.db ./`. Guárdalo fuera del servidor.
+
+**Plan B** si `VACUUM INTO` fallara: parar el servicio en Dokploy (Stop), copiar del volumen `music.db`, `music.db-wal` y `music.db-shm` JUNTOS (el volumen se ve con `docker volume ls | grep musicplayer-data`; los archivos están en su `_data`), y volver a arrancarlo.
+
 ## API
 
 Todos los endpoints `/api/*` y `/stream/*` requieren autenticación con `Authorization: Bearer <token>`. Los endpoints de imagen y stream también aceptan `?token=` como query param (necesario para atributos `src` de `<img>` y `<audio>`).
