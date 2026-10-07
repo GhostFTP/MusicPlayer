@@ -16,7 +16,7 @@ obtenida legítimamente. Uso interno, equipo autorizado. Repo base de **GhostFTP
    listo. **Mergear a `main` = despliegue automático a producción** → hacerlo solo con OK
    explícito del usuario.
 2. Antes de cualquier commit: **`npm run build` debe pasar**.
-3. **Siempre** mostrar el diff antes de commitear. **Nunca** push sin OK explícito del usuario.
+3. **Siempre** mostrar el diff antes de commitear (`git-commiter` lo incluye en su reporte). **Push:** a ramas de feature (`perf/*`, `feat/*`, `fix/*`, `chore/*`, `feature/*`) lo hace `git-commiter` con OK permanente del usuario; a `main`/`master` **NUNCA** sin OK explícito del usuario.
 4. Excluir de los commits salvo indicación: `package-lock.json`. (`.claude/settings.local.json` ya está en `.gitignore`.)
 5. **No tocar backend ni scanner** salvo decisión explícita; la mayoría de las tareas son frontend.
 

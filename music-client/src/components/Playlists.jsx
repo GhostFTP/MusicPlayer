@@ -10,6 +10,7 @@ import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { fmtTotal } from '../utils/formatTotal.js';
+import BackButton from './BackButton.jsx';
 
 export default function Playlists({ target, clearTarget, setDetailOpen, navigate }) {
   const [playlists, setPlaylists] = useState([]);
@@ -159,9 +160,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     const heroCoverIds = tracks.filter(t => t.cover_path != null).slice(0, 4).map(t => t.id);
     return (
       <div>
-        <button className="back-btn" onClick={() => window.history.back()}>
-          ← Todas las playlists
-        </button>
+        <BackButton label="Todas las playlists" view="playlists" onList={() => navigate('playlists')} />
 
         <div className="detail-hero pl-hero" style={{ '--h': emojiHue(playlist.emoji) }}>
           <div className="detail-hero-cover placeholder pl-hero-cover">

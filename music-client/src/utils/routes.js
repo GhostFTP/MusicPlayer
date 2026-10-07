@@ -20,6 +20,15 @@ function decodeSeg(s) {
   catch { return s.normalize('NFC'); }
 }
 
+// Álbum SIN album_artist (tags sin ALBUMARTIST): su ruta es /albums/@/<álbum>. El "@" va CRUDO y es
+// un centinela que ningún link real puede producir: encodeURIComponent SIEMPRE lo escribe "%40", así
+// que un artista llamado literalmente "@" viaja como /albums/%40/… y se lee como ese artista. Los
+// otros caracteres que encodeURIComponent deja crudos (~ - _ . ! * ' ( )) chocarían con nombres reales
+// que la app iOS sí comparte tal cual. "@" crudo es válido en un path (no lo reescriben el navegador ni
+// new URL()). Sin esto, abrir uno de esos álbumes no cambiaba la URL ni dejaba entrada de historial, y
+// "Volver" (history.back) se iba a la entrada ANTERIOR a la lista — o fuera de la app.
+export const NO_ALBUM_ARTIST = '@';
+
 // Vistas conocidas. Las 7 del contrato nav-lab + `settings` (que se sumó a la app DESPUÉS
 // de escribir el contrato: es una vista real y necesita ruta). Un primer segmento fuera de
 // este set = ruta desconocida → library.
@@ -40,8 +49,10 @@ export function stateToPath(state = {}) {
   const { view, target } = state ?? {};
   if (!view || view === 'library') return '/';
 
-  if (view === 'albums' && target?.album && target?.album_artist) {
-    return `/albums/${enc(target.album_artist)}/${enc(target.album)}`;
+  if (view === 'albums' && target?.album) {
+    return target.album_artist
+      ? `/albums/${enc(target.album_artist)}/${enc(target.album)}`
+      : `/albums/${NO_ALBUM_ARTIST}/${enc(target.album)}`;   // sin album_artist: centinela crudo
   }
 
   const param = DETAIL_PARAM[view];
@@ -54,16 +65,18 @@ export function stateToPath(state = {}) {
 
 // pathname → { view, target }. Ruta desconocida → { view:'library', target:null } (no crashea).
 export function pathToState(pathname = '/') {
-  const parts = String(pathname).split('/').filter(Boolean).map(decodeSeg);
+  const raw = String(pathname).split('/').filter(Boolean);   // CRUDOS: el centinela se mira antes de decodificar
+  const parts = raw.map(decodeSeg);
   if (parts.length === 0) return { view: 'library', target: null };
 
   const [seg0, seg1, seg2] = parts;
   if (!KNOWN_VIEWS.has(seg0)) return { view: 'library', target: null };
 
   if (seg0 === 'albums') {
-    return (seg1 && seg2)
-      ? { view: 'albums', target: { album_artist: seg1, album: seg2 } }
-      : { view: 'albums', target: null };
+    if (!(seg1 && seg2)) return { view: 'albums', target: null };
+    // "@" crudo = sin album_artist (null). "%40" (un artista llamado "@") llega decodificado como "@" en
+    // seg1 pero su segmento crudo es "%40", así que no se confunde.
+    return { view: 'albums', target: { album_artist: raw[1] === NO_ALBUM_ARTIST ? null : seg1, album: seg2 } };
   }
 
   const param = DETAIL_PARAM[seg0];

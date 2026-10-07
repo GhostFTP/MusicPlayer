@@ -8,6 +8,9 @@ import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
 import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
+import { trackMessage, albumMessage, shareAndNotify } from '../utils/share.js';
+import { useFavorites, loadFavorites } from '../utils/favorites.js';
+import { HeartIcon } from './FavButton.jsx';
 
 // ── Menú contextual GLOBAL (actions-lab · dirección visual C, "Lista seca") ──────────────
 //
@@ -252,6 +255,18 @@ export function ContextMenuProvider({ children }) {
     } catch { toast('No se pudieron cargar las pistas', { variant: 'warning' }); }
   }, [toast]);
 
+  // Compartir (utils/share.js, mismo texto que iOS): en táctil la hoja del sistema, en escritorio
+  // el portapapeles; el aviso es el de shareAndNotify (el mismo que el botón del expandido). Se
+  // llama dentro del clic: fuera del gesto el navegador niega las dos cosas.
+  const share = useCallback((text) => { shareAndNotify(text, toast); }, [toast]);
+
+  // Favoritos ("Mis favoritos", utils/favorites.js): el menú lee si la pista ya es favorita para
+  // ofrecer agregar o quitar. useFavorites re-renderiza el provider sólo cuando cambia el conjunto.
+  // La carga se pide al ABRIR el menú (no al montar la app); cuando llega, `favVersion` cambia y los
+  // ítems se recalculan con el label correcto.
+  const { isFavorite, toggle: toggleFav, version: favVersion } = useFavorites();
+  useEffect(() => { if (menu) loadFavorites(); }, [menu]);
+
   // ── Selector de playlists: el QUÉ (llamada + aviso) sale de utils/playlistActions.js, el
   //    mismo módulo que usa el "+". Acá sólo el candado `busy` y cerrar el menú al terminar.
   const plTrackId = menu?.item?.id;
@@ -323,6 +338,16 @@ export function ContextMenuProvider({ children }) {
         run: () => { addToQueue(t); toast('Añadida a la cola'); },
       });
     };
+    // Favorito: al lado de "agregar a playlist" (los dos guardan la pista). Mismo texto y mismo
+    // aviso que el corazón del reproductor; el label dice lo que VA a pasar.
+    const pushFavorite = (t) => {
+      const on = isFavorite(t.id);
+      list.push({
+        id: 'fav', label: on ? 'Quitar de favoritos' : 'Agregar a favoritos', short: on ? 'Quitar ♥' : 'Favorito',
+        tone: 'nav', icon: <HeartIcon filled={on} size={14} />,
+        run: () => toggleFav(t.id, (msg) => toast(msg, { variant: 'warning' })),
+      });
+    };
     const pushTrackNav = (t) => {
       pushGoArtist(t.album_artist, t);
       if (host.goAlbum && t.album) {
@@ -333,12 +358,20 @@ export function ContextMenuProvider({ children }) {
       }
     };
 
+    // Compartir va AL FINAL y con separador: no es cola ni navegación, es sacar algo de la app.
+    // El texto se arma al elegir (no al abrir el menú), con el origen de la página.
+    const pushShare = (makeText) => {
+      list.push({ id: 'share', sep: list.length > 0, label: 'Compartir', short: 'Compartir', tone: 'nav', icon: <IconShare />, run: () => share(makeText(window.location.origin)) });
+    };
+
     switch (menu.type) {
       // ── Pista de una lista ──
       case 'track': {
         pushQueueActions(it);
         pushAddToPlaylist();
+        pushFavorite(it);
         pushTrackNav(it);
+        pushShare((o) => trackMessage(it, o));
         break;
       }
 
@@ -359,7 +392,9 @@ export function ContextMenuProvider({ children }) {
         }
         pushQueueActions(it);
         pushAddToPlaylist();
+        pushFavorite(it);
         pushTrackNav(it);
+        pushShare((o) => trackMessage(it, o));
         break;
       }
 
@@ -375,7 +410,9 @@ export function ContextMenuProvider({ children }) {
           });
         }
         pushAddToPlaylist();
+        pushFavorite(it);
         pushTrackNav(it);
+        pushShare((o) => trackMessage(it, o));
         break;
       }
 
@@ -395,6 +432,8 @@ export function ContextMenuProvider({ children }) {
           }, 'Ese álbum no tiene pistas'),
         });
         pushGoArtist(it.album_artist, { album_artist: it.album_artist });
+        // Sin album_artist el link no abriría nada (Albums.jsx busca por ese campo): no aparece.
+        if (it.album && it.album_artist) pushShare((o) => albumMessage(it, o));
         break;
       }
 
@@ -437,7 +476,7 @@ export function ContextMenuProvider({ children }) {
       default: break;
     }
     return list;
-  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast]);
+  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast, share, isFavorite, toggleFav, favVersion]);
 
   // C2b · Escalera INTERNA del menú. Con el selector de playlists abierto, el primer Esc/atrás
   // vuelve al grid y el segundo cierra — antes cerraba todo de una. Sigue valiendo "un Esc = una
@@ -637,7 +676,9 @@ export function ContextMenuButton({ type, item, label = 'Más acciones', extra }
 function IconMore() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="5" cy="12" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="19" cy="12" r="1.9" />
+      {/* Los tres puntos en UN path (mismos centros 5/12/19 y radio 1.9 que los <circle> de antes):
+          2 nodos menos por fila en las tablas largas (Frente 1, sub-paso 7). */}
+      <path d="M3.1 12a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0-3.8 0ZM10.1 12a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0-3.8 0ZM17.1 12a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0-3.8 0Z" />
     </svg>
   );
 }
@@ -718,6 +759,13 @@ function IconAlbum() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="2.5" />
+    </svg>
+  );
+}
+function IconShare() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v12" /><path d="M7.5 7.5 12 3l4.5 4.5" /><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
     </svg>
   );
 }

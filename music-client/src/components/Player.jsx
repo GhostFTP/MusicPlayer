@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { usePlayer } from '../context/PlayerContext.jsx';
+import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
 import { api, coverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
+import FavButton from './FavButton.jsx';
+import ShareButton from './ShareButton.jsx';
 import ChangelogBell from './ChangelogBell.jsx';
 import SettingsFab from './SettingsFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
@@ -174,8 +176,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   const [repeatSpin, setRepeatSpin] = useState(false);
   const preMuteVol = useRef(0.7);          // volumen a restaurar al quitar el mute
   const player = usePlayer();
-  const { currentTrack, trackMeta, isPlaying, currentTime, duration, volume, togglePlay, next, prev, seek, setVolume,
+  const { currentTrack, trackMeta, isPlaying, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
+  const { currentTime, duration } = usePlayerTime();   // ~4 Hz: Player SÍ pinta el tiempo (barra + expandido)
 
   // ── Estado del swipe de la carátula ──
   const [dragX, setDragX]     = useState(0);                // desplazamiento crudo durante el arrastre
@@ -1135,8 +1138,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             onPointerCancel={cancelSheet}
             onLostPointerCapture={cancelSheet}
           >
-            <button className="exp-back" onClick={() => setExpanded(false)}>
-              <ChevronDown /> Ahora reproduciendo
+            {/* En el teléfono (≤700px) queda sólo la flecha: el texto ocupaba ~110px y con cola · letra ·
+                info · "+" · ♥ · compartir el header desbordaba (medido con fav-fit.mjs). El nombre
+                accesible no cambia: aria-label y title lo siguen diciendo. */}
+            <button className="exp-back" onClick={() => setExpanded(false)} aria-label="Ahora reproduciendo" title="Ahora reproduciendo">
+              <ChevronDown /> <span className="exp-back-label">Ahora reproduciendo</span>
             </button>
             <div className="exp-head-actions">
               {/* M1 · Esta fila de acciones es MÓVIL (.exp-head-actions es display:none en ≥701px,
@@ -1169,6 +1175,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               {currentTrack && (
                 <AddToPlaylistMenu trackId={currentTrack.id} className="ptp-exp" />
               )}
+              {/* Favorito y Compartir junto al "+": las dos acciones de guardar/sacar la pista que
+                  suena (en iOS viven en el mismo lugar del reproductor grande). */}
+              {currentTrack && <FavButton trackId={currentTrack.id} className="exp-icon-btn fav-exp" />}
+              {currentTrack && <ShareButton track={trackMeta ?? currentTrack} />}
             </div>
           </div>
 
@@ -1348,6 +1358,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             {currentTrack && (
               <AddToPlaylistMenu trackId={currentTrack.id} className="ptp-exp" placement="up" />
             )}
+            {currentTrack && <FavButton trackId={currentTrack.id} className="exp-icon-btn fav-exp" />}
+            {currentTrack && <ShareButton track={trackMeta ?? currentTrack} />}
           </div>
             </div>{/* /exp-col-info */}
           </div>{/* /exp-body */}
@@ -1464,6 +1476,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                   oculta el tip mientras el menú está abierto (.ptp.active). */}
               <BarTip tip={<>Añadir a <span className="bar-tip-state">playlist</span></>} accent="var(--teal)">
                 <AddToPlaylistMenu trackId={currentTrack.id} placement="up" className="ptp-player" nativeTitle={false} />
+              </BarTip>
+              {/* Corazón de "Mis favoritos" al lado del "+" (sólo escritorio: en móvil la barra mini
+                  no lo muestra y vive en el header del expandido). */}
+              <BarTip tip={<>Mis <span className="bar-tip-state">favoritos</span></>} accent="var(--accent)" className="fav-tip">
+                <FavButton trackId={currentTrack.id} className="fav-player" />
               </BarTip>
             </>
           ) : (

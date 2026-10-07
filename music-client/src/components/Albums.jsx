@@ -1,17 +1,35 @@
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { albumsViewTracks } from '../utils/viewTracks.js';
 import TrackTable from './TrackTable.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
+import { readCache, fetchFresh } from '../api/viewCache.js';
+import BackButton from './BackButton.jsx';
+import AlbumViewSelector from './AlbumViewSelector.jsx';
+import { readAlbumView, writeAlbumView } from '../utils/albumsView.js';
+import { currentOwner } from '../utils/playsOutbox.js';
+
+// Clave de la caché de vistas (viewCache.js): la lista de álbumes.
+const ALBUMS_CACHE_KEY = 'albums:list';
 
 export default function Albums({ target, clearTarget, setDetailOpen, navigate }) {
-  const [albums,   setAlbums]   = useState([]);
+  // Stale-while-revalidate (Frente 1, sub-paso 5): con la lista ya cacheada en esta sesión, el
+  // primer render pinta las tarjetas (sin spinner) y se revalida en segundo plano.
+  const [cached] = useState(() => readCache(ALBUMS_CACHE_KEY));   // { data, sig } | undefined
+  const sigRef = useRef(cached?.sig ?? null);
+  const [albums,   setAlbums]   = useState(() => cached?.data ?? []);
   const [selected, setSelected] = useState(null); // { album, tracks }
-  const [loading,  setLoading]  = useState(true);
+  const [loading,  setLoading]  = useState(!cached);
   const [error,    setError]    = useState(null);
+  // Vista del listado (F3b–F3e): por usuario y por navegador (utils/albumsView.js). Se lee al
+  // montar: Albums se vuelve a montar al cambiar de cuenta (Layout se desmonta), así que una cuenta
+  // nunca arranca con la vista de otra.
+  const [view, setView] = useState(() => readAlbumView(currentOwner()));
+  const changeView = useCallback((m) => { setView(m); writeAlbumView(currentOwner(), m); }, []);
   const { play } = usePlayer();
   const { openMenu } = useContextMenu();   // clic derecho sobre la tarjeta (desktop; el gate lo pone el menú)
   // C1 · long-press = el mismo menú en móvil (misma tarjeta que AlbumGrid, misma puerta).
@@ -19,16 +37,34 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   // Drag-to-enqueue fase (b): misma tarjeta que AlbumGrid, mismo trato (ver el comentario de allá).
   const { dragProps } = useDragQueue();
 
+  // Handlers ESTABLES para AlbumCard (memo). `navigate` llega de Layout y se recrea en cada render
+  // de Layout → se lee por ref para que el callback no cambie de identidad.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const onOpen = useCallback(
+    (album) => navigateRef.current('albums', { album: album.album, album_artist: album.album_artist }),
+    [],
+  );
+  const onCtx = useCallback((e, album) => openMenu(e, { type: 'album', item: album }), [openMenu]);
+
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
-  // el botón "Reintentar" del estado de error.
-  function loadAlbums() {
-    setLoading(true);
-    setError(null);
-    api.albums().then(setAlbums).catch(setError).finally(() => setLoading(false));
+  // el botón "Reintentar" del estado de error. `background === true`: revalidación con datos ya
+  // en pantalla → sin spinner, y si falla se queda lo cacheado sin mostrar error.
+  function loadAlbums(background = false) {
+    const bg = background === true;
+    if (!bg) { setLoading(true); setError(null); }
+    fetchFresh(ALBUMS_CACHE_KEY, () => api.albums())
+      .then((fresh) => {
+        if (!fresh || fresh.sig === sigRef.current) return;   // otra cuenta, o sin cambios → nada
+        sigRef.current = fresh.sig;
+        setAlbums(fresh.data);
+      })
+      .catch((e) => { if (!bg) setError(e); })
+      .finally(() => { if (!bg) setLoading(false); });
   }
 
   useEffect(() => {
-    loadAlbums();
+    loadAlbums(!!cached);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -44,7 +80,11 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
     // no traía la calidad y mezclaba álbumes homónimos de distinto artista.
     const params = { album: album.album, limit: 500 };
     if (album.album_artist) params.album_artist = album.album_artist;
-    const tracks = await api.tracks(params);
+    let tracks = await api.tracks(params);
+    // Sin album_artist el servidor no puede filtrar "album_artist vacío" (filtra por igualdad), así
+    // que devolvía TAMBIÉN las pistas de un álbum homónimo con artista (p. ej. el de Daft Punk): se
+    // quedan sólo las que de verdad no tienen album_artist.
+    if (!album.album_artist) tracks = tracks.filter((t) => !t.album_artist);
     setSelected({ ...album, tracks });
   }
 
@@ -55,10 +95,11 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   useEffect(() => {
     if (target?.reset) { setSelected(null); clearTarget(); return; }   // tap en la pestaña activa
     if (!target?.album || loading) return;
-    const found = albums.find(a =>
-      a.album === target.album &&
-      (target.album_artist == null || a.album_artist === target.album_artist)
-    );
+    // album_artist null (ruta /albums/@/…, o una pista sin album_artist) = el álbum SIN artista de ese
+    // nombre; si no hubiera ninguno, el primero con ese nombre (lo que hacía antes).
+    const found = target.album_artist != null
+      ? albums.find(a => a.album === target.album && a.album_artist === target.album_artist)
+      : (albums.find(a => a.album === target.album && !a.album_artist) ?? albums.find(a => a.album === target.album));
     if (found) openAlbum(found);
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,9 +125,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
     // desplaza a la vista dentro de TrackTable.
     return (
       <div>
-        <button className="back-btn" onClick={() => window.history.back()}>
-          ← Volver
-        </button>
+        <BackButton label="Volver" view="albums" onList={() => navigateRef.current('albums')} />
 
         <div className="detail-hero">
           {selected.sample_track_id
@@ -128,35 +167,61 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
     <div>
       <div className="section-header">
         <h1 className="section-title">Álbumes</h1>
-        <div className="detail-actions">
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{albums.length} álbumes</span>
-          <ShuffleButton getTracks={() => api.tracks({ limit: 10000 })} />
-        </div>
+      </div>
+      {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
+          contador (los listados no tienen ▶ Reproducir). */}
+      <div className="view-actions">
+        <ShuffleButton getTracks={albumsViewTracks} count={loading || error ? undefined : albums.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
+        <span className="section-count">{albums.length} álbumes</span>
+        <AlbumViewSelector mode={view} onChange={changeView} />
       </div>
 
-      <div className="album-grid">
+      {/* d2 es la grilla de siempre (sin modificador): el predeterminado se ve igual que antes. Los
+          demás modos son SÓLO CSS sobre la misma tarjeta (.album-grid--*): cambiar de vista no
+          remonta las tarjetas. */}
+      <div className={view === 'd2' ? 'album-grid' : `album-grid album-grid--${view}`}>
         {albums.map(album => (
-          <div
+          <AlbumCard
             key={`${album.album}-${album.album_artist}`}
-            className="album-card"
-            {...bindPress(album, {
-              onClick: () => navigate('albums', { album: album.album, album_artist: album.album_artist }),
-              onContextMenu: (e) => openMenu(e, { type: 'album', item: album }),
-            })}
-            {...dragProps(album, 'album')}
-          >
-            {/* draggable={false}: ver AlbumGrid — si no, agarrar por la carátula arrancaría el
-                arrastre nativo de la imagen en vez del de la tarjeta. */}
-            {album.sample_track_id
-              ? <img className="album-cover" src={coverUrl(album.sample_track_id, { thumb: true })} alt="" loading="lazy" draggable={false} />
-              : <div className="album-cover-placeholder">♫</div>
-            }
-            <div className="album-name">{album.album}</div>
-            <div className="album-artist">{album.album_artist ?? '—'}</div>
-            <div className="album-count">{album.track_count} canciones</div>
-          </div>
+            album={album}
+            mosaic={view === 'mosaic'}
+            bindPress={bindPress}
+            dragProps={dragProps}
+            onOpen={onOpen}
+            onCtx={onCtx}
+          />
         ))}
       </div>
     </div>
   );
 }
+
+// Tarjeta memoizada: Albums se re-renderiza al cambiar de canción (consume PlayerContext por `play`),
+// pero con props estables las tarjetas no.
+// `mosaic`: en Mosaico la tarjeta queda sin texto visible (sólo la carátula), así que el nombre
+// («álbum – artista», o sólo el álbum) va en el ALT de la carátula: un aria-label en el <div> de la
+// tarjeta (rol genérico) no lo expone ningún lector de pantalla, el alt de una <img> sí. Sin carátula,
+// el "♫" se vuelve una imagen con nombre (role="img"). Sin nodos extra; en los demás modos, como antes.
+const AlbumCard = memo(function AlbumCard({ album, mosaic, bindPress, dragProps, onOpen, onCtx }) {
+  const name = mosaic ? (album.album_artist ? `${album.album} – ${album.album_artist}` : album.album) : null;
+  return (
+    <div
+      className="album-card"
+      {...bindPress(album, {
+        onClick: () => onOpen(album),
+        onContextMenu: (e) => onCtx(e, album),
+      })}
+      {...dragProps(album, 'album')}
+    >
+      {/* draggable={false}: ver AlbumGrid — si no, agarrar por la carátula arrancaría el
+          arrastre nativo de la imagen en vez del de la tarjeta. */}
+      {album.sample_track_id
+        ? <img className="album-cover" src={coverUrl(album.sample_track_id, { thumb: true })} alt={name ?? ''} loading="lazy" draggable={false} />
+        : <div className="album-cover-placeholder" {...(name ? { role: 'img', 'aria-label': name } : {})}>♫</div>
+      }
+      <div className="album-name">{album.album}</div>
+      <div className="album-artist">{album.album_artist ?? '—'}</div>
+      <div className="album-count">{album.track_count} canciones</div>
+    </div>
+  );
+});

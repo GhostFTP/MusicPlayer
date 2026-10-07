@@ -3,6 +3,56 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.24.0] - 2026-10-07
+
+### Añadido
+- **Favoritos con un corazón**: en el reproductor expandido, en la barra (en pantallas
+  anchas) y en el menú de cada canción hay un corazón que la guarda en tu lista
+  «Mis favoritos». Si todavía no la tienes, se crea con el primer corazón. Si no se pudo
+  guardar, el corazón vuelve a como estaba y te avisa.
+- **Compartir**: desde el menú de una canción, de un álbum o de la cola, y con su propio
+  botón en el reproductor. Comparte el título, el artista y un enlace al álbum; una
+  canción se comparte con el mismo texto que la app. En pantallas táctiles, si el
+  navegador lo permite, se abre el menú de compartir del sistema; en la computadora, o si
+  no se puede, se copia el enlace.
+- **La web ya registra lo que escuchas**, con la misma regla que la app para decidir
+  cuándo cuenta una canción. Si no hay conexión, se guarda y se envía cuando vuelve.
+- **Más formas de ver tus álbumes**: Grande, Mediana, Pequeña, Mosaico y Lista. La
+  elección se recuerda para tu cuenta en ese navegador.
+- **Tecla M para mezclar toda la biblioteca** desde cualquier vista. No hace nada
+  mientras escribes en un campo de texto ni con un menú abierto.
+
+### Mejorado
+- **Mix aleatorio**: ahora está en una fila de acciones arriba de cada listado y detalle.
+  En Álbumes, Artistas, Géneros y Años mezcla solo las canciones de esa vista, no toda la
+  biblioteca. Se desactiva cuando no hay suficientes canciones para mezclar, y si lo usas
+  con el teclado no pierdes tu lugar mientras carga.
+- **Volver**: los detalles de álbum, artista, género, año y playlist tienen una flecha de
+  volver con fondo propio.
+- **En el teléfono, el botón para salir del reproductor expandido queda solo con la
+  flecha**, para que quepan el corazón y Compartir.
+- **Buscar en Biblioteca** filtra mientras escribes, sin esperar al servidor ni mostrar
+  «cargando», y no distingue mayúsculas ni acentos.
+- **Listas largas**: Biblioteca y la cola solo dibujan las filas que están en pantalla, y
+  las listas se vuelven a dibujar mucho menos mientras avanza la canción. Al volver a
+  Biblioteca o Álbumes ves lo último que cargaste mientras se actualiza.
+
+### Corregido
+- **El Mix avisa si no pudo cargar las canciones.** Antes, si fallaba la conexión, el
+  botón volvía a la normalidad sin decir nada.
+- **Los álbumes sin artista de álbum tienen su propio enlace**: al recargar la página o
+  al compartirlos, se abre ese álbum.
+
+### Límites conocidos
+- La vista Lista de Álbumes puede sentirse más lenta al desplazarse con bibliotecas muy
+  grandes.
+- Todavía no lo probamos en un iPhone ni en Safari: compartir, copiar el enlace y el envío
+  de escuchas pueden comportarse distinto ahí.
+- Todavía no confirmamos que los corazones de la web aparezcan en «Mis favoritos» de la
+  app, ni que las escuchas de la web entren en tu Resumen del año.
+- Si quitas una canción de «Mis favoritos» desde otro lado con la web abierta, el corazón
+  se actualiza al recargar.
+
 ## [1.23.1] - 2026-10-07
 
 ### Corregido

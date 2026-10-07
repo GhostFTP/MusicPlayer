@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
+import { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
+import { genresViewTracks } from '../utils/viewTracks.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { genreEmoji } from '../utils/genreEmoji.js';
 import { emojiHue } from '../utils/emojiHue.js';
+import BackButton from './BackButton.jsx';
 
 export default function Genres({ target, clearTarget, setDetailOpen, navigate }) {
   const [genres, setGenres] = useState(null);
@@ -25,6 +27,13 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   // (no trae onPointerDown). Acá no hace falta ningún draggable={false}: la tarjeta no tiene <img>
   // —su "carátula" es el emoji, que es texto— así que no hay imagen que robe el arrastre.
   const { dragProps } = useDragQueue();
+
+  // Handlers ESTABLES para GenreItem (memo). `navigate` llega de Layout y se recrea con cada render
+  // de Layout → por ref.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const onOpen = useCallback((g) => navigateRef.current('genres', { genre: g.genre }), []);
+  const onCtx  = useCallback((e, g) => openMenu(e, { type: 'genre', item: g }), [openMenu]);
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -67,18 +76,18 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   if (sel) {
     return (
       <div>
-        <button className="back-btn" onClick={() => window.history.back()}>
-          ← Todos los géneros
-        </button>
+        <BackButton label="Todos los géneros" view="genres" onList={() => navigate('genres')} />
         <div className="section-header" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
           <h1 className="section-title">{sel.genre}</h1>
-          {tracks && tracks.length > 0 && (
-            <div className="detail-actions">
-              <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
-              <ShuffleButton tracks={tracks} />
-            </div>
-          )}
         </div>
+        {/* Fila de acciones B (Frente 2, M2d): debajo del título, como en las demás vistas. Lleva el
+            mismo --h del encabezado (el hue del emoji del género) para no perder el color. */}
+        {tracks && tracks.length > 0 && (
+          <div className="view-actions" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
+            <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
+            <ShuffleButton tracks={tracks} />
+          </div>
+        )}
         {tracks ? <TrackTable tracks={tracks} /> : <div className="spinner">Cargando…</div>}
       </div>
     );
@@ -111,31 +120,48 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
     <div>
       <div className="section-header">
         <h1 className="section-title">Géneros</h1>
-        <div className="detail-actions">
-          <span className="section-count">{genres.length} géneros</span>
-          <ShuffleButton getTracks={() => api.tracks({ limit: 10000 })} />
-        </div>
+      </div>
+      {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
+          contador (los listados no tienen ▶ Reproducir). */}
+      <div className="view-actions">
+        <ShuffleButton getTracks={genresViewTracks} count={genres.reduce((s, g) => s + (g.track_count ?? 0), 0)} />
+        <span className="section-count">{genres.length} géneros</span>
       </div>
       <ul className="browse-list">
         {genres.map((g, idx) => (
-          <li
+          <GenreItem
             key={g.genre}
-            className="browse-item genre-item"
-            style={{ '--h': emojiHue(genreEmoji(g.genre)), '--i': idx }}
-            {...bindPress(g, {
-              onClick: () => navigate('genres', { genre: g.genre }),
-              onContextMenu: (e) => openMenu(e, { type: 'genre', item: g }),
-            })}
-            {...dragProps(g, 'genre')}
-          >
-            <span className="genre-item-main">
-              <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>
-              <span className="browse-item-name">{g.genre}</span>
-            </span>
-            <span className="browse-item-meta">{g.track_count} pistas · {g.album_count} álbumes</span>
-          </li>
+            g={g}
+            index={idx}
+            bindPress={bindPress}
+            dragProps={dragProps}
+            onOpen={onOpen}
+            onCtx={onCtx}
+          />
         ))}
       </ul>
     </div>
   );
 }
+
+// Tarjeta memoizada: Genres consume PlayerContext (por `play`) y se re-renderiza al cambiar de canción;
+// con props estables las tarjetas no. El style (hue + escalonado) se arma adentro.
+const GenreItem = memo(function GenreItem({ g, index, bindPress, dragProps, onOpen, onCtx }) {
+  return (
+    <li
+      className="browse-item genre-item"
+      style={{ '--h': emojiHue(genreEmoji(g.genre)), '--i': index }}
+      {...bindPress(g, {
+        onClick: () => onOpen(g),
+        onContextMenu: (e) => onCtx(e, g),
+      })}
+      {...dragProps(g, 'genre')}
+    >
+      <span className="genre-item-main">
+        <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>
+        <span className="browse-item-name">{g.genre}</span>
+      </span>
+      <span className="browse-item-meta">{g.track_count} pistas · {g.album_count} álbumes</span>
+    </li>
+  );
+});

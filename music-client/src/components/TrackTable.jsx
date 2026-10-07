@@ -1,4 +1,4 @@
-import { Fragment, useRef, useEffect } from 'react';
+import { Fragment, memo, useRef, useEffect, useCallback } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { coverUrl } from '../api/client.js';
 import QualityChip from './QualityChip.jsx';
@@ -20,6 +20,10 @@ export default function TrackTable({ tracks, showAlbum = true }) {
   // onPointerDown, así que no le pisa el suyo a bindPress (el long-press del menú en móvil).
   const { dragProps } = useDragQueue();
   const activeRowRef = useRef(null);
+
+  // Handlers ESTABLES para TrackRow (memo): la fila los llama con su índice / su pista.
+  const onPlay = useCallback((i) => play(tracks, i), [play, tracks]);
+  const onCtx  = useCallback((e, track) => openMenu(e, { type: 'track', item: track }), [openMenu]);
 
   // Al abrir una lista (álbum/género), desplaza la pista que suena a la vista.
   useEffect(() => {
@@ -60,53 +64,18 @@ export default function TrackTable({ tracks, showAlbum = true }) {
                   <td colSpan={showAlbum ? 7 : 6}>Disco {disc}</td>
                 </tr>
               )}
-              <tr
-                ref={active ? activeRowRef : null}
-                className={`track-row${active ? ' playing' : ''}`}
-                {...bindPress(track, {
-                  onClick: () => play(tracks, i),
-                  onContextMenu: (e) => openMenu(e, { type: 'track', item: track }),
-                })}
-                {...dragProps(track)}
-              >
-                <td className="col-num">
-                  <span className={`track-num${active ? ' active' : ''}`}>
-                    {active && isPlaying ? '▶' : (track.track_number ?? i + 1)}
-                  </span>
-                  <span className="track-play-icon">▶</span>
-                </td>
-                <td>
-                  <div className="track-info-cell">
-                    {/* draggable={false}: una <img> es arrastrable NATIVAMENTE, así que agarrar
-                        la fila por la carátula —el punto de agarre más natural— arrancaría el
-                        arrastre de la IMAGEN en vez del de la fila y el drop no encolaría nada. */}
-                    {track.cover_path
-                      ? <img className="track-art" src={coverUrl(track.id, { thumb: true })} alt="" loading="lazy" draggable={false} />
-                      : <div className="track-art-placeholder">♪</div>
-                    }
-                    <div className="track-text">
-                      <div className={`track-title${active ? ' active' : ''}`}>
-                        {track.title ?? 'Sin título'}
-                      </div>
-                      <div className="track-sub">
-                        <span className="track-artist">{track.artist ?? '—'}</span>
-                        <QualityChip track={track} className="chip-inline" />
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td className="col-artist track-artist">{track.artist ?? '—'}</td>
-                {showAlbum && <td className="col-album track-album">{track.album ?? '—'}</td>}
-                <td className="col-quality"><QualityChip track={track} /></td>
-                <td className="col-time">{fmt(track.duration)}</td>
-                {/* El "⋯" reemplaza al "+": "agregar a playlist" es ahora un ítem del menú
-                    (fase D), así que una sola puerta por fila en vez de dos botones peleando
-                    los 46px de la celda. Ojo: en modo lista esta celda es display:none — ahí
-                    la puerta es el clic derecho, y es lo aceptado. */}
-                <td className="col-actions">
-                  <ContextMenuButton type="track" item={track} />
-                </td>
-              </tr>
+              <TrackRow
+                track={track}
+                index={i}
+                active={active}
+                playing={active && isPlaying}
+                showAlbum={showAlbum}
+                rowRef={active ? activeRowRef : undefined}
+                bindPress={bindPress}
+                dragProps={dragProps}
+                onPlay={onPlay}
+                onCtx={onCtx}
+              />
             </Fragment>
           );
         })}
@@ -114,6 +83,61 @@ export default function TrackTable({ tracks, showAlbum = true }) {
     </table>
   );
 }
+
+// Fila memoizada (misma idea que LibraryRow; copias separadas a propósito, ver actions-lab §11).
+// `active`/`playing` llegan calculados → al cambiar de canción sólo cambian 2 filas, en play/pausa 1.
+// `rowRef` sólo lo recibe la fila activa (el auto-scroll a la pista que suena).
+const TrackRow = memo(function TrackRow({ track, index, active, playing, showAlbum, rowRef, bindPress, dragProps, onPlay, onCtx }) {
+  return (
+    <tr
+      ref={rowRef}
+      className={`track-row${active ? ' playing' : ''}`}
+      {...bindPress(track, {
+        onClick: () => onPlay(index),
+        onContextMenu: (e) => onCtx(e, track),
+      })}
+      {...dragProps(track)}
+    >
+      <td className="col-num">
+        <span className={`track-num${active ? ' active' : ''}`}>
+          {playing ? '▶' : (track.track_number ?? index + 1)}
+        </span>
+        <span className="track-play-icon">▶</span>
+      </td>
+      <td>
+        <div className="track-info-cell">
+          {/* draggable={false}: una <img> es arrastrable NATIVAMENTE, así que agarrar
+              la fila por la carátula —el punto de agarre más natural— arrancaría el
+              arrastre de la IMAGEN en vez del de la fila y el drop no encolaría nada. */}
+          {track.cover_path
+            ? <img className="track-art" src={coverUrl(track.id, { thumb: true })} alt="" loading="lazy" draggable={false} />
+            : <div className="track-art-placeholder">♪</div>
+          }
+          <div className="track-text">
+            <div className={`track-title${active ? ' active' : ''}`}>
+              {track.title ?? 'Sin título'}
+            </div>
+            <div className="track-sub">
+              <span className="track-artist">{track.artist ?? '—'}</span>
+              <QualityChip track={track} className="chip-inline" />
+            </div>
+          </div>
+        </div>
+      </td>
+      <td className="col-artist track-artist">{track.artist ?? '—'}</td>
+      {showAlbum && <td className="col-album track-album">{track.album ?? '—'}</td>}
+      <td className="col-quality"><QualityChip track={track} /></td>
+      <td className="col-time">{fmt(track.duration)}</td>
+      {/* El "⋯" reemplaza al "+": "agregar a playlist" es ahora un ítem del menú
+          (fase D), así que una sola puerta por fila en vez de dos botones peleando
+          los 46px de la celda. Ojo: en modo lista esta celda es display:none — ahí
+          la puerta es el clic derecho, y es lo aceptado. */}
+      <td className="col-actions">
+        <ContextMenuButton type="track" item={track} />
+      </td>
+    </tr>
+  );
+});
 
 function fmt(s) {
   if (!s) return '—';

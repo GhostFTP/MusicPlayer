@@ -322,40 +322,85 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 /* ── BIBLIOTECA: banner Mix aleatorio + contador ─────────── */
-.library-actions {
+/* Fila de acciones B (Frente 2, M2d): la de Biblioteca (.library-actions) es el molde; .view-actions
+   es la misma fila en los listados y detalles sin hero (Mix + contador, o ▶ + Mix). Con wrap para
+   que a 390 px no desborde. */
+.view-actions { flex-wrap: wrap; }
+.library-actions,
+.view-actions {
   display: flex;
   align-items: center;
   gap: 16px;
   margin: 2px 0 18px;
 }
 
+/* Mix = pill secundario GHOST, ÚNICO en toda la app (Frente 2, M2d): mismo hue que la vista
+   (--h; sin hue propio cae al 265 morado) y forma de pill → subordinado a ▶ Reproducir cuando lo hay.
+   Antes eran dos variantes por contenedor (.detail-actions/.library-actions y .pl-detail-actions) más
+   un relleno morado global que sólo usaba el hero de artista; ahora es una sola regla. */
 .mix-btn {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 999px;
-  padding: 12px 26px;
-  font-size: 15px;
-  font-weight: 700;
+  gap: 8px;
+  padding: 0 20px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: 0.1px;
+  background: hsl(var(--h, 265) 40% 30% / .22);
+  color: var(--text);
+  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
+  border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 4px 16px var(--accent-dim);
-  transition: transform .12s ease, box-shadow .15s ease, background .15s ease;
+  box-shadow: none;
+  transition: background .15s ease,
+              border-color .15s ease,
+              transform .18s cubic-bezier(.22, 1, .36, 1),
+              box-shadow .18s cubic-bezier(.22, 1, .36, 1);
 }
 .mix-btn:hover {
-  background: #b69bff;
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 8px 24px var(--accent-dim);
+  background: hsl(var(--h, 265) 45% 35% / .32);
+  border-color: hsl(var(--h, 265) 60% 60% / .45);
+  transform: translateY(-1.5px);
+  /* Glow tenue: el ghost pasa de "sin sombra" a un halo sutil del hue. */
+  box-shadow: 0 4px 14px hsl(var(--h, 265) 55% 40% / .25);
 }
-.mix-btn:active { transform: translateY(0) scale(.99); }
-.mix-btn:disabled {
+.mix-btn:active {
+  transform: scale(.97);
+  transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
+}
+/* Ícono: un solo giro de 180° al entrar el hover (NO loop): sugiere "barajar" sin ser literal. */
+@keyframes shuffle-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(180deg); }
+}
+.mix-btn:hover svg {
+  animation: shuffle-spin .3s cubic-bezier(.34, 1.42, .5, 1);
+}
+.mix-btn:disabled,
+.mix-btn[aria-busy="true"] {
   opacity: .45;
   cursor: default;
   transform: none;
   box-shadow: none;
+}
+/* Ocupado (Frente 2, M2c): mientras pide la lista el botón ya no es `disabled` nativo (así conserva
+   el foco del teclado) sino aria-busy; comparte el aspecto de :disabled (arriba) y además queda
+   QUIETO al pasar el mouse: sin lift/zoom ni giro del ícono. */
+.mix-btn[aria-busy="true"]:hover,
+.mix-btn[aria-busy="true"]:active { transform: none; }
+.mix-btn[aria-busy="true"]:hover svg { animation: none; }
+/* Foco por teclado (Frente 2, M2b): aro de 2px del hue de la vista (criterio de la casa). */
+.mix-btn:focus-visible {
+  outline: 2px solid hsl(var(--h, 265) 70% 70%);
+  outline-offset: 2px;
+}
+/* reduced-motion: sin lift/press/giro (movimiento); se conservan relleno, borde y glow (color). */
+@media (prefers-reduced-motion: reduce) {
+  .mix-btn,
+  .mix-btn:hover,
+  .mix-btn:active { transform: none; }
+  .mix-btn:hover svg { animation: none; }
 }
 
 /* Contador de la Biblioteca: pill accent-ghost SECUNDARIO — hermano MUTEADO del
@@ -519,6 +564,11 @@ button, input, select, textarea { font-family: inherit; }
 .track-play-icon { display: none; color: var(--text); }
 .track-row:hover .track-num { display: none; }
 .track-row:hover .track-play-icon { display: block; }
+/* Biblioteca (Frente 1, sub-paso 7): el ▶ del hover es un pseudo-elemento de la celda # en vez de
+   un <span class="track-play-icon"> por fila — un nodo menos en cada una de las cientos de filas.
+   Mismo glifo, display y color que .track-play-icon; las demás tablas (TrackTable, Playlists)
+   siguen con el span. */
+.library-tracks .track-row:hover td.col-num::after { content: '\25B6'; display: block; color: var(--text); }
 
 /* Duración */
 .track-row td.col-time {
@@ -810,6 +860,131 @@ button, input, select, textarea { font-family: inherit; }
 .album-artist { font-size: 12px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .album-count  { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 
+/* ── VISTAS DEL LISTADO DE ÁLBUMES (Frente 3, F3c/F3d) ──
+   Sólo el listado de Álbumes (Albums.jsx) lleva estos modificadores; AlbumGrid (Artistas, Años) no.
+   El modo "2 por fila" es la grilla de arriba SIN modificador → el predeterminado no cambia un píxel.
+   Los demás usan el tamaño de celda de la app iOS (en un teléfono de 390: 3, 4 y 5 por fila). La
+   especificidad (.album-grid.album-grid--x, 0,2,0) les gana a los ajustes por ancho de .album-grid
+   (tableta y teléfono) sin depender del orden. Es la MISMA tarjeta en todos: cambiar de vista no
+   remonta nada, sólo cambia la clase. */
+.album-grid.album-grid--d3 { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; }
+.album-grid--d3 .album-card { padding: 8px; }
+.album-grid--d3 .album-name { font-size: 13px; }
+.album-grid--d3 .album-cover,
+.album-grid--d3 .album-cover-placeholder { margin-bottom: 8px; }
+
+.album-grid.album-grid--d4 { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 10px; }
+.album-grid--d4 .album-card { padding: 6px; }
+.album-grid--d4 .album-name { font-size: 12px; -webkit-line-clamp: 1; min-height: 0; }
+.album-grid--d4 .album-artist,
+.album-grid--d4 .album-count { display: none; }
+.album-grid--d4 .album-cover,
+.album-grid--d4 .album-cover-placeholder { margin-bottom: 6px; font-size: 24px; }
+
+/* Mosaico: sólo carátulas, sin caja (como el de 5 por fila de iOS: la carátula ES el álbum). */
+.album-grid.album-grid--mosaic { grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px; }
+.album-grid--mosaic .album-card { padding: 0; background: none; }
+.album-grid--mosaic .album-cover,
+.album-grid--mosaic .album-cover-placeholder { margin: 0; border-radius: 6px; font-size: 20px; }
+.album-grid--mosaic .album-name,
+.album-grid--mosaic .album-artist,
+.album-grid--mosaic .album-count { display: none; }
+
+/* Lista: carátula de 52px y, al lado, título · artista · canciones. */
+.album-grid.album-grid--list { display: flex; flex-direction: column; gap: 2px; }
+.album-grid--list .album-card {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  grid-template-rows: auto auto auto;
+  column-gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+}
+.album-grid--list .album-card:hover { transform: none; }
+.album-grid--list .album-cover,
+.album-grid--list .album-cover-placeholder { width: 52px; height: 52px; margin: 0; grid-row: 1 / 4; font-size: 20px; }
+.album-grid--list .album-name { -webkit-line-clamp: 1; min-height: 0; }
+.album-grid--list .album-artist,
+.album-grid--list .album-count { margin-top: 0; }
+
+/* ── SELECTOR DE VISTA (AlbumViewSelector.jsx, F3e) ──
+   A la derecha de la fila de acciones, junto al Mix. Escritorio/tableta: los cinco modos en línea
+   (grupo de radios); teléfono: un botón de 44×44 que abre un menú. Apagado en reposo, el elegido en
+   morado (--accent-dim), como los activos de la casa. */
+.view-actions .avs { margin-left: auto; }
+.avs-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .1);
+}
+.avs-seg button {
+  /* 36 + 3 + 3 de padding + 2 de borde = 44: el mismo alto que el Mix, así la fila de acciones
+     no crece y la grilla no se mueve ni un píxel respecto de antes. */
+  width: 40px; height: 36px;
+  border: 0; border-radius: 9px;
+  background: none;
+  color: var(--text-muted);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: color .15s, background .15s;
+}
+.avs-seg button:hover { color: var(--text); }
+.avs-seg button[aria-checked="true"] { background: var(--accent-dim); color: var(--text); }
+.avs-seg button:focus-visible,
+.avs-btn:focus-visible,
+.avs-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.avs-mobile { display: none; position: relative; }
+.avs-btn {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .05);
+  color: var(--text);
+  display: grid; place-items: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.avs-btn[aria-expanded="true"] { background: var(--accent-dim); }
+/* Menú del teléfono: capa SÓLIDA (sin blur, como el menú contextual táctil). */
+.avs-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  padding: 6px;
+  background: #1b1b1f;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
+  transform-origin: top right;
+  animation: ptp-menu-in .16s ease;
+}
+.avs-menu button {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 44px;
+  padding: 0 12px;
+  border: 0; border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.avs-menu button svg { color: var(--text-muted); }
+.avs-menu button[aria-checked="true"] { background: var(--accent-dim); }
+.avs-menu button[aria-checked="true"] svg { color: var(--accent); }
+@media (max-width: 700px) {
+  .avs-seg { display: none; }
+  .avs-mobile { display: block; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .avs-menu { animation: none; }
+}
+
 /* Kicker de año (solo en la discografía de un artista, vía secondary="year"). Rima con el
    kicker "ARTISTA" del hero → la vista habla un mismo idioma de arriba a abajo. Muted en
    reposo y al hover pasa al hue del artista (hsl var --h, misma fórmula que el kicker del
@@ -872,21 +1047,30 @@ button, input, select, textarea { font-family: inherit; }
 
 /* ── ALBUM DETAIL ─────────────────────── */
 
+/* Volver de los 5 detalles (BackButton.jsx, F3a): PASTILLA — flecha de 22px + texto, fondo sutil.
+   Antes era texto gris con "←" y sin caja: en el teléfono costaba verlo y acertarle. Alto 44px
+   (piso táctil); el ancho lo da el texto. El fondo usa el blanco sutil de la casa (.06 → .1 al
+   hover), no un color de identidad: volver no es una acción con tono. */
 .back-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: none;
+  gap: 4px;
+  background: rgba(255, 255, 255, .06);
   border: none;
-  color: var(--text-muted);
-  font-size: 14px;
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
-  padding: 0;
+  padding: 0 14px 0 6px;
   margin-bottom: 20px;
-  transition: color .15s;
+  transition: background .15s;
   min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
 }
-.back-btn:hover { color: var(--text); }
+.back-btn svg { flex-shrink: 0; }
+.back-btn:hover { background: rgba(255, 255, 255, .1); }
+.back-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Conteo discreto en la cabecera de sección (ej. "5 artistas") */
 .section-count { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -960,7 +1144,8 @@ button, input, select, textarea { font-family: inherit; }
    (Reintentar, Login, formularios de playlist) NO se tocan: overrides
    puramente contextuales, mismo patrón documentado en playlist-lab. */
 
-.detail-actions .btn-primary {
+.detail-actions .btn-primary,
+.view-actions .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -978,7 +1163,8 @@ button, input, select, textarea { font-family: inherit; }
               transform .18s cubic-bezier(.22, 1, .36, 1),
               box-shadow .18s cubic-bezier(.22, 1, .36, 1);
 }
-.detail-actions .btn-primary:hover {
+.detail-actions .btn-primary:hover,
+.view-actions .btn-primary:hover {
   opacity: 1;                                   /* neutraliza el hover global (opacity:.85) */
   background: hsl(var(--h, 265) 60% 48%);
   transform: translateY(-1.5px);
@@ -986,87 +1172,26 @@ button, input, select, textarea { font-family: inherit; }
 }
 /* Press: spring-back (.34,1.42,.6,1, el de los gestos) SOLO en transform — se
    nota al hundir, y al soltar vuelve a hover/reposo con la easing de arriba. */
-.detail-actions .btn-primary:active {
+.detail-actions .btn-primary:active,
+.view-actions .btn-primary:active {
   transform: scale(.97);
   transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
 }
-.detail-actions .btn-primary:focus-visible {
+.detail-actions .btn-primary:focus-visible,
+.view-actions .btn-primary:focus-visible {
   outline: 2px solid hsl(var(--h, 265) 70% 70%);
   outline-offset: 2px;
 }
 
-/* Mix = pill secundario GHOST, mismo hue y forma → subordinado (o único, en los
-   headers de lista/artista/año que no tienen Reproducir al lado). .library-actions
-   (banner de Mix + contador de la Biblioteca, Library.jsx) comparte selector: es
-   el ÚNICO contenedor de ShuffleButton que NO es .detail-actions ni .pl-detail-actions
-   (confirmado por grep de <ShuffleButton en toda music-client/src), y tampoco tiene
-   hue propio (no hay emoji/color de "biblioteca") → mismo fallback --accent que
-   Álbum/Años. Un solo bloque de reglas para los dos selectores, sin duplicar CSS. */
-.detail-actions .mix-btn,
-.library-actions .mix-btn {
-  gap: 8px;
-  padding: 0 20px;
-  min-height: 44px;
-  font-size: 14px;
-  font-weight: 600;
-  background: hsl(var(--h, 265) 40% 30% / .22);
-  color: var(--text);
-  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
-  box-shadow: none;
-  transition: background .15s ease,
-              border-color .15s ease,
-              transform .18s cubic-bezier(.22, 1, .36, 1),
-              box-shadow .18s cubic-bezier(.22, 1, .36, 1);
-}
-.detail-actions .mix-btn:hover,
-.library-actions .mix-btn:hover {
-  background: hsl(var(--h, 265) 45% 35% / .32);
-  border-color: hsl(var(--h, 265) 60% 60% / .45);
-  transform: translateY(-1.5px);
-  /* Glow tenue — el ghost pasa de "sin sombra" a un halo sutil del hue, mismo
-     lenguaje de "brillo al activarse" que el resto de botones con identidad. */
-  box-shadow: 0 4px 14px hsl(var(--h, 265) 55% 40% / .25);
-}
-.detail-actions .mix-btn:active,
-.library-actions .mix-btn:active {
-  transform: scale(.97);
-  transition: transform .18s cubic-bezier(.34, 1.42, .6, 1);
-}
-.detail-actions .mix-btn:focus-visible,
-.library-actions .mix-btn:focus-visible {
-  outline: 2px solid hsl(var(--h, 265) 70% 70%);
-  outline-offset: 2px;
-}
-/* :disabled (busy/sin pistas del ShuffleButton) sigue cayendo en el .mix-btn:disabled
-   GLOBAL (opacity/cursor/transform) — no lo repetimos acá, igual que en .pl-detail-actions. */
-
-/* Ícono de Mix: un solo giro de 180° al entrar el hover (NO loop) — sugiere
-   "barajar" sin ser literal. Selector por descendiente puro (el SVG de
-   ShuffleIcon no lleva clase propia); no toca ShuffleButton.jsx. Corre una vez
-   por entrada de hover (la animación se retira al salir del :hover). */
-@keyframes shuffle-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(180deg); }
-}
-.detail-actions .mix-btn:hover svg,
-.library-actions .mix-btn:hover svg {
-  animation: shuffle-spin .3s cubic-bezier(.34, 1.42, .5, 1);
-}
-
-/* reduced-motion: sin lift/press/giro (movimiento); se conservan relleno,
-   borde y glow (cambios de color) de ambos pills. */
+/* reduced-motion: sin lift/press (movimiento) del ▶ Reproducir; se conservan relleno y glow.
+   (La guarda del Mix vive con su regla base.) */
 @media (prefers-reduced-motion: reduce) {
   .detail-actions .btn-primary,
+  .view-actions .btn-primary,
   .detail-actions .btn-primary:hover,
+  .view-actions .btn-primary:hover,
   .detail-actions .btn-primary:active,
-  .detail-actions .mix-btn,
-  .detail-actions .mix-btn:hover,
-  .detail-actions .mix-btn:active,
-  .library-actions .mix-btn,
-  .library-actions .mix-btn:hover,
-  .library-actions .mix-btn:active { transform: none; }
-  .detail-actions .mix-btn:hover svg,
-  .library-actions .mix-btn:hover svg { animation: none; }
+  .view-actions .btn-primary:active { transform: none; }
 }
 
 /* ── BROWSE · GÉNEROS / AÑOS (listas) ───── */
@@ -1307,15 +1432,9 @@ button, input, select, textarea { font-family: inherit; }
 .artist-chip-q.q-lossless { color: var(--q-lossless); }
 .artist-chip-q.q-lossy    { color: var(--q-lossy-high); }
 
-/* Botón Mix del hero: el fill sigue morado (--accent = "acción" en toda la app), pero el
-   GLOW toma el hue del artista → ata la acción a su identidad sin perder reconocimiento.
-   Solo el Mix del hero; el resto de .mix-btn de la app queda intacto. */
-.artist-hero-chips .mix-btn {
-  box-shadow: 0 4px 16px hsl(var(--h, 265) 60% 45% / .6);
-}
-.artist-hero-chips .mix-btn:hover {
-  box-shadow: 0 8px 24px hsl(var(--h, 265) 60% 45% / .7);
-}
+/* Fila de acciones B dentro del hero de artista (Frente 2, M2d): el Mix salió de los chips y toma
+   el --h del artista (lo define .artist-hero). */
+.artist-hero .view-actions { margin: 16px 0 0; }
 
 /* reduced-motion: se va el movimiento (elevación, zoom, stagger de entrada y revelado del
    hero), NO el feedback: el hover pasa a ser un cambio de color (regla de la casa). El aro,
@@ -1899,6 +2018,35 @@ button, input, select, textarea { font-family: inherit; }
 .ptp-player { margin-left: 4px; }
 .ptp-player .ptp-menu { left: 0; right: auto; }
 
+/* ── FAVORITO (corazón de "Mis favoritos") ──
+   Barra de escritorio: misma caja que el "+" de al lado (30px, círculo), pero con la identidad
+   MORADA (--accent), la del corazón de la app iOS. Vacío en reposo (apagado, como el resto de la
+   barra); lleno y morado cuando la pista es favorita. En el expandido usa .exp-icon-btn tal cual:
+   .fav-on sólo le pone el color. */
+.fav-player {
+  flex-shrink: 0;
+  background: none; border: none; cursor: pointer;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  transition: color .15s, background .15s, transform .15s, box-shadow .15s;
+}
+.fav-player:hover {
+  color: var(--text);
+  background: var(--accent-dim);
+  transform: scale(1.12);
+  box-shadow: 0 0 14px rgba(167, 139, 250, .4);
+}
+.fav-player:active { transform: scale(.9); }
+.fav-player.fav-on,
+.exp-icon-btn.fav-on { color: var(--accent); }
+/* En la barra, sólo donde CABE sin apretar el título: le quita 42px (corazón + margen), medido
+   con fav-fit.mjs: a 1024 el título pasa de 163 a 121px. Debajo de 1280 (y en móvil, donde la barra
+   es la mini) el corazón vive en el expandido y en el menú contextual. */
+@media (max-width: 1279px) {
+  .player-bar .fav-tip { display: none; }
+}
+
 /* Player expandido (móvil): "+" alineado a la derecha del header. En desktop el
    "+" vive en .exp-actions (fila propia) y NO debe empujarse — de ahí el scope. */
 .exp-head-actions .ptp-exp { margin-left: auto; }
@@ -2230,7 +2378,8 @@ button, input, select, textarea { font-family: inherit; }
    Reproducir + Mix pasan a pills HERMANADOS (misma forma/altura) y llevan el hue
    --h de la playlist. Overrides CONTEXTUALES de .btn-primary / .mix-btn (clases
    GLOBALES usadas por Albums/Artists/Genres/AlbumDetail): solo aplican dentro del
-   hero de playlist (.pl-detail-actions), el resto de la app queda intacto. */
+   hero de playlist (.pl-detail-actions), el resto de la app queda intacto. Desde M2d
+   (Frente 2) el Mix ya no tiene override acá: usa la regla base .mix-btn. */
 
 /* Reproducir = pill primario TEÑIDO y relleno → acción dominante. */
 .pl-detail-actions .btn-primary {
@@ -2268,31 +2417,7 @@ button, input, select, textarea { font-family: inherit; }
   box-shadow: none;
 }
 
-/* Mix = pill secundario GHOST, mismo hue y forma → subordinado (mismo lenguaje
-   que el segmento activo del Riel Prisma, .pl-sort-seg.active). */
-.pl-detail-actions .mix-btn {
-  gap: 8px;
-  padding: 0 20px;
-  min-height: 44px;
-  font-size: 14px;
-  font-weight: 600;
-  background: hsl(var(--h, 265) 40% 30% / .22);
-  color: var(--text);
-  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
-  box-shadow: none;
-  transition: background .15s ease, border-color .15s ease, transform .15s ease;
-}
-.pl-detail-actions .mix-btn:hover {
-  background: hsl(var(--h, 265) 45% 35% / .32);
-  border-color: hsl(var(--h, 265) 60% 60% / .45);
-  transform: translateY(-1px);
-  box-shadow: none;
-}
-.pl-detail-actions .mix-btn:active { transform: scale(.98); }
-.pl-detail-actions .mix-btn:focus-visible {
-  outline: 2px solid hsl(var(--h, 265) 70% 70%);
-  outline-offset: 2px;
-}
+/* El Mix de la playlist usa la regla base (.mix-btn, fantasma único desde M2d). */
 
 /* Papelera: lejos de la principal (flota a la derecha), hover rojo destructivo. */
 .pl-detail-actions .pl-del-action { margin-left: auto; }
@@ -2346,14 +2471,11 @@ button, input, select, textarea { font-family: inherit; }
 @keyframes pl-del-confirm-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
 
 /* reduced-motion: sin lift/press (movimiento); se conservan relleno, borde y glow
-   (cambios de color). Cubre el .mix-btn scopeado, que en global no tiene guard. */
+   (cambios de color). Cubre el .btn-primary de la playlist (el Mix tiene su guarda en la base). */
 @media (prefers-reduced-motion: reduce) {
   .pl-detail-actions .btn-primary,
   .pl-detail-actions .btn-primary:hover,
-  .pl-detail-actions .btn-primary:active,
-  .pl-detail-actions .mix-btn,
-  .pl-detail-actions .mix-btn:hover,
-  .pl-detail-actions .mix-btn:active { transform: none; }
+  .pl-detail-actions .btn-primary:active { transform: none; }
   /* Confirmación de borrado: sin entrada ni lift/press (movimiento); se conservan
      relleno, borde y tint rojo (color/estado). */
   .pl-del-confirm { animation: none; }
@@ -3041,7 +3163,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   height: 4px; border-radius: 2px;
   background: var(--accent);
   overflow: hidden;                   /* confina el shimmer a lo reproducido */
-  transition: width .12s linear;
+  /* SIN transición de ancho (Frente 1, sub-paso 3b): `transition: width .12s linear` animaba un
+     ancho (no se compone en GPU) en cada timeupdate (~4/s) y mantenía el hilo principal en ~42
+     frames/s, cada uno con hit-test + pintado de toda la página. El salto por tick es sub-píxel en
+     pistas normales; el seek ahora salta al instante. Para revertir: volver a poner esa línea. */
 }
 .seek-shimmer {                       /* destello tenue y lento, sólo en play */
   position: absolute; inset: 0;
@@ -4410,6 +4535,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .repeat-icon.spin { animation: none; }
   .repeat-one-digit { animation: none; }
   .ptp-player .ptp-btn:hover, .ptp-exp .ptp-btn:hover { transform: none; }
+  .fav-player:hover, .fav-player:active { transform: none; }
 }
 
 .exp-volume {
@@ -4541,6 +4667,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-actions  { display: none; }
   .player-bar .player-quality { display: none; }
   .player-bar .ptp-player     { display: none; }
+  /* Header del expandido: el "Ahora reproduciendo" queda sólo con la flecha (el texto no entra al
+     lado de los 6 íconos). Caja cuadrada de 44px; el aria-label del botón conserva el nombre. */
+  .exp-back-label { display: none; }
+  .exp-back { padding: 8px 10px; min-width: 44px; justify-content: center; }
 
   /* ── Player expandido en móvil: aprovechar el alto ──
      Carátula más grande, centrada en el espacio libre; header arriba y el bloque de
@@ -4952,7 +5082,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @keyframes queue-eq { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
 
 .queue-progress { position: absolute; left: 10px; right: 10px; bottom: 2px; height: 2px; background: rgba(255, 255, 255, .12); border-radius: 2px; overflow: hidden; }
-.queue-progress-fill { height: 100%; background: var(--time-elapsed); border-radius: 2px; transition: width .25s linear; }
+.queue-progress-fill { height: 100%; background: var(--time-elapsed); border-radius: 2px; }
+/* SIN transición de ancho (Frente 2, sub-paso Q1), como .seek-fill en el 3b: `transition: width .25s
+   linear` animaba un ancho (no se compone en GPU) en cada timeupdate (~4/s) → layout casi continuo
+   con la cola abierta (medido: a 4× con 3000 pistas, ~2,9 s de cada 5 s sonando). El salto por tick
+   es sub-píxel en pistas normales. Para revertir: volver a poner esa transición. */
 
 .queue-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 60px 20px; color: var(--text-muted); }
 .queue-empty-icon { font-size: 40px; opacity: .5; }
@@ -4960,7 +5094,6 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .queue-panel { animation: none; }
   .queue-eq i { animation: none; }
-  .queue-progress-fill { transition: none; }
 }
 
 /* ── Cola en MÓVIL: el overlay standalone se RETIRA (M4) ───────────────────────────────────────
