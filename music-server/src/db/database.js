@@ -118,6 +118,11 @@ const ADDED_COLUMNS = {
   vocals:          'TEXT',
   disc_number:     'INTEGER',
   disc_total:      'INTEGER',
+  // 1.25.0: el MD5 del AUDIO que trae la cabecera STREAMINFO del FLAC (scanner/huella.js),
+  // en hex. Sobrevive a mover, renombrar y retaguear el archivo: es lo que deja reasignar
+  // las escuchas y las playlists de una pista movida (scanner/reasignar.js). null si el
+  // archivo no es FLAC o trae el MD5 en ceros.
+  audio_md5:       'TEXT',
 };
 for (const [col, type] of Object.entries(ADDED_COLUMNS)) {
   if (!trackCols.has(col)) db.exec(`ALTER TABLE tracks ADD COLUMN ${col} ${type}`);
@@ -245,6 +250,35 @@ db.exec(`
     artist      TEXT,
     added_at    TEXT    DEFAULT (datetime('now')),
     PRIMARY KEY (playlist_id, video_id)
+  );
+`);
+
+// 1.25.0 — CONSERVAR LAS ESCUCHAS AL MOVER ARCHIVOS. El scanner identifica una pista por su
+// ruta, asi que mover o renombrar un archivo deja la fila vieja huerfana, y al borrarla el
+// CASCADE se llevaba sus escuchas y sus filas de playlist (y con ellas "Mis favoritos").
+// Ahora el barrido primero REASIGNA lo que es el mismo audio (scanner/reasignar.js) y lo que
+// no tiene pareja segura lo COPIA aca antes de borrar.
+//
+// plays_archivo es la red de seguridad: nadie la lee todavia (ni la app, ni el web, ni el
+// resumen). Lleva una copia de los datos de la pista porque la fila de tracks ya no va a
+// existir. Sin FK a tracks a proposito; la de users si, para que borrar una cuenta se lleve
+// tambien lo suyo. client_id UNIQUE: archivar dos veces la misma escucha no la duplica.
+db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_audio_md5 ON tracks(audio_md5)');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS plays_archivo (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    track_id_viejo INTEGER NOT NULL,
+    played_at      INTEGER NOT NULL,
+    ms_played      INTEGER,
+    client_id      TEXT    NOT NULL UNIQUE,
+    title          TEXT,
+    artist         TEXT,
+    album          TEXT,
+    album_artist   TEXT,
+    duration       REAL,
+    audio_md5      TEXT,
+    archivado_at   INTEGER NOT NULL
   );
 `);
 

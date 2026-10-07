@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import * as mm from 'music-metadata';
 import { getThumb } from '../covers/thumbs.js';
 import db from '../db/database.js';
+import { huellaDeArchivo } from './huella.js';
+import { emparejar } from './reasignar.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const COVERS_DIR = resolve(__dir, '../../data/covers');
@@ -54,9 +56,9 @@ function saveCover(picture, trackId) {
 
 const upsert = db.prepare(`
   INSERT INTO tracks (title, artist, album, album_artist, genre, year, track_number, disc_number, disc_total, duration, file_path, cover_path, lrc_path, vocals, mime_type,
-                      codec, bits_per_sample, sample_rate, bitrate, lossless)
+                      codec, bits_per_sample, sample_rate, bitrate, lossless, audio_md5)
   VALUES (@title, @artist, @album, @album_artist, @genre, @year, @track_number, @disc_number, @disc_total, @duration, @file_path, @cover_path, @lrc_path, @vocals, @mime_type,
-          @codec, @bits_per_sample, @sample_rate, @bitrate, @lossless)
+          @codec, @bits_per_sample, @sample_rate, @bitrate, @lossless, @audio_md5)
   ON CONFLICT(file_path) DO UPDATE SET
     title        = excluded.title,
     artist       = excluded.artist,
@@ -76,6 +78,7 @@ const upsert = db.prepare(`
     sample_rate     = excluded.sample_rate,
     bitrate         = excluded.bitrate,
     lossless        = excluded.lossless,
+    audio_md5       = excluded.audio_md5,
     scanned_at   = datetime('now')
 `);
 
@@ -100,25 +103,68 @@ function findOrphans() {
 }
 
 // Borra las filas huérfanas dadas, en una transacción. FK ON → el CASCADE limpia
-// solas las filas de playlist_tracks. Devuelve cuántas pistas y cuántas filas de
-// playlist se fueron (para el log).
+// solas las filas de playlist_tracks y de plays que QUEDEN apuntando a ellas.
+//
+// 1.25.0 — ANTES de borrar, dentro de la MISMA transacción:
+//   1. REASIGNA lo que es el mismo audio en otra ruta (scanner/reasignar.js): las escuchas y
+//      las filas de playlist pasan a la fila viva. En playlist_tracks va `UPDATE OR IGNORE`:
+//      si la viva ya estaba en esa playlist, la fila de la huérfana se queda y la borra el
+//      CASCADE (la PK (playlist_id, track_id) no admite el duplicado).
+//   2. ARCHIVA en plays_archivo las escuchas de las huérfanas que NO tuvieron pareja, con los
+//      datos de la pista (que va a dejar de existir).
+// Si algo falla, ROLLBACK: no se reasigna, no se archiva y no se borra nada.
+// Devuelve los números para el log [PRUNE].
 function deleteOrphans(orphanIds) {
   db.exec('PRAGMA foreign_keys = ON');   // defensivo: el CASCADE a playlist_tracks depende de esto
   db.exec('PRAGMA busy_timeout = 5000'); // tolera escrituras concurrentes de la app (WAL) sin SQLITE_BUSY
-  const playlistRows = db.prepare(
-    `SELECT COUNT(*) c FROM playlist_tracks WHERE track_id IN (${orphanIds.join(',')})`
-  ).get().c;
 
+  const huerfanasSet = new Set(orphanIds);
+  const filas = db.prepare(
+    'SELECT id, audio_md5, duration, sample_rate, bits_per_sample, title, album, track_number FROM tracks'
+  ).all();
+  const huerfanas = filas.filter((f) => huerfanasSet.has(f.id));
+  const vivas = filas.filter((f) => !huerfanasSet.has(f.id));
+  const { pares, llave } = emparejar(huerfanas, vivas);
+  const sinPareja = orphanIds.filter((id) => !pares.has(id));
+
+  const movPlays = db.prepare('UPDATE plays SET track_id = ? WHERE track_id = ?');
+  const movPl = db.prepare('UPDATE OR IGNORE playlist_tracks SET track_id = ? WHERE track_id = ?');
+  const archivar = db.prepare(`
+    INSERT OR IGNORE INTO plays_archivo
+      (user_id, track_id_viejo, played_at, ms_played, client_id, title, artist, album, album_artist, duration, audio_md5, archivado_at)
+    SELECT p.user_id, p.track_id, p.played_at, p.ms_played, p.client_id, t.title, t.artist, t.album, t.album_artist, t.duration, t.audio_md5, ?
+    FROM plays p JOIN tracks t ON t.id = p.track_id
+    WHERE p.track_id = ?
+  `);
+  const contarPl = db.prepare('SELECT COUNT(*) c FROM playlist_tracks WHERE track_id = ?');
   const del = db.prepare('DELETE FROM tracks WHERE id = ?');
+
+  const r = {
+    deleted: orphanIds.length,
+    reasignadas: pares.size,
+    porMd5: [...llave.values()].filter((l) => l === 'md5').length,
+    porRespaldo: [...llave.values()].filter((l) => l === 'respaldo').length,
+    playsMovidas: 0,
+    playlistMovidas: 0,
+    playsArchivadas: 0,
+    playlistRows: 0,   // las que se van por CASCADE (sin pareja, o ya estaban en la playlist)
+  };
+  const ahora = Date.now();
   db.exec('BEGIN');
   try {
+    for (const [vieja, nueva] of pares) {
+      r.playsMovidas += Number(movPlays.run(nueva, vieja).changes);
+      r.playlistMovidas += Number(movPl.run(nueva, vieja).changes);
+    }
+    for (const id of sinPareja) r.playsArchivadas += Number(archivar.run(ahora, id).changes);
+    for (const id of orphanIds) r.playlistRows += contarPl.get(id).c;
     for (const id of orphanIds) del.run(id);
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
   }
-  return { deleted: orphanIds.length, playlistRows };
+  return r;
 }
 
 export async function scanLibrary(musicDir, { prune = true, forcePrune = false, thumbs = true } = {}) {
@@ -160,6 +206,8 @@ export async function scanLibrary(musicDir, { prune = true, forcePrune = false, 
         sample_rate:     format.sampleRate ?? null,
         bitrate:         format.bitrate != null ? Math.round(format.bitrate) : null,
         lossless:        format.lossless == null ? null : (format.lossless ? 1 : 0),
+        // 1.25.0: la huella del audio (MD5 de STREAMINFO), para reasignar si el archivo se mueve.
+        audio_md5:       huellaDeArchivo(filePath),
       });
 
       // node:sqlite devuelve lastInsertRowid=0 en conflictos DO UPDATE,
@@ -241,9 +289,16 @@ export async function scanLibrary(musicDir, { prune = true, forcePrune = false, 
     return;
   }
 
-  const { deleted, playlistRows } = deleteOrphans(orphanIds);
-  console.log(`  [PRUNE] Huérfanas borradas: ${deleted}` +
-              (playlistRows ? ` (+${playlistRows} filas de playlist por CASCADE)` : ''));
+  const r = deleteOrphans(orphanIds);
+  // 1.25.0: lo reasignado (y por qué llave), lo movido y lo archivado, en UNA línea más.
+  console.log(`  [PRUNE] Huérfanas borradas: ${r.deleted}` +
+              (r.playlistRows ? ` (+${r.playlistRows} filas de playlist por CASCADE)` : ''));
+  console.log(`  [PRUNE] Reasignadas: ${r.reasignadas} (md5 ${r.porMd5} · respaldo ${r.porRespaldo})` +
+              ` · escuchas movidas ${r.playsMovidas} · filas de playlist movidas ${r.playlistMovidas}` +
+              ` · escuchas archivadas ${r.playsArchivadas}`);
+  // Lo que hizo el barrido, para quien llama desde código (scripts/smoke-rescan.mjs). La CLI
+  // lo ignora.
+  return r;
 }
 
 // Si se ejecuta directamente: node src/scanner/index.js [ruta] [--no-prune] [--force-prune] [--no-thumbs]
