@@ -3,6 +3,15 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.24.1] - 2026-10-07
+
+### Corregido
+- **El servidor responde bien a peticiones inusuales de partes de una canción o de un
+  video**, por ejemplo cuando un reproductor pide «los últimos bytes del archivo». Antes,
+  con los videos, una petición así podía hacer que el servidor se cayera para todos.
+  No tenemos registro de que haya pasado. Además, pedir más allá del final de un archivo
+  ahora devuelve lo que hay en vez de un error.
+
 ## [1.24.0] - 2026-10-07
 
 ### Añadido
@@ -48,8 +57,6 @@ Novedades destacables de **SonoraRev**. El formato sigue
   grandes.
 - Todavía no lo probamos en un iPhone ni en Safari: compartir, copiar el enlace y el envío
   de escuchas pueden comportarse distinto ahí.
-- Todavía no confirmamos que los corazones de la web aparezcan en «Mis favoritos» de la
-  app, ni que las escuchas de la web entren en tu Resumen del año.
 - Si quitas una canción de «Mis favoritos» desde otro lado con la web abierta, el corazón
   se actualiza al recargar.
 

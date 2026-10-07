@@ -17,6 +17,10 @@
 //      aleatorio, contraseña generada por el CLI, pasadas al script por env (SNAP2_USER/SNAP2_PASS);
 //      nunca se imprimen ni se escriben. Levanta SU backend (node server.js, PORT=3100) y SU preview
 //      (vite preview en 4173, config en el mismo directorio temporal, proxy a :3100). Nunca sonorarev.com.
+//      VIDEOS: genera los 3 fixtures sintéticos de video-fixtures.mjs en <temporal>/videos y le pasa
+//      VIDEO_DIR=<esa carpeta> al backend SIEMPRE (pisa cualquier VIDEO_DIR del entorno o del .env: el
+//      real nunca se lee). Se borran con el resto del temporal. Sin ffmpeg: fila "video-fixtures" NO
+//      CORRIÓ, VIDEO_DIR queda apuntando a la carpeta vacía y los demás scripts corren igual.
 //   4. Corre los scripts del baseline en orden, uno por vez (cwd = esta carpeta, SNAP_BASE=:4173, CPU=1),
 //      con tope de 5 min cada uno.
 //   5. Apaga SÓLO lo que lanzó (taskkill /T /F sobre los PIDs de SUS hijos; nunca por puerto ni por
@@ -31,6 +35,7 @@ import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { crearFixtures, SinFfmpeg } from './video-fixtures.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..', '..');
@@ -265,7 +270,19 @@ try {
   log(`base ORIGEN: ${dbSrc} (${statSync(dbSrc).size} bytes) ${process.env.MUSIC_DB_PATH ? '(MUSIC_DB_PATH)' : '(desarrollo)'} — no se escribe`);
   log(`base COPIA:  ${dbCopy} (se borra al cerrar)`);
   header.push(`:3000 al empezar: ${code3000Start}`, `base origen: ${dbSrc} (${statSync(dbSrc).size} bytes)`, `base copia: ${dbCopy}`, `SNAP_BASE: ${BASE}`);
-  const serverEnv = { ...process.env, PORT: String(PORT_API), MUSIC_DB_PATH: dbCopy };
+  // Videos sintéticos en el MISMO temporal (se borran con él). VIDEO_DIR se pasa siempre, aunque la
+  // generación falle: así el backend nunca cae al VIDEO_DIR del entorno o del .env.
+  const videoDir = join(tmpRun, 'videos');
+  try {
+    const fx = crearFixtures(videoDir);
+    log(`videos: ${fx.videos.length} fixtures en ${videoDir} (${fx.videos.map((v) => `${v.rel} ${v.atomos.join(',')}`).join(' · ')})`);
+    header.push(`VIDEO_DIR: ${videoDir} (${fx.videos.length} fixtures sintéticos)`);
+  } catch (e) {
+    mkdirSync(videoDir, { recursive: true });
+    add({ nombre: 'video-fixtures', estado: 'NO CORRIÓ', detalle: e.message });
+    header.push(`VIDEO_DIR: ${videoDir} (VACÍA: ${e instanceof SinFfmpeg ? 'sin ffmpeg' : 'falló la generación'})`);
+  }
+  const serverEnv = { ...process.env, PORT: String(PORT_API), MUSIC_DB_PATH: dbCopy, VIDEO_DIR: videoDir };
 
   // Segunda cuenta para albview-func, creada EN LA COPIA con el CLI del backend (sin tocar el backend).
   const u2 = `regresion-${randomBytes(4).toString('hex')}@local`;
