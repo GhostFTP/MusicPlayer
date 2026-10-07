@@ -255,10 +255,18 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   `.claude`. Versionados los `.mjs` + `package.json`; **ignorados** `.env`, `node_modules/`,
   `shots/` y `package-lock.json`. **No reemplaza la prueba física**: en headless
   `env(safe-area-*)` vale 0 y la sensación del gesto real no se mide.
-- Env vars (según `docker-compose.yml`): `NODE_ENV`, `PORT`, `MUSIC_DIR`, `JWT_SECRET`,
-  `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOW_REGISTRATION` (servicio `musicplayer`) y
-  `CLOUDFLARE_TUNNEL_TOKEN` (servicio `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN`
-  son obligatorias: el arranque falla si faltan.
+- Env vars (según `docker-compose.yml`): `NODE_ENV`, `PORT`, `MUSIC_DIR`, `VIDEO_DIR`,
+  `JWT_SECRET`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `GOOGLE_IOS_CLIENT_ID`,
+  `PASSWORD_VIEW_KEY` (servicio `musicplayer`) y `CLOUDFLARE_TUNNEL_TOKEN` (servicio
+  `cloudflared`). `JWT_SECRET` y `CLOUDFLARE_TUNNEL_TOKEN` son obligatorias: el arranque falla
+  si faltan. (`ALLOW_REGISTRATION` ya no existe: la ruta de registro se quitó, ver
+  `src/api/auth.js`.)
+  - ⚠️ **TODA variable nueva de Dokploy se agrega a la lista `environment:` del servicio en
+    `docker-compose.yml`**, o no llega al contenedor: el compose no tiene `env_file` y solo
+    pasa las variables que nombra. Definirla en Dokploy NO alcanza. Pasó con
+    `PASSWORD_VIEW_KEY` en la 1.23.0: estaba en Dokploy, el servidor no la veía y avisaba
+    "no está puesta" (arreglado en la 1.23.1). Opcional → `${VAR:-}`; obligatoria →
+    `${VAR:?mensaje}`, como `JWT_SECRET`.
 - **`PASSWORD_VIEW_KEY` (1.23.0), opcional**: la llave con la que se cifra la copia de cada
   contraseña que un admin puede volver a ver (`GET /api/admin/users/:id/password`,
   `music-server/src/users/password-view.js`). AES-256-GCM, el id de la cuenta como dato

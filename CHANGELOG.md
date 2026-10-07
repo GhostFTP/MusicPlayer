@@ -53,6 +53,15 @@ Novedades destacables de **SonoraRev**. El formato sigue
 - Si quitas una canción de «Mis favoritos» desde otro lado con la web abierta, el corazón
   se actualiza al recargar.
 
+## [1.23.1] - 2026-10-07
+
+### Corregido
+- **"Ver contraseña" no funcionaba en el servidor publicado**: la llave estaba configurada,
+  pero no llegaba al servidor, porque el despliegue solo le pasa las variables que nombra una
+  por una y esta faltaba en la lista. Las contraseñas que se pongan o cambien desde esta
+  versión ya se pueden volver a ver; las que se pusieron con la 1.23.0 no, porque en ese
+  momento no se guardaron.
+
 ## [1.23.0] - 2026-10-06
 
 ### Añadido
