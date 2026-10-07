@@ -24,6 +24,9 @@ services:
       # Tiene que estar NOMBRADA acá: una variable de Dokploy que el compose no nombra
       # no llega al contenedor.
       GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID:-}
+      # Ver la contraseña desde el panel (opcional, 1.23.0): la llave base64 de 32 bytes.
+      # Vacía = "ver contraseña" no está disponible y el servidor arranca igual.
+      PASSWORD_VIEW_KEY: ${PASSWORD_VIEW_KEY:-}
     volumes:
       # 🎵 Biblioteca de música: host /mnt/storage/Musica → contenedor /music/Musica, SOLO LECTURA.
       #    El ":ro" lo impone el kernel: nada del contenedor puede escribir tu música.
