@@ -4,7 +4,7 @@
 // ya empezó a divergir.
 import { Router } from 'express';
 import { authMiddleware, requireAdmin } from '../auth/jwt.js';
-import { UserError, listUsers, getUser, createUser, updateUser, deleteUser, clearAvatar } from '../users/service.js';
+import { UserError, listUsers, getUser, createUser, updateUser, deleteUser, clearAvatar, verPassword } from '../users/service.js';
 import { handle } from './handle.js';
 
 const router = Router();
@@ -74,6 +74,25 @@ router.patch('/:id', handle(async (req, res) => {
 router.delete('/:id/avatar', handle(async (req, res) => {
   clearAvatar(idParam(req));
   res.status(204).end();
+}));
+
+// VER LA CONTRASEÑA (1.23.0): la copia cifrada que se guardó al ponerla (users/password-view.js).
+// `{ password }` si la hay; `{ disponible: false }` si no —cuenta sin contraseña, anterior a
+// 1.23.0, o servidor sin PASSWORD_VIEW_KEY—. Las reglas de a quién, en verPassword.
+//
+// SIN CACHÉ en ningún lado (no-store y, para proxies viejos, Pragma), y los headers van ANTES
+// de nada: también un error de esta ruta sale sin cachear.
+//
+// Cada consulta deja su línea en el log, con quién y de quién, y NUNCA el valor.
+router.get('/:id/password', handle(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('Pragma', 'no-cache');
+  const { user, password } = verPassword(idParam(req), { actorId: req.user.id });
+  console.log(
+    `[usuarios] ${actorDe(req)} vio la contraseña de la cuenta ${user.id} (${user.username})`
+    + (password === null ? ' · no disponible' : ''),
+  );
+  res.json(password === null ? { disponible: false } : { password });
 }));
 
 // El cuerpo con `confirm` lo parsea el express.json() global de server.js. Un DELETE

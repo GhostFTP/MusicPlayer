@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import db from '../db/database.js';
 import { avatarDe, deleteAvatarPhoto, writeAvatarPhoto } from './avatars.js';
+import { cifrarPassword, descifrarPassword } from './password-view.js';
 
 // El MISMO coste que usa auth.js. Antes vivía duplicado en el CLI con un comentario
 // que decía "si algún día se unifica, este es el otro sitio que hay que mover":
@@ -370,12 +371,23 @@ export async function createUser({ username, password, role = 'user', email }, {
   // 0 como id: la cuenta todavía no existe, así que cualquier choque es con OTRA.
   if (mail) assertCorreoLibre(0, mail);
 
+  // La copia cifrada (password_view, 1.23.0) necesita el id —es su dato autenticado—, que
+  // recién existe después del INSERT. Por eso va en un UPDATE inmediato, y los dos en UNA
+  // transacción: o nace la cuenta con su copia, o no nace. Una cuenta sin contraseña
+  // (`hashInservible`) se queda en NULL. Cifrar nunca lanza: si no puede, devuelve null.
   let info;
+  db.exec('BEGIN');
   try {
     info = db
       .prepare('INSERT INTO users (username, password_hash, role, email) VALUES (?, ?, ?, ?)')
       .run(name, hash, rol, mail);
+    if (!sinPassword) {
+      const id = Number(info.lastInsertRowid);
+      db.prepare('UPDATE users SET password_view = ? WHERE id = ?').run(cifrarPassword(id, String(password)), id);
+    }
+    db.exec('COMMIT');
   } catch (e) {
+    db.exec('ROLLBACK');
     // Dos UNIQUE pueden saltar acá: el del nombre (columna) y el del correo (índice), y
     // SQLite dice cuál en el mensaje ("users.email").
     if (String(e.message).includes('users.email')) throw new UserError(409, 'Ese correo ya es de otra cuenta.');
@@ -447,7 +459,10 @@ export async function changeOwnPassword(id, { currentPassword, newPassword }) {
     throw new UserError(401, 'La contraseña actual no es correcta.');
   }
 
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(newPassword), id);
+  // El hash y la copia cifrada en el MISMO UPDATE: nunca una contraseña nueva con la copia de
+  // la vieja. Si no se puede cifrar, la copia queda NULL y el cambio sigue.
+  db.prepare('UPDATE users SET password_hash = ?, password_view = ? WHERE id = ?')
+    .run(await hashPassword(newPassword), cifrarPassword(id, String(newPassword)), id);
   return getUser(id);
 }
 
@@ -545,7 +560,11 @@ export async function updateUser(id, { role, password, username, emoji, email },
   if (rol === 'user') assertNotLastAdmin(user, 'bajarlo a usuario normal');
 
   if (rol !== undefined) db.prepare('UPDATE users SET role = ? WHERE id = ?').run(rol, id);
-  if (hash !== undefined) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
+  // Con su copia cifrada en el mismo UPDATE (ver changeOwnPassword).
+  if (hash !== undefined) {
+    db.prepare('UPDATE users SET password_hash = ?, password_view = ? WHERE id = ?')
+      .run(hash, cifrarPassword(id, String(password)), id);
+  }
   if (nombre !== undefined) writeUsername(id, nombre);
   if (cambiaCorreo) {
     writeEmail(id, mail);
@@ -556,6 +575,22 @@ export async function updateUser(id, { role, password, username, emoji, email },
   if (emo !== undefined) setAvatarEmoji(id, emo);
 
   return getUser(id);
+}
+
+/** La contraseña de una cuenta, para que un admin la vuelva a ver (1.23.0). `actorId` es el
+ *  admin que pregunta. Devuelve `{ user, password }` con `password` en null si no hay copia
+ *  —una cuenta sin contraseña, una anterior a 1.23.0, sin llave o con otra llave—.
+ *
+ *  LA REGLA DE A QUIÉN: un admin ve la de cualquier usuario normal y la suya, pero NO la de
+ *  OTRO admin. Ver la contraseña de otro admin es tener su cuenta, y eso sería una escalera
+ *  que nadie pidió. El 404 va primero: a una cuenta que no existe no se le pregunta el rol. */
+export function verPassword(id, { actorId }) {
+  const user = mustGet(id);
+  if (user.role === 'admin' && user.id !== actorId) {
+    throw new UserError(403, 'No puedes ver la contraseña de otro administrador.');
+  }
+  const row = db.prepare('SELECT password_view FROM users WHERE id = ?').get(id);
+  return { user, password: descifrarPassword(user.id, row?.password_view ?? null) };
 }
 
 // BORRADO CON CASCADA: se lleva las playlists y el historial de reproducciones de

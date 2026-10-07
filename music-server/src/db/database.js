@@ -217,6 +217,17 @@ for (const [col, type] of Object.entries(AVATAR_COLUMNS)) {
   if (!userCols.has(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
 }
 
+// Migración de usuarios: PASSWORD_VIEW (1.23.0), la copia CIFRADA de la contraseña que un admin
+// puede volver a ver (src/users/password-view.js explica el esquema y por qué es aceptable).
+//
+// Nullable y sin backfill: las contraseñas que ya existen solo están como hash, que no se
+// puede revertir, así que esas cuentas quedan en NULL —"no disponible"— hasta su próximo
+// cambio de contraseña. `password_hash` no se toca.
+//
+// ⚠️ NUNCA SALE POR LA API salvo por GET /api/admin/users/:id/password: los SELECT de
+// usuarios nombran sus columnas (users/service.js, api/auth.js) para que esta no viaje.
+if (!userCols.has('password_view')) db.exec('ALTER TABLE users ADD COLUMN password_view TEXT');
+
 // VIDEOS EN PLAYLISTS (1.21.0). Una tabla APARTE de playlist_tracks a proposito: un video
 // no es una fila de tracks (vive en un indice en memoria, no en music.db), asi que no hay
 // clave foranea posible hacia el video. Va solo la de la playlist, para que borrarla se

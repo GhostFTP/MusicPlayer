@@ -3,6 +3,15 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.23.0] - 2026-10-06
+
+### Añadido
+- **El administrador ya puede volver a ver la contraseña que le puso a alguien**, por si se
+  le olvida a esa persona: el servidor la guarda cifrada, con una llave que no vive junto a
+  la base. Funciona con las contraseñas que se pongan o cambien desde ahora; las de antes no
+  se pueden recuperar. Nadie puede ver la contraseña de otro administrador. Se estrena en la
+  app pronto.
+
 ## [1.22.0] - 2026-10-04
 
 ### Añadido
