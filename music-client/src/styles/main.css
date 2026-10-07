@@ -1021,15 +1021,31 @@ button, input, select, textarea { font-family: inherit; }
   transition: transform .35s cubic-bezier(.22, 1, .36, 1);
 }
 
-/* ── VIDEOS (V3: sólo lista) ──
-   La misma tarjeta de Álbumes con portada 16:9 (las portadas de video son fotogramas). Mientras no
-   haya reproductor de video (V4/V5) la tarjeta va con aria-disabled: sin manito ni elevación al
-   hover, para no prometer un clic que no hace nada. */
+/* ── VIDEOS ──
+   La misma tarjeta de Álbumes con portada 16:9 (las portadas de video son fotogramas). Tocarla
+   reproduce, igual que una canción en un listado. */
 .video-group { margin-bottom: 28px; }
 .video-group-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; }
 .video-cover-frame .video-cover { aspect-ratio: 16 / 9; }
-.video-card[aria-disabled="true"] { cursor: default; }
-.video-card[aria-disabled="true"]:hover { background: var(--surface); transform: none; }
+
+/* El ÚNICO <video> de la app (PlayerContext). Fijo y fuera del flujo: PlayerContext lo coloca cada
+   frame sobre el hueco activo (transform + width/height) y nunca lo reparenta. data-slot dice cuál:
+     · "mini" → la portada de la barra/mini: justo encima de la barra (que no tiene z) y debajo de todo
+       lo que hoy tapa la barra (hojas móviles 150, expandido 200, Letra, cola, popovers, Info, toast).
+     · "exp"  → la portada del expandido: sobre el expandido (200) y debajo de la Letra (250).
+     · ""     → no suena un video: oculto.
+   Sin eventos de puntero (los toques llegan a la portada de abajo, con sus gestos) y sin
+   transiciones propias: sólo sigue al hueco, así que prefers-reduced-motion no tiene nada que apagar. */
+.player-video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  background: #000;
+  visibility: hidden;
+}
+.player-video[data-slot="mini"] { visibility: visible; z-index: 1;   border-radius: 6px;  object-fit: cover; }
+.player-video[data-slot="exp"]  { visibility: visible; z-index: 201; border-radius: 14px; object-fit: contain; }
 
 .album-grid-anim .album-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .3);            /* peso en reposo */

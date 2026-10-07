@@ -12,6 +12,7 @@ import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
+import { useToast } from './Toast.jsx';
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00';
@@ -179,6 +180,12 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   const { currentTrack, trackMeta, isPlaying, volume, togglePlay, next, prev, seek, setVolume,
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
   const { currentTime, duration } = usePlayerTime();   // ~4 Hz: Player SÍ pinta el tiempo (barra + expandido)
+
+  // Avisos del motor (hoy: un video que no cargó y se saltó). El motor vive por encima de
+  // ToastProvider y no puede mostrarlos solo; acá sí hay toast.
+  const toast = useToast();
+  const { notice } = player;
+  useEffect(() => { if (notice) toast(notice.text, { variant: 'warning' }); }, [notice, toast]);
 
   // ── Estado del swipe de la carátula ──
   const [dragX, setDragX]     = useState(0);                // desplazamiento crudo durante el arrastre
@@ -753,9 +760,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     openNowPlaying();
   };
 
+  // data-video-slot="mini": con un video sonando y el expandido cerrado, PlayerContext coloca el
+  // <video> encima de esta portada (no se reparenta; ver la capa del video en PlayerContext).
   const art = currentTrack?.cover_path
-    ? <img className="player-art" src={coverUrl(currentTrack.id, { thumb: true })} alt="" onClick={openExpanded} title="Abrir reproductor" />
-    : <div className="player-art-placeholder" onClick={openExpanded} title="Abrir reproductor">♪</div>;
+    ? <img className="player-art" data-video-slot="mini" src={coverUrl(currentTrack.id, { thumb: true })} alt="" onClick={openExpanded} title="Abrir reproductor" />
+    : <div className="player-art-placeholder" data-video-slot="mini" onClick={openExpanded} title="Abrir reproductor">♪</div>;
 
   // Género (integrado al subtítulo) del track enriquecido (trackMeta) o del actual.
   const genre = (trackMeta ?? currentTrack)?.genre ?? null;
@@ -1206,9 +1215,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 {/* SIN thumb, a proposito: .exp-art mide min(100%, 300px) (main.css:3759),
                     que en un telefono con DPR 3 son ~900px reales. La miniatura de 480 se
                     veria blanda justo en la superficie mas grande de la app. */}
+                {/* data-video-slot="exp": con un video sonando, el <video> se coloca encima. */}
                 {coverTrack?.cover_path
-                  ? <img className="exp-art" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
-                  : <div className="exp-art-placeholder">♪</div>
+                  ? <img className="exp-art" data-video-slot="exp" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
+                  : <div className="exp-art-placeholder" data-video-slot="exp">♪</div>
                 }
               </div>
             </div>

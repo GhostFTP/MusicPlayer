@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, videoCoverUrl } from '../api/client.js';
+import { usePlayer } from '../context/PlayerContext.jsx';
 
-// Vista "Videos" (V3): sólo LISTA. Lee GET /api/videos, que ya viene ordenada (artista A→Z, año
+// Vista "Videos". Lee GET /api/videos, que ya viene ordenada (artista A→Z, año
 // del más nuevo al más viejo, sin año al final, título) — acá no se reordena, sólo se agrupa por
 // artista conservando ese orden. Mismo lenguaje que Álbumes: .album-grid + tarjetas .album-card,
 // con el modificador .video-card (portada 16:9).
 //
-// TODO(V4/V5): reproducir. Hoy tocar un video NO hace nada a propósito: la tarjeta va con
-// aria-disabled y sin onClick. El reproductor de video llega con V4 (PlayerContext) y no se
-// inventa uno aparte acá. El stream ya tiene su helper: videoStreamUrl() en api/client.js.
+// Tocar un video hace EXACTAMENTE lo que tocar una canción en un listado (TrackTable, Library):
+// play(lista visible, índice) → reemplaza la cola con los videos de la vista, en el orden en que se
+// ven, y arranca por el tocado. Cada ítem va con kind:'video' para que el motor use el <video>.
 export default function Videos() {
+  const { play } = usePlayer();
   const [videos, setVideos]   = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -36,6 +38,11 @@ export default function Videos() {
     }
     return out;
   }, [videos]);
+
+  // La lista visible (grupos aplanados, el mismo orden que se ve) como ítems de cola de video.
+  const items = useMemo(() => groups.flatMap((g) => g.videos).map((v) => ({ ...v, kind: 'video' })), [groups]);
+  const onPlay = useCallback((i) => play(items, i), [play, items]);
+  const indexOf = useMemo(() => new Map(items.map((v, i) => [v.id, i])), [items]);
 
   if (loading) return <div className="spinner">Cargando videos…</div>;
 
@@ -73,7 +80,7 @@ export default function Videos() {
         <section key={g.artist} className="video-group">
           <h2 className="video-group-title">{g.artist}</h2>
           <div className="album-grid">
-            {g.videos.map((v) => <VideoCard key={v.id} video={v} />)}
+            {g.videos.map((v) => <VideoCard key={v.id} video={v} onPlay={() => onPlay(indexOf.get(v.id))} />)}
           </div>
         </section>
       ))}
@@ -81,11 +88,10 @@ export default function Videos() {
   );
 }
 
-function VideoCard({ video }) {
+function VideoCard({ video, onPlay }) {
   const meta = [video.year, fmtDuration(video.duration)].filter(Boolean).join(' · ');
   return (
-    // TODO(V4/V5): reproducir al tocar. Deshabilitada hasta entonces (ver el banner de arriba).
-    <div className="album-card video-card" aria-disabled="true" title="La reproducción de videos llega pronto">
+    <div className="album-card video-card" onClick={onPlay}>
       <div className="album-cover-frame video-cover-frame">
         {video.has_cover
           ? <img className="album-cover video-cover" src={videoCoverUrl(video.id)} alt="" loading="lazy" draggable={false} />

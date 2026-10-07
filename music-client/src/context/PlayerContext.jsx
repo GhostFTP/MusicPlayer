@@ -1,7 +1,7 @@
 import {
   createContext, useContext, useRef, useState, useEffect, useCallback, useMemo,
 } from 'react';
-import { streamUrl, coverUrl } from '../api/client.js';
+import { streamUrl, coverUrl, videoStreamUrl, videoCoverUrl } from '../api/client.js';
 import { resolveTrackMeta, isComplete } from '../utils/trackMeta.js';
 import { useAuth } from './AuthContext.jsx';
 
@@ -45,6 +45,19 @@ export function PlayerProvider({ children }) {
   const [volume,       setVolumeState]  = useState(1);
   const [shuffle,      setShuffle]      = useState(false);
   const [repeat,       setRepeat]       = useState('off');
+  // Aviso para el usuario que el motor no puede mostrar solo: ToastProvider vive DEBAJO de este
+  // provider (main.jsx), así que se publica acá y lo muestra Player.jsx con useToast.
+  const [notice,       setNotice]       = useState(null);    // { id, text } | null
+
+  // VIDEO (V4): ítems de cola con kind:'video' (id hex de /api/videos). Hay UN <audio> (la música,
+  // como siempre) y UN <video playsinline> que renderiza este provider y no se desmonta nunca:
+  // mover o reparentar un elemento de medios lo pausa, así que se COLOCA por CSS sobre el hueco
+  // activo (data-video-slot en Player.jsx). Un solo motor y UN elemento activo a la vez: al
+  // cambiar de tipo se pausa y se vacía el otro, y los eventos del inactivo se ignoran.
+  const videoRef    = useRef(null);
+  const activeRef   = useRef('audio');       // 'audio' | 'video': qué elemento manda
+  const playNextRef = useRef(null);          // playNext se define después de playIndex
+  const skipRunRef  = useRef(0);             // videos saltados seguidos con la página oculta (tope)
 
   // Lazy-init audio element once (avoids SSR issues and StrictMode double-mount)
   function getAudio() {
@@ -55,19 +68,55 @@ export function PlayerProvider({ children }) {
     return audioRef.current;
   }
 
+  // El elemento que manda ahora. Sin video activo (o antes de montarse) es el <audio>, así que
+  // todo lo de la música se comporta exactamente como antes.
+  function getActive() {
+    return activeRef.current === 'video' && videoRef.current ? videoRef.current : getAudio();
+  }
+
+  // Pausa y vacía un elemento que deja de mandar (sin src no sigue bajando ni dispara 'error').
+  function vacate(el) {
+    if (!el || !el.getAttribute('src')) return;
+    el.pause();
+    el.removeAttribute('src');
+    el.load();
+  }
+
   const playIndex = useCallback((idx) => {
     const track = queueRef.current[idx];
     if (!track) return;
+    const isVideo = track.kind === 'video';
+    // Un video que va a EMPEZAR con la página oculta se salta: en segundo plano sólo suena audio.
+    // Se marca como sonado y se pide el siguiente; el tope corta una cola sólo de videos.
+    if (isVideo && document.hidden) {
+      idxRef.current = idx;
+      playedRef.current.add(track._qid);
+      if (++skipRunRef.current > queueRef.current.length) { skipRunRef.current = 0; getActive().pause(); setIsPlaying(false); return; }
+      playNextRef.current?.(false);
+      return;
+    }
+    skipRunRef.current = 0;
     idxRef.current = idx;
     playedRef.current.add(track._qid);     // marca como sonada por _qid (regla shuffle sin repetir)
     setCurrentTrack(track);
     const audio = getAudio();
-    audio.src = streamUrl(track.id);
+    const video = videoRef.current;
+    let el = audio;
+    if (isVideo && video) {
+      activeRef.current = 'video';
+      vacate(audio);
+      el = video;
+      el.src = videoStreamUrl(track.id);
+    } else {
+      activeRef.current = 'audio';
+      vacate(video);
+      audio.src = streamUrl(track.id);
+    }
     // Reflejar YA el reset del elemento: hasta el primer 'timeupdate' de la pista
     // nueva, la UI (letra sincronizada, tiempos) veía el tiempo de la ANTERIOR.
     setCurrentTime(0);
     setDuration(0);
-    audio.play().catch(() => {});
+    el.play().catch(() => {});
   }, []);
 
   // Decide y reproduce la siguiente pista respetando shuffle + repeat.
@@ -122,38 +171,62 @@ export function PlayerProvider({ children }) {
       setIsPlaying(false);                 // fin sin repetición
     }
   }, [playIndex]);
+  playNextRef.current = playNext;
 
   useEffect(() => {
     const audio = getAudio();
+    const video = videoRef.current;
 
-    const onPlay      = () => setIsPlaying(true);
-    const onPause     = () => setIsPlaying(false);
-    const onTimeUpdate= () => {
-      setCurrentTime(audio.currentTime);
-      setDuration(isFinite(audio.duration) ? audio.duration : 0);
+    // Los mismos handlers para los dos elementos; cada uno se ignora si su elemento no es el
+    // activo (por event.target). Con sólo música, el <audio> es siempre el activo: igual que antes.
+    const live = (e) => e.target === getActive();
+    const onPlay      = (e) => { if (live(e)) setIsPlaying(true); };
+    const onPause     = (e) => { if (live(e)) setIsPlaying(false); };
+    const onTimeUpdate= (e) => {
+      if (!live(e)) return;
+      const el = e.target;
+      setCurrentTime(el.currentTime);
+      setDuration(isFinite(el.duration) ? el.duration : 0);
     };
-    const onEnded = () => playNext(true);
+    const onEnded = (e) => { if (live(e)) playNext(true); };
+    // Sólo video: la duración real sale del archivo (el backend puede mandar null), y un error de
+    // carga (sin red, archivo que no está) salta al siguiente con aviso. El <audio> no cambia.
+    const onVideoMeta  = (e) => { if (live(e) && isFinite(e.target.duration)) setDuration(e.target.duration); };
+    const onVideoError = (e) => {
+      if (!live(e) || !e.target.getAttribute('src')) return;
+      setNotice({ id: Date.now(), text: 'No se pudo reproducir el video. Pasamos al siguiente.' });
+      playNext(false);
+    };
 
-    audio.addEventListener('play',       onPlay);
-    audio.addEventListener('pause',      onPause);
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('ended',      onEnded);
+    const els = video ? [audio, video] : [audio];
+    for (const el of els) {
+      el.addEventListener('play',       onPlay);
+      el.addEventListener('pause',      onPause);
+      el.addEventListener('timeupdate', onTimeUpdate);
+      el.addEventListener('ended',      onEnded);
+    }
+    video?.addEventListener('loadedmetadata', onVideoMeta);
+    video?.addEventListener('error',          onVideoError);
 
     return () => {
-      audio.removeEventListener('play',       onPlay);
-      audio.removeEventListener('pause',      onPause);
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('ended',      onEnded);
+      for (const el of els) {
+        el.removeEventListener('play',       onPlay);
+        el.removeEventListener('pause',      onPause);
+        el.removeEventListener('timeupdate', onTimeUpdate);
+        el.removeEventListener('ended',      onEnded);
+      }
+      video?.removeEventListener('loadedmetadata', onVideoMeta);
+      video?.removeEventListener('error',          onVideoError);
     };
   }, [playNext]);
 
-  // Keyboard: space = play/pause, ←/→ = seek 10s
+  // Keyboard: space = play/pause, ←/→ = seek 10s (sobre el elemento activo)
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === 'INPUT') return;
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
-      if (e.code === 'ArrowRight') seek(getAudio().currentTime + 10);
-      if (e.code === 'ArrowLeft')  seek(getAudio().currentTime - 10);
+      if (e.code === 'ArrowRight') seek(getActive().currentTime + 10);
+      if (e.code === 'ArrowLeft')  seek(getActive().currentTime - 10);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -165,6 +238,8 @@ export function PlayerProvider({ children }) {
   // pasa con ninguna ruta de cola) pero centralizado, memoizado y disponible para MediaSession.
   useEffect(() => {
     if (!currentTrack) { setTrackMeta(null); return; }
+    // Un video no es una pista: no tiene specs de audio ni ficha en /api/tracks (su id es hex).
+    if (currentTrack.kind === 'video') { setTrackMeta(null); return; }
     const cached = metaCacheRef.current.get(currentTrack.id);
     if (cached) { setTrackMeta(cached); return; }
     // Badge inmediato (sync) desde la cola, como el `quality` viejo: el badge sale de
@@ -232,9 +307,9 @@ export function PlayerProvider({ children }) {
   }, [playIndex]);
 
   const togglePlay = useCallback(() => {
-    const audio = getAudio();
-    if (audio.paused) audio.play().catch(() => {});
-    else audio.pause();
+    const el = getActive();
+    if (el.paused) el.play().catch(() => {});
+    else el.pause();
   }, []);
 
   // "Siguiente" manual: avanza respetando shuffle/repeat, pero ignora "repetir una"
@@ -242,8 +317,8 @@ export function PlayerProvider({ children }) {
   const next = useCallback(() => playNext(false), [playNext]);
 
   const prev = useCallback(() => {
-    const audio = getAudio();
-    if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+    const el = getActive();
+    if (el.currentTime > 3) { el.currentTime = 0; return; }
     if (shuffleRef.current && historyRef.current.length) {
       const qid = historyRef.current.pop();  // en shuffle, "anterior" = la realmente sonada antes
       const i = queueRef.current.findIndex(t => t._qid === qid);
@@ -334,12 +409,14 @@ export function PlayerProvider({ children }) {
   }, []);
 
   const seek = useCallback((time) => {
-    const audio = getAudio();
-    audio.currentTime = Math.max(0, Math.min(time, audio.duration || 0));
+    const el = getActive();
+    el.currentTime = Math.max(0, Math.min(time, el.duration || 0));
   }, []);
 
+  // El volumen va a los DOS elementos: así al pasar de canción a video (o al revés) no salta.
   const setVolume = useCallback((v) => {
     getAudio().volume = v;
+    if (videoRef.current) videoRef.current.volume = v;
     setVolumeState(v);
   }, []);
 
@@ -377,6 +454,19 @@ export function PlayerProvider({ children }) {
     if (!currentTrack) { navigator.mediaSession.metadata = null; return; }
     // `trackMeta` puede ir un tick por detrás de `currentTrack` mientras se resuelve:
     // solo lo usamos si es de ESTA pista, para no publicar el álbum de la anterior.
+    // Video: título y artista del video, y su portada sólo si tiene (has_cover); sin portada, nada.
+    if (currentTrack.kind === 'video') {
+      const vsrc = token && currentTrack.has_cover ? videoCoverUrl(currentTrack.id) : null;
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title:  currentTrack.title  || 'Sin título',
+          artist: currentTrack.artist || 'Artista desconocido',
+          album:  '',
+          artwork: vsrc ? ['96x96', '256x256', '512x512'].map((sizes) => ({ src: vsrc, sizes })) : [],
+        });
+      } catch { /* motor sin MediaMetadata */ }
+      return;
+    }
     const meta = trackMeta?.id === currentTrack.id ? trackMeta : currentTrack;
     // Hueco de reauth (token=null un instante): emitimos SIN artwork en vez de mandar
     // `?token=null`, que 404ea en el lockscreen. Al llegar el token nuevo, este efecto
@@ -416,14 +506,14 @@ export function PlayerProvider({ children }) {
       try { navigator.mediaSession.setActionHandler(action, handler); }
       catch { /* acción no soportada → se ignora */ }
     };
-    set('play',          () => { getAudio().play().catch(() => {}); });
-    set('pause',         () => getAudio().pause());
+    set('play',          () => { getActive().play().catch(() => {}); });
+    set('pause',         () => getActive().pause());
     set('previoustrack', () => prev());
     set('nexttrack',     () => next());
     set('seekto',        (d) => { if (d?.seekTime != null) seek(d.seekTime); });   // seek() clampa
-    set('seekbackward',  (d) => seek(getAudio().currentTime - (d?.seekOffset ?? 10)));
-    set('seekforward',   (d) => seek(getAudio().currentTime + (d?.seekOffset ?? 10)));
-    set('stop',          () => { getAudio().pause(); seek(0); });
+    set('seekbackward',  (d) => seek(getActive().currentTime - (d?.seekOffset ?? 10)));
+    set('seekforward',   (d) => seek(getActive().currentTime + (d?.seekOffset ?? 10)));
+    set('stop',          () => { getActive().pause(); seek(0); });
     return () => { for (const a of MEDIA_ACTIONS) set(a, null); };
   }, [next, prev, seek]);
 
@@ -443,6 +533,41 @@ export function PlayerProvider({ children }) {
     } catch { /* motor viejo → sin scrubber; el resto sigue */ }
   }, [currentTime, duration]);
 
+  // ── Capa del <video> ────────────────────────────────────────────────────────
+  // Mientras suena un video, cada frame se mide el hueco visible (la portada del expandido si está
+  // abierto; si no, la del mini) y el <video> se coloca encima con transform/tamaño. Se escribe
+  // directo en el nodo, sin estado de React: el hueco se mueve con los gestos y animaciones del
+  // expandido y seguirlo por render costaría un re-render por frame. Sin video, el loop no corre y
+  // el elemento queda oculto (data-slot vacío). No agrega animaciones propias: sigue al hueco.
+  const isVideo = currentTrack?.kind === 'video';
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return undefined;
+    if (!isVideo) { v.dataset.slot = ''; return undefined; }
+    let raf = 0;
+    const visible = (el) => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 ? r : null;
+    };
+    const tick = () => {
+      let slot = 'exp';
+      let r = visible(document.querySelector('[data-video-slot="exp"]'));
+      if (!r) { slot = 'mini'; r = visible(document.querySelector('[data-video-slot="mini"]')); }
+      if (r) {
+        v.style.transform = `translate(${r.left}px, ${r.top}px)`;
+        v.style.width  = `${r.width}px`;
+        v.style.height = `${r.height}px`;
+        if (v.dataset.slot !== slot) v.dataset.slot = slot;
+      } else if (v.dataset.slot) {
+        v.dataset.slot = '';
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => { cancelAnimationFrame(raf); v.dataset.slot = ''; };
+  }, [isVideo]);
+
   // Se lee del ref en cada render del provider y entra como dep del useMemo de abajo: toda
   // mutación que mueve idxRef (playIndex, insertar, quitar, reordenar) también setea estado
   // (currentTrack o queue), así que el provider re-renderiza y el value se recalcula.
@@ -458,10 +583,10 @@ export function PlayerProvider({ children }) {
   const value = useMemo(() => ({
     currentTrack, trackMeta, isPlaying, volume, queueIndex,
     shuffle, repeat,
-    queue, upNext,
+    queue, upNext, notice,
     play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
   }), [
-    currentTrack, trackMeta, isPlaying, volume, queueIndex, shuffle, repeat, queue, upNext,
+    currentTrack, trackMeta, isPlaying, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
     play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
   ]);
 
@@ -471,6 +596,10 @@ export function PlayerProvider({ children }) {
     <PlayerContext.Provider value={value}>
       <PlayerTimeContext.Provider value={timeValue}>
         {children}
+        {/* El ÚNICO <video> de la app. Siempre montado; lo coloca el efecto de la capa. Sin
+            controles nativos y sin eventos de puntero: los gestos y botones siguen siendo los del
+            reproductor que está debajo. */}
+        <video ref={videoRef} className="player-video" data-slot="" playsInline preload="auto" aria-hidden="true" tabIndex={-1} />
       </PlayerTimeContext.Provider>
     </PlayerContext.Provider>
   );

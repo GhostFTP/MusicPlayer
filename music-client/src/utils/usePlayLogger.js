@@ -43,14 +43,16 @@ export function usePlayLogger() {
 
   const qid = currentTrack?._qid;
   const trackId = currentTrack?.id;
+  // Los videos no son escuchas: no van a /api/plays (ni a recientes ni al Resumen del año).
+  const isVideo = currentTrack?.kind === 'video';
   useEffect(() => {
-    if (qid == null || trackId == null || !owner) return;
+    if (isVideo || qid == null || trackId == null || !owner) return;
     const r = observe(pass, { qid, owner, pos: currentTime, duration, playing: isPlaying });
     pass = r.pass;
     if (r.msPlayed == null) return;
     recordPlay(owner, { client_id: newClientId(), track_id: trackId, played_at: Date.now(), ms_played: r.msPlayed });
     if (navigator.onLine !== false) flushPending(owner);
-  }, [qid, trackId, owner, currentTime, duration, isPlaying]);
+  }, [isVideo, qid, trackId, owner, currentTime, duration, isPlaying]);
 }
 
 export function PlayLogger() {
