@@ -1021,6 +1021,16 @@ button, input, select, textarea { font-family: inherit; }
   transition: transform .35s cubic-bezier(.22, 1, .36, 1);
 }
 
+/* ── VIDEOS (V3: sólo lista) ──
+   La misma tarjeta de Álbumes con portada 16:9 (las portadas de video son fotogramas). Mientras no
+   haya reproductor de video (V4/V5) la tarjeta va con aria-disabled: sin manito ni elevación al
+   hover, para no prometer un clic que no hace nada. */
+.video-group { margin-bottom: 28px; }
+.video-group-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; }
+.video-cover-frame .video-cover { aspect-ratio: 16 / 9; }
+.video-card[aria-disabled="true"] { cursor: default; }
+.video-card[aria-disabled="true"]:hover { background: var(--surface); transform: none; }
+
 .album-grid-anim .album-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .3);            /* peso en reposo */
   transition: background .18s, transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .18s ease;
@@ -4741,7 +4751,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   /* Botón de cola en la barra mini: gris; morado cuando la cola está abierta (glifo por currentColor). */
   .mini-btn.queue-mini.active { color: var(--accent); }
 
-  /* Bottom nav — 6 entradas: más compacto para que quepan */
+  /* Bottom nav — 7 entradas (Videos es la 7ª): más compacto para que quepan */
   .bottom-nav {
     display: flex;
     grid-column: 1;

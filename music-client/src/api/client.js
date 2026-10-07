@@ -116,6 +116,10 @@ export const api = {
 
   // Novedades (CHANGELOG.md del repo) → { content }
   changelog:       ()           => request('/api/changelog'),
+
+  // Videos (music-server/src/videos/routes.js) → { videos: [{ id, title, artist, year, ext, size,
+  // mime, duration, has_cover }] }. Ya vienen ordenados: artista A→Z, año del más nuevo al más viejo.
+  videos:          ()           => request('/api/videos'),
 };
 
 // URL helpers for src attributes (need token in query param)
@@ -131,3 +135,7 @@ export function streamUrl(trackId) { return `/stream/${trackId}?token=${getToken
 export function artistImageUrl(artist) {
   return `/api/browse/artists/${encodeURIComponent(artist)}/image?token=${getToken()}`;
 }
+// Videos: misma autenticación que el audio (Bearer o ?token=). La portada da 404 si el video
+// no la tiene (has_cover === false); el stream usa el mismo manejo de Range que el audio.
+export function videoCoverUrl(videoId) { return `/api/videos/${videoId}/cover?token=${getToken()}`; }
+export function videoStreamUrl(videoId) { return `/stream/video/${videoId}?token=${getToken()}`; }
