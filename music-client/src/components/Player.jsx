@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
-import { api, coverUrl } from '../api/client.js';
+import { api, coverUrl, videoCoverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
 import AddToPlaylistMenu from './AddToPlaylistMenu.jsx';
 import FavButton from './FavButton.jsx';
@@ -12,6 +12,7 @@ import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
+import { useToast } from './Toast.jsx';
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00';
@@ -180,6 +181,12 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           shuffle, repeat, toggleShuffle, cycleRepeat } = player;
   const { currentTime, duration } = usePlayerTime();   // ~4 Hz: Player SÍ pinta el tiempo (barra + expandido)
 
+  // Avisos del motor (hoy: un video que no cargó y se saltó). El motor vive por encima de
+  // ToastProvider y no puede mostrarlos solo; acá sí hay toast.
+  const toast = useToast();
+  const { notice } = player;
+  useEffect(() => { if (notice) toast(notice.text, { variant: 'warning' }); }, [notice, toast]);
+
   // ── Estado del swipe de la carátula ──
   const [dragX, setDragX]     = useState(0);                // desplazamiento crudo durante el arrastre
   const [motion, setMotion]   = useState({ mode: 'idle' }); // idle | drag | out | in | return
@@ -277,6 +284,20 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // El panel del expandido solo existe mientras el expandido está montado: al cerrarse (por
   // cualquier vía — botón, Esc, gesto, navegar) se resetea a 'none'. Evita que quede "colgado".
   useEffect(() => { if (!expanded) setExpPanel('none'); }, [expanded]);
+
+  // Video como ítem actual (V5): no es una pista. Sin ♥, Compartir, "+", calidad, letra ni Info (todo
+  // eso pide /api/tracks/<id> o la playlist de favoritos con un id de pista, y el del video es hex).
+  // El título no enlaza al álbum (no tiene) y el artista va en texto plano: la vista de Artistas se
+  // arma por album_artist de la MÚSICA y el artista de un video es el nombre de su carpeta, que no
+  // tiene por qué existir ahí (y goArtistOf, sin album_artist, haría api.track con el id hex).
+  // Si al pasar a un video estaba abierta la letra, o el Info de LO QUE SUENA, se cierran.
+  const isVideo = currentTrack?.kind === 'video';
+  useEffect(() => {
+    if (!isVideo) return;
+    setShowLyrics(false);
+    setExpPanel((p) => (p === 'lyrics' ? 'none' : p));
+    if (!infoTrack) setShowInfo(false);
+  }, [isVideo, infoTrack]);
 
   // M3a: si la hoja se cierra por CUALQUIER otra vía (la X, Esc, el atrás, cerrar el expandido),
   // el arrastre no puede quedar a medio camino: se corta el gesto y se limpia su fase. Sin esto,
@@ -753,9 +774,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     openNowPlaying();
   };
 
+  // data-video-slot="mini": con un video sonando y el expandido cerrado, PlayerContext coloca el
+  // <video> encima de esta portada (no se reparenta; ver la capa del video en PlayerContext).
   const art = currentTrack?.cover_path
-    ? <img className="player-art" src={coverUrl(currentTrack.id, { thumb: true })} alt="" onClick={openExpanded} title="Abrir reproductor" />
-    : <div className="player-art-placeholder" onClick={openExpanded} title="Abrir reproductor">♪</div>;
+    ? <img className="player-art" data-video-slot="mini" src={coverUrl(currentTrack.id, { thumb: true })} alt="" onClick={openExpanded} title="Abrir reproductor" />
+    : <div className="player-art-placeholder" data-video-slot="mini" onClick={openExpanded} title="Abrir reproductor">♪</div>;
 
   // Género (integrado al subtítulo) del track enriquecido (trackMeta) o del actual.
   const genre = (trackMeta ?? currentTrack)?.genre ?? null;
@@ -1122,11 +1145,11 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
         <div className={`player-expanded${expPanel !== 'none' ? ' exp-has-drawer' : ''}${expBigDrawer ? ' exp-drawer-large' : ''}`} style={sheetStyle()}>
           {/* Fondo: carátula actual difuminada + overlay oscuro. key → refade al
               cambiar de canción. aria-hidden: decorativo. */}
-          {currentTrack?.cover_path && (
+          {(isVideo ? currentTrack.has_cover : currentTrack?.cover_path) && (
             <div
               key={currentTrack.id}
               className="exp-bg"
-              style={{ backgroundImage: `url(${coverUrl(currentTrack.id, { thumb: true })})` }}
+              style={{ backgroundImage: `url(${isVideo ? videoCoverUrl(currentTrack.id) : coverUrl(currentTrack.id, { thumb: true })})` }}
               aria-hidden="true"
             />
           )}
@@ -1157,28 +1180,32 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               >
                 <QueueGlyph size={22} />
               </button>
-              <button
-                className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
-                onClick={toggleLyricsExpanded}
-                title="Letra"
-              >
-                <LyricsGlyph size={22} />
-              </button>
-              <button
-                className={`exp-icon-btn exp-info${showInfo ? ' active' : ''}`}
-                onClick={toggleInfo}
-                disabled={!currentTrack}
-                title="Información de la pista"
-              >
-                <InfoIcon size={22} />
-              </button>
-              {currentTrack && (
+              {!isVideo && (
+                <button
+                  className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
+                  onClick={toggleLyricsExpanded}
+                  title="Letra"
+                >
+                  <LyricsGlyph size={22} />
+                </button>
+              )}
+              {!isVideo && (
+                <button
+                  className={`exp-icon-btn exp-info${showInfo ? ' active' : ''}`}
+                  onClick={toggleInfo}
+                  disabled={!currentTrack}
+                  title="Información de la pista"
+                >
+                  <InfoIcon size={22} />
+                </button>
+              )}
+              {currentTrack && !isVideo && (
                 <AddToPlaylistMenu trackId={currentTrack.id} className="ptp-exp" />
               )}
               {/* Favorito y Compartir junto al "+": las dos acciones de guardar/sacar la pista que
                   suena (en iOS viven en el mismo lugar del reproductor grande). */}
-              {currentTrack && <FavButton trackId={currentTrack.id} className="exp-icon-btn fav-exp" />}
-              {currentTrack && <ShareButton track={trackMeta ?? currentTrack} />}
+              {currentTrack && !isVideo && <FavButton trackId={currentTrack.id} className="exp-icon-btn fav-exp" />}
+              {currentTrack && !isVideo && <ShareButton track={trackMeta ?? currentTrack} />}
             </div>
           </div>
 
@@ -1206,9 +1233,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 {/* SIN thumb, a proposito: .exp-art mide min(100%, 300px) (main.css:3759),
                     que en un telefono con DPR 3 son ~900px reales. La miniatura de 480 se
                     veria blanda justo en la superficie mas grande de la app. */}
+                {/* data-video-slot="exp": con un video sonando, el <video> se coloca encima. */}
                 {coverTrack?.cover_path
-                  ? <img className="exp-art" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
-                  : <div className="exp-art-placeholder">♪</div>
+                  ? <img className="exp-art" data-video-slot="exp" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
+                  : <div className="exp-art-placeholder" data-video-slot="exp">♪</div>
                 }
               </div>
             </div>
@@ -1224,20 +1252,20 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
 
           <div className="exp-meta">
             <div
-              className={`exp-title${currentTrack ? ' exp-link' : ''}`}
-              onClick={currentTrack ? goAlbum : undefined}
-              title={currentTrack ? 'Ir al álbum' : undefined}
+              className={`exp-title${currentTrack && !isVideo ? ' exp-link' : ''}`}
+              onClick={currentTrack && !isVideo ? goAlbum : undefined}
+              title={currentTrack && !isVideo ? 'Ir al álbum' : undefined}
             >
               {currentTrack?.title ?? 'Sin reproducción'}
             </div>
             <div className="exp-subline">
-              {currentTrack?.artist
+              {currentTrack?.artist && !isVideo
                 ? <span className="exp-artist exp-link" onClick={goArtist} title="Ir al artista">{currentTrack.artist}</span>
-                : <span className="exp-artist">—</span>}
+                : <span className="exp-artist">{currentTrack?.artist ?? '—'}</span>}
               {genre && (
                 <span className="exp-genre exp-link" onClick={goGenre} title={`Ver género: ${genre}`}>{genre}</span>
               )}
-              {(qCodec || qDetail) && (
+              {!isVideo && (qCodec || qDetail) && (
                 <div className="player-quality">
                   {qCodec && (
                     <span
@@ -1340,26 +1368,30 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             >
               <QueueGlyph size={22} />
             </button>
-            <button
-              className={`exp-icon-btn${expPanel === 'lyrics' ? ' active' : ''}`}
-              onClick={() => toggleExpPanel('lyrics')}
-              title="Letra"
-            >
-              <LyricsGlyph size={22} />
-            </button>
-            <button
-              className={`exp-icon-btn exp-info${showInfo ? ' active' : ''}`}
-              onClick={toggleInfo}
-              disabled={!currentTrack}
-              title="Información de la pista"
-            >
-              <InfoIcon size={22} />
-            </button>
-            {currentTrack && (
+            {!isVideo && (
+              <button
+                className={`exp-icon-btn${expPanel === 'lyrics' ? ' active' : ''}`}
+                onClick={() => toggleExpPanel('lyrics')}
+                title="Letra"
+              >
+                <LyricsGlyph size={22} />
+              </button>
+            )}
+            {!isVideo && (
+              <button
+                className={`exp-icon-btn exp-info${showInfo ? ' active' : ''}`}
+                onClick={toggleInfo}
+                disabled={!currentTrack}
+                title="Información de la pista"
+              >
+                <InfoIcon size={22} />
+              </button>
+            )}
+            {currentTrack && !isVideo && (
               <AddToPlaylistMenu trackId={currentTrack.id} className="ptp-exp" placement="up" />
             )}
-            {currentTrack && <FavButton trackId={currentTrack.id} className="exp-icon-btn fav-exp" />}
-            {currentTrack && <ShareButton track={trackMeta ?? currentTrack} />}
+            {currentTrack && !isVideo && <FavButton trackId={currentTrack.id} className="exp-icon-btn fav-exp" />}
+            {currentTrack && !isVideo && <ShareButton track={trackMeta ?? currentTrack} />}
           </div>
             </div>{/* /exp-col-info */}
           </div>{/* /exp-body */}
@@ -1437,13 +1469,19 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                     ancho de la barra y con el onClick encima se tragaba el tap en la
                     zona "vacía" (goAlbum + stopPropagation) en vez de abrir el expandido. */}
                 <div className="player-title">
-                  <span className="player-bar-link" onClick={goAlbum} title="Ir al álbum">
-                    {currentTrack.title ?? 'Sin título'}
-                  </span>
+                  {isVideo
+                    ? <span>{currentTrack.title ?? 'Sin título'}</span>
+                    : (
+                      <span className="player-bar-link" onClick={goAlbum} title="Ir al álbum">
+                        {currentTrack.title ?? 'Sin título'}
+                      </span>
+                    )}
                 </div>
                 <div className="player-artist">
                   {currentTrack.artist
-                    ? <span className="player-bar-link" onClick={goArtist} title="Ir al artista">{currentTrack.artist}</span>
+                    ? (isVideo
+                      ? <span>{currentTrack.artist}</span>
+                      : <span className="player-bar-link" onClick={goArtist} title="Ir al artista">{currentTrack.artist}</span>)
                     : 'Artista desconocido'}
                   {genre && (
                     <>
@@ -1458,7 +1496,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                     </>
                   )}
                 </div>
-                {(qCodec || qDetail) && (
+                {!isVideo && (qCodec || qDetail) && (
                   <div className="player-quality">
                     {qCodec && (
                       <span
@@ -1474,14 +1512,18 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               </div>
               {/* El "+" entra al sistema de tooltips con su firma teal; el CSS
                   oculta el tip mientras el menú está abierto (.ptp.active). */}
-              <BarTip tip={<>Añadir a <span className="bar-tip-state">playlist</span></>} accent="var(--teal)">
-                <AddToPlaylistMenu trackId={currentTrack.id} placement="up" className="ptp-player" nativeTitle={false} />
-              </BarTip>
+              {!isVideo && (
+                <BarTip tip={<>Añadir a <span className="bar-tip-state">playlist</span></>} accent="var(--teal)">
+                  <AddToPlaylistMenu trackId={currentTrack.id} placement="up" className="ptp-player" nativeTitle={false} />
+                </BarTip>
+              )}
               {/* Corazón de "Mis favoritos" al lado del "+" (sólo escritorio: en móvil la barra mini
                   no lo muestra y vive en el header del expandido). */}
-              <BarTip tip={<>Mis <span className="bar-tip-state">favoritos</span></>} accent="var(--accent)" className="fav-tip">
-                <FavButton trackId={currentTrack.id} className="fav-player" />
-              </BarTip>
+              {!isVideo && (
+                <BarTip tip={<>Mis <span className="bar-tip-state">favoritos</span></>} accent="var(--accent)" className="fav-tip">
+                  <FavButton trackId={currentTrack.id} className="fav-player" />
+                </BarTip>
+              )}
             </>
           ) : (
             <div className="player-meta">
@@ -1564,27 +1606,31 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               <QueueGlyph />
             </button>
           </BarTip>
-          <BarTip tip="Letra" accent="var(--lyric-pink)" line="linear-gradient(90deg, var(--accent), var(--lyric-pink))">
-            <button
-              className={`action-btn lyrics-btn${showLyrics ? ' active' : ''}`}
-              onClick={toggleLyricsBar}
-              aria-pressed={showLyrics}
-              aria-label="Letra"
-            >
-              <LyricsGlyph />
-            </button>
-          </BarTip>
-          <BarTip tip="Información de la pista" accent="var(--amber)">
-            <button
-              className={`action-btn info-btn${showInfo ? ' active' : ''}`}
-              onClick={e => { e.stopPropagation(); toggleInfo(); }}
-              aria-pressed={showInfo}
-              disabled={!currentTrack}
-              aria-label="Información de la pista"
-            >
-              <InfoIcon />
-            </button>
-          </BarTip>
+          {!isVideo && (
+            <BarTip tip="Letra" accent="var(--lyric-pink)" line="linear-gradient(90deg, var(--accent), var(--lyric-pink))">
+              <button
+                className={`action-btn lyrics-btn${showLyrics ? ' active' : ''}`}
+                onClick={toggleLyricsBar}
+                aria-pressed={showLyrics}
+                aria-label="Letra"
+              >
+                <LyricsGlyph />
+              </button>
+            </BarTip>
+          )}
+          {!isVideo && (
+            <BarTip tip="Información de la pista" accent="var(--amber)">
+              <button
+                className={`action-btn info-btn${showInfo ? ' active' : ''}`}
+                onClick={e => { e.stopPropagation(); toggleInfo(); }}
+                aria-pressed={showInfo}
+                disabled={!currentTrack}
+                aria-label="Información de la pista"
+              >
+                <InfoIcon />
+              </button>
+            </BarTip>
+          )}
           {/* El grupo entero (bocina + slider) comparte un tooltip con readout
               del nivel, teñido por volumeColor; gris cuando está silenciado. */}
           <div
@@ -1628,13 +1674,15 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           >
             <QueueGlyph size={22} />
           </button>
-          <button
-            className={`mini-btn lyrics-mini${showLyrics ? ' active' : ''}`}
-            onClick={toggleLyricsBar}
-            title="Letra"
-          >
-            <LyricsGlyph size={22} />
-          </button>
+          {!isVideo && (
+            <button
+              className={`mini-btn lyrics-mini${showLyrics ? ' active' : ''}`}
+              onClick={toggleLyricsBar}
+              title="Letra"
+            >
+              <LyricsGlyph size={22} />
+            </button>
+          )}
           <button
             className="mini-btn play-mini"
             onClick={e => { e.stopPropagation(); togglePlay(); }}

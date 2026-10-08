@@ -21,7 +21,11 @@ export function setUnauthorizedHandler(fn) {
 // Con el timeout la promesa rechaza, el finally de reauth() baja checking y aparece el Login.
 const REQUEST_TIMEOUT_MS = 10_000;
 
-async function request(path, options = {}) {
+// `raw: true` (videos en playlists, V8d/V8e): una respuesta 2xx vuelve como { status, data } en vez
+// de sólo el cuerpo, para poder exigir el código EXACTO como iOS ("un 200 no es éxito",
+// sonorarev-ios/lib/playlists/videos-datos.ts:111-113). Los errores siguen lanzando igual (con
+// .status). Sin `raw`, todo exactamente como antes.
+async function request(path, { raw, ...options } = {}) {
   const token = getToken();
 
   const ctrl = new AbortController();
@@ -70,6 +74,7 @@ async function request(path, options = {}) {
     }
     throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status });
   }
+  if (raw) return { status: res.status, data: res.status === 204 ? null : await res.json().catch(() => null) };
   if (res.status === 204) return null;
   return res.json();
 }
@@ -110,12 +115,25 @@ export const api = {
   playlistTracks:  (id)         => request(`/api/playlists/${id}/tracks`),
   addToPlaylist:   (id, trackId)=> request(`/api/playlists/${id}/tracks`,     { method: 'POST', body: JSON.stringify({ track_id: trackId }) }),
   removeFromPlaylist: (id, tid) => request(`/api/playlists/${id}/tracks/${tid}`, { method: 'DELETE' }),
+  // Videos de una playlist (music-server/src/api/playlists.js, 1.21.0): tabla aparte, con su propio
+  // orden. GET → { index: 'ok'|'unavailable', videos: [{ id, position, added_at, title, artist,
+  // available: true|false|null, duration, size, has_cover, year }] }.
+  playlistVideos:  (id)         => request(`/api/playlists/${id}/videos`),
+  // En LOTE como iOS (lib/playlists/videos.ts:33-43): un video que ya no está llega como `skipped` y
+  // un 404 sólo puede ser la playlist. Las tres van con `raw` → { status, data } (utils/videoPlaylistActions.js).
+  addVideoToPlaylist:      (id, videoId) => request(`/api/playlists/${id}/videos`, { method: 'POST', body: JSON.stringify({ video_ids: [videoId] }), raw: true }),
+  removeVideoFromPlaylist: (id, videoId) => request(`/api/playlists/${id}/videos/${videoId}`, { method: 'DELETE', raw: true }),
+  createPlaylistRaw:       (name, emoji) => request('/api/playlists', { method: 'POST', body: JSON.stringify({ name, emoji }), raw: true }),
 
   // Escuchas (utils/playsOutbox.js): lote de { client_id, track_id, played_at, ms_played } → { added, already, skipped }
   recordPlays:     (plays)      => request('/api/plays', { method: 'POST', body: JSON.stringify({ plays }) }),
 
   // Novedades (CHANGELOG.md del repo) → { content }
   changelog:       ()           => request('/api/changelog'),
+
+  // Videos (music-server/src/videos/routes.js) → { videos: [{ id, title, artist, year, ext, size,
+  // mime, duration, has_cover }] }. Ya vienen ordenados: artista A→Z, año del más nuevo al más viejo.
+  videos:          ()           => request('/api/videos'),
 };
 
 // URL helpers for src attributes (need token in query param)
@@ -131,3 +149,7 @@ export function streamUrl(trackId) { return `/stream/${trackId}?token=${getToken
 export function artistImageUrl(artist) {
   return `/api/browse/artists/${encodeURIComponent(artist)}/image?token=${getToken()}`;
 }
+// Videos: misma autenticación que el audio (Bearer o ?token=). La portada da 404 si el video
+// no la tiene (has_cover === false); el stream usa el mismo manejo de Range que el audio.
+export function videoCoverUrl(videoId) { return `/api/videos/${videoId}/cover?token=${getToken()}`; }
+export function videoStreamUrl(videoId) { return `/stream/video/${videoId}?token=${getToken()}`; }

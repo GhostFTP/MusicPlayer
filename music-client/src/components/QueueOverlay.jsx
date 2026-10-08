@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { coverUrl } from '../api/client.js';
+import { coverUrl, videoCoverUrl } from '../api/client.js';
 import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
@@ -97,14 +97,20 @@ const QueueRow = memo(function QueueRow({ track, index, setsize, zone, isCurrent
     >
       <span className="queue-num">{index + 1}</span>
       <span className="queue-cover">
-        {track.cover_path
-          ? <img src={coverUrl(track.id, { thumb: true })} alt="" loading="lazy" />
-          : <span className="queue-cover-ph">♪</span>}
+        {/* Un video (V5) usa su propia portada, o el marcador 🎬: su id es hex y no existe como pista. */}
+        {track.kind === 'video'
+          ? (track.has_cover
+            ? <img src={videoCoverUrl(track.id)} alt="" loading="lazy" />
+            : <span className="queue-cover-ph">🎬</span>)
+          : track.cover_path
+            ? <img src={coverUrl(track.id, { thumb: true })} alt="" loading="lazy" />
+            : <span className="queue-cover-ph">♪</span>}
         {isCurrent && <EqBars />}
         <span className="queue-play" aria-hidden="true">▶</span>
       </span>
       <span className="queue-text">
         <span className="queue-title">
+          {track.kind === 'video' && <VideoMark />}
           <span className="queue-title-name">{track.title ?? 'Sin título'}</span>
           {isUpNext && <span className="queue-pill">a continuación</span>}
         </span>
@@ -557,5 +563,15 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
         )}
       </div>
     </div>
+  );
+}
+
+// Marca discreta de "esto es un video" en la fila de la cola (V5). role="img" + aria-label: el lector
+// de pantalla lo anuncia; el resto de la fila no cambia.
+function VideoMark() {
+  return (
+    <svg className="queue-video-mark" role="img" aria-label="Video" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="5" width="14" height="14" rx="2" /><path d="M16 10l6-4v12l-6-4z" />
+    </svg>
   );
 }

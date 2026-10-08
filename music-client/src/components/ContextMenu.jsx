@@ -9,7 +9,9 @@ import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
 import { trackMessage, albumMessage, shareAndNotify } from '../utils/share.js';
-import { useFavorites, loadFavorites } from '../utils/favorites.js';
+import { useFavorites, loadFavorites, favoritesIdIn } from '../utils/favorites.js';
+import { accionesHoja, agregarVideo, crearYAgregarVideo, playlistsParaVideo } from '../utils/videoPlaylistActions.js';
+import { contadorDeLista } from '../utils/playlistVideos.js';
 import { HeartIcon } from './FavButton.jsx';
 
 // ── Menú contextual GLOBAL (actions-lab · dirección visual C, "Lista seca") ──────────────
@@ -287,6 +289,33 @@ export function ContextMenuProvider({ children }) {
     finally { setBusy(false); }
   };
 
+  // ── Selector de playlists para un VIDEO (V8d), la hoja de iOS (utils/videoPlaylistActions.js):
+  //    sin "Mis favoritos" ni la playlist desde la que se abrió, "nueva playlist" arriba, y los
+  //    avisos de iOS. `onPlaylistsChanged` (lo pasa el detalle de playlist) refresca su lista de
+  //    playlists cuando el contador o las playlists cambiaron (iOS: touch).
+  const isVideoMenu = menu?.item?.kind === 'video';
+  const videoOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const addVideoTo = async (pl) => {
+    if (busy || !isVideoMenu) return;
+    setBusy(true);
+    try {
+      const r = await agregarVideo(pl, menu.item.id, toast);
+      if (r.estado === 'ok' && r.agregados > 0) menu.onPlaylistsChanged?.();
+      closeMenu();
+    } finally { setBusy(false); }
+  };
+  const createAndAddVideo = async (e) => {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name || busy || !isVideoMenu) return;
+    setBusy(true);
+    try {
+      const { creada } = await crearYAgregarVideo(name, newEmoji, menu.item.id, toast);
+      if (creada != null) menu.onPlaylistsChanged?.();   // creada aunque el video no haya entrado
+      closeMenu();
+    } finally { setBusy(false); }
+  };
+
   // Las acciones que NO aplican se OCULTAN, no se deshabilitan (regla dura de actions-lab: un
   // menú con ítems grises es ruido). `sep: true` = separador ARRIBA de ese ítem.
   //
@@ -409,6 +438,11 @@ export function ContextMenuProvider({ children }) {
             run: () => { removeFromQueue(it._qid); toast('Quitada de la cola'); },
           });
         }
+        // Fila de VIDEO (V5): sólo "Quitar", que va por _qid y vale para cualquier ítem. Lo demás es
+        // de pista y con el id hex del video no sirve: playlist y favorito guardan track_id, "ver
+        // info" pide /api/tracks/<id>, compartir arma el link de un álbum. "Ir al artista" e "ir al
+        // álbum" ya no aparecían (el video no trae album_artist ni album).
+        if (it.kind === 'video') break;
         pushAddToPlaylist();
         pushFavorite(it);
         pushTrackNav(it);
@@ -473,10 +507,60 @@ export function ContextMenuProvider({ children }) {
         break;
       }
 
+      // ── Tarjeta de VIDEO (vista Videos, V7). Lo mismo que la hoja de un video en iOS
+      //    (components/videos/hoja-video.tsx): sólo "a continuación" y "a la cola", con el ítem de
+      //    cola que ya trae kind:'video'. Sin "Reproducir" (tocar la tarjeta ya reproduce la lista
+      //    de videos desde ésa), ni favorito, playlist, compartir, artista o info: son de pista.
+      //    El aviso de la cola va en masculino, como iOS (avisoCola).
+      case 'video': {
+        if (currentTrack?.id !== it.id) {
+          list.push({
+            id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
+            run: () => { playAfterCurrent(it); toast('Suena a continuación'); },
+          });
+        }
+        list.push({
+          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
+          run: () => { addToQueue(it); toast('Añadido a la cola'); },
+        });
+        // V8d: un video de la lista está en el índice → se puede agregar (sin red, el selector lo dice).
+        if (accionesHoja({ offline: videoOffline, disponibilidad: 'si', desdePlaylist: false }).agregar !== 'no') pushAddToPlaylist();
+        break;
+      }
+
+      // ── FILA DE VIDEO del detalle de una playlist (V8e), en el orden de la hoja de iOS: la cola
+      //    (sólo si se puede ver), agregar a OTRA playlist y, al final y en rojo, quitar de ésta.
+      //    Quitar vale también en una fila apagada (no disponible / sin índice), salvo sin red
+      //    (filaQuitable). Lo que hace quitar lo sabe el detalle: viaja en el payload, como el
+      //    `onRemove` de las canciones.
+      case 'playlist-video': {
+        if (menu.playable) {
+          if (currentTrack?.id !== it.id) {
+            list.push({
+              id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
+              run: () => { playAfterCurrent(it); toast('Suena a continuación'); },
+            });
+          }
+          list.push({
+            id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
+            run: () => { addToQueue(it); toast('Añadido a la cola'); },
+          });
+        }
+        const acc = accionesHoja({ offline: videoOffline, disponibilidad: menu.disponibilidad, desdePlaylist: true });
+        if (acc.agregar !== 'no') pushAddToPlaylist();
+        if (acc.quitar === 'si' && menu.onRemoveVideo) {
+          list.push({
+            id: 'pl-video-remove', sep: list.length > 0, label: 'Quitar de esta playlist', short: 'Quitar', tone: 'danger', icon: <IconPlaylistRemove />,
+            run: () => menu.onRemoveVideo(),
+          });
+        }
+        break;
+      }
+
       default: break;
     }
     return list;
-  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast, share, isFavorite, toggleFav, favVersion]);
+  }, [menu, currentTrack, play, addToQueue, playAfterCurrent, removeFromQueue, onTracks, toast, share, isFavorite, toggleFav, favVersion, videoOffline]);
 
   // C2b · Escalera INTERNA del menú. Con el selector de playlists abierto, el primer Esc/atrás
   // vuelve al grid y el segundo cierra — antes cerraba todo de una. Sigue valiendo "un Esc = una
@@ -533,7 +617,64 @@ export function ContextMenuProvider({ children }) {
           }}
           onContextMenu={(e) => e.preventDefault()}   // clic derecho SOBRE el menú: no abrir el nativo encima
         >
-          {panel === 'playlist' ? (
+          {panel === 'playlist' && isVideoMenu ? (
+            <>
+              <button type="button" className="ctx-back" onClick={() => setPanel(null)}>
+                <IconChevronLeft />
+                <span>Agregar a playlist</span>
+              </button>
+              {videoOffline ? (
+                <div className="ptp-empty">
+                  <div className="ptp-empty-text">Sin conexión: los videos necesitan internet.</div>
+                </div>
+              ) : (
+                <>
+                  {/* "Nueva playlist" ARRIBA, como la hoja de iOS: la crea y le agrega el video. */}
+                  <form className="ptp-new ptp-new--top" onSubmit={createAndAddVideo}>
+                    <EmojiPicker value={newEmoji} onChange={setNewEmoji} />
+                    <input
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="Nueva playlist…"
+                      aria-label="Nueva playlist con este video"
+                      autoFocus={!menu.tiles}
+                    />
+                    <button className="ptp-new-btn" type="submit" title="Crear y agregar" disabled={busy}>+</button>
+                  </form>
+                  {playlists === null ? (
+                    <div className="ctx-loading">Cargando…</div>
+                  ) : (() => {
+                    const lista = playlistsParaVideo(playlists, favoritesIdIn(playlists), menu.fromPlaylistId);
+                    return lista.length > 0 ? (
+                      <ul className="ptp-list">
+                        {lista.map((pl, idx) => (
+                          <li key={pl.id} className="ptp-item" style={{ '--h': emojiHue(pl.emoji), '--i': idx }}>
+                            <button
+                              type="button"
+                              className="ptp-item-main"
+                              onClick={() => addVideoTo(pl)}
+                              disabled={busy}
+                              title={`Agregar a ${pl.name}`}
+                            >
+                              <span className="ptp-item-emoji">{pl.emoji || '🎵'}</span>
+                              <span className="ptp-item-text">
+                                <span className="ptp-item-name">{pl.name}</span>
+                                <span className="ptp-item-sub">{contadorDeLista(pl.track_count ?? 0, pl.video_count)}</span>
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="ptp-empty">
+                        <div className="ptp-empty-text">Aún no tienes otras playlists.</div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </>
+          ) : panel === 'playlist' ? (
             <>
               {/* Volver a las acciones. El Esc NO retrocede acá: cierra el menú entero (lo corre
                   la escalera de Player, peldaño 0) — es un popover, no una pila de vistas. */}

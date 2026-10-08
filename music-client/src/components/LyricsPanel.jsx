@@ -107,6 +107,9 @@ function findActiveIdx(lines, t) {
 // panel — su franja inferior taparía la barra real → "barra fantasma").
 export default function LyricsPanel({ onClose, immersive = false, onToggleImmersive }) {
   const { currentTrack, isPlaying, seek } = usePlayer();
+  // La letra es de PISTAS. Con un video sonando (V5) no se pide nada ni se lee/escribe localStorage
+  // con su id hex: para todo lo que hace pedidos o persiste, un video es "sin pista".
+  const lyricTrack = currentTrack?.kind === 'video' ? null : currentTrack;
   const { currentTime, duration } = usePlayerTime();
   const [data, setData]       = useState(null);   // { instrumental, synced, lyrics }
   const [loading, setLoading] = useState(false);
@@ -231,7 +234,7 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
   }
 
   useEffect(() => {
-    if (!currentTrack) { setData(null); return; }
+    if (!lyricTrack) { setData(null); return; }
     let cancelled = false;
     setLoading(true);
     // Timeout client-side 7s: red de seguridad si el server o el túnel se pasman
@@ -239,25 +242,25 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
     // llega antes). Al vencer, el catch degrada EN SILENCIO a "Sin letra
     // disponible" (regla 8: fallos externos sin error visible); el flag
     // `cancelled` evita que un abort tardío pise data de la pista siguiente.
-    api.lyrics(currentTrack.id, { signal: AbortSignal.timeout(7000) })
+    api.lyrics(lyricTrack.id, { signal: AbortSignal.timeout(7000) })
       .then(d => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [currentTrack]);
+  }, [lyricTrack]);
 
   // Cargar el ajuste de sync guardado al cambiar de pista (localStorage por trackId).
   useEffect(() => {
-    if (!currentTrack) { setOffset(0); return; }
-    const saved = parseFloat(localStorage.getItem('lyricsOffset:' + currentTrack.id));
+    if (!lyricTrack) { setOffset(0); return; }
+    const saved = parseFloat(localStorage.getItem('lyricsOffset:' + lyricTrack.id));
     setOffset(Number.isFinite(saved) ? saved : 0);
-  }, [currentTrack]);
+  }, [lyricTrack]);
 
   // Cargar la marca "no es la letra" al cambiar de pista (mismo patrón que el offset).
   useEffect(() => {
-    if (!currentTrack) { setHidden(false); return; }
-    setHidden(localStorage.getItem('lyricsHidden:' + currentTrack.id) === '1');
-  }, [currentTrack]);
+    if (!lyricTrack) { setHidden(false); return; }
+    setHidden(localStorage.getItem('lyricsHidden:' + lyricTrack.id) === '1');
+  }, [lyricTrack]);
 
   // La marca SOLO suprime letra vía LRCLIB: un .lrc curado llega sin `source` y
   // se muestra siempre, aunque la marca siga guardada. El fetch NO se evita
@@ -481,9 +484,9 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
 
   // Ajuste fino de sync (persistido por trackId). +0.5: adelanta; −0.5: atrasa.
   function persistOffset(v) {
-    if (!currentTrack) return;
-    if (v === 0) localStorage.removeItem('lyricsOffset:' + currentTrack.id);
-    else         localStorage.setItem('lyricsOffset:' + currentTrack.id, String(v));
+    if (!lyricTrack) return;
+    if (v === 0) localStorage.removeItem('lyricsOffset:' + lyricTrack.id);
+    else         localStorage.setItem('lyricsOffset:' + lyricTrack.id, String(v));
   }
   function adjustOffset(delta) {
     setOffset(o => {
@@ -501,13 +504,13 @@ export default function LyricsPanel({ onClose, immersive = false, onToggleImmers
   // deshacer borra la key, como el offset en 0). Deshacer muestra la letra ya en
   // memoria — re-pedirla devolvería lo mismo por el caché 24h del server.
   function hideLyrics() {
-    if (!currentTrack) return;
-    localStorage.setItem('lyricsHidden:' + currentTrack.id, '1');
+    if (!lyricTrack) return;
+    localStorage.setItem('lyricsHidden:' + lyricTrack.id, '1');
     setHidden(true);
   }
   function restoreLyrics() {
-    if (!currentTrack) return;
-    localStorage.removeItem('lyricsHidden:' + currentTrack.id);
+    if (!lyricTrack) return;
+    localStorage.removeItem('lyricsHidden:' + lyricTrack.id);
     setHidden(false);
   }
 

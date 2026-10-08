@@ -71,6 +71,12 @@ export function pickFavorites(playlists, savedId) {
   return named[0] ?? null;
 }
 
+// El id de "Mis favoritos" dentro de una lista de playlists ya cargada (sin pedir nada): la misma
+// elección que find(). Lo usa el detalle de playlist: "Mis favoritos" no lleva sección de videos.
+export function favoritesIdIn(playlists) {
+  return pickFavorites(playlists, storedId(currentOwner()))?.id ?? null;
+}
+
 // Busca "Mis favoritos" (sin crearla). Devuelve su id o null.
 async function find(owner) {
   const pl = pickFavorites(await api.playlists(), storedId(owner));

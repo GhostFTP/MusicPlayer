@@ -8,6 +8,7 @@ import Years     from './Years.jsx';
 import Playlists from './Playlists.jsx';
 import Changelog from './Changelog.jsx';
 import Settings  from './Settings.jsx';
+import Videos    from './Videos.jsx';
 import Player    from './Player.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import { DragQueueProvider } from '../context/DragQueueContext.jsx';
@@ -139,6 +140,7 @@ export default function Layout() {
     playlists: <Playlists {...viewProps} />,
     changelog: <Changelog {...viewProps} />,
     settings:  <Settings  {...viewProps} />,
+    videos:    <Videos    {...viewProps} />,
   };
 
   // ── Gesto "atrás" (móvil): ver banner de comentario arriba del archivo ──
@@ -275,6 +277,7 @@ const NAV_ITEMS = [
   { id: 'genres',    label: 'Géneros',    icon: <GenreIcon /> },
   { id: 'years',     label: 'Años',       icon: <YearIcon /> },
   { id: 'playlists', label: 'Playlists',  icon: <PlaylistIcon /> },
+  { id: 'videos',    label: 'Videos',     icon: <VideoIcon /> },
 ];
 
 function BottomNav({ view, navigate }) {
@@ -311,6 +314,9 @@ function GenreIcon() {
 }
 function YearIcon() {
   return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>;
+}
+function VideoIcon() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="14" height="14" rx="2"/><path d="M16 10l6-4v12l-6-4z"/></svg>;
 }
 // Glyph del chevron del gesto "atrás" (nav-back-chevron, sólo móvil).
 function ChevronLeftGlyph() {

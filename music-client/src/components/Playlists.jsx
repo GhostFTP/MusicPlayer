@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { api, coverUrl } from '../api/client.js';
+import { api, coverUrl, videoCoverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
@@ -11,13 +11,21 @@ import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 import BackButton from './BackButton.jsx';
+import { useToast } from './Toast.jsx';
+import { favoritesIdIn } from '../utils/favorites.js';
+import {
+  estadoFila, notaFila, videoReproducible, itemDeVideo, estadoSeccion, vistaSeccion,
+  vistaSinCanciones, renglonSinCanciones, contadorDeLista, avisoVideosOmitidos,
+} from '../utils/playlistVideos.js';
+import { quitarVideo } from '../utils/videoPlaylistActions.js';
 
 export default function Playlists({ target, clearTarget, setDetailOpen, navigate }) {
   const [playlists, setPlaylists] = useState([]);
   const [loadError, setLoadError] = useState(null);
   const [newName,   setNewName]   = useState('');
   const [emoji,     setEmoji]     = useState('🎵');
-  const [selected,  setSelected]  = useState(null); // { playlist, tracks }
+  const [selected,  setSelected]  = useState(null); // { playlist, tracks, esFav, videos }
+  const toast = useToast();
   const [renaming,  setRenaming]  = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false); // paso extra antes de borrar la playlist
   const [renameVal, setRenameVal] = useState('');
@@ -38,6 +46,10 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
   // Drag-to-enqueue (fase a): misma fila que TrackTable, mismo trato (ver el comentario de allá).
   // Encolar NO saca la pista de la playlist: es la misma copia que ya hace "agregar a la cola".
   const { dragProps } = useDragQueue();
+  // Filas de VIDEO (V8e): el mismo menú, con su propio tipo ('playlist-video'). El payload lo arma
+  // el detalle (`videoPayload`, más abajo): sabe si se puede ver, si sigue en el índice y cómo
+  // quitarlo de ESTA playlist.
+  const bindVideoPress = useLongPress((payload, ev) => openMenu(ev, { ...payload, via: 'longpress' }));
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -84,9 +96,35 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     if (selected?.playlist.id === id) window.history.back();   // F1.3b: borrar la abierta = pop de ruta
   }
 
+  // VIDEOS DE LA PLAYLIST (V8b): se piden EN PARALELO con las canciones y no las frenan; si fallan,
+  // sólo la sección muestra su error (con Reintentar). "Mis favoritos" no lleva videos: ni se piden.
+  // `videos` es la carga: { status: 'loading'|'ok'|'error', fallo, videos } (utils/playlistVideos.js).
+  function fetchVideos(id) {
+    return api.playlistVideos(id).then(
+      (d) => ({ status: 'ok', fallo: null, videos: Array.isArray(d?.videos) ? d.videos : [] }),
+      (e) => ({
+        status: 'error',
+        fallo: e?.status === 401 ? 'sesion' : e?.status === 404 ? 'playlist-no-existe' : 'error',
+        videos: [],
+      }),
+    );
+  }
+  // La respuesta sólo se aplica si sigue abierta ESA playlist.
+  function applyVideos(id, pending) {
+    pending.then((carga) => setSelected((cur) => (cur && cur.playlist.id === id ? { ...cur, videos: carga } : cur)));
+  }
+  function retryVideos() {
+    const id = selected.playlist.id;
+    setSelected((cur) => ({ ...cur, videos: { status: 'loading', fallo: null, videos: [] } }));
+    applyVideos(id, fetchVideos(id));
+  }
+
   async function open(playlist) {
+    const esFav = playlist.id === favoritesIdIn(playlists);
+    const pendingVideos = esFav ? null : fetchVideos(playlist.id);
     const tracks = await api.playlistTracks(playlist.id);
-    setSelected({ playlist, tracks });
+    setSelected({ playlist, tracks, esFav, videos: esFav ? null : { status: 'loading', fallo: null, videos: [] } });
+    if (pendingVideos) applyVideos(playlist.id, pendingVideos);
     setRenaming(false);
     setConfirmDelete(false); // sin confirmación de borrado a medias al abrir otra playlist
     setSortMode('added');   // cada playlist abre en el default: Añadido ↓
@@ -120,6 +158,19 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     setPlaylists(prev => prev.map(p =>
       p.id === selected.playlist.id ? { ...p, track_count: Math.max(0, (p.track_count ?? 1) - 1) } : p
     ));
+  }
+
+  // Quitar un VIDEO de la playlist abierta (V8e), como la hoja de iOS: el aviso sale siempre
+  // ("Quitado de la playlist" o el error), y sólo con un 204 la fila se va y bajan los contadores.
+  // Si era el último y no hay canciones, el detalle pasa solo a "Playlist vacía". La cola no se toca.
+  async function removeVideo(videoId) {
+    const plId = selected.playlist.id;
+    const r = await quitarVideo(plId, videoId, toast);
+    if (r !== 'ok') return;
+    setSelected((cur) => (cur && cur.playlist.id === plId && cur.videos?.status === 'ok'
+      ? { ...cur, videos: { ...cur.videos, videos: cur.videos.videos.filter((v) => v.id !== videoId) } }
+      : cur));
+    setPlaylists((prev) => prev.map((pl) => (pl.id === plId ? { ...pl, video_count: Math.max(0, (pl.video_count ?? 1) - 1) } : pl)));
   }
 
   // Cambiar de modo arranca en su dirección natural (texto A-Z asc, Añadido desc);
@@ -158,6 +209,43 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     // (NO `sortedTracks`, que reordena por el Riel y filtra por el buscador → la
     // portada debe ser ESTABLE). .filter().slice().map() son lecturas: no mutan.
     const heroCoverIds = tracks.filter(t => t.cover_path != null).slice(0, 4).map(t => t.id);
+
+    // Videos (V8b/V8c), con las reglas de la pantalla de iOS (utils/playlistVideos.js). Reproducir =
+    // las canciones visibles (buscador + Riel, como hoy) y AL FINAL los videos reproducibles en su
+    // orden; Mix = todo barajado. El buscador y el Riel no tocan los videos. Los que no se pueden
+    // ver quedan afuera, con el aviso de iOS.
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const { esFav } = selected;
+    const carga = selected.videos;
+    const estado = esFav ? 'vacia' : estadoSeccion({ offline, carga });
+    const vista = vistaSeccion({ esFav, estado, fallo: carga?.fallo ?? null });
+    const filasVideo = carga?.status === 'ok' ? carga.videos : [];
+    const itemsVideo = filasVideo.filter((v) => videoReproducible(v, offline)).map(itemDeVideo);
+    const omitidos = filasVideo.length - itemsVideo.length;
+    const avisarOmitidos = () => {
+      const texto = avisoVideosOmitidos(omitidos, offline);
+      if (texto) toast(texto, { variant: 'warning' });
+    };
+    // El "· N videos" del encabezado, como iOS (playlist.tsx:293-298): con la sección en lista, los
+    // cargados; mientras carga, el video_count de la lista (así no aparece tarde); en cualquier otro
+    // estado (error, vacía, sin red, "Mis favoritos"), nada.
+    const nVideos = vista === 'lista' ? filasVideo.length : (!esFav && estado === 'cargando' ? (playlist.video_count ?? 0) : 0);
+    const sinCanciones = tracks.length === 0 ? vistaSinCanciones({ esFav, estado, vista }) : null;
+    const playVideoRow = (id) => play(itemsVideo, itemsVideo.findIndex((it) => it.id === id));
+    // El payload del menú de una fila de video (ContextMenu, case 'playlist-video').
+    const videoPayload = (v) => ({
+      type: 'playlist-video',
+      item: itemDeVideo(v),
+      playable: videoReproducible(v, offline),
+      disponibilidad: v.available === true ? 'si' : v.available === false ? 'no' : 'desconocida',
+      fromPlaylistId: playlist.id,
+      onRemoveVideo: () => removeVideo(v.id),
+      onPlaylistsChanged: loadPlaylists,   // agregó a OTRA playlist o creó una: la lista se refresca
+    });
+    const videoRowPress = (v, tocable) => bindVideoPress(videoPayload(v), {
+      onClick: tocable ? () => playVideoRow(v.id) : undefined,
+      onContextMenu: (e) => openMenu(e, videoPayload(v)),
+    });
     return (
       <div>
         <BackButton label="Todas las playlists" view="playlists" onList={() => navigate('playlists')} />
@@ -191,7 +279,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                   </button>
                 </h1>
                 <div className="detail-meta">
-                  {tracks.length} {tracks.length === 1 ? 'canción' : 'canciones'}
+                  {contadorDeLista(tracks.length, nVideos)}
                   {totalLabel && <> · {totalLabel}</>}
                 </div>
                 <div className="pl-detail-actions">
@@ -215,16 +303,16 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                     </div>
                   ) : (
                     <>
-                      {tracks.length > 0 && (
+                      {(tracks.length > 0 || filasVideo.length > 0) && (
                         <>
                           <button
                             className="btn-primary"
-                            onClick={() => play(sortedTracks, 0)}
-                            disabled={sortedTracks.length === 0}
+                            onClick={() => { play([...sortedTracks, ...itemsVideo], 0); avisarOmitidos(); }}
+                            disabled={sortedTracks.length + itemsVideo.length === 0}
                           >
                             ▶ Reproducir
                           </button>
-                          <ShuffleButton tracks={query.trim() ? sortedTracks : tracks} />
+                          <ShuffleButton tracks={[...(query.trim() ? sortedTracks : tracks), ...itemsVideo]} onPlayed={avisarOmitidos} />
                         </>
                       )}
                       <button
@@ -243,11 +331,21 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
         </div>
 
         {tracks.length === 0 ? (
+          // Cero canciones, como la pantalla de iOS: mientras cargan los videos, spinner y ningún
+          // texto de vacío; con videos, sólo la sección de abajo (el encabezado ya dice
+          // "0 canciones · N videos"); "Sin canciones." con la sección en error o si de los videos
+          // no se sabe nada; "Playlist vacía" sólo si se confirmó que tampoco hay videos.
+          sinCanciones === 'spinner' ? (
+            <div className="spinner">Cargando…</div>
+          ) : sinCanciones === 'sin-canciones' || (sinCanciones === 'con-videos' && renglonSinCanciones(vista)) ? (
+            <div className="pl-sin-canciones">Sin canciones.</div>
+          ) : sinCanciones === 'con-videos' ? null : (
           <div className="empty-state">
             <div className="empty-icon">🎶</div>
             <div className="empty-title">Playlist vacía</div>
             <div className="empty-sub">Busca canciones en la Biblioteca y añádelas con el botón “+”.</div>
           </div>
+          )
         ) : (
           <>
           <div
@@ -383,6 +481,17 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
           )}
           </>
         )}
+
+        {vista !== 'oculta' && (
+          <SeccionVideos
+            vista={vista}
+            filas={filasVideo}
+            offline={offline}
+            currentId={currentTrack?.kind === 'video' ? currentTrack.id : null}
+            rowPress={videoRowPress}
+            onRetry={retryVideos}
+          />
+        )}
       </div>
     );
   }
@@ -433,7 +542,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                 </span>
                 <div className="playlist-card-text">
                   <div className="playlist-name">{pl.name}</div>
-                  <div className="playlist-meta">{n} {n === 1 ? 'canción' : 'canciones'}</div>
+                  <div className="playlist-meta">{contadorDeLista(n, pl.video_count)}</div>
                 </div>
                 <button
                   className="playlist-del"
@@ -449,6 +558,52 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
         </ul>
       )}
     </div>
+  );
+}
+
+// Sección "Videos · N" al pie del detalle (V8b). vista 'lista' → las filas; 'error' → el aviso con
+// Reintentar (que vuelve a pedir SÓLO los videos). Una fila que no se puede ver queda apagada, con la
+// nota de iOS en lugar de año/duración, y no reacciona al toque. Tocar una que sí arma la cola con
+// los videos reproducibles de la playlist, desde la tocada (como tocar una canción en un listado).
+function SeccionVideos({ vista, filas, offline, currentId, rowPress, onRetry }) {
+  return (
+    <section className="pl-videos" aria-label="Videos">
+      <h2 className="pl-videos-title">{vista === 'lista' ? `Videos · ${filas.length}` : 'Videos'}</h2>
+      {vista === 'error' ? (
+        <div className="pl-videos-error">
+          <span>No se pudieron cargar los videos</span>
+          <button type="button" className="btn-primary" onClick={onRetry}>Reintentar</button>
+        </div>
+      ) : (
+        <ul className="pl-video-list">
+          {filas.map((v) => {
+            const e = estadoFila(v, offline);
+            const tocable = videoReproducible(v, offline);
+            const nota = notaFila(e);
+            const meta = nota ?? [v.year, v.duration ? fmt(v.duration) : null].filter(Boolean).join(' · ');
+            return (
+              <li
+                key={v.id}
+                className={`pl-video-row${tocable ? '' : ' off'}${currentId === v.id ? ' playing' : ''}`}
+                {...rowPress(v, tocable)}
+                aria-disabled={tocable ? undefined : 'true'}
+              >
+                <span className="pl-video-cover">
+                  {v.has_cover && e === 'disponible'
+                    ? <img src={videoCoverUrl(v.id)} alt="" loading="lazy" draggable={false} />
+                    : <span className="pl-video-ph">🎬</span>}
+                </span>
+                <span className="pl-video-text">
+                  <span className="pl-video-title">{v.title ?? 'Sin título'}</span>
+                  <span className="pl-video-artist">{v.artist ?? '—'}</span>
+                  {meta && <span className="pl-video-meta">{meta}</span>}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

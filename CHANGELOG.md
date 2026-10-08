@@ -3,6 +3,36 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.26.0] - 2026-10-07
+
+### Añadido
+- **Videos en la web.** Hay una sección nueva, **Videos**, en el menú de la izquierda y como
+  séptimo botón en la barra de abajo del teléfono. Muestra los videos agrupados por artista,
+  con su portada, el año y la duración.
+- **Los videos se ven en el reproductor.** Al tocar un video empieza la lista de videos desde
+  ese. Con el reproductor cerrado, el video se ve en la portada de la barra de abajo; al
+  abrir el reproductor ocupa el lugar de la portada. Se pausa, se adelanta y se pasa al
+  siguiente igual que una canción. Si un video no se puede cargar, pasa al siguiente y te
+  avisa.
+- **Videos en la cola y en tus playlists.** Desde el menú de un video (clic derecho, o
+  mantener presionado en el teléfono) puedes ponerlo a continuación, agregarlo al final de
+  la cola o agregarlo a una playlist, también a una nueva. Dentro de una playlist, el mismo
+  menú te deja quitarlo.
+- **Las playlists muestran sus videos** en una sección al final. «Reproducir» pone primero
+  las canciones y después los videos que se pueden ver; «Mix aleatorio» mezcla todo. La
+  lista de playlists dice cuántas canciones y cuántos videos tiene cada una.
+
+### Para tener en cuenta
+- «Reproducir» y «Mix aleatorio» de artistas, álbumes, géneros y años, y la tecla M, siguen
+  siendo solo de canciones.
+- Los videos no cuentan como escucha: no se registran en tu historial y no suman en tu
+  Resumen del año.
+- Mientras suena un video no aparecen el corazón, Compartir, la letra ni la calidad, que son
+  de las canciones. «Mis favoritos» no lleva videos.
+- **Límites conocidos:** lo probamos en el navegador de la computadora. En el iPhone y en
+  Safari (que un video empiece solo después de una canción, qué pasa en segundo plano y en la
+  pantalla de bloqueo) todavía lo estamos verificando.
+
 ## [1.25.0] - 2026-10-07
 
 ### Corregido

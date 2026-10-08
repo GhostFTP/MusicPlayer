@@ -1021,6 +1021,32 @@ button, input, select, textarea { font-family: inherit; }
   transition: transform .35s cubic-bezier(.22, 1, .36, 1);
 }
 
+/* ── VIDEOS ──
+   La misma tarjeta de Álbumes con portada 16:9 (las portadas de video son fotogramas). Tocarla
+   reproduce, igual que una canción en un listado. */
+.video-group { margin-bottom: 28px; }
+.video-group-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; }
+.video-cover-frame .video-cover { aspect-ratio: 16 / 9; }
+
+/* El ÚNICO <video> de la app (PlayerContext). Fijo y fuera del flujo: PlayerContext lo coloca cada
+   frame sobre el hueco activo (transform + width/height) y nunca lo reparenta. data-slot dice cuál:
+     · "mini" → la portada de la barra/mini: justo encima de la barra (que no tiene z) y debajo de todo
+       lo que hoy tapa la barra (hojas móviles 150, expandido 200, Letra, cola, popovers, Info, toast).
+     · "exp"  → la portada del expandido: sobre el expandido (200) y debajo de la Letra (250).
+     · ""     → no suena un video: oculto.
+   Sin eventos de puntero (los toques llegan a la portada de abajo, con sus gestos) y sin
+   transiciones propias: sólo sigue al hueco, así que prefers-reduced-motion no tiene nada que apagar. */
+.player-video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  background: #000;
+  visibility: hidden;
+}
+.player-video[data-slot="mini"] { visibility: visible; z-index: 1;   border-radius: 6px;  object-fit: cover; }
+.player-video[data-slot="exp"]  { visibility: visible; z-index: 201; border-radius: 14px; object-fit: contain; }
+
 .album-grid-anim .album-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .3);            /* peso en reposo */
   transition: background .18s, transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .18s ease;
@@ -2103,6 +2129,11 @@ button, input, select, textarea { font-family: inherit; }
 /* Teal = playlist, la identidad que ya tiene el "+" en la barra y el expandido. */
 .ctx-item.tone-playlist:hover { background: rgba(45, 212, 167, .16); color: #fff; }
 .ctx-item.tone-playlist:hover svg { color: var(--teal); }
+/* Rojo = quitar un VIDEO de la playlist (V8e): al final y en rojo, como la hoja de iOS. Es el único
+   ítem rojo del menú, así que va teñido también en reposo (un destructivo no espera al hover). */
+.ctx-item.tone-danger,
+.ctx-item.tone-danger svg { color: #f87171; }
+.ctx-item.tone-danger:hover { background: rgba(248, 113, 113, .14); color: #fca5a5; }
 .ctx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* El chevron "▸" avisa que ese ítem abre un selector en vez de ejecutar algo. */
 .ctx-item .ctx-chev { margin-left: auto; opacity: .5; }
@@ -2203,6 +2234,7 @@ button, input, select, textarea { font-family: inherit; }
   .ctx-tile                { --t: 167, 139, 250; }   /* cola + navegación = morado */
   .ctx-tile.tone-info      { --t: 251, 191, 36; }    /* info = ámbar */
   .ctx-tile.tone-playlist  { --t: 45, 212, 167; }    /* playlist = teal */
+  .ctx-tile.tone-danger    { --t: 248, 113, 113; }   /* quitar un video de la playlist = rojo (V8e) */
 
   /* 2 columnas: con 6 acciones (el máximo real de una pista) son 3 filas exactas, y con 4-5 la
      última queda incompleta sin romperse. `1fr` reparte el ancho del flotante, así que los tiles
@@ -2542,6 +2574,28 @@ button, input, select, textarea { font-family: inherit; }
 /* Estado vacío del FILTRO (distinto de "Playlist vacía"): el Riel queda visible
    arriba para ajustar/limpiar sin perder los controles. */
 .pl-search-empty { padding: 32px 16px; }
+
+/* ── VIDEOS DE UNA PLAYLIST (V8b): sección al pie del detalle ──
+   Filas en lista (portada 16:9 chica + título/artista/dato), como la sección de iOS. Una fila que no
+   se puede ver (no disponible, sin índice, sin red) queda apagada y sin manito. "Sin canciones." es
+   el renglón de iOS para una playlist con cero canciones y la sección en error. */
+.pl-sin-canciones { color: var(--text-muted); font-size: 14px; padding: 16px 4px 4px; }
+.pl-videos { margin-top: 28px; }
+.pl-videos-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 10px; }
+.pl-videos-error { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; color: var(--text-muted); font-size: 14px; padding: 8px 4px; }
+.pl-video-list { list-style: none; margin: 0; padding: 0; }
+.pl-video-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: var(--radius); cursor: pointer; transition: background .15s; }
+.pl-video-row:hover { background: var(--surface-hover); }
+.pl-video-row.playing .pl-video-title { color: var(--accent); }
+.pl-video-row.off { cursor: default; opacity: .5; }
+.pl-video-row.off:hover { background: none; }
+.pl-video-cover { flex: none; width: 96px; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: linear-gradient(135deg, #2d1b69, #1a2f5c); display: flex; align-items: center; justify-content: center; }
+.pl-video-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-video-ph { font-size: 22px; }
+.pl-video-text { display: flex; flex-direction: column; min-width: 0; }
+.pl-video-title { color: var(--text); font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-video-artist { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-video-meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
 /* reduced-motion: el foco tiñe/glow al instante (color/estado sí, transición no). */
 @media (prefers-reduced-motion: reduce) {
@@ -4741,7 +4795,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   /* Botón de cola en la barra mini: gris; morado cuando la cola está abierta (glifo por currentColor). */
   .mini-btn.queue-mini.active { color: var(--accent); }
 
-  /* Bottom nav — 6 entradas: más compacto para que quepan */
+  /* Bottom nav — 7 entradas (Videos es la 7ª): más compacto para que quepan */
   .bottom-nav {
     display: flex;
     grid-column: 1;
@@ -5074,6 +5128,8 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .queue-dur { flex: none; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .queue-pill { flex: none; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 6px; }
+/* Fila de VIDEO en la cola (V5): glifo discreto antes del título, gris como el artista. */
+.queue-video-mark { flex: none; color: var(--text-muted); }
 
 .queue-eq { position: absolute; right: 3px; bottom: 3px; z-index: 1; display: flex; align-items: flex-end; gap: 2px; height: 12px; }
 .queue-eq i { width: 2px; height: 100%; background: var(--accent); border-radius: 1px; transform-origin: bottom; animation: queue-eq 900ms ease-in-out infinite; }
