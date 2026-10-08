@@ -110,6 +110,12 @@ export const api = {
   playlistTracks:  (id)         => request(`/api/playlists/${id}/tracks`),
   addToPlaylist:   (id, trackId)=> request(`/api/playlists/${id}/tracks`,     { method: 'POST', body: JSON.stringify({ track_id: trackId }) }),
   removeFromPlaylist: (id, tid) => request(`/api/playlists/${id}/tracks/${tid}`, { method: 'DELETE' }),
+  // Videos de una playlist (music-server/src/api/playlists.js, 1.21.0): tabla aparte, con su propio
+  // orden. GET → { index: 'ok'|'unavailable', videos: [{ id, position, added_at, title, artist,
+  // available: true|false|null, duration, size, has_cover, year }] }.
+  playlistVideos:  (id)         => request(`/api/playlists/${id}/videos`),
+  addVideoToPlaylist:      (id, videoId) => request(`/api/playlists/${id}/videos`, { method: 'POST', body: JSON.stringify({ video_id: videoId }) }),
+  removeVideoFromPlaylist: (id, videoId) => request(`/api/playlists/${id}/videos/${videoId}`, { method: 'DELETE' }),
 
   // Escuchas (utils/playsOutbox.js): lote de { client_id, track_id, played_at, ms_played } → { added, already, skipped }
   recordPlays:     (plays)      => request('/api/plays', { method: 'POST', body: JSON.stringify({ plays }) }),

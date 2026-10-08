@@ -29,7 +29,10 @@ import { shuffled, MIN_TRACKS, ERROR_TOAST_MS, MIX_ERROR_TEXT } from '../utils/m
 //    (se iba a <body> al activarlo con el teclado). Queda con aria-disabled + aria-busy, el clic
 //    repetido lo frena el guard de inFlight, y se ve igual que antes (main.css: [aria-busy="true"]
 //    comparte la regla de :disabled). Con < 2 pistas sigue siendo disabled real.
-export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix aleatorio' }) {
+//
+// `onPlayed` (opcional, V8c): se llama DESPUÉS de arrancar el Mix. Hoy sólo lo pasa el detalle de
+// playlist, para avisar los videos que quedaron afuera; sin él, el botón hace exactamente lo de antes.
+export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix aleatorio', onPlayed }) {
   const { play, shuffle, toggleShuffle } = usePlayer();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -63,6 +66,7 @@ export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix a
       if (!list || list.length < MIN_TRACKS) return;
       play(shuffled(list), 0);
       if (!shuffle) toggleShuffle();
+      onPlayed?.();
     } finally {
       inFlight.current = false;
     }

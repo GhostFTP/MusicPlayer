@@ -2569,6 +2569,28 @@ button, input, select, textarea { font-family: inherit; }
    arriba para ajustar/limpiar sin perder los controles. */
 .pl-search-empty { padding: 32px 16px; }
 
+/* ── VIDEOS DE UNA PLAYLIST (V8b): sección al pie del detalle ──
+   Filas en lista (portada 16:9 chica + título/artista/dato), como la sección de iOS. Una fila que no
+   se puede ver (no disponible, sin índice, sin red) queda apagada y sin manito. "Sin canciones." es
+   el renglón de iOS para una playlist con cero canciones y la sección en error. */
+.pl-sin-canciones { color: var(--text-muted); font-size: 14px; padding: 16px 4px 4px; }
+.pl-videos { margin-top: 28px; }
+.pl-videos-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 10px; }
+.pl-videos-error { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; color: var(--text-muted); font-size: 14px; padding: 8px 4px; }
+.pl-video-list { list-style: none; margin: 0; padding: 0; }
+.pl-video-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: var(--radius); cursor: pointer; transition: background .15s; }
+.pl-video-row:hover { background: var(--surface-hover); }
+.pl-video-row.playing .pl-video-title { color: var(--accent); }
+.pl-video-row.off { cursor: default; opacity: .5; }
+.pl-video-row.off:hover { background: none; }
+.pl-video-cover { flex: none; width: 96px; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: linear-gradient(135deg, #2d1b69, #1a2f5c); display: flex; align-items: center; justify-content: center; }
+.pl-video-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-video-ph { font-size: 22px; }
+.pl-video-text { display: flex; flex-direction: column; min-width: 0; }
+.pl-video-title { color: var(--text); font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-video-artist { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-video-meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
 /* reduced-motion: el foco tiñe/glow al instante (color/estado sí, transición no). */
 @media (prefers-reduced-motion: reduce) {
   .pl-search { transition: none; }
