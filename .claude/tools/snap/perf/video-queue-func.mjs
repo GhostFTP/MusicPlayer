@@ -99,8 +99,8 @@ const st = (p) => p.evaluate(() => {
   return {
     videos: document.querySelectorAll('video').length,
     audios: [...window.__els].filter((e) => e.tagName === 'AUDIO').length,
-    v: v ? { paused: v.paused, t: v.currentTime, src: v.getAttribute('src') ?? '', slot: v.dataset.slot, vol: v.volume, dur: v.duration } : null,
-    a: a ? { paused: a.paused, src: a.getAttribute('src') ?? '' } : null,
+    v: v ? { paused: v.paused, t: v.currentTime, src: (v.getAttribute('src') ?? '').split('?')[0], slot: v.dataset.slot, vol: v.volume, dur: v.duration } : null,
+    a: a ? { paused: a.paused, src: (a.getAttribute('src') ?? '').split('?')[0] } : null,
     maxBoth: window.__maxBoth,
   };
 });
@@ -126,9 +126,12 @@ const aPlaying = (s) => s.a && !s.a.paused && s.a.src.includes('/stream/') && !(
   ok('un_solo_audio_y_un_solo_video', s1.videos === 1 && s1.audios === 1, { videos: s1.videos, audios: s1.audios });
 
   // ── 3) Progreso y seek sobre el video (fixture de 30 s) ──
-  await sleep(1200);
-  const bar = await p.evaluate(() => ({ total: document.querySelector('.time-total')?.textContent, elapsed: document.querySelector('.time-elapsed')?.textContent }));
-  ok('progreso_duracion_real', bar.total === '0:30' && bar.elapsed !== '0:00', bar);
+  // La etiqueta va un timeupdate (~0,25 s) por detrás del elemento: se espera a que el video pase de
+  // 2 s y se exige que lo que muestra la barra esté a menos de 1 s de la posición real.
+  await waitFor(p, (s) => s.v && s.v.t >= 2);
+  const bar = await p.evaluate(() => ({ total: document.querySelector('.time-total')?.textContent, elapsed: document.querySelector('.time-elapsed')?.textContent, t: document.querySelector('video.player-video')?.currentTime }));
+  const [mm, ss] = (bar.elapsed ?? '').split(':').map(Number);
+  ok('progreso_duracion_real', bar.total === '0:30' && Math.abs(mm * 60 + ss - bar.t) < 1.5 && bar.elapsed !== '0:00', bar);
   const tA = (await st(p)).v.t;
   await p.evaluate(() => window.__player().seek(20));
   await sleep(400);
@@ -154,7 +157,7 @@ const aPlaying = (s) => s.a && !s.a.paused && s.a.src.includes('/stream/') && !(
   await p.evaluate(() => window.__player().setVolume(1));
 
   // ── 6) Media Session ──
-  const ms = await p.evaluate(() => { const m = navigator.mediaSession?.metadata; return m ? { title: m.title, artist: m.artist, art: m.artwork.map((a) => a.src) } : null; });
+  const ms = await p.evaluate(() => { const m = navigator.mediaSession?.metadata; return m ? { title: m.title, artist: m.artist, art: m.artwork.map((a) => a.src.split('?')[0]) } : null; });
   ok('mediasession_video_con_portada', ms?.title === LARGO.title && ms?.artist === LARGO.artist && ms.art.length > 0 && ms.art.every((s) => s.includes(`/api/videos/${LARGO.id}/cover`)), ms);
 
   // ── 5) Cero POST /api/plays: el de 30 s a 4x pasa de sobra el umbral de una canción (15 s) ──
