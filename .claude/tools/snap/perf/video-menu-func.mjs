@@ -1,12 +1,15 @@
-// video-menu-func.mjs — funcional de V7: el MENÚ CONTEXTUAL de la tarjeta de video (vista Videos).
+// video-menu-func.mjs — funcional de V7 + V8d: el MENÚ CONTEXTUAL de la tarjeta de video (vista Videos)
+// y su "Agregar a playlist" (selector sin "Mis favoritos", "Nueva playlist", avisos de iOS por cada
+// respuesta, contador de la lista). Siembra con la API REAL sobre la COPIA de la base y borra lo que
+// crea; las respuestas que no salen solas (skipped, 404, 409, 503, 401, un 200) se interceptan con route.
 // Corre contra un backend con VIDEO_DIR = los 3 fixtures (como lo arma regresion.mjs). El audio es un
 // WAV sintético servido por /stream/<id>; el video es el real del backend.
 // La cola se LEE del value de PlayerContext en el árbol ACTUAL de React (stateNode.current del fiber
 // raíz; sólo lectura) y se arma con su play(); la app no expone nada para esto.
 //
 // Comprueba, a 1440 (clic derecho) y 390 (pulsación larga):
-//   · el menú de la tarjeta tiene EXACTAMENTE "Reproducir a continuación" y "Agregar a la cola"
-//     (en el teléfono, sus versiones cortas);
+//   · el menú de la tarjeta tiene EXACTAMENTE "Reproducir a continuación", "Agregar a la cola" y
+//     "Agregar a playlist" (en el teléfono, sus versiones cortas);
 //   · "a continuación" inserta el video justo después de lo que suena, lo marca como siguiente y
 //     no corta lo que suena; avisa "Suena a continuación";
 //   · "a la cola" lo agrega al final; avisa "Añadido a la cola";
@@ -94,13 +97,24 @@ async function newPage(w, h, mobile) {
 function malas(reqs) {
   return reqs.filter(({ u, body }) => {
     const path = new URL(u).pathname;
-    if (path.startsWith('/api/videos') || path.startsWith('/stream/video/')) return false;
+    if (path.startsWith('/api/videos') || path.startsWith('/stream/video/') || /^\/api\/playlists\/\d+\/videos/.test(path)) return false;
     for (const id of HEX) if (path.includes(id) || body.includes(id)) return true;
     return false;
   }).map((r) => `${r.m} ${new URL(r.u).pathname}`);
 }
 
 const toasts = (p) => p.evaluate(() => [...document.querySelectorAll('.toast .toast-text')].map((t) => t.textContent));
+
+// ── V8d: siembra con la API real ──
+const HJ = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+const apiJ = async (path, opts = {}) => { const r = await fetch(BASE + path, { ...opts, headers: HJ }); return r.status === 204 ? null : r.json(); };
+const videosDe = async (id) => ((await apiJ(`/api/playlists/${id}/videos`)).videos ?? []).map((v) => v.id);
+// "Mis favoritos": la más vieja con ese nombre; si no hay, se crea (y se borra al final).
+const favs = (await apiJ('/api/playlists')).filter((pl) => pl.name.trim() === 'Mis favoritos')
+  .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id - b.id);
+let FAV = favs[0]?.id;
+const borrar = [];
+if (FAV == null) { FAV = (await apiJ('/api/playlists', { method: 'POST', body: JSON.stringify({ name: 'Mis favoritos' }) })).id; borrar.push(FAV); }
 
 for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
   const { ctx, p, reqs } = await newPage(w, h, mobile);
@@ -128,11 +142,13 @@ for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
     await p.waitForSelector('.ctx-menu', { state: 'detached' });
     await sleep(300);
   };
-  const L = mobile ? { next: 'A continuación', queue: 'A la cola' } : { next: 'Reproducir a continuación', queue: 'Agregar a la cola' };
+  const L = mobile
+    ? { next: 'A continuación', queue: 'A la cola', pl: 'Playlist' }
+    : { next: 'Reproducir a continuación', queue: 'Agregar a la cola', pl: 'Agregar a playlist' };
 
   // 1) El menú: exactamente las dos acciones. La pulsación larga / el clic derecho no reproducen.
   const items = await abrir(FAST.title);
-  ok(`menu_dos_acciones_${w}`, items.length === 2 && items[0] === L.next && items[1] === L.queue, { items });
+  ok(`menu_tres_acciones_${w}`, items.length === 3 && items[0] === L.next && items[1] === L.queue && items[2] === L.pl, { items });
   const tras = await p.evaluate(() => window.__cola());
   ok(`abrir_menu_no_reproduce_${w}`, tras.actual === `audio:${A1.title}`, tras);
   if (SHOTS) await p.screenshot({ path: join(OUT, `menu-${w}.png`) });
@@ -163,13 +179,115 @@ for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
 
   // 5) Sobre el video que YA suena no aparece "a continuación".
   const itemsAct = await abrir(LARGO.title);
-  ok(`menu_video_actual_sin_a_continuacion_${w}`, itemsAct.length === 1 && itemsAct[0] === L.queue, { items: itemsAct });
+  ok(`menu_video_actual_sin_a_continuacion_${w}`, itemsAct.length === 2 && itemsAct[0] === L.queue && itemsAct[1] === L.pl, { items: itemsAct });
   await p.keyboard.press('Escape');
   await p.waitForSelector('.ctx-menu', { state: 'detached' });
 
+  // ── V8d: "Agregar a playlist" desde la tarjeta ──
+  const DEST = (await apiJ('/api/playlists', { method: 'POST', body: JSON.stringify({ name: `v8d destino ${w}` }) })).id;
+  borrar.push(DEST);
+  await p.goto(BASE + '/videos');            // la lista de playlists del menú se pide al abrir el selector
+  await p.waitForSelector('.video-card');
+  const selector = async (title) => {
+    await abrir(title);
+    await p.locator('.ctx-menu :is(.ctx-item, .ctx-tile)', { hasText: L.pl }).first().click();
+    await p.waitForSelector('.ctx-menu .ptp-new');
+    await p.waitForFunction(() => !document.querySelector('.ctx-menu .ctx-loading'));
+    return p.evaluate(() => [...document.querySelectorAll('.ctx-menu .ptp-item-name')].map((e) => e.textContent));
+  };
+  const elegirPl = async (name) => {
+    await p.locator('.ctx-menu .ptp-item-main', { hasText: name }).click();
+    await p.waitForSelector('.ctx-menu', { state: 'detached' });
+    await sleep(400);
+  };
+  const ultimoToast = async () => (await toasts(p)).at(-1) ?? null;
+
+  const nombres = await selector(MOOV.title);
+  ok(`selector_sin_favoritos_${w}`, nombres.includes(`v8d destino ${w}`) && !nombres.some((x) => x.trim() === 'Mis favoritos'), { nombres });
+  if (SHOTS) await p.screenshot({ path: join(OUT, `selector-${w}.png`) });
+  await elegirPl(`v8d destino ${w}`);
+  const plT1 = await ultimoToast();
+  ok(`agregar_201_${w}`, plT1 === `Agregado a «v8d destino ${w}»` && (await videosDe(DEST)).includes(MOOV.id), { toast: plT1 });
+
+  await selector(MOOV.title);
+  await elegirPl(`v8d destino ${w}`);
+  const plT2 = await ultimoToast();
+  ok(`agregar_ya_estaba_${w}`, plT2 === `Ese video ya está en «v8d destino ${w}»` && (await videosDe(DEST)).length === 1, { toast: plT2 });
+
+  // Respuestas interceptadas: cada una su texto, el menú se cierra y no queda nada a medias.
+  const CASOS = [
+    // En iOS es un Alert titulado "No se pudo agregar" (tipo error): el toast lleva ese encabezado.
+    ['skipped', 201, { added: 0, already: 0, skipped: 1 }, 'No se pudo agregar. Ese video ya no está en el servidor.'],
+    ['404', 404, { error: 'Playlist not found' }, 'No se pudo agregar. Esa playlist ya no existe.'],
+    ['409', 409, { error: 'playlist video limit reached (max 500)' }, 'No se pudo agregar. Esta playlist ya llegó al máximo de 500 videos.'],
+    ['503', 503, { error: 'video index unavailable' }, 'No se pudo agregar. Los videos no están disponibles ahora. Intenta más tarde.'],
+    ['200_no_es_exito', 200, { added: 1, already: 0, skipped: 0 }, 'No se pudo agregar. Intenta de nuevo.'],
+  ];
+  for (const [nombre, status, body, texto] of CASOS) {
+    await p.route(`**/api/playlists/${DEST}/videos`, (r) => (r.request().method() === 'POST'
+      ? r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+      : r.continue()));
+    await selector(FAST.title);
+    await elegirPl(`v8d destino ${w}`);
+    const t = await ultimoToast();
+    const enDest = await videosDe(DEST);
+    ok(`agregar_${nombre}_${w}`, t === texto && enDest.length === 1 && !enDest.includes(FAST.id) && !(await p.locator('.ctx-menu').count()), { toast: t, enDest: enDest.length });
+    await p.unroute(`**/api/playlists/${DEST}/videos`);
+  }
+
+  // "Nueva playlist": crea y agrega.
+  const nueva = `v8d nueva ${w}`;
+  await selector(LARGO.title);
+  await p.locator('.ctx-menu .ptp-new input').fill(nueva);
+  await p.locator('.ctx-menu .ptp-new input').press('Enter');
+  await p.waitForSelector('.ctx-menu', { state: 'detached' });
+  await sleep(500);
+  const plT3 = await ultimoToast();
+  const creada = (await apiJ('/api/playlists')).find((pl) => pl.name === nueva);
+  if (creada) borrar.push(creada.id);
+  ok(`nueva_playlist_con_el_video_${w}`, plT3 === `Playlist «${nueva}» creada con el video` && !!creada && (await videosDe(creada.id)).includes(LARGO.id), { toast: plT3, creada: !!creada });
+
+  // "Nueva playlist" que se crea pero el video no entra: existe igual y se dice por qué.
+  const nuevaFalla = `v8d nueva falla ${w}`;
+  await p.route('**/api/playlists/*/videos', (r) => (r.request().method() === 'POST'
+    ? r.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"video index unavailable"}' })
+    : r.continue()));
+  await selector(LARGO.title);
+  await p.locator('.ctx-menu .ptp-new input').fill(nuevaFalla);
+  await p.locator('.ctx-menu .ptp-new input').press('Enter');
+  await p.waitForSelector('.ctx-menu', { state: 'detached' });
+  await sleep(500);
+  await p.unroute('**/api/playlists/*/videos');
+  const plT4 = await ultimoToast();
+  const creadaF = (await apiJ('/api/playlists')).find((pl) => pl.name === nuevaFalla);
+  if (creadaF) borrar.push(creadaF.id);
+  ok(`nueva_playlist_creada_pero_sin_video_${w}`,
+    plT4 === `Playlist «${nuevaFalla}» creada, pero no se pudo agregar el video. Los videos no están disponibles ahora. Intenta más tarde.`
+      && !!creadaF && (await videosDe(creadaF.id)).length === 0,
+    { toast: plT4, creada: !!creadaF });
+
+  // El contador de la lista de playlists, al volver a ella.
+  await p.goto(BASE + '/playlists');
+  await p.waitForSelector('.playlist-item');
+  const meta = await p.evaluate((nm) => [...document.querySelectorAll('.playlist-item')].find((li) => li.querySelector('.playlist-name')?.textContent === nm)?.querySelector('.playlist-meta')?.textContent, `v8d destino ${w}`);
+  ok(`lista_contador_actualizado_${w}`, meta === '0 canciones · 1 video', { meta });
+
   ok(`cero_peticiones_invalidas_${w}`, malas(reqs).length === 0, { malas: malas(reqs) });
+
+  // 401 al final (la app reacciona a un 401 intentando reautenticar): sale su aviso.
+  await p.goto(BASE + '/videos');
+  await p.waitForSelector('.video-card');
+  await p.route(`**/api/playlists/${DEST}/videos`, (r) => (r.request().method() === 'POST'
+    ? r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"Unauthorized"}' })
+    : r.continue()));
+  await selector(FAST.title);
+  await elegirPl(`v8d destino ${w}`);
+  const plT5 = await ultimoToast();
+  ok(`agregar_401_${w}`, plT5 === 'No se pudo agregar. Sesión expirada. Sal y vuelve a entrar.', { toast: plT5 });
   await ctx.close();
 }
+
+for (const id of borrar) await apiJ(`/api/playlists/${id}`, { method: 'DELETE' });
 
 const fails = Object.entries(R).filter(([, v]) => v === false || (v && typeof v === 'object' && v.ok === false)).map(([k]) => k);
 console.log(JSON.stringify(R, null, 1));

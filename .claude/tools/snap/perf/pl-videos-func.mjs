@@ -1,4 +1,5 @@
-// pl-videos-func.mjs — funcional de V8b/V8c: los VIDEOS en el detalle de una playlist.
+// pl-videos-func.mjs — funcional de V8b/V8c/V8e: los VIDEOS en el detalle de una playlist (sección,
+// estados, Reproducir/Mix) y el menú de una fila de video (la cola, agregar a OTRA playlist, quitar).
 // Corre contra el backend de regresion.mjs (COPIA de la base + VIDEO_DIR = los 3 fixtures). Siembra
 // con la API REAL (POST /api/playlists y /:id/videos con ids de los fixtures) y borra lo que creó al
 // final. Los estados que la API real no puede dar acá (available false/null, error del GET) salen
@@ -272,6 +273,105 @@ for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
   await sleep(500);
   const c8 = await p.evaluate(() => window.__cola());
   ok(`solo_canciones_como_antes_${w}`, d8.titulo === null && d8.meta.startsWith('2 canciones') && !d8.meta.includes('video') && JSON.stringify(c8.cola) === JSON.stringify(d8.cancionesVisibles.map((t) => `audio:${t}`)), { ...d8, ...c8 });
+
+  // ── V8e: menú de una fila de video y "Quitar de esta playlist" ──
+  const LQ = mobile
+    ? { next: 'A continuación', queue: 'A la cola', pl: 'Playlist', quitar: 'Quitar' }
+    : { next: 'Reproducir a continuación', queue: 'Agregar a la cola', pl: 'Agregar a playlist', quitar: 'Quitar de esta playlist' };
+  const menuFila = async (title) => {
+    const row = p.locator('.pl-video-row', { hasText: title });
+    if (mobile) {
+      await row.scrollIntoViewIfNeeded();
+      const b = await row.boundingBox();
+      await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+      await p.mouse.down(); await sleep(650); await p.mouse.up();
+    } else {
+      await row.click({ button: 'right' });
+    }
+    await p.waitForSelector('.ctx-menu');
+    await sleep(200);
+    return p.evaluate(() => [...document.querySelectorAll('.ctx-menu .ctx-item span:first-of-type, .ctx-menu .ctx-tile-label')].map((e) => e.textContent));
+  };
+  const elegirMenu = async (label) => {
+    await p.locator('.ctx-menu :is(.ctx-item, .ctx-tile)', { hasText: label }).first().click();
+  };
+  const cerrarMenu = async () => {
+    for (let i = 0; i < 3 && (await p.locator('.ctx-menu').count()); i++) { await p.keyboard.press('Escape'); await sleep(250); }
+  };
+  const videosEnServidor = async (id) => ((await api(`/api/playlists/${id}/videos`)).videos ?? []).map((v) => v.id);
+
+  // Playlist con canciones y videos: el menú, el selector y quitar con el video sonando.
+  const PQ = await nueva(`v8e quitar ${w}`, [A1.id, A2.id], [LARGO.id, FAST.id]);
+  await abrir(p, PQ);
+  await p.waitForSelector('.pl-videos .pl-video-row');
+  await toque(p.locator('.pl-video-row', { hasText: FAST.title }));
+  await p.waitForFunction((t) => window.__cola().actual === `video:${t}`, FAST.title, { timeout: 8000 }).catch(() => {});
+  const colaAntes = await p.evaluate(() => window.__cola());
+  const itemsFila = await menuFila(LARGO.title);
+  ok(`menu_fila_video_cuatro_acciones_${w}`, JSON.stringify(itemsFila) === JSON.stringify([LQ.next, LQ.queue, LQ.pl, LQ.quitar]), { items: itemsFila });
+  if (SHOTS) await p.screenshot({ path: join(OUT, `menu-fila-${w}.png`) });
+  await elegirMenu(LQ.pl);
+  await p.waitForSelector('.ctx-menu .ptp-new');
+  await p.waitForFunction(() => !document.querySelector('.ctx-menu .ctx-loading'));
+  const nombresFila = await p.evaluate(() => [...document.querySelectorAll('.ctx-menu .ptp-item-name')].map((e) => e.textContent));
+  ok(`selector_sin_origen_ni_favoritos_${w}`, nombresFila.length > 0 && !nombresFila.includes(`v8e quitar ${w}`) && !nombresFila.some((x) => x.trim() === 'Mis favoritos'), { nombres: nombresFila });
+  await cerrarMenu();
+
+  // Quitar el video que SUENA: la fila se va, los contadores bajan, la cola no se toca.
+  await menuFila(FAST.title);
+  await elegirMenu(LQ.quitar);
+  await sleep(600);
+  const dQ = await detalle(p);
+  const tQ = await toasts(p);
+  const colaDespues = await p.evaluate(() => window.__cola());
+  ok(`quitar_fila_y_contadores_${w}`,
+    dQ.titulo === 'Videos · 1' && dQ.meta.startsWith('2 canciones · 1 video') && !dQ.filas.some((f) => f.titulo === FAST.title)
+      && tQ.includes('Quitado de la playlist') && !(await videosEnServidor(PQ)).includes(FAST.id),
+    { ...dQ, toasts: tQ });
+  ok(`quitar_no_toca_la_cola_${w}`, JSON.stringify(colaAntes) === JSON.stringify(colaDespues) && colaDespues.actual === `video:${FAST.title}`, { colaAntes, colaDespues });
+
+  // 0 canciones: quitar el último video deja "Playlist vacía".
+  const PV = await nueva(`v8e vacia ${w}`, [], [MOOV.id]);
+  await abrir(p, PV);
+  await p.waitForSelector('.pl-videos .pl-video-row');
+  await menuFila(MOOV.title);
+  await elegirMenu(LQ.quitar);
+  await sleep(600);
+  const dV = await detalle(p);
+  ok(`quitar_ultimo_playlist_vacia_${w}`, dV.vacia && dV.titulo === null && dV.meta === '0 canciones' && !dV.sinCanciones, dV);
+  if (SHOTS) await p.screenshot({ path: join(OUT, `vacia-tras-quitar-${w}.png`) });
+
+  // Fila APAGADA (available false / null, interceptado): sólo "Quitar", y quitar funciona de verdad.
+  const PO = await nueva(`v8e apagada ${w}`, [], [FAST.id, MOOV.id]);
+  await p.route(`**/api/playlists/${PO}/videos`, async (r) => {
+    if (r.request().method() !== 'GET') return r.continue();
+    const real = await (await r.fetch()).json();
+    real.videos = real.videos.map((v) => (v.id === FAST.id ? { ...v, available: false, has_cover: false } : { ...v, available: null, has_cover: null }));
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(real) });
+  });
+  await abrir(p, PO);
+  await p.waitForSelector('.pl-videos .pl-video-row.off');
+  const itemsOff = await menuFila(FAST.title);
+  ok(`menu_fila_apagada_solo_quitar_${w}`, JSON.stringify(itemsOff) === JSON.stringify([LQ.quitar]), { items: itemsOff });
+  await elegirMenu(LQ.quitar);
+  await sleep(600);
+  const dO = await detalle(p);
+  ok(`quitar_fila_apagada_${w}`, dO.titulo === 'Videos · 1' && !dO.filas.some((f) => f.titulo === FAST.title) && !(await videosEnServidor(PO)).includes(FAST.id), dO);
+  await p.unroute(`**/api/playlists/${PO}/videos`);
+
+  // Error al quitar (interceptado): la fila se queda y sale el aviso.
+  await p.route(`**/api/playlists/${PO}/videos/**`, (r) => (r.request().method() === 'DELETE'
+    ? r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"Internal error"}' })
+    : r.continue()));
+  await abrir(p, PO);
+  await p.waitForSelector('.pl-videos .pl-video-row');
+  await menuFila(MOOV.title);
+  await elegirMenu(LQ.quitar);
+  await sleep(600);
+  const dE = await detalle(p);
+  const tE = await toasts(p);
+  ok(`quitar_error_no_saca_la_fila_${w}`, dE.filas.some((f) => f.titulo === MOOV.title) && tE.includes('No se pudo quitar. Intenta de nuevo.'), { filas: dE.filas, toasts: tE });
+  await p.unroute(`**/api/playlists/${PO}/videos/**`);
 
   // ── Lista de playlists: contador ──
   await p.goto(BASE + '/playlists');
