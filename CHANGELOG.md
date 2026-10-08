@@ -3,6 +3,25 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.25.0] - 2026-10-07
+
+### Corregido
+- **Ordenar la música en el servidor ya no borra lo que escuchaste.** Cuando una canción se
+  movía de carpeta o se le cambiaba el nombre al archivo, se perdían sus escuchas y además se
+  salía de tus playlists (también de «Mis favoritos»). Ahora, al volver a escanear, la canción
+  movida conserva sus escuchas y su lugar en cada playlist. Si no se puede saber con seguridad
+  cuál es (por ejemplo, la misma canción en un álbum y en una recopilación), sus escuchas se
+  guardan aparte en vez de borrarse. Lo que ya se había perdido antes de esta versión no se
+  puede recuperar.
+
+### Para quien administra el servidor
+- **El orden importa, y es este:** (1) hacer un respaldo de la base; (2) desplegar esta
+  versión y verificarla; (3) correr UN escaneo (`npm run scan`) para que el servidor anote la
+  huella de cada canción; (4) recién entonces mover o renombrar archivos. Un archivo movido
+  ANTES del paso 3 solo se reconoce por su duración y su título, que es menos seguro.
+- Nuevo `npm run respaldar`: guarda una copia de la base en `data/respaldos/` con la fecha
+  en el nombre, sin parar el servidor, y comprueba que la copia está completa.
+
 ## [1.24.1] - 2026-10-07
 
 ### Corregido

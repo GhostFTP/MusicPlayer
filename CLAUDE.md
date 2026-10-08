@@ -58,6 +58,35 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   aborta si borraría >50% de la tabla Y >10 filas (mount parcial); `--force-prune` fuerza,
   `--no-prune` desactiva. **No volver a listarlo como pendiente.** El scanner **solo corre a
   mano** (`npm run scan`): ni al arrancar, ni por endpoint, ni por cron.
+  - **Dónde corre en producción** (leído en el README, "Primer escaneo"): en la terminal del
+    contenedor —Dokploy → Terminal, o `docker exec`—, con `cd /app/music-server && npm run scan`.
+    Usa `MUSIC_DIR=/music` del compose. Nunca desde el host: la base vive en el volumen.
+- **1.25.0 — mover o renombrar archivos YA NO BORRA escuchas ni playlists.** La identidad de
+  una pista sigue siendo `file_path`, y antes el barrido borraba la fila vieja con su CASCADE
+  (`plays` y `playlist_tracks`, o sea también "Mis favoritos"). Ahora `deleteOrphans`, en la
+  misma transacción y antes de borrar:
+  1. **reasigna** lo que es el mismo audio (`src/scanner/reasignar.js`, puro): primero por
+     `tracks.audio_md5` —el MD5 de STREAMINFO del FLAC, leído a mano en `src/scanner/huella.js`
+     porque music-metadata 10.9.1 no lo publica para FLAC— y, para filas SIN md5, por duración
+     exacta + `sample_rate` + `bits_per_sample` + (título, o álbum y número de pista). Tiene que
+     ser **única de los dos lados**: la misma canción en un álbum y en una recopilación (mismo
+     md5, dos vivas) NO se reasigna. `playlist_tracks` va con `UPDATE OR IGNORE`, así que si la
+     fila nueva ya estaba en la playlist no se duplica;
+  2. **archiva** en `plays_archivo` las escuchas de lo que no tuvo pareja, con título, artista,
+     álbum, duración y md5. Nadie la lee todavía.
+  - Una línea más en el log: `[PRUNE] Reasignadas: N (md5 a · respaldo b) · escuchas movidas X ·
+    filas de playlist movidas Y · escuchas archivadas Z`. Los dos guards no cambian.
+  - ⚠️ **EL ORDEN PARA NO PERDER NADA:** (a) respaldo de la base (`npm run respaldar`, o el
+    `VACUUM INTO` del README); (b) merge/deploy verificado en Dokploy; (c) UN escaneo para llenar
+    `audio_md5` de todo lo que existe; (d) recién entonces mover o renombrar archivos. Un archivo
+    movido ANTES de (c) tiene la fila vieja sin md5 y solo lo cubre el respaldo por duración +
+    título.
+  - Un archivo REEMPLAZADO en la misma ruta (otro audio) sigue en la misma fila con sus
+    escuchas, como siempre: la identidad es la ruta. Lo ya perdido antes de la 1.25.0 no vuelve.
+  - Pruebas: `npm run test:reasignar` (puro) y `npm run smoke:rescan` (FLAC reales generados con
+    ffmpeg, base y carpeta temporales; necesita ffmpeg en el PATH).
+  - El ranking de "Tu año" sigue agrupando por `t.id`: agrupar por `audio_md5` es un paso aparte
+    (T1b de la app), sin decidir.
 - Artistas (lista base curada): Daft Punk, NewJeans, Nujabes, Various Artists, Kali Uchis,
   Metallica, Treyarch Sound. Foto propia por artista vía `GET /image` (`has_image`) + identidad
   MusicBrainz vía `artistInfo`/`artistDetail` (v1.6.0, `artist-lab`). La lista creció al sumar

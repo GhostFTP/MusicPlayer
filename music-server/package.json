@@ -1,6 +1,6 @@
 {
   "name": "music-server",
-  "version": "1.24.1",
+  "version": "1.25.0",
   "description": "Personal music streaming server",
   "main": "server.js",
   "type": "module",
@@ -18,6 +18,9 @@
     "smoke:resumen": "node scripts/smoke-resumen.mjs",
     "smoke:range": "node scripts/smoke-range.mjs",
     "test:password-view": "node scripts/test-password-view.mjs",
+    "test:reasignar": "node scripts/test-reasignar.mjs",
+    "smoke:rescan": "node scripts/smoke-rescan.mjs",
+    "respaldar": "node --env-file-if-exists=.env scripts/respaldar-db.mjs",
     "build": "cd ../music-client && npm run build && cp -r dist ../music-server/public",
     "build:prod": "npm run build && NODE_ENV=production node server.js"
   },
