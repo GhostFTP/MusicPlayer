@@ -21,7 +21,11 @@ export function setUnauthorizedHandler(fn) {
 // Con el timeout la promesa rechaza, el finally de reauth() baja checking y aparece el Login.
 const REQUEST_TIMEOUT_MS = 10_000;
 
-async function request(path, options = {}) {
+// `raw: true` (videos en playlists, V8d/V8e): una respuesta 2xx vuelve como { status, data } en vez
+// de sólo el cuerpo, para poder exigir el código EXACTO como iOS ("un 200 no es éxito",
+// sonorarev-ios/lib/playlists/videos-datos.ts:111-113). Los errores siguen lanzando igual (con
+// .status). Sin `raw`, todo exactamente como antes.
+async function request(path, { raw, ...options } = {}) {
   const token = getToken();
 
   const ctrl = new AbortController();
@@ -70,6 +74,7 @@ async function request(path, options = {}) {
     }
     throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status });
   }
+  if (raw) return { status: res.status, data: res.status === 204 ? null : await res.json().catch(() => null) };
   if (res.status === 204) return null;
   return res.json();
 }
@@ -114,8 +119,11 @@ export const api = {
   // orden. GET → { index: 'ok'|'unavailable', videos: [{ id, position, added_at, title, artist,
   // available: true|false|null, duration, size, has_cover, year }] }.
   playlistVideos:  (id)         => request(`/api/playlists/${id}/videos`),
-  addVideoToPlaylist:      (id, videoId) => request(`/api/playlists/${id}/videos`, { method: 'POST', body: JSON.stringify({ video_id: videoId }) }),
-  removeVideoFromPlaylist: (id, videoId) => request(`/api/playlists/${id}/videos/${videoId}`, { method: 'DELETE' }),
+  // En LOTE como iOS (lib/playlists/videos.ts:33-43): un video que ya no está llega como `skipped` y
+  // un 404 sólo puede ser la playlist. Las tres van con `raw` → { status, data } (utils/videoPlaylistActions.js).
+  addVideoToPlaylist:      (id, videoId) => request(`/api/playlists/${id}/videos`, { method: 'POST', body: JSON.stringify({ video_ids: [videoId] }), raw: true }),
+  removeVideoFromPlaylist: (id, videoId) => request(`/api/playlists/${id}/videos/${videoId}`, { method: 'DELETE', raw: true }),
+  createPlaylistRaw:       (name, emoji) => request('/api/playlists', { method: 'POST', body: JSON.stringify({ name, emoji }), raw: true }),
 
   // Escuchas (utils/playsOutbox.js): lote de { client_id, track_id, played_at, ms_played } → { added, already, skipped }
   recordPlays:     (plays)      => request('/api/plays', { method: 'POST', body: JSON.stringify({ plays }) }),

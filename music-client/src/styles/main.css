@@ -2129,6 +2129,11 @@ button, input, select, textarea { font-family: inherit; }
 /* Teal = playlist, la identidad que ya tiene el "+" en la barra y el expandido. */
 .ctx-item.tone-playlist:hover { background: rgba(45, 212, 167, .16); color: #fff; }
 .ctx-item.tone-playlist:hover svg { color: var(--teal); }
+/* Rojo = quitar un VIDEO de la playlist (V8e): al final y en rojo, como la hoja de iOS. Es el único
+   ítem rojo del menú, así que va teñido también en reposo (un destructivo no espera al hover). */
+.ctx-item.tone-danger,
+.ctx-item.tone-danger svg { color: #f87171; }
+.ctx-item.tone-danger:hover { background: rgba(248, 113, 113, .14); color: #fca5a5; }
 .ctx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* El chevron "▸" avisa que ese ítem abre un selector en vez de ejecutar algo. */
 .ctx-item .ctx-chev { margin-left: auto; opacity: .5; }
@@ -2229,6 +2234,7 @@ button, input, select, textarea { font-family: inherit; }
   .ctx-tile                { --t: 167, 139, 250; }   /* cola + navegación = morado */
   .ctx-tile.tone-info      { --t: 251, 191, 36; }    /* info = ámbar */
   .ctx-tile.tone-playlist  { --t: 45, 212, 167; }    /* playlist = teal */
+  .ctx-tile.tone-danger    { --t: 248, 113, 113; }   /* quitar un video de la playlist = rojo (V8e) */
 
   /* 2 columnas: con 6 acciones (el máximo real de una pista) son 3 filas exactas, y con 4-5 la
      última queda incompleta sin romperse. `1fr` reparte el ancho del flotante, así que los tiles

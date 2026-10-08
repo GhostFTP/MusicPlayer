@@ -17,6 +17,7 @@ import {
   estadoFila, notaFila, videoReproducible, itemDeVideo, estadoSeccion, vistaSeccion,
   vistaSinCanciones, renglonSinCanciones, contadorDeLista, avisoVideosOmitidos,
 } from '../utils/playlistVideos.js';
+import { quitarVideo } from '../utils/videoPlaylistActions.js';
 
 export default function Playlists({ target, clearTarget, setDetailOpen, navigate }) {
   const [playlists, setPlaylists] = useState([]);
@@ -45,6 +46,10 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
   // Drag-to-enqueue (fase a): misma fila que TrackTable, mismo trato (ver el comentario de allá).
   // Encolar NO saca la pista de la playlist: es la misma copia que ya hace "agregar a la cola".
   const { dragProps } = useDragQueue();
+  // Filas de VIDEO (V8e): el mismo menú, con su propio tipo ('playlist-video'). El payload lo arma
+  // el detalle (`videoPayload`, más abajo): sabe si se puede ver, si sigue en el índice y cómo
+  // quitarlo de ESTA playlist.
+  const bindVideoPress = useLongPress((payload, ev) => openMenu(ev, { ...payload, via: 'longpress' }));
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -155,6 +160,19 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     ));
   }
 
+  // Quitar un VIDEO de la playlist abierta (V8e), como la hoja de iOS: el aviso sale siempre
+  // ("Quitado de la playlist" o el error), y sólo con un 204 la fila se va y bajan los contadores.
+  // Si era el último y no hay canciones, el detalle pasa solo a "Playlist vacía". La cola no se toca.
+  async function removeVideo(videoId) {
+    const plId = selected.playlist.id;
+    const r = await quitarVideo(plId, videoId, toast);
+    if (r !== 'ok') return;
+    setSelected((cur) => (cur && cur.playlist.id === plId && cur.videos?.status === 'ok'
+      ? { ...cur, videos: { ...cur.videos, videos: cur.videos.videos.filter((v) => v.id !== videoId) } }
+      : cur));
+    setPlaylists((prev) => prev.map((pl) => (pl.id === plId ? { ...pl, video_count: Math.max(0, (pl.video_count ?? 1) - 1) } : pl)));
+  }
+
   // Cambiar de modo arranca en su dirección natural (texto A-Z asc, Añadido desc);
   // tocar el modo YA activo voltea la dirección (toggle asc/desc fusionado).
   function cycleSort(key) {
@@ -214,6 +232,20 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     const nVideos = vista === 'lista' ? filasVideo.length : (!esFav && estado === 'cargando' ? (playlist.video_count ?? 0) : 0);
     const sinCanciones = tracks.length === 0 ? vistaSinCanciones({ esFav, estado, vista }) : null;
     const playVideoRow = (id) => play(itemsVideo, itemsVideo.findIndex((it) => it.id === id));
+    // El payload del menú de una fila de video (ContextMenu, case 'playlist-video').
+    const videoPayload = (v) => ({
+      type: 'playlist-video',
+      item: itemDeVideo(v),
+      playable: videoReproducible(v, offline),
+      disponibilidad: v.available === true ? 'si' : v.available === false ? 'no' : 'desconocida',
+      fromPlaylistId: playlist.id,
+      onRemoveVideo: () => removeVideo(v.id),
+      onPlaylistsChanged: loadPlaylists,   // agregó a OTRA playlist o creó una: la lista se refresca
+    });
+    const videoRowPress = (v, tocable) => bindVideoPress(videoPayload(v), {
+      onClick: tocable ? () => playVideoRow(v.id) : undefined,
+      onContextMenu: (e) => openMenu(e, videoPayload(v)),
+    });
     return (
       <div>
         <BackButton label="Todas las playlists" view="playlists" onList={() => navigate('playlists')} />
@@ -456,7 +488,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
             filas={filasVideo}
             offline={offline}
             currentId={currentTrack?.kind === 'video' ? currentTrack.id : null}
-            onPlayRow={playVideoRow}
+            rowPress={videoRowPress}
             onRetry={retryVideos}
           />
         )}
@@ -533,7 +565,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
 // Reintentar (que vuelve a pedir SÓLO los videos). Una fila que no se puede ver queda apagada, con la
 // nota de iOS en lugar de año/duración, y no reacciona al toque. Tocar una que sí arma la cola con
 // los videos reproducibles de la playlist, desde la tocada (como tocar una canción en un listado).
-function SeccionVideos({ vista, filas, offline, currentId, onPlayRow, onRetry }) {
+function SeccionVideos({ vista, filas, offline, currentId, rowPress, onRetry }) {
   return (
     <section className="pl-videos" aria-label="Videos">
       <h2 className="pl-videos-title">{vista === 'lista' ? `Videos · ${filas.length}` : 'Videos'}</h2>
@@ -553,7 +585,7 @@ function SeccionVideos({ vista, filas, offline, currentId, onPlayRow, onRetry })
               <li
                 key={v.id}
                 className={`pl-video-row${tocable ? '' : ' off'}${currentId === v.id ? ' playing' : ''}`}
-                onClick={tocable ? () => onPlayRow(v.id) : undefined}
+                {...rowPress(v, tocable)}
                 aria-disabled={tocable ? undefined : 'true'}
               >
                 <span className="pl-video-cover">
