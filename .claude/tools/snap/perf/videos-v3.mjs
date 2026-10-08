@@ -1,4 +1,4 @@
-// videos-v3.mjs — funcional de la vista VIDEOS (V3: sólo lista, sin reproducir) y del 7º ítem de la
+// videos-v3.mjs — funcional de la vista VIDEOS y del 7º ítem de la
 // navegación. Corre contra un backend con VIDEO_DIR = los 3 fixtures de video-fixtures.mjs (así lo
 // arma regresion.mjs). Comprueba:
 //   · GET /api/videos trae los 3 fixtures con artist/title/year/duration/has_cover;
@@ -6,7 +6,8 @@
 //     ni se parte en 2 líneas, y ni la barra ni la página scrollean en horizontal;
 //   · la barra lateral (1440) tiene "Videos" y lleva a /videos;
 //   · /videos agrupa por artista, pinta las portadas que existen y el marcador donde no hay;
-//   · tocar una tarjeta NO hace nada (aria-disabled, sin cambio de URL, sin <video>);
+//   · las tarjetas están habilitadas (sin aria-disabled) y tocar una reproduce la lista de videos
+//     desde ésa en el ÚNICO <video> de la app, sin cambiar de URL (desde V4; hasta V3 no hacía nada);
 //   · estados de error (con Reintentar) y vacío.
 // Con SHOTS=1 guarda capturas en shots/sub3/<OUT> (por defecto videos-v3).
 // Uso: SNAP_BASE=http://localhost:4173 [SHOTS=1] node videos-v3.mjs
@@ -106,14 +107,20 @@ for (const w of [360, 390]) {
   ok('vista_tres_tarjetas', v.tarjetas.length === vids.length, { n: v.tarjetas.length });
   ok('vista_portadas', v.tarjetas.filter((t) => t.img?.cargo).length === conPortada && v.tarjetas.filter((t) => t.marcador).length === vids.length - conPortada,
     { tarjetas: v.tarjetas });
-  ok('vista_tarjetas_deshabilitadas', v.tarjetas.every((t) => t.disabled === 'true'));
+  ok('vista_tarjetas_habilitadas', v.tarjetas.every((t) => t.disabled === null), { disabled: v.tarjetas.map((t) => t.disabled) });
 
-  // 5) Tocar no hace nada.
+  // 5) Tocar reproduce la lista de videos desde la tocada (la SEGUNDA, para que no sea "la primera
+  //    por casualidad"), en el único <video> de la app y sin cambiar de URL.
   const antes = p.url();
-  await p.locator('.video-card').first().click();
-  await p.waitForTimeout(500);
-  const despues = await p.evaluate(() => ({ url: location.href, videos: document.querySelectorAll('video').length }));
-  ok('tocar_no_hace_nada', despues.url === antes && despues.videos === 0, despues);
+  const orden = [...new Map(vids.map((x) => [x.artist, true])).keys()].flatMap((a) => vids.filter((x) => x.artist === a));
+  const tocado = orden[1];
+  await p.locator('.video-card').nth(1).click();
+  await p.waitForFunction((id) => { const el = document.querySelector('video.player-video'); return el && (el.getAttribute('src') ?? '').includes(`/stream/video/${id}`) && !el.paused; }, tocado.id, { timeout: 8000 }).catch(() => {});
+  const despues = await p.evaluate(() => {
+    const el = document.querySelector('video.player-video');
+    return { url: location.href, videos: document.querySelectorAll('video').length, src: (el?.getAttribute('src') ?? '').split('?')[0], sonando: !!el && !el.paused, titulo: document.querySelector('.player-title')?.textContent };
+  });
+  ok('tocar_reproduce_lista_de_videos', despues.url === antes && despues.videos === 1 && despues.src === `/stream/video/${tocado.id}` && despues.sonando && despues.titulo === tocado.title, despues);
   if (SHOTS) await p.screenshot({ path: join(OUT, 'videos-1440.png'), fullPage: true });
   await ctx.close();
 }
