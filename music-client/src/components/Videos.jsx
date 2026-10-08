@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, videoCoverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import { useContextMenu } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
 
 // Vista "Videos". Lee GET /api/videos, que ya viene ordenada (artista A→Z, año
 // del más nuevo al más viejo, sin año al final, título) — acá no se reordena, sólo se agrupa por
@@ -10,8 +12,15 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 // Tocar un video hace EXACTAMENTE lo que tocar una canción en un listado (TrackTable, Library):
 // play(lista visible, índice) → reemplaza la cola con los videos de la vista, en el orden en que se
 // ven, y arranca por el tocado. Cada ítem va con kind:'video' para que el motor use el <video>.
+//
+// Menú contextual (V7): clic derecho en escritorio y pulsación larga en el teléfono, igual que las
+// tarjetas de álbum (AlbumGrid). Va con el MISMO ítem de cola (kind:'video') que arma el toque, y
+// trae sólo "a continuación" y "a la cola" (ContextMenu, case 'video'). El long-press envuelve el
+// onClick: una pulsación larga abre el menú y no reproduce.
 export default function Videos() {
   const { play } = usePlayer();
+  const { openMenu } = useContextMenu();
+  const bindPress = useLongPress((item, ev) => openMenu(ev, { type: 'video', item, via: 'longpress' }));
   const [videos, setVideos]   = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -80,7 +89,19 @@ export default function Videos() {
         <section key={g.artist} className="video-group">
           <h2 className="video-group-title">{g.artist}</h2>
           <div className="album-grid">
-            {g.videos.map((v) => <VideoCard key={v.id} video={v} onPlay={() => onPlay(indexOf.get(v.id))} />)}
+            {g.videos.map((v) => {
+              const i = indexOf.get(v.id);
+              return (
+                <VideoCard
+                  key={v.id}
+                  video={v}
+                  press={bindPress(items[i], {
+                    onClick: () => onPlay(i),
+                    onContextMenu: (e) => openMenu(e, { type: 'video', item: items[i] }),
+                  })}
+                />
+              );
+            })}
           </div>
         </section>
       ))}
@@ -88,10 +109,10 @@ export default function Videos() {
   );
 }
 
-function VideoCard({ video, onPlay }) {
+function VideoCard({ video, press }) {
   const meta = [video.year, fmtDuration(video.duration)].filter(Boolean).join(' · ');
   return (
-    <div className="album-card video-card" onClick={onPlay}>
+    <div className="album-card video-card" {...press}>
       <div className="album-cover-frame video-cover-frame">
         {video.has_cover
           ? <img className="album-cover video-cover" src={videoCoverUrl(video.id)} alt="" loading="lazy" draggable={false} />

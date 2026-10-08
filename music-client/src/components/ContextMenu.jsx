@@ -478,6 +478,25 @@ export function ContextMenuProvider({ children }) {
         break;
       }
 
+      // ── Tarjeta de VIDEO (vista Videos, V7). Lo mismo que la hoja de un video en iOS
+      //    (components/videos/hoja-video.tsx): sólo "a continuación" y "a la cola", con el ítem de
+      //    cola que ya trae kind:'video'. Sin "Reproducir" (tocar la tarjeta ya reproduce la lista
+      //    de videos desde ésa), ni favorito, playlist, compartir, artista o info: son de pista.
+      //    El aviso de la cola va en masculino, como iOS (avisoCola).
+      case 'video': {
+        if (currentTrack?.id !== it.id) {
+          list.push({
+            id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
+            run: () => { playAfterCurrent(it); toast('Suena a continuación'); },
+          });
+        }
+        list.push({
+          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
+          run: () => { addToQueue(it); toast('Añadido a la cola'); },
+        });
+        break;
+      }
+
       default: break;
     }
     return list;
