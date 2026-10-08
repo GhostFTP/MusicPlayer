@@ -5100,6 +5100,8 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .queue-dur { flex: none; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .queue-pill { flex: none; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 6px; }
+/* Fila de VIDEO en la cola (V5): glifo discreto antes del título, gris como el artista. */
+.queue-video-mark { flex: none; color: var(--text-muted); }
 
 .queue-eq { position: absolute; right: 3px; bottom: 3px; z-index: 1; display: flex; align-items: flex-end; gap: 2px; height: 12px; }
 .queue-eq i { width: 2px; height: 100%; background: var(--accent); border-radius: 1px; transform-origin: bottom; animation: queue-eq 900ms ease-in-out infinite; }

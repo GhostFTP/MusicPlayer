@@ -409,6 +409,11 @@ export function ContextMenuProvider({ children }) {
             run: () => { removeFromQueue(it._qid); toast('Quitada de la cola'); },
           });
         }
+        // Fila de VIDEO (V5): sólo "Quitar", que va por _qid y vale para cualquier ítem. Lo demás es
+        // de pista y con el id hex del video no sirve: playlist y favorito guardan track_id, "ver
+        // info" pide /api/tracks/<id>, compartir arma el link de un álbum. "Ir al artista" e "ir al
+        // álbum" ya no aparecían (el video no trae album_artist ni album).
+        if (it.kind === 'video') break;
         pushAddToPlaylist();
         pushFavorite(it);
         pushTrackNav(it);
