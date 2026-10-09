@@ -1047,6 +1047,115 @@ button, input, select, textarea { font-family: inherit; }
 .player-video[data-slot="mini"] { visibility: visible; z-index: 1;   border-radius: 6px;  object-fit: cover; }
 .player-video[data-slot="exp"]  { visibility: visible; z-index: 201; border-radius: 14px; object-fit: contain; }
 
+/* PANTALLA COMPLETA (T27): va el envoltorio (.player-video-layer), que fuera de esto no lleva
+   ningún estilo — ni position ni z-index ni transform, que encerrarían el z-index del <video>.
+   El rAF de PlayerContext escribe transform/width/height INLINE: sólo un !important les gana, y
+   además el tick se saltea mientras dure. object-fit contain siempre (también si se entró con el
+   hueco del mini, que es cover), sin radio. visibility visible por si se entró sin hueco visible.
+   Las reglas con prefijo van APARTE: un selector desconocido invalida la regla entera. */
+.player-video-layer:fullscreen { background: #000; width: 100%; height: 100%; }
+.player-video-layer:fullscreen .player-video {
+  transform: none !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+  border-radius: 0;
+  visibility: visible;
+  z-index: 0;            /* debajo de los controles (.vfs); fuera de esto es 1 (mini) o 201 (exp) */
+}
+.player-video-layer:-webkit-full-screen { background: #000; width: 100%; height: 100%; }
+.player-video-layer:-webkit-full-screen .player-video {
+  transform: none !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+  border-radius: 0;
+  visibility: visible;
+  z-index: 0;            /* debajo de los controles (.vfs); fuera de esto es 1 (mini) o 201 (exp) */
+}
+
+/* Controles en pantalla completa (VideoFullscreenControls.jsx). Sólo se montan con el envoltorio en
+   pantalla completa, que el navegador pone en position:fixed → es el bloque contenedor de esto.
+   La capa .vfs no recibe puntero: sólo sus dos franjas. Así el clic sobre el video llega al
+   envoltorio (play/pausa) y el doble clic sale. Ocultos (vfs--hidden): sin puntero y sin cursor. */
+.vfs {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+  outline: none;
+  color: #fff;
+}
+.vfs-top, .vfs-bottom {
+  pointer-events: auto;
+  padding: 20px max(24px, env(safe-area-inset-right)) 20px max(24px, env(safe-area-inset-left));
+  transition: opacity .25s ease;
+}
+.vfs-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-top: max(20px, env(safe-area-inset-top));
+  background: linear-gradient(to bottom, rgba(0, 0, 0, .7), transparent);
+}
+.vfs-bottom {
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(0, 0, 0, .75), transparent);
+}
+.vfs--hidden .vfs-top, .vfs--hidden .vfs-bottom { opacity: 0; pointer-events: none; }
+.player-video-layer.vfs-idle { cursor: none; }
+.vfs-meta { flex: 1; min-width: 0; }
+.vfs-title  { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vfs-artist { font-size: 14px; color: rgba(255, 255, 255, .7); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vfs-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  margin-top: 10px;
+}
+.vfs-time { font-size: 13px; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, .85); }
+.vfs-ctrls { display: flex; align-items: center; gap: 18px; }
+.vfs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+.vfs-btn:hover { background: rgba(255, 255, 255, .12); }
+.vfs-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vfs-play { width: 56px; height: 56px; background: rgba(255, 255, 255, .14); }
+.vfs-play:hover { background: rgba(255, 255, 255, .22); }
+/* El aviso del motor: dentro de la capa porque lo de afuera (el toast) no se ve en pantalla completa.
+   Fuera de las franjas: se ve aunque los controles estén ocultos. */
+.vfs-notice {
+  position: absolute;
+  top: max(84px, calc(env(safe-area-inset-top) + 64px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  max-width: min(90%, 520px);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(30, 24, 8, .92);
+  border: 1px solid rgba(251, 191, 36, .5);
+  color: #fde68a;
+  font-size: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vfs-top, .vfs-bottom { transition: none; }
+}
+
 .album-grid-anim .album-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .3);            /* peso en reposo */
   transition: background .18s, transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .18s ease;

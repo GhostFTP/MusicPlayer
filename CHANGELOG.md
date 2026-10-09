@@ -3,6 +3,25 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.27.0] - 2026-10-09
+
+### Añadido
+- **Videos en pantalla completa.** Con un video sonando, el botón de pantalla completa del
+  reproductor abierto lo pone a pantalla completa. También se entra y se sale con la tecla F.
+  Un clic sobre el video lo pausa o lo reanuda, y un doble clic sale. Esc también sale.
+- **Controles sobre el video.** En pantalla completa ves el título y el artista, la barra de
+  tiempo para adelantar o retroceder, el tiempo que lleva y el total, anterior, play/pausa,
+  siguiente y un botón para salir. Si no mueves el mouse durante unos segundos, los controles y
+  el cursor se esconden; vuelven al moverlo. Con el video en pausa no se esconden.
+- **Sigue en pantalla completa al pasar al siguiente video.** Si después viene una canción,
+  sale sola. Si un video no se puede cargar, el aviso se ve también en pantalla completa.
+
+### Para tener en cuenta
+- La tecla F solo funciona con un video sonando, y no hace nada mientras escribes en un buscador
+  o con un menú abierto.
+- **Límites conocidos:** lo probamos en el navegador de la computadora. En iPhone y iPad puede
+  verse distinto (por ejemplo, sin estos controles) y todavía lo estamos verificando.
+
 ## [1.26.0] - 2026-10-07
 
 ### Añadido

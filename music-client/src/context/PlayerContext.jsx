@@ -4,6 +4,7 @@ import {
 import { streamUrl, coverUrl, videoStreamUrl, videoCoverUrl } from '../api/client.js';
 import { resolveTrackMeta, isComplete } from '../utils/trackMeta.js';
 import { useAuth } from './AuthContext.jsx';
+import VideoFullscreenControls from '../components/VideoFullscreenControls.jsx';
 
 const PlayerContext = createContext(null);
 // El tiempo va en un contexto APARTE: currentTime cambia en cada 'timeupdate' (~4 Hz) y, si
@@ -18,6 +19,11 @@ const MEDIA_ACTIONS = [
   'play', 'pause', 'previoustrack', 'nexttrack',
   'seekto', 'seekbackward', 'seekforward', 'stop',
 ];
+
+// El elemento en pantalla completa, con o sin prefijo (Safari viejo/iPad usa el webkit).
+function fullscreenElement() {
+  return document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
+}
 
 export function PlayerProvider({ children }) {
   const { token } = useAuth();      // para re-emitir el artwork al rotar el token (reauth)
@@ -58,6 +64,12 @@ export function PlayerProvider({ children }) {
   const activeRef   = useRef('audio');       // 'audio' | 'video': qué elemento manda
   const playNextRef = useRef(null);          // playNext se define después de playIndex
   const skipRunRef  = useRef(0);             // videos saltados seguidos con la página oculta (tope)
+  // PANTALLA COMPLETA (T27): va el ENVOLTORIO del <video>, no el <video>. Ver la capa, abajo.
+  const videoLayerRef = useRef(null);
+  const fsRef         = useRef(false);       // espejo de isVideoFullscreen para el rAF de la capa
+  // 'none' | 'layer' (el envoltorio, con controles propios) | 'native' (reproductor del iPhone)
+  const [fsMode, setFsMode] = useState('none');
+  const isVideoFullscreen = fsMode !== 'none';
 
   // Lazy-init audio element once (avoids SSR issues and StrictMode double-mount)
   function getAudio() {
@@ -551,6 +563,9 @@ export function PlayerProvider({ children }) {
       return r.width > 0 && r.height > 0 ? r : null;
     };
     const tick = () => {
+      // En pantalla completa el <video> llena la pantalla (CSS :fullscreen con !important) y no
+      // hay hueco que seguir: se saltea la medición. Al salir, el frame siguiente lo devuelve.
+      if (fsRef.current) { raf = requestAnimationFrame(tick); return; }
       let slot = 'exp';
       let r = visible(document.querySelector('[data-video-slot="exp"]'));
       if (!r) { slot = 'mini'; r = visible(document.querySelector('[data-video-slot="mini"]')); }
@@ -567,6 +582,75 @@ export function PlayerProvider({ children }) {
     tick();
     return () => { cancelAnimationFrame(raf); v.dataset.slot = ''; };
   }, [isVideo]);
+
+  // ── Pantalla completa del video ─────────────────────────────────────────────
+  // Va a pantalla completa el ENVOLTORIO estático del <video> (así los controles propios viven
+  // adentro y el <video> sigue sin reparentarse). Se elige por CAPACIDAD, no por user-agent: si el
+  // navegador no deja poner un elemento cualquiera en pantalla completa (iPhone), se cae al
+  // reproductor nativo con webkitEnterFullscreen sobre el <video>. Todas las salidas (Esc del
+  // navegador, doble clic, cambio a canción) se reflejan por EVENTO, nunca seteando el estado a mano.
+  const enterVideoFullscreen = useCallback(() => {
+    const layer = videoLayerRef.current;
+    const v = videoRef.current;
+    if (!layer || !v || activeRef.current !== 'video' || fsRef.current) return;
+    const req = layer.requestFullscreen ?? layer.webkitRequestFullscreen;
+    const enabled = document.fullscreenEnabled ?? document.webkitFullscreenEnabled;
+    if (req && enabled !== false) {
+      try { Promise.resolve(req.call(layer)).catch(() => {}); } catch { /* sin gesto o denegado */ }
+      return;
+    }
+    try { v.webkitEnterFullscreen?.(); } catch { /* sin metadata todavía o sin soporte */ }
+  }, []);
+
+  const exitVideoFullscreen = useCallback(() => {
+    const layer = videoLayerRef.current;
+    if (layer && fullscreenElement() === layer) {
+      const exit = document.exitFullscreen ?? document.webkitExitFullscreen;
+      try { Promise.resolve(exit?.call(document)).catch(() => {}); } catch { /* ya salió */ }
+      return;
+    }
+    const v = videoRef.current;
+    if (v?.webkitDisplayingFullscreen) { try { v.webkitExitFullscreen(); } catch { /* ya salió */ } }
+  }, []);
+
+  useEffect(() => {
+    const layer = videoLayerRef.current;
+    const v = videoRef.current;
+    if (!layer || !v) return undefined;
+    const sync = (mode) => { fsRef.current = mode !== 'none'; setFsMode(mode); };
+    const onDocChange = () => sync(fullscreenElement() === layer ? 'layer' : 'none');
+    const onBegin = () => sync('native');   // reproductor nativo (iPhone)
+    const onEnd   = () => sync('none');
+    document.addEventListener('fullscreenchange', onDocChange);
+    document.addEventListener('webkitfullscreenchange', onDocChange);
+    v.addEventListener('webkitbeginfullscreen', onBegin);
+    v.addEventListener('webkitendfullscreen', onEnd);
+    return () => {
+      document.removeEventListener('fullscreenchange', onDocChange);
+      document.removeEventListener('webkitfullscreenchange', onDocChange);
+      v.removeEventListener('webkitbeginfullscreen', onBegin);
+      v.removeEventListener('webkitendfullscreen', onEnd);
+    };
+  }, []);
+
+  // Video → video sigue en pantalla completa (mismo envoltorio, sólo cambia el src). Video →
+  // canción sale: vacate() dejó el <video> sin src y la capa de arriba lo oculta.
+  useEffect(() => {
+    if (!isVideo && fsRef.current) exitVideoFullscreen();
+  }, [isVideo, exitVideoFullscreen]);
+
+  // Sobre el video en pantalla completa: clic = play/pausa, doble clic = salir. Sólo cuenta el
+  // clic sobre el FONDO de la capa (el <video> no recibe puntero, así que el target es el
+  // envoltorio): lo que haya encima (controles) no dispara esto. Fuera de pantalla completa la
+  // capa no tiene caja y nunca recibe un clic.
+  const onLayerClick = useCallback((e) => {
+    if (!fsRef.current || e.target !== e.currentTarget) return;
+    togglePlay();
+  }, [togglePlay]);
+  const onLayerDoubleClick = useCallback((e) => {
+    if (!fsRef.current || e.target !== e.currentTarget) return;
+    exitVideoFullscreen();
+  }, [exitVideoFullscreen]);
 
   // Se lee del ref en cada render del provider y entra como dep del useMemo de abajo: toda
   // mutación que mueve idxRef (playIndex, insertar, quitar, reordenar) también setea estado
@@ -585,9 +669,11 @@ export function PlayerProvider({ children }) {
     shuffle, repeat,
     queue, upNext, notice,
     play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+    isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   }), [
     currentTrack, trackMeta, isPlaying, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
     play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+    isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   ]);
 
   const timeValue = useMemo(() => ({ currentTime, duration }), [currentTime, duration]);
@@ -598,8 +684,29 @@ export function PlayerProvider({ children }) {
         {children}
         {/* El ÚNICO <video> de la app. Siempre montado; lo coloca el efecto de la capa. Sin
             controles nativos y sin eventos de puntero: los gestos y botones siguen siendo los del
-            reproductor que está debajo. */}
-        <video ref={videoRef} className="player-video" data-slot="" playsInline preload="auto" aria-hidden="true" tabIndex={-1} />
+            reproductor que está debajo.
+            Su envoltorio es lo que va a pantalla completa. ⚠️ Tiene que quedar SIN position,
+            z-index ni transform: cualquiera de los tres crea un contexto de apilamiento y encierra
+            el z-index del <video> (1 en el mini, 201 sobre el expandido). Así es un div estático
+            sin caja visible y el `fixed` del <video> sigue refiriéndose al viewport. */}
+        <div ref={videoLayerRef} className="player-video-layer" onClick={onLayerClick} onDoubleClick={onLayerDoubleClick}>
+          <video ref={videoRef} className="player-video" data-slot="" playsInline preload="auto" aria-hidden="true" tabIndex={-1} />
+          {fsMode === 'layer' && (
+            <VideoFullscreenControls
+              layerRef={videoLayerRef}
+              track={currentTrack}
+              isPlaying={isPlaying}
+              currentTime={currentTime}
+              duration={duration}
+              notice={notice}
+              onToggle={togglePlay}
+              onPrev={prev}
+              onNext={next}
+              onSeek={seek}
+              onExit={exitVideoFullscreen}
+            />
+          )}
+        </div>
       </PlayerTimeContext.Provider>
     </PlayerContext.Provider>
   );
