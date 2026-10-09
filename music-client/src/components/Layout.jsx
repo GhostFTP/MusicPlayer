@@ -15,6 +15,7 @@ import { DragQueueProvider } from '../context/DragQueueContext.jsx';
 import { pathToState, stateToPath } from '../utils/routes.js';
 import { clearViewCache } from '../api/viewCache.js';
 import { useMixShortcut } from '../utils/useMixShortcut.js';
+import { useVideoFullscreenShortcut } from '../utils/useVideoFullscreenShortcut.js';
 import { PlayLogger } from '../utils/usePlayLogger.js';
 
 // ── Gesto "atrás" en móvil: deslizar en el contenido para salir del detalle
@@ -77,6 +78,8 @@ export default function Layout() {
   // Atajo global M (Frente 2, M3): mezcla TODA la biblioteca. Vive acá porque Layout sólo existe con
   // sesión iniciada; el hook escucha su propio keydown y no toca PlayerContext.
   useMixShortcut();
+  // Atajo global F (T27): pantalla completa del video que suena. Mismo lugar y mismas guardas que la M.
+  useVideoFullscreenShortcut();
 
   // F1.2/F1.3b: canoniza la entrada de historial al montar. Si la ruta inicial es un DETALLE
   // (deep-link / F5 sobre /artists/X), SINTETIZA la lista como entrada PADRE debajo del detalle:

@@ -4,6 +4,7 @@ import {
 import { streamUrl, coverUrl, videoStreamUrl, videoCoverUrl } from '../api/client.js';
 import { resolveTrackMeta, isComplete } from '../utils/trackMeta.js';
 import { useAuth } from './AuthContext.jsx';
+import VideoFullscreenControls from '../components/VideoFullscreenControls.jsx';
 
 const PlayerContext = createContext(null);
 // El tiempo va en un contexto APARTE: currentTime cambia en cada 'timeupdate' (~4 Hz) y, si
@@ -66,7 +67,9 @@ export function PlayerProvider({ children }) {
   // PANTALLA COMPLETA (T27): va el ENVOLTORIO del <video>, no el <video>. Ver la capa, abajo.
   const videoLayerRef = useRef(null);
   const fsRef         = useRef(false);       // espejo de isVideoFullscreen para el rAF de la capa
-  const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
+  // 'none' | 'layer' (el envoltorio, con controles propios) | 'native' (reproductor del iPhone)
+  const [fsMode, setFsMode] = useState('none');
+  const isVideoFullscreen = fsMode !== 'none';
 
   // Lazy-init audio element once (avoids SSR issues and StrictMode double-mount)
   function getAudio() {
@@ -614,10 +617,10 @@ export function PlayerProvider({ children }) {
     const layer = videoLayerRef.current;
     const v = videoRef.current;
     if (!layer || !v) return undefined;
-    const sync = (on) => { fsRef.current = on; setIsVideoFullscreen(on); };
-    const onDocChange = () => sync(fullscreenElement() === layer);
-    const onBegin = () => sync(true);       // reproductor nativo (iPhone)
-    const onEnd   = () => sync(false);
+    const sync = (mode) => { fsRef.current = mode !== 'none'; setFsMode(mode); };
+    const onDocChange = () => sync(fullscreenElement() === layer ? 'layer' : 'none');
+    const onBegin = () => sync('native');   // reproductor nativo (iPhone)
+    const onEnd   = () => sync('none');
     document.addEventListener('fullscreenchange', onDocChange);
     document.addEventListener('webkitfullscreenchange', onDocChange);
     v.addEventListener('webkitbeginfullscreen', onBegin);
@@ -688,6 +691,21 @@ export function PlayerProvider({ children }) {
             sin caja visible y el `fixed` del <video> sigue refiriéndose al viewport. */}
         <div ref={videoLayerRef} className="player-video-layer" onClick={onLayerClick} onDoubleClick={onLayerDoubleClick}>
           <video ref={videoRef} className="player-video" data-slot="" playsInline preload="auto" aria-hidden="true" tabIndex={-1} />
+          {fsMode === 'layer' && (
+            <VideoFullscreenControls
+              layerRef={videoLayerRef}
+              track={currentTrack}
+              isPlaying={isPlaying}
+              currentTime={currentTime}
+              duration={duration}
+              notice={notice}
+              onToggle={togglePlay}
+              onPrev={prev}
+              onNext={next}
+              onSeek={seek}
+              onExit={exitVideoFullscreen}
+            />
+          )}
         </div>
       </PlayerTimeContext.Provider>
     </PlayerContext.Provider>
