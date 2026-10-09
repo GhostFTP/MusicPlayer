@@ -88,6 +88,9 @@ const DUR_CLOSE_MIN = 160;  // ms mínimos (que un flick violento no sea un parp
 const DUR_BACK_MIN = 180;   // ms
 const DUR_BACK_MAX = 360;   // ms (la duración fija de antes)
 
+// Ventana tras un cambio de pantalla completa en la que el Esc NO corre la escalera (ver el Esc global).
+const FS_ESC_WINDOW_MS = 300;
+
 // ── Fijado de eje (compartido carátula/sheet) ──
 // Mientras el eje no está decidido se re-evalúa en CADA move (sin candados
 // terminales): gana el primer eje que alcanza AXIS_DIST px con dominancia
@@ -178,7 +181,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   const preMuteVol = useRef(0.7);          // volumen a restaurar al quitar el mute
   const player = usePlayer();
   const { currentTrack, trackMeta, isPlaying, volume, togglePlay, next, prev, seek, setVolume,
-          shuffle, repeat, toggleShuffle, cycleRepeat } = player;
+          shuffle, repeat, toggleShuffle, cycleRepeat, enterVideoFullscreen } = player;
   const { currentTime, duration } = usePlayerTime();   // ~4 Hz: Player SÍ pinta el tiempo (barra + expandido)
 
   // Avisos del motor (hoy: un video que no cargó y se saltó). El motor vive por encima de
@@ -271,9 +274,25 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // expanded=true), así cierra la Letra abierta desde la barra. Bajo el Modelo 2 Esc NO navega
   // rutas (cambiar de vista, cerrar Novedades o un DETALLE es el atrás del navegador): Esc NO
   // llama history.back() → REGLA DURA #3 se cumple trivial (cero history.back() acá).
+  // Pantalla completa del video (T27): el Esc que la cierra es del NAVEGADOR. Si ese keydown
+  // además llegara acá, cerraría el expandido de abajo (un Esc = dos cosas). No está medido si
+  // Chrome/Edge lo entregan, así que se cubren los dos órdenes: mientras sigue en pantalla completa
+  // (fullscreenElement todavía puesto) y justo después (ventana corta tras fullscreenchange).
+  const fsChangeAt = useRef(-Infinity);
+  useEffect(() => {
+    const mark = () => { fsChangeAt.current = performance.now(); };
+    document.addEventListener('fullscreenchange', mark);
+    document.addEventListener('webkitfullscreenchange', mark);
+    return () => {
+      document.removeEventListener('fullscreenchange', mark);
+      document.removeEventListener('webkitfullscreenchange', mark);
+    };
+  }, []);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
+      if (document.fullscreenElement || document.webkitFullscreenElement) return;
+      if (performance.now() - fsChangeAt.current < FS_ESC_WINDOW_MS) return;
       if (dismissPopover()) return;   // menú contextual primero (un Esc = una cosa)
       dismissTop();
     };
@@ -1180,6 +1199,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               >
                 <QueueGlyph size={22} />
               </button>
+              {isVideo && <FullscreenButton onClick={enterVideoFullscreen} />}
               {!isVideo && (
                 <button
                   className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
@@ -1368,6 +1388,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             >
               <QueueGlyph size={22} />
             </button>
+            {isVideo && <FullscreenButton onClick={enterVideoFullscreen} />}
             {!isVideo && (
               <button
                 className={`exp-icon-btn${expPanel === 'lyrics' ? ' active' : ''}`}
@@ -1788,6 +1809,18 @@ function InfoIcon({ size = 20 }) {
       <line x1="12" y1="11" x2="12" y2="16" />
       <circle cx="12" cy="8" r="1.05" fill="currentColor" stroke="none" />
     </svg>
+  );
+}
+// Entrar a pantalla completa con el video que suena (T27). Va en las DOS filas de acciones del
+// expandido (exp-head-actions en móvil, exp-actions en escritorio), como Cola y Letra.
+function FullscreenButton({ onClick }) {
+  return (
+    <button className="exp-icon-btn exp-fullscreen" onClick={onClick} title="Pantalla completa" aria-label="Pantalla completa">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polyline points="4,9 4,4 9,4" /><polyline points="15,4 20,4 20,9" />
+        <polyline points="20,15 20,20 15,20" /><polyline points="9,20 4,20 4,15" />
+      </svg>
+    </button>
   );
 }
 function ChevronDown() {

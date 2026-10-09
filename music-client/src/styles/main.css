@@ -1047,6 +1047,31 @@ button, input, select, textarea { font-family: inherit; }
 .player-video[data-slot="mini"] { visibility: visible; z-index: 1;   border-radius: 6px;  object-fit: cover; }
 .player-video[data-slot="exp"]  { visibility: visible; z-index: 201; border-radius: 14px; object-fit: contain; }
 
+/* PANTALLA COMPLETA (T27): va el envoltorio (.player-video-layer), que fuera de esto no lleva
+   ningún estilo — ni position ni z-index ni transform, que encerrarían el z-index del <video>.
+   El rAF de PlayerContext escribe transform/width/height INLINE: sólo un !important les gana, y
+   además el tick se saltea mientras dure. object-fit contain siempre (también si se entró con el
+   hueco del mini, que es cover), sin radio. visibility visible por si se entró sin hueco visible.
+   Las reglas con prefijo van APARTE: un selector desconocido invalida la regla entera. */
+.player-video-layer:fullscreen { background: #000; width: 100%; height: 100%; }
+.player-video-layer:fullscreen .player-video {
+  transform: none !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+  border-radius: 0;
+  visibility: visible;
+}
+.player-video-layer:-webkit-full-screen { background: #000; width: 100%; height: 100%; }
+.player-video-layer:-webkit-full-screen .player-video {
+  transform: none !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+  border-radius: 0;
+  visibility: visible;
+}
+
 .album-grid-anim .album-card {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .3);            /* peso en reposo */
   transition: background .18s, transform .18s cubic-bezier(.34, 1.42, .5, 1), box-shadow .18s ease;
