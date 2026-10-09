@@ -1023,9 +1023,19 @@ button, input, select, textarea { font-family: inherit; }
 
 /* ── VIDEOS ──
    La misma tarjeta de Álbumes con portada 16:9 (las portadas de video son fotogramas). Tocarla
-   reproduce, igual que una canción en un listado. */
-.video-group { margin-bottom: 28px; }
-.video-group-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; }
+   reproduce, igual que una canción en un listado.
+   Grilla PROPIA (.video-grid, no .album-grid): una sola para todos los videos y con tarjetas más
+   anchas que las de un álbum, porque una portada 16:9 en 170px queda de ~83px de alto. Con 260px de
+   mínimo: 4 columnas a 1440 y 5 a 1920. En el teléfono, una columna (la portada sale de ~190px de
+   alto; con dos quedaba en ~83px). Los ajustes por ancho de .album-grid no la alcanzan. */
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+@media (max-width: 700px) {
+  .video-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+}
 .video-cover-frame .video-cover { aspect-ratio: 16 / 9; }
 
 /* El ÚNICO <video> de la app (PlayerContext). Fijo y fuera del flujo: PlayerContext lo coloca cada
