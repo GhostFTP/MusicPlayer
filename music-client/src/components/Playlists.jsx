@@ -357,7 +357,9 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Escape') setQuery(''); }}
+              // El Esc se queda acá (como en SearchBox.jsx): si siguiera hasta el Esc global de
+              // Player, además de limpiar el filtro cerraría la cola o el expandido.
+              onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setQuery(''); } }}
               placeholder="Filtrar en esta playlist…"
               aria-label="Filtrar canciones de la playlist"
             />

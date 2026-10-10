@@ -12,9 +12,17 @@ import BackButton from './BackButton.jsx';
 import AlbumViewSelector from './AlbumViewSelector.jsx';
 import { readAlbumView, writeAlbumView } from '../utils/albumsView.js';
 import { currentOwner } from '../utils/playsOutbox.js';
+import SearchBox from './SearchBox.jsx';
+import { useListFilter } from '../utils/useListFilter.js';
 
 // Clave de la caché de vistas (viewCache.js): la lista de álbumes.
 const ALBUMS_CACHE_KEY = 'albums:list';
+
+// Dónde busca el buscador del listado: nombre del álbum y artista del álbum (lo que dice la tarjeta).
+const SEARCH_FIELDS = ['album', 'album_artist'];
+// Identidad de un álbum para cruzarlo con las pistas (el Mix filtrado): álbum + artista del álbum,
+// la misma pareja por la que agrupa el backend. Sin artista, null y '' son el mismo caso.
+const albumKey = (x) => `${x.album}\n${x.album_artist ?? ''}`;
 
 export default function Albums({ target, clearTarget, setDetailOpen, navigate }) {
   // Stale-while-revalidate (Frente 1, sub-paso 5): con la lista ya cacheada en esta sesión, el
@@ -46,6 +54,19 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
     [],
   );
   const onCtx = useCallback((e, album) => openMenu(e, { type: 'album', item: album }), [openMenu]);
+
+  // Buscador del listado (utils/useListFilter.js). El texto vive ACÁ y no en el campo: el detalle es
+  // este mismo componente con otro JSX, así que entrar a un álbum y volver lo conserva; cambiar de
+  // vista desmonta Albums y lo borra. `shown` es lo que se ve: tarjetas, contador y Mix salen de ahí.
+  const { query, setQuery, activeQuery, filtered: shown } = useListFilter(albums, SEARCH_FIELDS);
+  // Mix: mezcla las pistas de la VISTA, como siempre (albumsViewTracks). Con filtro, la vista son los
+  // álbumes que quedan → sus pistas; sin filtro es exactamente el pedido de antes.
+  const mixTracks = useCallback(async () => {
+    const all = await albumsViewTracks();
+    if (shown === albums) return all;
+    const keys = new Set(shown.map(albumKey));
+    return all.filter((t) => keys.has(albumKey(t)));
+  }, [shown, albums]);
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error. `background === true`: revalidación con datos ya
@@ -93,7 +114,9 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   // album (+ album_artist si vino). Espera a que la lista termine (loading) para
   // no perder el target. Consumo único: siempre limpia.
   useEffect(() => {
-    if (target?.reset) { setSelected(null); clearTarget(); return; }   // tap en la pestaña activa
+    // reset = volver a la lista. Con `tab` (tocar la pestaña activa, ver Layout.navigate) además se
+    // borra el buscador; sin él es el atrás desde un detalle, que lo conserva.
+    if (target?.reset) { setSelected(null); if (target.tab) setQuery(''); clearTarget(); return; }
     if (!target?.album || loading) return;
     // album_artist null (ruta /albums/@/…, o una pista sin album_artist) = el álbum SIN artista de ese
     // nombre; si no hubiera ninguno, el primero con ese nombre (lo que hacía antes).
@@ -167,20 +190,28 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
     <div>
       <div className="section-header">
         <h1 className="section-title">Álbumes</h1>
+        <SearchBox value={query} onChange={setQuery} placeholder="Buscar álbum o artista…" label="Buscar en álbumes" />
       </div>
       {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
-          contador (los listados no tienen ▶ Reproducir). */}
+          contador (los listados no tienen ▶ Reproducir). Con el buscador, los dos son de lo que se ve. */}
       <div className="view-actions">
-        <ShuffleButton getTracks={albumsViewTracks} count={loading || error ? undefined : albums.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
-        <span className="section-count">{albums.length} álbumes</span>
+        <ShuffleButton getTracks={mixTracks} count={loading || error ? undefined : shown.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
+        <span className="section-count">{shown.length} {shown.length === 1 ? 'álbum' : 'álbumes'}</span>
         <AlbumViewSelector mode={view} onChange={changeView} />
       </div>
 
       {/* d2 es la grilla de siempre (sin modificador): el predeterminado se ve igual que antes. Los
           demás modos son SÓLO CSS sobre la misma tarjeta (.album-grid--*): cambiar de vista no
           remonta las tarjetas. */}
+      {shown.length === 0 ? (
+        // Hay álbumes pero ninguno coincide: la cabecera y el buscador siguen arriba para corregir.
+        <div className="empty-state">
+          <div className="empty-icon">💿</div>
+          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+        </div>
+      ) : (
       <div className={view === 'd2' ? 'album-grid' : `album-grid album-grid--${view}`}>
-        {albums.map(album => (
+        {shown.map(album => (
           <AlbumCard
             key={`${album.album}-${album.album_artist}`}
             album={album}
@@ -192,6 +223,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
           />
         ))}
       </div>
+      )}
     </div>
   );
 }

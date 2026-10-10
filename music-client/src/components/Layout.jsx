@@ -107,7 +107,10 @@ export default function Layout() {
   // así que la entrada persistente guarda target null (la lista) y la URL cae a /<view>. No
   // se empuja si el path no cambia (tocar la pestaña activa ya en su lista).
   const navigate = (nextView, target = null) => {
-    const nextTarget = target == null && nextView === view ? { reset: true } : target;
+    // `tab: true` distingue ESTE reset (tocar la pestaña activa) del que arma restoreRoute al volver
+    // de un detalle con el atrás: el buscador de un listado se borra con el primero y se conserva
+    // con el segundo.
+    const nextTarget = target == null && nextView === view ? { reset: true, tab: true } : target;
     setView(nextView);
     setNavTarget(nextTarget);
     const routeTarget = nextTarget?.reset ? null : nextTarget;
