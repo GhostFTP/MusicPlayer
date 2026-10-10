@@ -25,6 +25,14 @@
     { "nombre": "albview-func", "archivo": "albview-func.mjs", "modo": "name-line", "esperado": { "ok": 14, "total": 14 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
     { "nombre": "routes-unit", "archivo": "routes-unit.mjs", "modo": "name-line", "esperado": { "ok": 33, "total": 33 } },
     { "nombre": "nav-real", "archivo": "nav-real.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 } },
+    { "nombre": "videos-v3", "archivo": "videos-v3.mjs", "modo": "name-line", "esperado": { "ok": 21, "total": 21 } },
+    { "nombre": "video-queue-func", "archivo": "video-queue-func.mjs", "modo": "name-line", "esperado": { "ok": 23, "total": 23 } },
+    { "nombre": "video-ui-func", "archivo": "video-ui-func.mjs", "modo": "name-line", "esperado": { "ok": 22, "total": 22 } },
+    { "nombre": "video-menu-func", "archivo": "video-menu-func.mjs", "modo": "name-line", "esperado": { "ok": 38, "total": 38 } },
+    { "nombre": "pl-videos-func", "archivo": "pl-videos-func.mjs", "modo": "name-line", "esperado": { "ok": 46, "total": 46 } },
+    { "nombre": "video-fullscreen-func", "archivo": "video-fullscreen-func.mjs", "modo": "name-line", "esperado": { "ok": 28, "total": 28 } },
+    { "nombre": "video-grid-func", "archivo": "video-grid-func.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 } },
+    { "nombre": "video-firstframe-func", "archivo": "video-firstframe-func.mjs", "modo": "name-line", "esperado": { "ok": 15, "total": 15 } },
     {
       "nombre": "rows", "archivo": "rows.mjs", "modo": "rows", "cpu": 1,
       "esperado": {
