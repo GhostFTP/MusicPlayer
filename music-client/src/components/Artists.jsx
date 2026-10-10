@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 import { stringHue } from '../utils/emojiHue.js';
@@ -10,6 +10,11 @@ import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
 import BackButton from './BackButton.jsx';
+import SearchBox from './SearchBox.jsx';
+import { useListFilter } from '../utils/useListFilter.js';
+
+// Dónde busca el buscador del listado: el nombre del artista (lo único con texto propio en el retrato).
+const SEARCH_FIELDS = ['artist'];
 
 const MAX_GENRE_CHIPS = 3;   // Kali Uchis tiene 5 géneros; sin tope el hero se satura
 
@@ -72,6 +77,20 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
   // ES album_artist) es lo que necesita artistTracks.
   const { dragProps } = useDragQueue();
 
+  // Buscador del listado (utils/useListFilter.js), igual que en Álbumes: el texto vive acá, así que
+  // entrar a un artista y volver lo conserva; cambiar de vista desmonta Artists y lo borra. `shown`
+  // es lo que se ve: retratos, contador y Mix salen de ahí.
+  const { query, setQuery, activeQuery, filtered: shown, touched } = useListFilter(artists, SEARCH_FIELDS);
+  // Mix: mezcla las pistas de la VISTA, como siempre (artistsViewTracks). Con filtro, la vista son
+  // los artistas que quedan → sus pistas (por album_artist, que acá es `artist`); sin filtro es
+  // exactamente el pedido de antes.
+  const mixTracks = useCallback(async () => {
+    const all = await artistsViewTracks();
+    if (shown === artists) return all;
+    const names = new Set(shown.map((a) => a.artist));
+    return all.filter((t) => names.has(t.album_artist));
+  }, [shown, artists]);
+
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
   function loadArtists() {
@@ -127,7 +146,9 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
   // `artist`), así que el match es directo. Espera a que la lista cargue (deps).
   // Consumo único: siempre limpia; si no existe, queda en la lista.
   useEffect(() => {
-    if (target?.reset) { setSel(null); setAlbums(null); clearTarget(); return; }
+    // Con `tab` (tocar la pestaña activa, ver Layout.navigate) además se borra el buscador; sin él es
+    // el atrás desde un detalle, que lo conserva.
+    if (target?.reset) { setSel(null); setAlbums(null); if (target.tab) setQuery(''); clearTarget(); return; }
     if (!target?.artist || !artists) return;
     const a = artists.find(x => x.artist === target.artist);
     if (a) open(a);
@@ -215,19 +236,28 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
     <div>
       <div className="section-header">
         <h1 className="section-title">Artistas</h1>
+        <SearchBox value={query} onChange={setQuery} placeholder="Buscar artista…" label="Buscar en artistas" />
       </div>
       {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
           contador (los listados no tienen ▶ Reproducir). */}
       <div className="view-actions">
-        <ShuffleButton getTracks={artistsViewTracks} count={artists.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
-        <span className="section-count">{artists.length} artistas</span>
+        <ShuffleButton getTracks={mixTracks} count={shown.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
+        <span className="section-count">{shown.length} {shown.length === 1 ? 'artista' : 'artistas'}</span>
       </div>
       {/* Grilla propia, NO `.album-grid`: la tarjeta ES la foto (retrato 3:4 a sangre, texto
           encima). Antes esto era literalmente la tarjeta de Álbumes con la miniatura
           redonda — y como esa miniatura era una carátula, un artista de un solo álbum se
           veía casi idéntico a su propio álbum en la otra pestaña. */}
-      <div className="artist-grid">
-        {artists.map((a, i) => (
+      {shown.length === 0 ? (
+        // Hay artistas pero ninguno coincide: la cabecera y el buscador siguen arriba para corregir.
+        <div className="empty-state">
+          <div className="empty-icon">🎤</div>
+          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+        </div>
+      ) : (
+      // --still: ya se usó el buscador → sin entrada escalonada (ver `touched` en useListFilter).
+      <div className={touched ? 'artist-grid artist-grid--still' : 'artist-grid'}>
+        {shown.map((a, i) => (
           <div
             key={a.artist}
             className="artist-portrait"
@@ -246,6 +276,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }

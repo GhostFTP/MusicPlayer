@@ -10,6 +10,11 @@ import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { genreEmoji } from '../utils/genreEmoji.js';
 import { emojiHue } from '../utils/emojiHue.js';
 import BackButton from './BackButton.jsx';
+import SearchBox from './SearchBox.jsx';
+import { useListFilter } from '../utils/useListFilter.js';
+
+// Dónde busca el buscador del listado: el nombre del género.
+const SEARCH_FIELDS = ['genre'];
 
 export default function Genres({ target, clearTarget, setDetailOpen, navigate }) {
   const [genres, setGenres] = useState(null);
@@ -34,6 +39,19 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   navigateRef.current = navigate;
   const onOpen = useCallback((g) => navigateRef.current('genres', { genre: g.genre }), []);
   const onCtx  = useCallback((e, g) => openMenu(e, { type: 'genre', item: g }), [openMenu]);
+
+  // Buscador del listado (utils/useListFilter.js), igual que en Álbumes: el texto vive acá, así que
+  // entrar a un género y volver lo conserva; cambiar de vista desmonta Genres y lo borra. `shown` es
+  // lo que se ve: tarjetas, contador y Mix salen de ahí.
+  const { query, setQuery, activeQuery, filtered: shown, touched } = useListFilter(genres, SEARCH_FIELDS);
+  // Mix: mezcla las pistas de la VISTA, como siempre (genresViewTracks). Con filtro, la vista son los
+  // géneros que quedan → sus pistas; sin filtro es exactamente el pedido de antes.
+  const mixTracks = useCallback(async () => {
+    const all = await genresViewTracks();
+    if (shown === genres) return all;
+    const names = new Set(shown.map((g) => g.genre));
+    return all.filter((t) => names.has(t.genre));
+  }, [shown, genres]);
 
   // Función nombrada (no solo inline en el efecto) para poder reusarla desde
   // el botón "Reintentar" del estado de error.
@@ -64,7 +82,9 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   // nada. Siempre limpia el target → consumo único (volver por el menú muestra la
   // lista, no el género anterior). clearTarget queda fuera de deps a propósito.
   useEffect(() => {
-    if (target?.reset) { setSel(null); setTracks(null); clearTarget(); return; }
+    // Con `tab` (tocar la pestaña activa, ver Layout.navigate) además se borra el buscador; sin él es
+    // el atrás desde un detalle, que lo conserva.
+    if (target?.reset) { setSel(null); setTracks(null); if (target.tab) setQuery(''); clearTarget(); return; }
     if (!target?.genre || !genres) return;
     const g = genres.find(x => x.genre === target.genre);
     if (g) open(g);
@@ -120,15 +140,24 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
     <div>
       <div className="section-header">
         <h1 className="section-title">Géneros</h1>
+        <SearchBox value={query} onChange={setQuery} placeholder="Buscar género…" label="Buscar en géneros" />
       </div>
       {/* Fila de acciones B (Frente 2, M2d): debajo del título, igual en todas las vistas — Mix y
           contador (los listados no tienen ▶ Reproducir). */}
       <div className="view-actions">
-        <ShuffleButton getTracks={genresViewTracks} count={genres.reduce((s, g) => s + (g.track_count ?? 0), 0)} />
-        <span className="section-count">{genres.length} géneros</span>
+        <ShuffleButton getTracks={mixTracks} count={shown.reduce((s, g) => s + (g.track_count ?? 0), 0)} />
+        <span className="section-count">{shown.length} {shown.length === 1 ? 'género' : 'géneros'}</span>
       </div>
-      <ul className="browse-list">
-        {genres.map((g, idx) => (
+      {shown.length === 0 ? (
+        // Hay géneros pero ninguno coincide: la cabecera y el buscador siguen arriba para corregir.
+        <div className="empty-state">
+          <div className="empty-icon">🏷️</div>
+          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+        </div>
+      ) : (
+      // --still: ya se usó el buscador → sin entrada escalonada (ver `touched` en useListFilter).
+      <ul className={touched ? 'browse-list browse-list--still' : 'browse-list'}>
+        {shown.map((g, idx) => (
           <GenreItem
             key={g.genre}
             g={g}
@@ -140,6 +169,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
           />
         ))}
       </ul>
+      )}
     </div>
   );
 }

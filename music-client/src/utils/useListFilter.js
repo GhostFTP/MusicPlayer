@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { foldForSearch } from './searchText.js';
 
 const EMPTY = [];
@@ -18,10 +18,15 @@ const EMPTY = [];
 //   sólo espacios es "sin filtro".
 //
 // Devuelve `filtered` (la MISMA referencia que `list` cuando no hay filtro → quien memoiza por la
-// lista no se entera) y `activeQuery`, el texto que de verdad está filtrando lo que se ve.
+// lista no se entera), `activeQuery` (el texto que de verdad está filtrando lo que se ve) y `touched`:
+// ya se escribió algo en esta visita. Las vistas con entrada escalonada (Artistas, Géneros) la apagan
+// con eso: esa animación es para cuando la lista MONTA, no para cada tarjeta que vuelve al borrar una
+// letra. No vuelve a false al limpiar; se reinicia cuando la vista se desmonta.
 export function useListFilter(list, fields) {
   const items = list ?? EMPTY;
-  const [query, setQuery] = useState('');
+  const [query, setQueryState] = useState('');
+  const [touched, setTouched] = useState(false);
+  const setQuery = useCallback((v) => { if (v) setTouched(true); setQueryState(v); }, []);
   const deferredQuery = useDeferredValue(query);
 
   const haystacks = useMemo(() => {
@@ -37,5 +42,5 @@ export function useListFilter(list, fields) {
     return items.filter((it) => haystacks.get(it).includes(q));
   }, [items, haystacks, activeQuery]);
 
-  return { query, setQuery, activeQuery, filtered };
+  return { query, setQuery, activeQuery, filtered, touched };
 }

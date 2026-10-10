@@ -1425,6 +1425,9 @@ button, input, select, textarea { font-family: inherit; }
   animation-delay: calc(var(--i, 0) * 20ms);   /* entrada escalonada al montar la lista */
 }
 .genre-item:hover .genre-tile { transform: scale(1.08); }
+/* Con el buscador ya usado (Genres.jsx, `touched`) no hay entrada escalonada: es para cuando la
+   lista monta, no para cada tarjeta que vuelve al borrar una letra. Igual en .artist-grid--still. */
+.browse-list--still .genre-tile { animation: none; }
 
 /* reduced-motion: sin entrada escalonada ni escala en hover; el wash/aro por
    hue se conservan (cambio de color, no de movimiento). */
@@ -1456,6 +1459,7 @@ button, input, select, textarea { font-family: inherit; }
   animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
   animation-delay: calc(var(--i, 0) * 24ms);
 }
+.artist-grid--still .artist-portrait { animation: none; }   /* ver .browse-list--still */
 /* Hover: lift + sombra negra (profundidad) MÁS una capa teñida con el hue del artista (aro
    1px + glow) → la lista previsualiza el color del detalle. En REPOSO no hay hue: la foto
    curada manda, el color solo aparece al enfocar. Sin --h cae al morado 265. */
