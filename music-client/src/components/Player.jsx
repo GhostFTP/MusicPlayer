@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
 import { api, coverUrl, videoCoverUrl } from '../api/client.js';
 import { qualityCodec, qualityDetail, qualityTier, qualityTierTitle } from './QualityChip.jsx';
@@ -392,7 +392,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
   // La carátula visible sigue a currentTrack, salvo mientras corre la animación
   // (ahí se cambia a mano al quedar fuera de pantalla).
-  useEffect(() => { if (!busy.current) setCoverTrack(currentTrack); }, [currentTrack]);
+  // useLayoutEffect y no useEffect: se aplica ANTES de pintar. Con useEffect quedaba un frame con la
+  // carátula de la pista anterior; antes no se notaba con un video porque el <video> negro la tapaba
+  // al instante, pero ahora el <video> espera su primer fotograma y ese frame se veía (T30 · P2).
+  useLayoutEffect(() => { if (!busy.current) setCoverTrack(currentTrack); }, [currentTrack]);
   // prefers-reduced-motion en vivo.
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -795,8 +798,13 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
 
   // data-video-slot="mini": con un video sonando y el expandido cerrado, PlayerContext coloca el
   // <video> encima de esta portada (no se reparenta; ver la capa del video en PlayerContext).
-  const art = currentTrack?.cover_path
-    ? <img className="player-art" data-video-slot="mini" src={coverUrl(currentTrack.id, { thumb: true })} alt="" onClick={openExpanded} title="Abrir reproductor" />
+  // Con un video, el hueco muestra SU portada (si tiene): es lo que se ve hasta el primer fotograma,
+  // porque PlayerContext mantiene el <video> oculto hasta entonces (si no, era un cuadro negro).
+  const artSrc = isVideo
+    ? (currentTrack.has_cover ? videoCoverUrl(currentTrack.id) : null)
+    : (currentTrack?.cover_path ? coverUrl(currentTrack.id, { thumb: true }) : null);
+  const art = artSrc
+    ? <img className="player-art" data-video-slot="mini" src={artSrc} alt="" onClick={openExpanded} title="Abrir reproductor" />
     : <div className="player-art-placeholder" data-video-slot="mini" onClick={openExpanded} title="Abrir reproductor">♪</div>;
 
   // Género (integrado al subtítulo) del track enriquecido (trackMeta) o del actual.
@@ -1254,9 +1262,15 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                     que en un telefono con DPR 3 son ~900px reales. La miniatura de 480 se
                     veria blanda justo en la superficie mas grande de la app. */}
                 {/* data-video-slot="exp": con un video sonando, el <video> se coloca encima. */}
-                {coverTrack?.cover_path
-                  ? <img className="exp-art" data-video-slot="exp" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
-                  : <div className="exp-art-placeholder" data-video-slot="exp">♪</div>
+                {/* Con un video: su portada (contain sobre negro, el mismo encuadre que el <video>
+                    que la reemplaza al primer fotograma) o el ♪ si no tiene. */}
+                {coverTrack?.kind === 'video'
+                  ? (coverTrack.has_cover
+                    ? <img className="exp-art exp-art--video" data-video-slot="exp" src={videoCoverUrl(coverTrack.id)} alt="" draggable={false} />
+                    : <div className="exp-art-placeholder" data-video-slot="exp">♪</div>)
+                  : coverTrack?.cover_path
+                    ? <img className="exp-art" data-video-slot="exp" src={coverUrl(coverTrack.id)} alt="" draggable={false} />
+                    : <div className="exp-art-placeholder" data-video-slot="exp">♪</div>
                 }
               </div>
             </div>

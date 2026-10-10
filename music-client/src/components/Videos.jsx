@@ -4,9 +4,10 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 
-// Vista "Videos". Lee GET /api/videos, que ya viene ordenada (artista A→Z, año
-// del más nuevo al más viejo, sin año al final, título) — acá no se reordena, sólo se agrupa por
-// artista conservando ese orden. Mismo lenguaje que Álbumes: .album-grid + tarjetas .album-card,
+// Vista "Videos". Lee GET /api/videos y la muestra en UNA sola grilla (.video-grid, propia: no
+// toca la .album-grid de Álbumes) ordenada por artista A→Z y después por título. Sin títulos de
+// grupo: el artista va dentro de cada tarjeta. La grilla era una por artista y, con un video por
+// artista, cada uno ocupaba una fila con una tarjeta chica y el resto vacío. Tarjetas .album-card
 // con el modificador .video-card (portada 16:9).
 //
 // Tocar un video hace EXACTAMENTE lo que tocar una canción en un listado (TrackTable, Library):
@@ -36,22 +37,12 @@ export default function Videos() {
 
   useEffect(() => { load(); }, [load]);
 
-  // [{ artist, videos: [...] }] en el orden en que llegan.
-  const groups = useMemo(() => {
-    const out = [];
-    const byArtist = new Map();
-    for (const v of videos ?? []) {
-      let g = byArtist.get(v.artist);
-      if (!g) { g = { artist: v.artist, videos: [] }; byArtist.set(v.artist, g); out.push(g); }
-      g.videos.push(v);
-    }
-    return out;
-  }, [videos]);
-
-  // La lista visible (grupos aplanados, el mismo orden que se ve) como ítems de cola de video.
-  const items = useMemo(() => groups.flatMap((g) => g.videos).map((v) => ({ ...v, kind: 'video' })), [groups]);
+  // La lista visible, en el orden en que se ve (artista A→Z, después título), como ítems de cola de
+  // video: tocar uno reproduce ESTA lista desde ése.
+  const items = useMemo(() => [...(videos ?? [])]
+    .sort((a, b) => COLLATOR.compare(a.artist ?? '', b.artist ?? '') || COLLATOR.compare(a.title ?? '', b.title ?? ''))
+    .map((v) => ({ ...v, kind: 'video' })), [videos]);
   const onPlay = useCallback((i) => play(items, i), [play, items]);
-  const indexOf = useMemo(() => new Map(items.map((v, i) => [v.id, i])), [items]);
 
   if (loading) return <div className="spinner">Cargando videos…</div>;
 
@@ -66,7 +57,7 @@ export default function Videos() {
     );
   }
 
-  if (groups.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="empty-state">
         <div className="empty-icon">🎬</div>
@@ -85,26 +76,18 @@ export default function Videos() {
         <span className="section-count">{videos.length} {videos.length === 1 ? 'video' : 'videos'}</span>
       </div>
 
-      {groups.map((g) => (
-        <section key={g.artist} className="video-group">
-          <h2 className="video-group-title">{g.artist}</h2>
-          <div className="album-grid">
-            {g.videos.map((v) => {
-              const i = indexOf.get(v.id);
-              return (
-                <VideoCard
-                  key={v.id}
-                  video={v}
-                  press={bindPress(items[i], {
-                    onClick: () => onPlay(i),
-                    onContextMenu: (e) => openMenu(e, { type: 'video', item: items[i] }),
-                  })}
-                />
-              );
+      <div className="video-grid">
+        {items.map((v, i) => (
+          <VideoCard
+            key={v.id}
+            video={v}
+            press={bindPress(v, {
+              onClick: () => onPlay(i),
+              onContextMenu: (e) => openMenu(e, { type: 'video', item: v }),
             })}
-          </div>
-        </section>
-      ))}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -125,6 +108,10 @@ function VideoCard({ video, press }) {
     </div>
   );
 }
+
+// A→Z en español sin distinguir mayúsculas ni tildes ("Ávila" junto a "Avicii"), con los números
+// en orden natural ("Parte 2" antes que "Parte 10").
+const COLLATOR = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
 
 // 1:05:09 / 4:07. Sin duración (el backend manda null si no pudo leerla) → null y no se muestra.
 function fmtDuration(s) {

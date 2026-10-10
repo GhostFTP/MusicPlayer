@@ -5,7 +5,8 @@
 //   · la barra inferior a 360 y 390 (isMobile) tiene 7 botones, ninguna etiqueta se sale de su botón
 //     ni se parte en 2 líneas, y ni la barra ni la página scrollean en horizontal;
 //   · la barra lateral (1440) tiene "Videos" y lleva a /videos;
-//   · /videos agrupa por artista, pinta las portadas que existen y el marcador donde no hay;
+//   · /videos es UNA grilla (sin títulos de grupo) ordenada por artista A→Z y después por título, con
+//     el artista en cada tarjeta; pinta las portadas que existen y el marcador donde no hay;
 //   · las tarjetas están habilitadas (sin aria-disabled) y tocar una reproduce la lista de videos
 //     desde ésa en el ÚNICO <video> de la app, sin cambiar de URL (desde V4; hasta V3 no hacía nada);
 //   · estados de error (con Reintentar) y vacío.
@@ -92,9 +93,11 @@ for (const w of [360, 390]) {
   await p.waitForTimeout(800);   // portadas lazy
   const v = await p.evaluate(() => ({
     titulo: document.querySelector('.section-title')?.textContent,
-    grupos: [...document.querySelectorAll('.video-group-title')].map((h) => h.textContent),
+    grupos: document.querySelectorAll('.video-group-title, .video-group').length,
+    grillas: document.querySelectorAll('.video-grid').length,
     tarjetas: [...document.querySelectorAll('.video-card')].map((c) => ({
       titulo: c.querySelector('.album-name')?.textContent,
+      artista: c.querySelector('.album-artist')?.textContent,
       meta: c.querySelector('.album-count')?.textContent ?? null,
       img: c.querySelector('img') ? { cargo: c.querySelector('img').complete && c.querySelector('img').naturalWidth > 0 } : null,
       marcador: !!c.querySelector('.album-cover-placeholder'),
@@ -103,7 +106,12 @@ for (const w of [360, 390]) {
   }));
   const conPortada = vids.filter((x) => x.has_cover).length;
   ok('vista_titulo', v.titulo === 'Videos', { titulo: v.titulo });
-  ok('vista_agrupa_por_artista', JSON.stringify(v.grupos) === JSON.stringify([...new Set(vids.map((x) => x.artist))]), { grupos: v.grupos });
+  // El mismo orden que Videos.jsx: artista A→Z y después título (collator es, base, numérico).
+  const col = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
+  const orden = [...vids].sort((a, b) => col.compare(a.artist, b.artist) || col.compare(a.title, b.title));
+  ok('vista_una_grilla_sin_grupos', v.grillas === 1 && v.grupos === 0, { grillas: v.grillas, grupos: v.grupos });
+  ok('vista_orden_artista_titulo', JSON.stringify(v.tarjetas.map((t) => t.titulo)) === JSON.stringify(orden.map((x) => x.title)), { visto: v.tarjetas.map((t) => t.titulo) });
+  ok('vista_artista_en_tarjeta', v.tarjetas.every((t, i) => t.artista === orden[i].artist), { artistas: v.tarjetas.map((t) => t.artista) });
   ok('vista_tres_tarjetas', v.tarjetas.length === vids.length, { n: v.tarjetas.length });
   ok('vista_portadas', v.tarjetas.filter((t) => t.img?.cargo).length === conPortada && v.tarjetas.filter((t) => t.marcador).length === vids.length - conPortada,
     { tarjetas: v.tarjetas });
@@ -112,7 +120,6 @@ for (const w of [360, 390]) {
   // 5) Tocar reproduce la lista de videos desde la tocada (la SEGUNDA, para que no sea "la primera
   //    por casualidad"), en el único <video> de la app y sin cambiar de URL.
   const antes = p.url();
-  const orden = [...new Map(vids.map((x) => [x.artist, true])).keys()].flatMap((a) => vids.filter((x) => x.artist === a));
   const tocado = orden[1];
   await p.locator('.video-card').nth(1).click();
   await p.waitForFunction((id) => { const el = document.querySelector('video.player-video'); return el && (el.getAttribute('src') ?? '').includes(`/stream/video/${id}`) && !el.paused; }, tocado.id, { timeout: 8000 }).catch(() => {});

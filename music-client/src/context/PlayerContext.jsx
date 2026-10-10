@@ -118,6 +118,7 @@ export function PlayerProvider({ children }) {
       activeRef.current = 'video';
       vacate(audio);
       el = video;
+      delete el.dataset.ready;             // oculto hasta el primer fotograma del src nuevo (ver la capa)
       el.src = videoStreamUrl(track.id);
     } else {
       activeRef.current = 'audio';
@@ -209,6 +210,11 @@ export function PlayerProvider({ children }) {
       setNotice({ id: Date.now(), text: 'No se pudo reproducir el video. Pasamos al siguiente.' });
       playNext(false);
     };
+    // Primer fotograma: recién ahí se deja ver el <video> (data-ready). Hasta entonces el hueco muestra
+    // la portada del video o el ♪, no el fondo negro de un <video> sin imagen. 'emptied' (vaciar con
+    // vacate() o cambiar de src) lo vuelve a ocultar; playIndex además lo borra al poner el src nuevo.
+    const onVideoData    = (e) => { e.target.dataset.ready = '1'; };
+    const onVideoEmptied = (e) => { delete e.target.dataset.ready; };
 
     const els = video ? [audio, video] : [audio];
     for (const el of els) {
@@ -219,6 +225,8 @@ export function PlayerProvider({ children }) {
     }
     video?.addEventListener('loadedmetadata', onVideoMeta);
     video?.addEventListener('error',          onVideoError);
+    video?.addEventListener('loadeddata',     onVideoData);
+    video?.addEventListener('emptied',        onVideoEmptied);
 
     return () => {
       for (const el of els) {
@@ -229,6 +237,8 @@ export function PlayerProvider({ children }) {
       }
       video?.removeEventListener('loadedmetadata', onVideoMeta);
       video?.removeEventListener('error',          onVideoError);
+      video?.removeEventListener('loadeddata',     onVideoData);
+      video?.removeEventListener('emptied',        onVideoEmptied);
     };
   }, [playNext]);
 

@@ -1023,9 +1023,19 @@ button, input, select, textarea { font-family: inherit; }
 
 /* ── VIDEOS ──
    La misma tarjeta de Álbumes con portada 16:9 (las portadas de video son fotogramas). Tocarla
-   reproduce, igual que una canción en un listado. */
-.video-group { margin-bottom: 28px; }
-.video-group-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; }
+   reproduce, igual que una canción en un listado.
+   Grilla PROPIA (.video-grid, no .album-grid): una sola para todos los videos y con tarjetas más
+   anchas que las de un álbum, porque una portada 16:9 en 170px queda de ~83px de alto. Con 260px de
+   mínimo: 4 columnas a 1440 y 5 a 1920. En el teléfono, una columna (la portada sale de ~190px de
+   alto; con dos quedaba en ~83px). Los ajustes por ancho de .album-grid no la alcanzan. */
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+@media (max-width: 700px) {
+  .video-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+}
 .video-cover-frame .video-cover { aspect-ratio: 16 / 9; }
 
 /* El ÚNICO <video> de la app (PlayerContext). Fijo y fuera del flujo: PlayerContext lo coloca cada
@@ -1046,6 +1056,12 @@ button, input, select, textarea { font-family: inherit; }
 }
 .player-video[data-slot="mini"] { visibility: visible; z-index: 1;   border-radius: 6px;  object-fit: cover; }
 .player-video[data-slot="exp"]  { visibility: visible; z-index: 201; border-radius: 14px; object-fit: contain; }
+/* Hasta el PRIMER FOTOGRAMA (data-ready lo pone PlayerContext en 'loadeddata') el <video> no se ve:
+   sin imagen todavía, lo único que pintaba era su fondo negro. Mientras tanto se ve el hueco de abajo,
+   que con un video muestra su portada o el ♪. Más específica que las dos de arriba (0,3,0). En
+   pantalla completa NO aplica: las reglas :fullscreen de más abajo tienen la misma especificidad y
+   van después, así que ahí se ve igual que antes. */
+.player-video[data-slot]:not([data-ready]) { visibility: hidden; }
 
 /* PANTALLA COMPLETA (T27): va el envoltorio (.player-video-layer), que fuera de esto no lleva
    ningún estilo — ni position ni z-index ni transform, que encerrarían el z-index del <video>.
@@ -4051,6 +4067,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   object-fit: cover;
   box-shadow: 0 24px 64px rgba(0, 0, 0, .7);
 }
+
+/* Portada de un VIDEO en el hueco del expandido: el mismo encuadre que el <video> que la tapa al
+   primer fotograma (contain sobre negro), así el cambio no recorta ni salta. */
+.exp-art.exp-art--video { object-fit: contain; background: #000; }
 
 .exp-art-placeholder {
   width: min(100%, 300px);

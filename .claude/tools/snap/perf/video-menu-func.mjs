@@ -127,6 +127,9 @@ for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
   // Abre el menú y devuelve sus etiquetas; deja el menú abierto.
   const abrir = async (title) => {
     if (mobile) {
+      // Con la grilla de una columna (T30) una tarjeta puede quedar debajo del borde: se scrollea
+      // hasta ella antes de mantener presionado, como haría el dedo.
+      await card(title).scrollIntoViewIfNeeded();
       const b = await card(title).boundingBox();
       await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
       await p.mouse.down(); await sleep(650); await p.mouse.up();
