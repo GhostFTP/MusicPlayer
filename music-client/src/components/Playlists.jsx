@@ -18,6 +18,11 @@ import {
   vistaSinCanciones, renglonSinCanciones, contadorDeLista, avisoVideosOmitidos,
 } from '../utils/playlistVideos.js';
 import { quitarVideo } from '../utils/videoPlaylistActions.js';
+import SearchBox from './SearchBox.jsx';
+import { useListFilter } from '../utils/useListFilter.js';
+
+// Dónde busca el buscador de la LISTA: el nombre de la playlist (la tarjeta no tiene otro texto propio).
+const LIST_SEARCH_FIELDS = ['name'];
 
 export default function Playlists({ target, clearTarget, setDetailOpen, navigate }) {
   const [playlists, setPlaylists] = useState([]);
@@ -33,6 +38,10 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
   const [sortMode,  setSortMode]  = useState('added'); // 'added' | 'title' | 'artist' | 'album'
   const [sortDir,   setSortDir]   = useState('desc');  // 'asc' | 'desc'
   const [query,     setQuery]     = useState('');      // filtro del detalle (título/artista)
+  // Buscador de la LISTA (utils/useListFilter.js) — aparte del `query` de arriba, que es el filtro del
+  // detalle. Lista y detalle son este mismo componente, así que entrar a una playlist y volver conserva
+  // el texto; cambiar de vista desmonta Playlists y lo borra. `shownPlaylists` es lo que se ve.
+  const { query: listQuery, setQuery: setListQuery, activeQuery: listActiveQuery, filtered: shownPlaylists, touched: listTouched } = useListFilter(playlists, LIST_SEARCH_FIELDS);
   const { play, currentTrack, isPlaying } = usePlayer();
   // Menú contextual sobre las filas del detalle. Tipo PROPIO ('playlist-track'): es una pista
   // normal más "quitar de ESTA playlist", que sólo esta vista sabe hacer — por eso la función
@@ -67,7 +76,9 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
   // playlist (F1.3b: deep-link /playlists/42 y pop de ruta). El id llega como NÚMERO (coerción
   // en pathToState) → matchea p.id (PK INTEGER) con ===.
   useEffect(() => {
-    if (target?.reset) { setSelected(null); clearTarget(); return; }
+    // Con `tab` (tocar la pestaña activa, ver Layout.navigate) además se borra el buscador de la lista;
+    // sin él es el atrás desde un detalle, que lo conserva.
+    if (target?.reset) { setSelected(null); if (target.tab) setListQuery(''); clearTarget(); return; }
     if (target?.id == null || !playlists.length) return;
     const pl = playlists.find(p => p.id === target.id);
     if (pl) open(pl);
@@ -87,6 +98,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     setPlaylists(prev => [...prev, { ...pl, track_count: 0 }]);
     setNewName('');
     setEmoji('🎵');
+    setListQuery('');   // con el buscador puesto, la nueva podía no coincidir y no verse: se limpia
   }
 
   async function remove(id, e) {
@@ -503,6 +515,11 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     <div>
       <div className="section-header">
         <h1 className="section-title">Playlists</h1>
+        {/* Sólo si hay playlists: sin ninguna no hay nada que buscar y el vacío queda como siempre.
+            Va FUERA del <form> de abajo: Enter acá no crea nada. */}
+        {playlists.length > 0 && (
+          <SearchBox value={listQuery} onChange={setListQuery} placeholder="Buscar playlist…" label="Buscar en playlists" />
+        )}
       </div>
 
       <form className="new-playlist-form" onSubmit={create}>
@@ -511,6 +528,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
           value={newName}
           onChange={e => setNewName(e.target.value)}
           placeholder="Nueva playlist…"
+          aria-label="Nombre de la playlist nueva"
         />
         <button className="btn-primary" type="submit">Crear</button>
       </form>
@@ -529,8 +547,20 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
           <div className="empty-sub">Crea una playlist para organizar tu música.</div>
         </div>
       ) : (
-        <ul className="playlist-list">
-          {playlists.map((pl, idx) => {
+        <>
+        <div className="view-actions">
+          <span className="section-count">{shownPlaylists.length} {shownPlaylists.length === 1 ? 'playlist' : 'playlists'}</span>
+        </div>
+        {shownPlaylists.length === 0 ? (
+        // Hay playlists pero ninguna coincide: la cabecera, el buscador y "Nueva playlist…" siguen arriba.
+        <div className="empty-state">
+          <div className="empty-icon">🎶</div>
+          <div className="empty-title">Sin resultados para «{listActiveQuery}»</div>
+        </div>
+        ) : (
+        // --still: ya se usó el buscador → sin entrada escalonada (ver `touched` en useListFilter).
+        <ul className={listTouched ? 'playlist-list playlist-list--still' : 'playlist-list'}>
+          {shownPlaylists.map((pl, idx) => {
             const n = pl.track_count ?? 0;
             return (
               <li
@@ -558,6 +588,8 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
             );
           })}
         </ul>
+        )}
+        </>
       )}
     </div>
   );
