@@ -3,6 +3,23 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.27.1] - 2026-10-09
+
+### Mejorado
+- **La vista Videos aprovecha el ancho.** Ahora muestra todos los videos en una sola cuadrícula,
+  ordenados por artista y después por título, con tarjetas más grandes que llenan la pantalla en
+  vez de dejar un espacio vacío a la derecha. Cada tarjeta lleva el nombre del artista. En el
+  teléfono se ven de a uno, con la portada grande.
+
+### Corregido
+- **Al arrancar un video ya no se ve un cuadro negro.** Mientras carga se ve su portada (o el ♪ si
+  no tiene), en la barra de abajo y en el reproductor abierto, hasta que aparece el primer
+  fotograma.
+
+### Para tener en cuenta
+- **Límites conocidos:** lo probamos en el navegador de la computadora. El comportamiento en iPhone
+  y iPad todavía lo estamos verificando.
+
 ## [1.27.0] - 2026-10-09
 
 ### Añadido
