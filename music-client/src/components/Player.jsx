@@ -1552,8 +1552,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                   <AddToPlaylistMenu trackId={currentTrack.id} placement="up" className="ptp-player" nativeTitle={false} />
                 </BarTip>
               )}
-              {/* Corazón de "Mis favoritos" al lado del "+" (sólo escritorio: en móvil la barra mini
-                  no lo muestra y vive en el header del expandido). */}
+              {/* Corazón de "Mis favoritos" al lado del "+" (barra de escritorio, desde 701px: en móvil
+                  la barra mini no lo muestra y vive en el header del expandido). */}
               {!isVideo && (
                 <BarTip tip={<>Mis <span className="bar-tip-state">favoritos</span></>} accent="var(--accent)" className="fav-tip">
                   <FavButton trackId={currentTrack.id} className="fav-player" />

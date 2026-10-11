@@ -2230,10 +2230,11 @@ button, input, select, textarea { font-family: inherit; }
 .fav-player:active { transform: scale(.9); }
 .fav-player.fav-on,
 .exp-icon-btn.fav-on { color: var(--accent); }
-/* En la barra, sólo donde CABE sin apretar el título: le quita 42px (corazón + margen), medido
-   con fav-fit.mjs: a 1024 el título pasa de 163 a 121px. Debajo de 1280 (y en móvil, donde la barra
-   es la mini) el corazón vive en el expandido y en el menú contextual. */
-@media (max-width: 1279px) {
+/* En la barra de ESCRITORIO va siempre (desde 701px). Le quita 42px al título (corazón + margen):
+   a 1024 pasa de 163 a 121px y a 1279 de 227 a 185px (fav-bar-desktop-func.mjs). Antes se ocultaba
+   debajo de 1280 para no apretar el título; se prefirió tener el corazón a la vista. En la barra
+   mini (≤700px) sigue sin mostrarse: ahí vive en el expandido y en el menú contextual. */
+@media (max-width: 700px) {
   .player-bar .fav-tip { display: none; }
 }
 
