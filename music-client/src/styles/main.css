@@ -2230,11 +2230,12 @@ button, input, select, textarea { font-family: inherit; }
 .fav-player:active { transform: scale(.9); }
 .fav-player.fav-on,
 .exp-icon-btn.fav-on { color: var(--accent); }
-/* En la barra de ESCRITORIO va siempre (desde 701px). Le quita 42px al título (corazón + margen):
-   a 1024 pasa de 163 a 121px y a 1279 de 227 a 185px (fav-bar-desktop-func.mjs). Antes se ocultaba
-   debajo de 1280 para no apretar el título; se prefirió tener el corazón a la vista. En la barra
-   mini (≤700px) sigue sin mostrarse: ahí vive en el expandido y en el menú contextual. */
-@media (max-width: 700px) {
+/* En la barra de escritorio va desde 900px. Le quita 42px al título (corazón + margen): a 900 pasa
+   de 128 a 86px, a 1024 de 163 a 121px y a 1279 de 227 a 185px (fav-bar-desktop-func.mjs). El corte
+   está en 900 porque ahí un título mediano (80px) todavía entra entero; a 701 quedaban 31px. Antes
+   se ocultaba debajo de 1280. Debajo de 900 (barra de escritorio angosta y barra mini, ≤700px) no
+   se muestra: ahí vive en el expandido y en el menú contextual. */
+@media (max-width: 899px) {
   .player-bar .fav-tip { display: none; }
 }
 

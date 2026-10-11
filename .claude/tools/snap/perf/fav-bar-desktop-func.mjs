@@ -1,18 +1,19 @@
-// fav-bar-desktop-func.mjs — funcional del CORAZÓN EN LA BARRA DE ESCRITORIO (desde 701 px; antes sólo
-// desde 1280). En 701, 1024, 1279 y 1280: el corazón se ve (30×30, dentro de su columna), ningún
-// control se pisa con otro ni se sale de su columna, tocarlo alterna lleno/vacío, deja el servidor
-// consistente y NO abre el reproductor expandido (con un control positivo: un clic en la zona vacía
-// del título SÍ lo abre), el título queda con el ancho medido (1024: 121 px · 1279 y 1280: 185 px,
-// ±4) y un título largo se recorta con "…" en una línea.
-// Desborde horizontal (scrollWidth > clientWidth de la barra y de la página): se exige CERO en 1024,
-// 1279 y 1280. En 701 NO se exige: main ya desborda ahí 17 px por el slider de volumen, con o sin
-// corazón (medido en T42); lo que se exige es que no sea MAYOR que en main, y eso necesita SNAP_REF.
+// fav-bar-desktop-func.mjs — funcional del CORAZÓN EN LA BARRA DE ESCRITORIO (desde 900 px; hasta la
+// 1.28.0 sólo desde 1280). En 900, 1024, 1279 y 1280: el corazón se ve (30×30, dentro de su columna),
+// ningún control se pisa con otro ni se sale de su columna, la barra y la página no desbordan
+// (scrollWidth <= clientWidth), tocarlo alterna lleno/vacío, deja el servidor consistente y NO abre
+// el reproductor expandido (con un control positivo: un clic en la zona vacía del título SÍ lo
+// abre), el título queda con el ancho medido (900: 86 px · 1024: 121 px · 1279 y 1280: 185 px, ±4)
+// y un título largo se recorta con "…" en una línea. En 899 el corazón NO se ve y el título
+// conserva su ancho de siempre (128 px, ±4).
+// El corte está en 900 porque ahí un título mediano (80 px) todavía entra entero: por eso el ancho
+// a 900 se comprueba contra un número.
 // La columna izquierda no se mide por scrollWidth: los tooltips ocultos (.bar-tip, en absoluto) lo
 // inflan aunque nada se vea fuera; se mide por las cajas.
 // Con SNAP_REF (el build de main servido en otro puerto) compara además contra main: el resto de
 // los controles no cambia de tamaño ni de lugar salvo el "+", que se corre 42 px (corazón +
-// separación) donde el corazón es nuevo, y el desborde de barra y página es el mismo.
-// Sin SNAP_REF esas comprobaciones NO se cuentan y se avisa.
+// separación) donde el corazón es nuevo (900 a 1279); en 899 y en 1280 todo es idéntico; y el
+// desborde de barra y página no es mayor. Sin SNAP_REF esas comprobaciones NO se cuentan y se avisa.
 // ⚠️ ESCRIBE (crea/borra "Mis favoritos" de la cuenta de prueba): correr contra la COPIA de la base.
 // Uso: SNAP_BASE=http://localhost:4173 [SNAP_REF=http://localhost:4174] node fav-bar-desktop-func.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
@@ -50,10 +51,11 @@ const CORTO = porLargo[0], LARGO = porLargo[porLargo.length - 1];
 
 const R = {};
 const ok = (k, v, extra) => { R[k] = extra === undefined ? v : { ok: v, ...extra }; };
-const WIDTHS = [701, 1024, 1279, 1280];
-const TITULO_ESPERADO = { 1024: 121, 1279: 185, 1280: 185 };   // medido en T41; 701 no tiene referencia
+const CORTE = 900;                        // el corazón se ve desde acá
+const WIDTHS = [899, 900, 1024, 1279, 1280];
+const TITULO_ESPERADO = { 899: 128, 900: 86, 1024: 121, 1279: 185, 1280: 185 };   // medido (T41 y T42)
 const TOL = 4;
-const CORAZON_NUEVO = (w) => w < 1280;   // en main el corazón ya estaba desde 1280
+const CORAZON_NUEVO = (w) => w >= CORTE && w < 1280;   // en main el corazón ya estaba desde 1280
 
 async function abrir(base, w, track) {
   const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
@@ -108,7 +110,9 @@ for (const w of WIDTHS) {
   const m = await medir(p);
   medidas[w] = { titulo_w: m.titulo.clientW, corazon: m.corazon && { x: m.corazon.x, w: m.corazon.w, h: m.corazon.h } };
   const c = m.corazon;
-  ok(`corazon_visible_${w}`, !!c && c.visible && c.w === 30 && c.h === 30 && c.x >= m.track.x && c.r <= m.track.r + 0.5 && c.y >= m.bar.y && c.b <= m.bar.b, { corazon: c, track: { x: m.track.x, r: m.track.r } });
+  const seVe = w >= CORTE;
+  if (!seVe) ok(`corazon_oculto_${w}`, !!c && !c.visible && !m.controles.some((k) => k.k.includes('fav-player')), { corazon: c });
+  else ok(`corazon_visible_${w}`, !!c && c.visible && c.w === 30 && c.h === 30 && c.x >= m.track.x && c.r <= m.track.r + 0.5 && c.y >= m.bar.y && c.b <= m.bar.b, { corazon: c, track: { x: m.track.x, r: m.track.r } });
 
   const pisados = [];
   for (let i = 0; i < m.controles.length; i++) for (let j = i + 1; j < m.controles.length; j++) if (sePisan(m.controles[i], m.controles[j])) pisados.push([m.controles[i].k, m.controles[j].k]);
@@ -118,9 +122,10 @@ for (const w of WIDTHS) {
     && izq.filter((k) => !k.k.includes('player-art')).every((k) => k.x >= m.meta.r - 0.5) && m.track.r <= m.controls.x + 0.5 && m.controls.r <= m.actions.x + 0.5;
   ok(`sin_solape_${w}`, columnaOk && pisados.length === 0, { bordes: { track_x: m.track.x, meta_r: m.meta.r, track_r: m.track.r, controls_x: m.controls.x, controls_r: m.controls.r, actions_x: m.actions.x }, izq: izq.map((k) => [k.k, k.x, k.r]), pisados });
   medidas[w].desborde = { barra: m.bar.scrollW - m.bar.clientW, pagina: m.pageScrollW - m.innerW };
-  if (w !== 701) ok(`sin_desborde_${w}`, m.bar.scrollW <= m.bar.clientW && m.pageScrollW <= m.innerW, { bar: [m.bar.scrollW, m.bar.clientW], pagina: [m.pageScrollW, m.innerW] });
+  ok(`sin_desborde_${w}`, m.bar.scrollW <= m.bar.clientW && m.pageScrollW <= m.innerW, { bar: [m.bar.scrollW, m.bar.clientW], pagina: [m.pageScrollW, m.innerW] });
 
   // Toggle: lleno → servidor lo tiene; vacío → servidor no lo tiene; el expandido nunca se abre.
+  if (seVe) {
   const heart = p.locator('.player-bar .fav-player');
   const antes = { pressed: await heart.getAttribute('aria-pressed'), exp: await expandidoAbierto(p) };
   await heart.click(); await p.waitForTimeout(1200);
@@ -136,6 +141,7 @@ for (const w of WIDTHS) {
     await p.mouse.click(mm.titulo.r - 4, mm.titulo.y + mm.titulo.h / 2); await p.waitForTimeout(700);   // fila del título, a la derecha del texto corto
     ok('control_clic_en_barra_si_abre_expandido', await expandidoAbierto(p));
   }
+  }
   await ctx.close();
 
   // ── título largo: ancho medido y recorte limpio ──
@@ -146,7 +152,7 @@ for (const w of WIDTHS) {
   medidas[w].titulo_w_largo = t.clientW;
   ok(`titulo_largo_no_rompe_${w}`, t.scrollW > t.clientW && t.overflow === 'ellipsis' && t.ws === 'nowrap' && t.h === m.titulo.h && t.w > 0
     && t.r <= ml.meta.r + 0.5 && ml.bar.scrollW === m.bar.scrollW && ml.pageScrollW === m.pageScrollW
-    && !!ml.corazon?.visible && ml.corazon.x === m.corazon?.x,
+    && !!ml.corazon && ml.corazon.visible === seVe && ml.corazon.x === m.corazon?.x,
   { titulo: { clientW: t.clientW, scrollW: t.scrollW, h: t.h, h_corto: m.titulo.h }, corazon_x: [ml.corazon?.x, m.corazon?.x] });
   await L.ctx.close();
 
@@ -165,7 +171,7 @@ for (const w of WIDTHS) {
     });
     const corazonMain = ref.corazon?.visible ?? false;
     const desb = { nuevo: [nuevo.bar.scrollW - nuevo.bar.clientW, nuevo.pageScrollW - nuevo.innerW], main: [ref.bar.scrollW - ref.bar.clientW, ref.pageScrollW - ref.innerW] };
-    ok(`resto_igual_a_main_${w}`, difs.length === 0 && corazonMain === !CORAZON_NUEVO(w) && nuevo.titulo.clientW === ref.titulo.clientW - corr,
+    ok(`resto_igual_a_main_${w}`, difs.length === 0 && corazonMain === (w >= 1280) && nuevo.titulo.clientW === ref.titulo.clientW - corr,
       { controles_comparados: a.length, difs, corazon_en_main: corazonMain, titulo: { nuevo: nuevo.titulo.clientW, main: ref.titulo.clientW, corrimiento_esperado: corr } });
     ok(`desborde_no_mayor_que_main_${w}`, desb.nuevo[0] <= desb.main[0] && desb.nuevo[1] <= desb.main[1], { barra_y_pagina_px: desb });
   }
