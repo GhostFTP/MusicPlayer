@@ -2233,8 +2233,9 @@ button, input, select, textarea { font-family: inherit; }
 /* En la barra de escritorio va desde 900px. Le quita 42px al título (corazón + margen): a 900 pasa
    de 128 a 86px, a 1024 de 163 a 121px y a 1279 de 227 a 185px (fav-bar-desktop-func.mjs). El corte
    está en 900 porque ahí un título mediano (80px) todavía entra entero; a 701 quedaban 31px. Antes
-   se ocultaba debajo de 1280. Debajo de 900 (barra de escritorio angosta y barra mini, ≤700px) no
-   se muestra: ahí vive en el expandido y en el menú contextual. */
+   se ocultaba debajo de 1280. Entre 701 y 899 (barra de escritorio angosta) ESTE corazón no se
+   muestra: ahí vive en el expandido y en el menú contextual. La barra mini (≤700px) tiene el suyo,
+   .fav-mini, más abajo en su bloque. */
 @media (max-width: 899px) {
   .player-bar .fav-tip { display: none; }
 }
