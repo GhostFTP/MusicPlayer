@@ -3,6 +3,29 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.28.0] - 2026-10-10
+
+### Añadido
+- **Buscador en más vistas.** Álbumes, Artistas, Géneros, Videos y la lista de Playlists tienen ahora
+  un buscador arriba. Filtra mientras escribes, sin distinguir mayúsculas ni acentos, y tiene una ✕
+  para limpiarlo. Si nada coincide, te lo dice.
+- **En Videos, la cola sale de lo que buscaste.** Con el buscador puesto, tocar un video reproduce
+  los que se ven desde ese, y al terminar pasa al siguiente de los filtrados.
+- **La lista de Playlists dice cuántas hay**, y con el buscador puesto, cuántas coinciden.
+
+### Mejorado
+- **La Biblioteca usa el mismo buscador** que las demás vistas, con su ✕ para limpiar. Los espacios
+  al principio y al final de lo que escribes ya no cuentan.
+- **Esc en el buscador.** Si hay texto, lo borra; si está vacío, sale del campo. Ya no cierra de paso
+  la cola ni el reproductor abierto.
+- **Al crear una playlist se limpia el buscador**, para que la nueva se vea aunque no coincida con
+  lo que estabas buscando.
+- **Al buscar ya no se repite la animación de entrada.** Las tarjetas entran una por una solo al
+  abrir la vista, no con cada letra que escribes o borras.
+
+### Para tener en cuenta
+- La vista Años no tiene buscador.
+
 ## [1.27.1] - 2026-10-09
 
 ### Mejorado

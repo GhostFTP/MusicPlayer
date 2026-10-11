@@ -3,6 +3,11 @@ import { api, videoCoverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
+import SearchBox from './SearchBox.jsx';
+import { useListFilter } from '../utils/useListFilter.js';
+
+// Dónde busca el buscador: lo que dice la tarjeta con texto propio, artista y título.
+const SEARCH_FIELDS = ['artist', 'title'];
 
 // Vista "Videos". Lee GET /api/videos y la muestra en UNA sola grilla (.video-grid, propia: no
 // toca la .album-grid de Álbumes) ordenada por artista A→Z y después por título. Sin títulos de
@@ -18,7 +23,7 @@ import { useLongPress } from '../utils/useLongPress.js';
 // tarjetas de álbum (AlbumGrid). Va con el MISMO ítem de cola (kind:'video') que arma el toque, y
 // trae sólo "a continuación" y "a la cola" (ContextMenu, case 'video'). El long-press envuelve el
 // onClick: una pulsación larga abre el menú y no reproduce.
-export default function Videos() {
+export default function Videos({ target, clearTarget }) {
   const { play } = usePlayer();
   const { openMenu } = useContextMenu();
   const bindPress = useLongPress((item, ev) => openMenu(ev, { type: 'video', item, via: 'longpress' }));
@@ -42,7 +47,20 @@ export default function Videos() {
   const items = useMemo(() => [...(videos ?? [])]
     .sort((a, b) => COLLATOR.compare(a.artist ?? '', b.artist ?? '') || COLLATOR.compare(a.title ?? '', b.title ?? ''))
     .map((v) => ({ ...v, kind: 'video' })), [videos]);
-  const onPlay = useCallback((i) => play(items, i), [play, items]);
+  // Buscador (utils/useListFilter.js). `shown` es lo que se ve, en el mismo orden: la cola se arma
+  // desde AHÍ, así que con filtro tocar un video reproduce los filtrados desde ése (y al terminar pasa
+  // al siguiente que se ve, no al siguiente de la lista completa). Como la Biblioteca con su búsqueda.
+  const { query, setQuery, activeQuery, filtered: shown } = useListFilter(items, SEARCH_FIELDS);
+  const onPlay = useCallback((i) => play(shown, i), [play, shown]);
+
+  // Tocar la pestaña ya activa (el `tab` de Layout.navigate) borra el buscador. Videos no tiene
+  // detalle: del target no consume nada más.
+  useEffect(() => {
+    if (!target?.reset) return;
+    if (target.tab) setQuery('');
+    clearTarget?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
 
   if (loading) return <div className="spinner">Cargando videos…</div>;
 
@@ -71,13 +89,21 @@ export default function Videos() {
     <div>
       <div className="section-header">
         <h1 className="section-title">Videos</h1>
+        <SearchBox value={query} onChange={setQuery} placeholder="Buscar video o artista…" label="Buscar en videos" />
       </div>
       <div className="view-actions">
-        <span className="section-count">{videos.length} {videos.length === 1 ? 'video' : 'videos'}</span>
+        <span className="section-count">{shown.length} {shown.length === 1 ? 'video' : 'videos'}</span>
       </div>
 
+      {shown.length === 0 ? (
+        // Hay videos pero ninguno coincide: la cabecera y el buscador siguen arriba para corregir.
+        <div className="empty-state">
+          <div className="empty-icon">🎬</div>
+          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+        </div>
+      ) : (
       <div className="video-grid">
-        {items.map((v, i) => (
+        {shown.map((v, i) => (
           <VideoCard
             key={v.id}
             video={v}
@@ -88,6 +114,7 @@ export default function Videos() {
           />
         ))}
       </div>
+      )}
     </div>
   );
 }

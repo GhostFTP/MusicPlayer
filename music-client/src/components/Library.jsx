@@ -10,6 +10,7 @@ import { fmtTotal } from '../utils/formatTotal.js';
 import { foldForSearch, trackHaystack } from '../utils/searchText.js';
 import { readCache, fetchFresh } from '../api/viewCache.js';
 import { useWindowedRows } from '../utils/useWindowedRows.js';
+import SearchBox from './SearchBox.jsx';
 
 // Clave de la caché de vistas (viewCache.js): la biblioteca completa.
 const LIB_CACHE_KEY = 'tracks:all';
@@ -139,11 +140,15 @@ export default function Library({ target, clearTarget }) {
   // completa sobre título/artista/álbum, sin recortar espacios; "" = todo. Diferencia buscada:
   // también ignora acentos (ver foldForSearch). Filtrar la lista YA ordenada conserva el orden.
   const deferredSearch = useDeferredValue(search);
+  // Los espacios de los EXTREMOS no cuentan, como en los demás listados (useListFilter): "daft " ==
+  // "daft" y un texto de sólo espacios es "sin filtro". Se recorta ACÁ, en lo que se compara; el
+  // estado `search` guarda lo tecleado tal cual (el campo muestra lo que escribiste).
+  const activeSearch = deferredSearch.trim();
   const visibleTracks = useMemo(() => {
-    const q = foldForSearch(deferredSearch);
+    const q = foldForSearch(activeSearch);
     if (!q) return displayTracks;
     return displayTracks.filter((t) => haystacks.get(t).includes(q));
-  }, [displayTracks, haystacks, deferredSearch]);
+  }, [displayTracks, haystacks, activeSearch]);
 
   // La cola se arma desde la lista VISIBLE (filtrada), como antes con los resultados del servidor.
   // Se lee de un ref que se fija DESPUÉS del commit: así onPlay es estable (las filas memoizadas no
@@ -220,7 +225,7 @@ export default function Library({ target, clearTarget }) {
   // (hasLoaded) para que el snap+tick se vea (no parpadea al re-buscar).
   const total = visibleTracks.length;
   const { shown, seq } = useCountUp(total, !loading, !!cached);
-  const noun = countWord(total, !!deferredSearch);
+  const noun = countWord(total, !!activeSearch);
   const finalLabel = `${total} ${noun}`;   // texto FINAL (aria) — número real
 
   // Stats del header: identidad ESTABLE de la biblioteca completa (no repite el
@@ -248,14 +253,10 @@ export default function Library({ target, clearTarget }) {
             )}
           </div>
         </div>
-        <div className="search-box">
-          <SearchIcon />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar título, artista, álbum…"
-          />
-        </div>
+        {/* El campo es el SearchBox de los listados (✕, foco visible, Esc que limpia o suelta el foco
+            sin llegar al Esc global). Sólo el campo: el filtrado de abajo sigue siendo el de la
+            Biblioteca (texto precalculado + valor diferido + ventana), no useListFilter. */}
+        <SearchBox value={search} onChange={setSearch} placeholder="Buscar título, artista, álbum…" label="Buscar en la biblioteca" />
       </div>
 
       {/* Banner de acción: Mix aleatorio + contador */}
@@ -295,8 +296,8 @@ export default function Library({ target, clearTarget }) {
         // sobre una biblioteca que SÍ tiene pistas, no es "Biblioteca vacía": es que nada coincide.
         <div className="empty-state">
           <div className="empty-icon">🎵</div>
-          {deferredSearch && tracks.length > 0 ? (
-            <div className="empty-title">Sin resultados para «{deferredSearch}»</div>
+          {activeSearch && tracks.length > 0 ? (
+            <div className="empty-title">Sin resultados para «{activeSearch}»</div>
           ) : (
             <>
               <div className="empty-title">Biblioteca vacía</div>
@@ -575,12 +576,4 @@ function plural(n, one, many) { return n === 1 ? one : many; }
 function fmt(s) {
   if (!s) return '—';
   return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
-}
-
-function SearchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>
-  );
 }

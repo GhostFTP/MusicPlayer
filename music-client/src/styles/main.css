@@ -478,6 +478,40 @@ button, input, select, textarea { font-family: inherit; }
 
 .search-box input::placeholder { color: var(--text-muted); }
 
+/* Buscador de los listados (SearchBox.jsx): el .search-box de arriba + foco visible y "✕" de limpiar.
+   Scopeado a .sbx para no cambiarle nada al de la Biblioteca. El "✕" no agranda la caja (margen
+   vertical negativo) y en el teléfono llega a 44px de área táctil. */
+.sbx { transition: border-color .15s ease, box-shadow .15s ease; }
+.sbx:focus-within {
+  border-color: hsl(265 60% 60% / .55);
+  box-shadow: 0 0 0 3px hsl(265 55% 55% / .16);
+}
+.sbx input { flex: 1; min-width: 0; width: auto; }
+.sbx > svg { flex: none; }
+.sbx-clear {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -6px -6px -6px 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.sbx-clear:hover { color: var(--text); }
+.sbx-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 700px) {
+  .sbx-clear { width: 44px; height: 44px; margin: -14px -10px -14px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sbx { transition: none; }
+}
+
 /* ── TRACK TABLE ─────────────────────────── */
 
 .track-table {
@@ -1391,6 +1425,9 @@ button, input, select, textarea { font-family: inherit; }
   animation-delay: calc(var(--i, 0) * 20ms);   /* entrada escalonada al montar la lista */
 }
 .genre-item:hover .genre-tile { transform: scale(1.08); }
+/* Con el buscador ya usado (Genres.jsx, `touched`) no hay entrada escalonada: es para cuando la
+   lista monta, no para cada tarjeta que vuelve al borrar una letra. Igual en .artist-grid--still. */
+.browse-list--still .genre-tile { animation: none; }
 
 /* reduced-motion: sin entrada escalonada ni escala en hover; el wash/aro por
    hue se conservan (cambio de color, no de movimiento). */
@@ -1422,6 +1459,8 @@ button, input, select, textarea { font-family: inherit; }
   animation: emoji-pop .34s cubic-bezier(.34, 1.42, .5, 1) backwards;
   animation-delay: calc(var(--i, 0) * 24ms);
 }
+.artist-grid--still .artist-portrait,
+.playlist-list--still .playlist-item { animation: none; }   /* ver .browse-list--still */
 /* Hover: lift + sombra negra (profundidad) MÁS una capa teñida con el hue del artista (aro
    1px + glow) → la lista previsualiza el color del detalle. En REPOSO no hay hue: la foto
    curada manda, el color solo aparece al enfocar. Sin --h cae al morado 265. */
