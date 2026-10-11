@@ -4964,6 +4964,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .mini-btn.lyrics-mini { color: var(--accent); }
   /* Botón de cola en la barra mini: gris; morado cuando la cola está abierta (glifo por currentColor). */
   .mini-btn.queue-mini.active { color: var(--accent); }
+  /* Corazón de "Mis favoritos" en la barra mini (sólo con una canción): vacío y gris en reposo,
+     lleno y morado si es favorita, como en la barra de escritorio. Con él los botones son CINCO y
+     miden 40px en vez de 48 (el bloque pasa de 192 a 200px y el título pierde 8px, no 48). Queda
+     debajo de los 44px de toque recomendados: decisión tomada con ese costo a la vista. Con un
+     video o sin pista no hay corazón y los botones siguen en 48px. */
+  .player-mini-controls--fav .mini-btn { width: 40px; height: 40px; }
+  .mini-btn.fav-mini.fav-on { color: var(--accent); }
 
   /* Bottom nav — 7 entradas (Videos es la 7ª): más compacto para que quepan */
   .bottom-nav {

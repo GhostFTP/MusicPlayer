@@ -1696,10 +1696,17 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           </div>
         </div>
 
-        {/* Mobile mini controls — cola + letra + play + siguiente (lyrics nunca desaparece).
+        {/* Mobile mini controls — corazón + cola + letra + play + siguiente (lyrics nunca desaparece).
             Cola en la barra móvil (antes solo se abría desde el expandido, un paso de más);
-            el acceso desde el expandido móvil sigue igual. */}
-        <div className="player-mini-controls">
+            el acceso desde el expandido móvil sigue igual.
+            El corazón va sólo con una CANCIÓN sonando (mismo criterio que la barra de escritorio) y
+            es el primero, el más cercano al título: play y siguiente no se mueven del borde derecho.
+            Con él son cinco y pasan de 48 a 40px (--fav, ver main.css); con un video o sin pista la
+            mini queda como siempre. */}
+        <div className={`player-mini-controls${currentTrack && !isVideo ? ' player-mini-controls--fav' : ''}`}>
+          {currentTrack && !isVideo && (
+            <FavButton trackId={currentTrack.id} className="mini-btn fav-mini" />
+          )}
           {/* M4 · abre el drawer (expPanel) promoviendo al expandido, no el overlay showQueue.
               Es un lanzador: al abrir, el expandido tapa la mini barra, así que no hace de toggle. */}
           <button
