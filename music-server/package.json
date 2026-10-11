@@ -1,6 +1,6 @@
 {
   "name": "music-server",
-  "version": "1.27.1",
+  "version": "1.28.0",
   "description": "Personal music streaming server",
   "main": "server.js",
   "type": "module",
