@@ -16,6 +16,7 @@ import playsRoutes     from './src/api/plays.js';
 import meRoutes        from './src/api/me.js';
 import usersRoutes     from './src/api/users.js';
 import adminUsersRoutes from './src/api/admin-users.js';
+import radioRoutes     from './src/api/radio.js';
 import streamRoutes    from './src/stream/stream.js';
 import { videosApi, videosStream } from './src/videos/routes.js';
 
@@ -28,6 +29,9 @@ const isDev = process.env.NODE_ENV !== 'production' && !existsSync(DIST);
 
 // CORS solo en desarrollo (en prod el frontend viene del mismo origen)
 if (isDev) app.use(cors());
+// La radio va ANTES del `express.json()` global: trae el suyo, con un tope de cuerpo mucho
+// más chico (src/api/radio.js). El global después ve el cuerpo ya leído y no lo toca.
+app.use('/api/radio',     radioRoutes);
 app.use(express.json());
 
 // API routes

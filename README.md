@@ -39,6 +39,7 @@ MusicPlayer/
 │   │   ├── db/                # esquema SQLite
 │   │   ├── auth/              # JWT middleware + gateo por rol
 │   │   ├── users/             # reglas de usuarios (las comparten la API y el CLI)
+│   │   ├── radio/             # modo radio: reglas y estado EN MEMORIA (sin tabla)
 │   │   └── admin/             # CLI de usuarios
 │   ├── scripts/               # smoke tests (usuarios, cuenta, login con Google)
 │   ├── music/                 # ← pon aquí tus archivos de audio
@@ -397,10 +398,25 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 | GET | `/api/videos` | Lista de videos: `{ videos: [{ id, title, artist, year, ext, size, mime, duration, has_cover }] }`, por artista A→Z y año del más nuevo al más viejo |
 | GET | `/api/videos/:id/cover` | Portada del video (el `.jpg` de al lado); `404` si no tiene |
 | GET | `/stream/video/:id` | Stream de video con Range Requests (el mismo manejo que el audio) |
+| POST | `/api/radio` | Crear **mi** radio → `201 { code, serverNow, status }`. Si ya tenía una, esa termina |
+| PUT | `/api/radio/:code/state` | *(solo el anfitrión)* Publicar qué suena: `{ trackId, positionMs, playing, nextTrackId?, enPausaPorVideo? }` → `{ serverNow, status, state }`. Sirve de latido |
+| GET | `/api/radio/:code` | Leer la radio: `{ serverNow, code, status, state, host, listeners }`. Quien lee queda de oyente unos segundos |
+| DELETE | `/api/radio/:code` | *(el anfitrión o un admin)* Terminarla → `{ serverNow, status: "ended", endedReason }` |
 
 **Los videos** no pasan por el escáner ni por la base: el servidor lee `VIDEO_DIR` (en Docker, `/videos`; dos niveles, `<Artista>/<Título (año)>.mp4`) y guarda el índice en memoria, que se rehace solo cada minuto, así que un video subido con `scp` aparece sin reiniciar ni escanear nada. Solo se listan `.mp4`, `.m4v` y `.mov` (lo que los teléfonos reproducen sin transcodificar); el resto, los ocultos y los symlinks que salgan de la carpeta se ignoran. El `id` son los 16 primeros caracteres del sha1 de la ruta relativa: no cambia al reiniciar, y cambia si se renombra o se mueve el archivo. El artista sale de la carpeta, el año del `(AAAA)` del final del nombre y el título del nombre sin el año; la duración se lee de la pista de audio del MP4 y es `null` si no se puede. Usan la misma autenticación que `/stream` (Bearer o `?token=`).
 
 **Los videos de una playlist** van en su propia tabla (`playlist_videos`), aparte de las canciones: `track_count` de `GET /api/playlists` sigue contando solo canciones, y desde la 1.21.1 hay un `video_count` aparte. Como un video no tiene fila en la base, cada uno se guarda con una copia de su título y su artista. `available` dice qué pasa con cada uno: `true` si está en el índice de videos (y entonces los datos son los de ahora), `false` si el índice se leyó y ese video ya no está —se borró o se renombró, y el `id` cambió—, y `null` si no se sabe porque el índice no se pudo leer (`index: "unavailable"`, por ejemplo sin `VIDEO_DIR`). `year` sale del índice (el `(AAAA)` del nombre del archivo), así que solo lo trae un video con `available: true`; si no, es `null`. Borrar la playlist se lleva sus videos. Estas rutas usan la sesión normal (Bearer), como el resto de `/api/playlists`.
+
+**El modo radio** (1.29.0) es lo que escucha una persona —el anfitrión— publicado para que las demás lo sigan a la par. No hay WebSocket ni tabla: el anfitrión publica su estado con `PUT` (en cada cambio y cada ~10 s, de latido) y los oyentes preguntan con `GET` cada ~2 s. Las cuatro rutas piden sesión (Bearer).
+
+- **El estado** (`state`): `{ seq, trackId, positionMs, playing, nextTrackId, enPausaPorVideo, publishedAtServerMs }`, o `null` si el anfitrión todavía no publicó. `seq` sube en cada publicación. `positionMs` es la posición **en el instante `publishedAtServerMs`**; el oyente la proyecta con `serverNow`, que viene en todas las respuestas para que cada cliente calcule su diferencia de reloj. **El servidor nunca lee un reloj del cliente.**
+- **Validación al publicar:** `trackId` tiene que existir (`422` si no), `positionMs` se acota a `0..duración` de la pista, y un `nextTrackId` que no existe se publica como `null`. Con `enPausaPorVideo: true`, `playing` queda en `false` y `trackId` puede faltar. Cuerpo mal formado: `400`.
+- **`status`:** `live`; `stale` tras **30 s** sin publicación del anfitrión; `ended` tras **5 min** sin publicación, tras **30 min** seguidos en pausa (3 h si la pausa es por un video) o cuando la terminan. `endedReason`: `anfitrion`, `admin`, `reemplazada`, `sin-anfitrion` o `pausa`. Una radio terminada sigue contestando `ended` **2 min** y después se borra (`404`). Publicar en una terminada: `410`.
+- **Quién:** cualquier cuenta puede crear y escuchar; solo el anfitrión publica (`403` a los demás, también a un admin); termina el anfitrión o un admin. Una cuenta tiene **una** radio a la vez.
+- **Qué se ve de otra persona** (`host`, `listeners`): `{ id, name, avatar }` y nada más. `avatar` tiene la forma de `GET /api/me`. Si la cuenta se llama como su correo, `name` es lo de antes de la arroba.
+- **Límites:** 6 radios a la vez (`409`), 20 oyentes por radio (`409`), 20 publicaciones cada 10 s por radio y 6 creaciones por minuto por cuenta (`429` con `Retry-After`), cuerpo de 512 bytes (`413`). Un código que no existe o está mal escrito da siempre el mismo `404`.
+- ⚠️ **Todo vive en memoria** (`src/radio/almacen.js`): un reinicio o un redeploy borra las radios abiertas. Las constantes están en `src/radio/reglas.js`.
+- Pruebas: `npm run test:radio` (reglas y almacén, con el reloj inyectado) y `npm run smoke:radio` (por HTTP, con base temporal).
 
 ## Variables de entorno
 

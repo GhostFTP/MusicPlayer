@@ -3,6 +3,17 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.29.0] - 2026-10-10
+
+### Añadido
+- **Modo radio, la parte del servidor.** El servidor ya sabe llevar una "radio": lo que
+  escucha una persona, para que las demás lo sigan a la par con un código de seis letras.
+  Todavía no se ve en ningún lado: llega a la app más adelante.
+
+### Para tener en cuenta
+- Las radios viven en la memoria del servidor. Si el servidor se reinicia o se actualiza, las
+  que estén abiertas se cierran y hay que abrirlas de nuevo.
+
 ## [1.28.0] - 2026-10-10
 
 ### Añadido
