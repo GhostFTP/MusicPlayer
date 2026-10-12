@@ -35,11 +35,14 @@
     { "nombre": "pl-videos-func", "archivo": "pl-videos-func.mjs", "modo": "name-line", "esperado": { "ok": 46, "total": 46 } },
     { "nombre": "video-fullscreen-func", "archivo": "video-fullscreen-func.mjs", "modo": "name-line", "esperado": { "ok": 28, "total": 28 } },
     { "nombre": "video-grid-func", "archivo": "video-grid-func.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 } },
+    { "nombre": "video-mix-func", "archivo": "video-mix-func.mjs", "modo": "name-line", "esperado": { "ok": 37, "total": 37 } },
     { "nombre": "video-firstframe-func", "archivo": "video-firstframe-func.mjs", "modo": "name-line", "esperado": { "ok": 15, "total": 15 } },
     { "nombre": "search-views-func", "archivo": "search-views-func.mjs", "modo": "name-line", "esperado": { "ok": 19, "total": 19 } },
     { "nombre": "search-browse-func", "archivo": "search-browse-func.mjs", "modo": "name-line", "esperado": { "ok": 33, "total": 33 } },
     { "nombre": "search-lists-func", "archivo": "search-lists-func.mjs", "modo": "name-line", "esperado": { "ok": 40, "total": 40 } },
     { "nombre": "search-library-func", "archivo": "search-library-func.mjs", "modo": "name-line", "esperado": { "ok": 16, "total": 16 } },
+    { "nombre": "search-changelog-func", "archivo": "search-changelog-func.mjs", "modo": "name-line", "esperado": { "ok": 19, "total": 19 } },
+    { "nombre": "search-years-func", "archivo": "search-years-func.mjs", "modo": "name-line", "esperado": { "ok": 22, "total": 22 } },
     {
       "nombre": "rows", "archivo": "rows.mjs", "modo": "rows", "cpu": 1,
       "esperado": {
