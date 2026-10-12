@@ -12,9 +12,18 @@
 //   · con OTRA playlist abierta, quitar una canción no toca los favoritos, y el corazón no toca esa
 //     lista;
 //   · con 60 favoritos y la lista scrolleada, agregar y quitar no mueve el scroll ni remonta filas.
-// Con SNAP_REF (el build de main en otro puerto) corre lo mismo contra main como CONTROL NEGATIVO:
-// las comprobaciones de sincronía (SYNC, abajo) tienen que FALLAR ahí; si alguna pasa en main, el
-// script no estaría midiendo el bug. Sin SNAP_REF ese control NO se corre ni se cuenta, y se avisa.
+// Con SNAP_REF (el build de referencia en otro puerto) corre lo mismo contra él como CONTROL NEGATIVO:
+// las comprobaciones de sincronía (SYNC, abajo) tienen que FALLAR ahí; si alguna pasa, el script no
+// estaría midiendo el bug. Sin SNAP_REF ese control NO se corre ni se cuenta, y se avisa.
+// LA REFERENCIA ES FIJA: 9f8bfca, el último commit de main ANTES de la 1.30.0 (v1.29.0). No es "el
+// main de hoy": main ya trae este cambio y contra él estas filas fallan a propósito. Las claves
+// conservan «main» en el nombre (control_main_falla_*) para no mover el historial de resultados.
+// Para armarla y servirla en 4174 (con el backend de la copia de la base en 3100), desde el repo:
+//   mkdir -p /tmp/ref-9f8bfca && git archive 9f8bfca music-client | tar -x -C /tmp/ref-9f8bfca
+//   cd /tmp/ref-9f8bfca/music-client && npm ci && npm run build
+//   echo "export default { preview: { proxy: { '/api': 'http://localhost:3100', '/stream': 'http://localhost:3100' } } };" > ref.config.mjs
+//   node node_modules/vite/bin/vite.js preview --config ref.config.mjs --port 4174 --strictPort
+// Esperado: sin SNAP_REF 16/16 · con SNAP_REF=http://localhost:4174 (9f8bfca) 27/27.
 // ⚠️ ESCRIBE (crea/borra «Mis favoritos» y «Sync otra» en la cuenta de prueba): sólo contra la COPIA.
 // Uso: SNAP_BASE=http://localhost:4173 [SNAP_REF=http://localhost:4174] node fav-sync-func.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
@@ -111,7 +120,7 @@ async function montar(base, nombre) {
   return u;
 }
 
-// Las que tienen que FALLAR en main (miden la sincronía que no existía).
+// Las que tienen que FALLAR en la referencia 9f8bfca (miden la sincronía que ahí no existía).
 const SYNC = [
   'barra_agrega_al_detalle', 'encabezado_tras_agregar', 'barra_quita_del_detalle', 'encabezado_tras_quitar',
   'tarjeta_de_la_lista_cuadra', 'detalle_vacia_el_corazon', 'quitar_la_ultima_deja_vacia', 'desde_vacia_agrega',
@@ -124,7 +133,7 @@ async function correr(base) {
   const bloque = async (nombre, claves, fn) => {
     try { await fn(); } catch (e) { for (const k of claves) if (!(k in R)) ok(k, false, { error: `${nombre}: ${String(e.message).split('\n')[0].slice(0, 140)}` }); }
     // Si algo de este bloque falló, se guarda la traza de la página antes de que se cierre. En el
-    // control contra main no: ahí fallar es lo esperado.
+    // control contra la referencia no: ahí fallar es lo esperado.
     if (base !== REF && claves.some((k) => R[k] && !R[k].ok)) await recogerTraza(u.p, `bloque «${nombre}»`);
   };
 
@@ -280,8 +289,8 @@ if (REF) {
 
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
 console.log(JSON.stringify(R, null, 1));
-if (enMain) console.log('en main (control): ' + JSON.stringify(Object.fromEntries(Object.entries(enMain).map(([k, v]) => [k, v.ok]))));
-console.log(REF ? `referencia (main): ${REF}` : 'SIN SNAP_REF: el control negativo contra main (control_main_falla_*) NO se corrió ni se cuenta.');
+if (enMain) console.log('en la referencia (control): ' + JSON.stringify(Object.fromEntries(Object.entries(enMain).map(([k, v]) => [k, v.ok]))));
+console.log(REF ? `referencia (debe ser el build de 9f8bfca, previo a la 1.30.0): ${REF}` : 'SIN SNAP_REF: el control negativo contra la referencia 9f8bfca (control_main_falla_*) NO se corrió ni se cuenta.');
 if (fails.length) imprimirTraza();
 console.log(`\nfav-sync-func: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
 await browser.close();

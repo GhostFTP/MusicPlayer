@@ -1,10 +1,15 @@
 // cache-func.mjs — caché de vistas (Frente 1, sub-paso 5): FRESCURA y AISLAMIENTO entre cuentas.
 // · Frescura: desde la 2ª respuesta, /api/tracks y /api/albums vienen con un dato cambiado; al volver
 //   a la vista se pinta lo cacheado y, tras la revalidación de fondo, el dato nuevo.
+//   El dato que cambia es el de la PRIMERA fila/tarjeta que se ve: Biblioteca sólo monta las filas
+//   visibles y ordena en cliente, así que data[0] del backend puede no estar en pantalla. Y la 2ª
+//   respuesta se demora 400 ms: sin eso a veces llegaba en el mismo frame que el primer pintado y
+//   "primero lo cacheado" no se alcanzaba a observar.
 // · Aislamiento: cuenta A = snap@local (real). Cuenta B = SIMULADA en Playwright: el login de
 //   "cuenta-b" devuelve un JWT con otro id (firma falsa) y TODA /api/** con ese token se responde
 //   desde acá (B nunca llega al servidor real). Se visita Biblioteca y Álbumes con A, se cierra
 //   sesión desde Ajustes, se entra como B y se registra, frame a frame, si aparece algo de A.
+// Termina con la línea `cache-func: N/N` y código de salida 0/1 (lo que lee regresion.mjs).
 // Uso: SNAP_BASE=http://localhost:4173 node cache-func.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 
@@ -16,27 +21,39 @@ const R = {};
 const ok = (k, v, extra) => { R[k] = extra === undefined ? v : { ok: v, ...extra }; };
 const LIBROWS = '.library-tracks .track-row';
 const CARDS = '.album-grid .album-card';
+const DEMORA_MS = 400;
+const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 const click = (p, label) => p.evaluate((label) => [...document.querySelectorAll('.sidebar button')].find((b) => b.textContent.trim().startsWith(label)).click(), label);
 
 // ── 1) Frescura ─────────────────────────────────────────────────────────────────────────────────
 {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
-  let nT = 0, nA = 0;
+  let nT = 0, nA = 0, tituloVisible = null, albumVisible = null, cambiadas = { pista: false, album: false };
   await ctx.route('**/api/tracks?limit=10000', async (r) => {
     const res = await r.fetch(); const data = await res.json();
-    if (++nT >= 2) data[0].title = 'TITULO-CAMBIADO';
+    if (++nT >= 2) {
+      const t = data.find((x) => x.title === tituloVisible);
+      if (t) { t.title = 'TITULO-CAMBIADO'; cambiadas.pista = true; }
+      await espera(DEMORA_MS);
+    }
     r.fulfill({ response: res, body: JSON.stringify(data) });
   });
   // la app pide '/api/albums?' (query vacía): se matchea por pathname, no con glob
   await ctx.route((url) => new URL(url).pathname === '/api/albums', async (r) => {
     const res = await r.fetch(); const data = await res.json();
-    if (++nA >= 2) data[0].album = 'ALBUM-CAMBIADO';
+    if (++nA >= 2) {
+      const a = data.find((x) => x.album === albumVisible);
+      if (a) { a.album = 'ALBUM-CAMBIADO'; cambiadas.album = true; }
+      await espera(DEMORA_MS);
+    }
     r.fulfill({ response: res, body: JSON.stringify(data) });
   });
   const p = await ctx.newPage();
   await p.goto(BASE + '/'); await p.waitForSelector(LIBROWS); await p.waitForTimeout(800);
+  tituloVisible = (await p.locator(`${LIBROWS} .track-title`).first().textContent()).trim();
   await click(p, 'Álbumes'); await p.waitForSelector(CARDS); await p.waitForTimeout(800);
+  albumVisible = (await p.locator(`${CARDS} .album-name`).first().textContent()).trim();
   // vuelve a Biblioteca: 1º lo cacheado (sin el cambio), luego el cambio
   const lib = await p.evaluate(async () => {
     const t0 = performance.now();
@@ -55,7 +72,7 @@ const click = (p, label) => p.evaluate((label) => [...document.querySelectorAll(
     });
     return { filasCacheadas_ms: Math.round(tRows), cambioVisible_ms: tNew == null ? null : Math.round(tNew), primeroLoCacheado: sawOldFirst };
   });
-  ok('frescura_biblioteca', lib.primeroLoCacheado && lib.cambioVisible_ms != null, lib);
+  ok('frescura_biblioteca', lib.primeroLoCacheado && lib.cambioVisible_ms != null, { ...lib, pista_cambiada: tituloVisible, la_ruta_la_encontro: cambiadas.pista });
   await p.waitForTimeout(500);
   const alb = await p.evaluate(async () => {
     const t0 = performance.now();
@@ -74,7 +91,7 @@ const click = (p, label) => p.evaluate((label) => [...document.querySelectorAll(
     });
     return { tarjetasCacheadas_ms: Math.round(tCards), cambioVisible_ms: tNew == null ? null : Math.round(tNew), primeroLoCacheado: sawOldFirst };
   });
-  ok('frescura_albumes', alb.primeroLoCacheado && alb.cambioVisible_ms != null, alb);
+  ok('frescura_albumes', alb.primeroLoCacheado && alb.cambioVisible_ms != null, { ...alb, album_cambiado: albumVisible, la_ruta_lo_encontro: cambiadas.album });
   // revalidación que FALLA: con caché, se queda lo cacheado y sin error visible
   await ctx.unroute('**/api/tracks?limit=10000');
   await ctx.route('**/api/tracks?limit=10000', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"x"}' }));
@@ -139,4 +156,7 @@ const click = (p, label) => p.evaluate((label) => [...document.querySelectorAll(
 }
 
 console.log(JSON.stringify(R, null, 1));
+const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
+console.log(`\ncache-func: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
 await browser.close();
+process.exit(fails.length ? 1 : 0);

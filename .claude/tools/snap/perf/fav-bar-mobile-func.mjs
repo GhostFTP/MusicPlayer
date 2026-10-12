@@ -16,10 +16,19 @@
 //   · con un video: sin corazón, sin letra, tres botones de 48×48.
 // En 701 y 899 (sin touch): la barra es la de escritorio y NO hay corazón a la vista (ni el de la
 // mini ni el de escritorio, que va desde 900).
-// Con SNAP_REF (el build de main servido en otro puerto) compara además contra main: con una
+// Con SNAP_REF (el build de referencia servido en otro puerto) compara además contra él: con una
 // canción el título pierde exactamente 8 px, la barra, la portada, el borde derecho de siguiente y
 // todo lo de fuera de la barra (contenido y navegación de abajo) no cambian; con un video y en
 // 701/899 la geometría es idéntica. Sin SNAP_REF esas comprobaciones NO se cuentan y se avisa.
+// LA REFERENCIA ES FIJA: 9f8bfca, el último commit de main ANTES de la 1.30.0 (v1.29.0). No es "el
+// main de hoy": main ya trae este cambio y contra él estas filas fallan a propósito. Las claves
+// conservan «main» en el nombre (fuera_de_la_barra_igual_a_main_*, video_igual_a_main_*, barra_igual_a_main_*) para no mover el historial de resultados.
+// Para armarla y servirla en 4174 (con el backend de la copia de la base en 3100), desde el repo:
+//   mkdir -p /tmp/ref-9f8bfca && git archive 9f8bfca music-client | tar -x -C /tmp/ref-9f8bfca
+//   cd /tmp/ref-9f8bfca/music-client && npm ci && npm run build
+//   echo "export default { preview: { proxy: { '/api': 'http://localhost:3100', '/stream': 'http://localhost:3100' } } };" > ref.config.mjs
+//   node node_modules/vite/bin/vite.js preview --config ref.config.mjs --port 4174 --strictPort
+// Esperado: sin SNAP_REF 43/43 · con SNAP_REF=http://localhost:4174 (9f8bfca) 57/57.
 // Necesita VIDEO_DIR con los fixtures (como lo arma regresion.mjs).
 // ⚠️ ESCRIBE (crea/borra "Mis favoritos" de la cuenta de prueba): correr contra la COPIA de la base.
 // Uso: SNAP_BASE=http://localhost:4173 [SNAP_REF=http://localhost:4174] node fav-bar-mobile-func.mjs
@@ -203,7 +212,7 @@ for (const w of MOVILES) {
       { corazon: mv.corazonMini, letra: mv.letraMini, botones: vb.map((b) => [b.k, b.w, b.h]), bloque_w: mv.mini?.w });
   }
 
-  // ── contra main ──
+  // ── contra la referencia (9f8bfca) ──
   if (REF) {
     const N = await conCancion(BASE, w, true); const nuevo = await medir(N.p); await N.ctx.close();
     const Rf = await conCancion(REF, w, true); const ref = await medir(Rf.p); await Rf.ctx.close();
@@ -237,7 +246,7 @@ await wipeFavs();
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
 console.log(JSON.stringify(R, null, 1));
 console.log('medidas: ' + JSON.stringify(medidas));
-console.log(REF ? `referencia (main): ${REF}` : 'SIN SNAP_REF: las comprobaciones contra main (titulo_pierde_8_*, fuera_de_la_barra_*, video_igual_a_main_*, barra_igual_a_main_*) NO se corrieron ni se cuentan.');
+console.log(REF ? `referencia (debe ser el build de 9f8bfca, previo a la 1.30.0): ${REF}` : 'SIN SNAP_REF: las comprobaciones contra la referencia 9f8bfca (titulo_pierde_8_*, fuera_de_la_barra_*, video_igual_a_main_*, barra_igual_a_main_*) NO se corrieron ni se cuentan.');
 console.log(`\nfav-bar-mobile-func: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
 await browser.close();
 process.exit(fails.length ? 1 : 0);

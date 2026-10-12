@@ -1,11 +1,12 @@
 // queue-func.mjs — pruebas funcionales de la COLA con ventana (frente 2 · sub-paso Q).
 // Corre igual sobre el build sin ventana (baseline): los chequeos de "ventana" se informan como n/a.
 // Escritorio 1440 (columna), drawer del expandido (escritorio) y hoja móvil 390 (dos alturas).
-// Al final, «siguiente» manual en el último de la cola con canciones (fin-de-cola.mjs).
+// «Siguiente» manual en el último de la cola NO va acá: lo cubren fin-de-cola-func.mjs (canciones) y
+// video-mix-func.mjs (videos).
 // Uso: SNAP_BASE=http://localhost:4173 [SCALE=3000] [SKIP_LONG=1] node queue-func.mjs
-//   SKIP_LONG=1 salta "arrastrar la primera hasta el final" (~100 s de autoscroll con 3000).
+//   SKIP_LONG=1 salta "arrastrar la primera hasta el final" (~30 s de autoscroll con 680 pistas).
+// Termina con la línea `queue-func: N/N` y código de salida 0/1 (lo que lee regresion.mjs).
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
-import { probarFinDeCola } from './fin-de-cola.mjs';
 
 const SCALE = Number(process.env.SCALE ?? 0);
 await preflight();
@@ -209,11 +210,15 @@ const playingTitle = (p) => p.evaluate(() => document.querySelector('.player-bar
     await p.mouse.down();
     for (let k = 1; k <= 8; k++) { await p.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2 + 8 * k); await p.waitForTimeout(16); }
     await p.mouse.move(fb.x + fb.width / 2, body.y + body.height - 4, { steps: 10 });
-    let siempreMontada = true, marcaVista = 0, muestras = 0;
+    // Fin del autoscroll = el scroll deja de moverse 3 muestras seguidas (1,2 s). No se compara con
+    // scrollHeight: durante el arrastre la fila levantada cuelga debajo de la lista y lo infla, así
+    // que "scrollTop >= max - 1" no se cumplía nunca y se esperaba el tope de 240 s.
+    let siempreMontada = true, marcaVista = 0, muestras = 0, quieto = 0, topAntes = -1, ultima = null;
     for (;;) {
       const st = await p.evaluate((q) => { const b = document.querySelector('.queue-body'); const li = document.querySelector(`.queue-row[data-qid="${q}"]`); return { top: b.scrollTop, max: b.scrollHeight - b.clientHeight, montada: !!li && li.classList.contains('queue-row--dragging'), marca: !!document.querySelector('.queue-row--drop-after, .queue-row--drop-before') }; }, firstQid);
       muestras++; if (!st.montada) siempreMontada = false; if (st.marca) marcaVista++;
-      if (st.top >= st.max - 1 || Date.now() - t0 > 240000) break;
+      quieto = st.top === topAntes ? quieto + 1 : 0; topAntes = st.top; ultima = st;
+      if (quieto >= 3 || Date.now() - t0 > 240000) break;
       await p.waitForTimeout(400);
     }
     // soltar FUERA del cuerpo (debajo)
@@ -222,7 +227,8 @@ const playingTitle = (p) => p.evaluate(() => document.querySelector('.player-bar
     await p.waitForTimeout(600);
     const sEnd = await qstate(p);
     const finalIdx = await idxOfQid(p, firstQid);
-    ok('col_arrastre_primera_al_final', finalIdx === sEnd.count - 1 && siempreMontada, { quedo_en: finalIdx, esperado: sEnd.count - 1, fila_fijada_todo_el_arrastre: siempreMontada, muestras_con_marca: `${marcaVista}/${muestras}`, seg: Math.round((Date.now() - t0) / 1000) });
+    const suelto = await p.evaluate(() => { const b = document.querySelector('.queue-body'); return { top: b.scrollTop, max: b.scrollHeight - b.clientHeight }; });
+    ok('col_arrastre_primera_al_final', finalIdx === sEnd.count - 1 && siempreMontada, { quedo_en: finalIdx, esperado: sEnd.count - 1, fila_fijada_todo_el_arrastre: siempreMontada, muestras_con_marca: `${marcaVista}/${muestras}`, scroll_arrastrando: [ultima.top, ultima.max], scroll_al_soltar: [suelto.top, suelto.max], seg: Math.round((Date.now() - t0) / 1000) });
   }
   await ctx.close();
 }
@@ -290,25 +296,10 @@ const playingTitle = (p) => p.evaluate(() => document.querySelector('.player-bar
   await ctx.close();
 }
 
-// ── «Siguiente» manual en el último de la cola (fin-de-cola.mjs), con canciones. No en la variante
-// SCALE, que mide la ventana con una biblioteca inflada. ──
-let finDeCola = null;
-if (!SCALE) {
-  const tres = await fetch(`${BASE}/api/tracks?limit=3`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
-  finDeCola = await probarFinDeCola({
-    browser, token, base: BASE, ok, items: tres, sufijo: 'canciones',
-    rutas: (ctx) => ctx.route('**/stream/**', (r) => {
-      const h = r.request().headers().range; const total = WAV.length;
-      if (!h) return r.fulfill({ status: 200, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes' }, body: WAV });
-      const [, a, b] = h.match(/bytes=(\d*)-(\d*)/); const start = a ? +a : 0; const end = b ? +b : total - 1;
-      r.fulfill({ status: 206, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${total}` }, body: WAV.subarray(start, end + 1) });
-    }),
-  });
-}
-
 console.log(JSON.stringify(R, null, 1));
-if (finDeCola) console.log('medidas (fin de cola): ' + JSON.stringify(finDeCola));
 const bools = Object.entries(R).filter(([, v]) => v === true || v === false || (v && typeof v === 'object' && 'ok' in v));
 const bad = bools.filter(([, v]) => !(v === true || v?.ok === true)).map(([k]) => k);
 console.log(`[${SCALE || 680}] OK ${bools.length - bad.length}/${bools.length}${bad.length ? ' · falla: ' + bad.join(', ') : ''}`);
+console.log(`\nqueue-func: ${bools.length - bad.length}/${bools.length}`);
 await browser.close();
+process.exit(bad.length ? 1 : 0);
