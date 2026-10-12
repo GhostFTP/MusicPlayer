@@ -134,7 +134,9 @@ export function PlayerProvider({ children }) {
 
   // Decide y reproduce la siguiente pista respetando shuffle + repeat.
   // natural = true cuando la canción terminó sola (la única vez que aplica "repetir una").
-  const playNext = useCallback((natural) => {
+  // manual = true cuando lo pidió la persona (botón, MediaSession, swipe): si no hay siguiente, no
+  // pasa nada y lo que suena sigue sonando.
+  const playNext = useCallback((natural, manual = false) => {
     const len = queueRef.current.length;
     if (len === 0) return;
 
@@ -180,8 +182,11 @@ export function PlayerProvider({ children }) {
     if (nextIdx >= 0) {
       if (curQid != null) historyRef.current.push(curQid);   // orden real por _qid (para "anterior")
       playIndex(nextIdx);
-    } else {
-      setIsPlaying(false);                 // fin sin repetición
+    } else if (!manual) {
+      // Fin sin repetición. Sólo cuando el medio YA se detuvo (terminó solo, o no cargó): un
+      // "siguiente" manual en el último no pausa el elemento, así que marcarlo en pausa dejaba el
+      // botón en "Reproducir" con la música sonando.
+      setIsPlaying(false);
     }
   }, [playIndex]);
   playNextRef.current = playNext;
@@ -336,7 +341,7 @@ export function PlayerProvider({ children }) {
 
   // "Siguiente" manual: avanza respetando shuffle/repeat, pero ignora "repetir una"
   // (pulsar siguiente debe pasar de canción, no repetir la misma).
-  const next = useCallback(() => playNext(false), [playNext]);
+  const next = useCallback(() => playNext(false, true), [playNext]);
 
   const prev = useCallback(() => {
     const el = getActive();

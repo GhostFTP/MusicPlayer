@@ -23,6 +23,8 @@
 //     recorrer la cola en su orden desde ahí;
 //   · en pantalla completa «siguiente» avanza y sigue en pantalla completa;
 //   · teclado: el botón toma foco, Enter lo activa y el foco se queda en él.
+// «Siguiente» manual en el último de la cola, con videos: ver fin-de-cola.mjs (lo comparte con
+// queue-func.mjs, que lo corre con canciones).
 // A 360, 390 y 430 con touch: la fila de acciones no desborda ni se pisa, el tap arma la cola y no
 // abre el expandido, ni un menú, ni cambia de ruta.
 // Con SNAP_REF (el build de main en otro puerto): control negativo, en main el botón no existe. Sin
@@ -32,6 +34,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 import { FIXTURES, EXTRAS, crearExtras, borrarExtras, SinFfmpeg } from './video-fixtures.mjs';
+import { probarFinDeCola } from './fin-de-cola.mjs';
 
 const REF = process.env.SNAP_REF ?? null;
 const NOMBRE = 'video-mix-func';
@@ -291,6 +294,13 @@ try {
     const raro = { expandido: await p.locator('.player-expanded').isVisible().catch(() => false), menu: await p.locator('.ctx-menu').count(), ruta: new URL(p.url()).pathname };
     ok(`movil_tap_mezcla_y_no_abre_nada_${w}`, same(e.cola, todos) && e.kind === 'video' && e.shuffle === true && !raro.expandido && raro.menu === 0 && raro.ruta === '/videos' && !errores.length, { cola: e.cola.length, ...raro, errores });
     await ctx.close();
+  }
+
+  // ── «Siguiente» manual en el último de la cola (fin-de-cola.mjs), con videos. La cola es el fixture
+  // de 30 s tres veces: los de 2,5 s se terminan solos a mitad de cada caso. ──
+  {
+    const largo = VIDS.find((v) => v.title === 'Largo Para Seek');
+    Object.assign(medidas, await probarFinDeCola({ browser, token, base: BASE, ok, items: [1, 2, 3].map(() => ({ ...largo, kind: 'video' })), sufijo: 'videos' }));
   }
 
   // ── Control negativo: en main el botón no existe ──
