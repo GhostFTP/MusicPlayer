@@ -19,6 +19,7 @@ import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { instalarTraza, recogerTraza, imprimirTraza } from './traza-pista.mjs';
 
 await preflight();
 const token = await getToken();
@@ -52,6 +53,7 @@ const W = wav(60);
 
 async function newPage(w, h, mobile) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, isMobile: mobile, hasTouch: mobile });
+  await instalarTraza(ctx);   // quién cambia la pista (traza-pista.mjs): sólo se imprime si algo falla
   await ctx.addInitScript((t) => {
     localStorage.setItem('token', t);
     window.__player = () => {
@@ -122,6 +124,7 @@ async function closeExpanded(p) {
 
 for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
   const { ctx, p, reqs } = await newPage(w, h, mobile);
+  const yaEstaban = new Set(Object.keys(R));
   await p.goto(BASE + '/');
   await p.waitForSelector('.player-bar');
 
@@ -204,11 +207,14 @@ for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
   ok(`cancion_expandido_como_antes_${w}`, ['fav', 'compartir', 'mas', 'letra', 'info', 'tituloLink'].every((k) => expA[k] >= 1), expA);
   if (SHOTS) await p.screenshot({ path: join(OUT, `cancion-expandido-${w}.png`) });
   await closeExpanded(p);
+  // Si algo de este ancho falló, se guarda la traza de la página antes de cerrarla.
+  if (Object.entries(R).some(([k, v]) => !yaEstaban.has(k) && (v === false || (v && typeof v === 'object' && v.ok === false)))) await recogerTraza(p, `${w} px`);
   await ctx.close();
 }
 
 const fails = Object.entries(R).filter(([, v]) => v === false || (v && typeof v === 'object' && v.ok === false)).map(([k]) => k);
 console.log(JSON.stringify(R, null, 1));
+if (fails.length) imprimirTraza();
 console.log(`\nvideo-ui-func: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
 await browser.close();
 process.exit(fails.length ? 1 : 0);

@@ -18,6 +18,7 @@
 // ⚠️ ESCRIBE (crea/borra «Mis favoritos» y «Sync otra» en la cuenta de prueba): sólo contra la COPIA.
 // Uso: SNAP_BASE=http://localhost:4173 [SNAP_REF=http://localhost:4174] node fav-sync-func.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
+import { instalarTraza, recogerTraza, imprimirTraza } from './traza-pista.mjs';
 
 const REF = process.env.SNAP_REF ?? null;
 await preflight();
@@ -63,6 +64,7 @@ const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].s
 // detalle de la playlist `nombre` por la navegación de la app.
 async function montar(base, nombre) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await instalarTraza(ctx);   // quién cambia la pista (traza-pista.mjs): sólo se imprime si algo falla
   await ctx.route('**/stream/**', (r) => {
     const h = r.request().headers().range; const total = WAV.length;
     if (!h) return r.fulfill({ status: 200, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes' }, body: WAV });
@@ -121,6 +123,9 @@ async function correr(base) {
   const ok = (k, v, extra = {}) => { R[k] = { ok: !!v, ...extra }; };
   const bloque = async (nombre, claves, fn) => {
     try { await fn(); } catch (e) { for (const k of claves) if (!(k in R)) ok(k, false, { error: `${nombre}: ${String(e.message).split('\n')[0].slice(0, 140)}` }); }
+    // Si algo de este bloque falló, se guarda la traza de la página antes de que se cierre. En el
+    // control contra main no: ahí fallar es lo esperado.
+    if (base !== REF && claves.some((k) => R[k] && !R[k].ok)) await recogerTraza(u.p, `bloque «${nombre}»`);
   };
 
   // N = la primera fila de la Biblioteca: su id sale de marcarla una vez y leer el servidor.
@@ -277,6 +282,7 @@ const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok
 console.log(JSON.stringify(R, null, 1));
 if (enMain) console.log('en main (control): ' + JSON.stringify(Object.fromEntries(Object.entries(enMain).map(([k, v]) => [k, v.ok]))));
 console.log(REF ? `referencia (main): ${REF}` : 'SIN SNAP_REF: el control negativo contra main (control_main_falla_*) NO se corrió ni se cuenta.');
+if (fails.length) imprimirTraza();
 console.log(`\nfav-sync-func: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
 await browser.close();
 process.exit(fails.length ? 1 : 0);
