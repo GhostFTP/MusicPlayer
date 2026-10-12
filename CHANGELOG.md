@@ -3,6 +3,30 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.31.0] - 2026-10-11
+
+### Añadido
+- **Mix aleatorio en Videos.** La vista Videos tiene el mismo botón «Mix aleatorio» de las demás,
+  junto al contador. Baraja los videos que se ven (con el buscador puesto, solo los que coinciden) y
+  los reproduce al azar. Con menos de dos videos queda apagado.
+- **Buscador en Años.** Un solo campo arriba. Si escribes solo números busca por año: «201» muestra
+  los años que empiezan así, de 2010 a 2019. Si escribes letras busca por álbum o artista y muestra
+  los años donde aparece. El contador y el Mix siguen lo que se ve; con texto, el Mix mezcla solo las
+  canciones que coinciden. En la 1.28.0 dijimos que Años no tenía buscador: ahora sí.
+- **Buscador en Novedades.** Filtra punto por punto y conserva la versión y la sección de cada uno.
+  También encuentra por número de versión («1.28») o por fecha («2026-09»), y entonces muestra la
+  entrada completa.
+
+### Corregido
+- **«Siguiente» en la última canción ya no confunde al reproductor.** Con repetir apagado, tocar
+  «siguiente» en lo último de la cola dejaba la música sonando pero con el botón en «Reproducir»,
+  como si estuviera en pausa, y el primer toque a ese botón pausaba en vez de reanudar. Ahora
+  «siguiente» ahí no hace nada y sigue sonando lo mismo. Cuando lo último termina solo, la
+  reproducción se detiene como siempre. Con «repetir una» pasa igual: «siguiente» en lo último no
+  hace nada.
+- **«Siguiente» y «Anterior» ya no muestran una flecha como atajo.** Las flechas del teclado
+  adelantan y atrasan 10 segundos; no cambian de canción.
+
 ## [1.30.0] - 2026-10-11
 
 ### Añadido

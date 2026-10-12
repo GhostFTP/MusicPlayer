@@ -1587,8 +1587,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 </span>
               </button>
             </BarTip>
-            <BarTip tip={<>Anterior <span className="bar-tip-kbd">←</span></>}>
-              <button className="ctrl-btn ctrl-prev" onClick={e => { e.stopPropagation(); prev(); }} aria-label="Anterior (←)"><PrevIcon /></button>
+            <BarTip tip="Anterior">
+              <button className="ctrl-btn ctrl-prev" onClick={e => { e.stopPropagation(); prev(); }} aria-label="Anterior"><PrevIcon /></button>
             </BarTip>
             <BarTip tip={<>{isPlaying ? 'Pausa' : 'Reproducir'} <span className="bar-tip-kbd">espacio</span></>}>
               <button
@@ -1601,8 +1601,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 </span>
               </button>
             </BarTip>
-            <BarTip tip={<>Siguiente <span className="bar-tip-kbd">→</span></>}>
-              <button className="ctrl-btn ctrl-next" onClick={e => { e.stopPropagation(); next(); }} aria-label="Siguiente (→)"><NextIcon /></button>
+            <BarTip tip="Siguiente">
+              <button className="ctrl-btn ctrl-next" onClick={e => { e.stopPropagation(); next(); }} aria-label="Siguiente"><NextIcon /></button>
             </BarTip>
             <BarTip tip={<>Repetir: <span className={`bar-tip-state${repeat === 'off' ? ' dim' : ''}`}>{repeatState}</span></>}>
               <button

@@ -139,7 +139,10 @@ const aPlaying = (s) => s.a && !s.a.paused && s.a.src.includes('/stream/') && !(
   ok('seek_sobre_video', tB >= 19.5 && tB < 25, { antes: tA, despues: tB });
 
   // ── 8) Espacio y volumen sobre el activo ──
-  await p.locator('body').click({ position: { x: 700, y: 400 } }).catch(() => {});
+  // Sacar el foco de la tarjeta tocada, para que Espacio y las flechas vayan al reproductor. Se toca
+  // el TÍTULO de la vista (un <h1> sin acción): antes era un punto fijo "en el vacío" (700, 400), que
+  // dejó de estar vacío cuando la fila de acciones creció y la grilla bajó.
+  await p.locator('.main-content .section-title').click();
   await p.keyboard.press('Space');
   await sleep(300);
   const sp1 = await st(p);

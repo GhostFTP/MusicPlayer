@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import SearchBox from './SearchBox.jsx';
+import ShuffleButton from './ShuffleButton.jsx';
 import { useListFilter } from '../utils/useListFilter.js';
 
 // Dónde busca el buscador: lo que dice la tarjeta con texto propio, artista y título.
@@ -91,7 +92,9 @@ export default function Videos({ target, clearTarget }) {
         <h1 className="section-title">Videos</h1>
         <SearchBox value={query} onChange={setQuery} placeholder="Buscar video o artista…" label="Buscar en videos" />
       </div>
+      {/* Mix: el mismo botón de las demás vistas, sobre lo que se VE (con buscador, sólo lo filtrado). */}
       <div className="view-actions">
+        <ShuffleButton tracks={shown} noun="videos" />
         <span className="section-count">{shown.length} {shown.length === 1 ? 'video' : 'videos'}</span>
       </div>
 

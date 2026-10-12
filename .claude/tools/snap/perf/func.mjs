@@ -89,12 +89,12 @@ ok('play_pausa', paused && tP === tP2 && !(await audio()).paused, { pausedTimeFr
 const t0 = await rowTitle(0), t1 = await rowTitle(1);
 await page.click('.player-bar .ctrl-next'); await wait(800);
 const afterNext = await playingTitle();
-await page.click('.player-bar [aria-label="Anterior (←)"]'); await wait(800);
+await page.click('.player-bar [aria-label="Anterior"]'); await wait(800);
 const afterPrev = await playingTitle();
 ok('siguiente_anterior', afterNext === t1 && afterPrev === t0, { afterNext, afterPrev });
 // anterior con >3s reinicia la misma
 await seekTo(20); await wait(500);
-await page.click('.player-bar [aria-label="Anterior (←)"]'); await wait(500);
+await page.click('.player-bar [aria-label="Anterior"]'); await wait(500);
 const re = await audio();
 ok('anterior_reinicia_>3s', re.t < 2 && (await playingTitle()) === t0, { t: re.t });
 

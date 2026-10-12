@@ -1,9 +1,11 @@
 // queue-func.mjs — pruebas funcionales de la COLA con ventana (frente 2 · sub-paso Q).
 // Corre igual sobre el build sin ventana (baseline): los chequeos de "ventana" se informan como n/a.
 // Escritorio 1440 (columna), drawer del expandido (escritorio) y hoja móvil 390 (dos alturas).
+// Al final, «siguiente» manual en el último de la cola con canciones (fin-de-cola.mjs).
 // Uso: SNAP_BASE=http://localhost:4173 [SCALE=3000] [SKIP_LONG=1] node queue-func.mjs
 //   SKIP_LONG=1 salta "arrastrar la primera hasta el final" (~100 s de autoscroll con 3000).
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
+import { probarFinDeCola } from './fin-de-cola.mjs';
 
 const SCALE = Number(process.env.SCALE ?? 0);
 await preflight();
@@ -288,7 +290,24 @@ const playingTitle = (p) => p.evaluate(() => document.querySelector('.player-bar
   await ctx.close();
 }
 
+// ── «Siguiente» manual en el último de la cola (fin-de-cola.mjs), con canciones. No en la variante
+// SCALE, que mide la ventana con una biblioteca inflada. ──
+let finDeCola = null;
+if (!SCALE) {
+  const tres = await fetch(`${BASE}/api/tracks?limit=3`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
+  finDeCola = await probarFinDeCola({
+    browser, token, base: BASE, ok, items: tres, sufijo: 'canciones',
+    rutas: (ctx) => ctx.route('**/stream/**', (r) => {
+      const h = r.request().headers().range; const total = WAV.length;
+      if (!h) return r.fulfill({ status: 200, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes' }, body: WAV });
+      const [, a, b] = h.match(/bytes=(\d*)-(\d*)/); const start = a ? +a : 0; const end = b ? +b : total - 1;
+      r.fulfill({ status: 206, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${total}` }, body: WAV.subarray(start, end + 1) });
+    }),
+  });
+}
+
 console.log(JSON.stringify(R, null, 1));
+if (finDeCola) console.log('medidas (fin de cola): ' + JSON.stringify(finDeCola));
 const bools = Object.entries(R).filter(([, v]) => v === true || v === false || (v && typeof v === 'object' && 'ok' in v));
 const bad = bools.filter(([, v]) => !(v === true || v?.ok === true)).map(([k]) => k);
 console.log(`[${SCALE || 680}] OK ${bools.length - bad.length}/${bools.length}${bad.length ? ' · falla: ' + bad.join(', ') : ''}`);
