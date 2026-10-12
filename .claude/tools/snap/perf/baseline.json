@@ -16,6 +16,7 @@
     { "nombre": "mix-func", "archivo": "mix-func.mjs", "modo": "ok-line", "esperado": { "ok": 14, "total": 14 } },
     { "nombre": "mix-a11y", "archivo": "mix-a11y.mjs", "modo": "ok-line", "esperado": { "ok": 16, "total": 16 } },
     { "nombre": "mix-shortcut", "archivo": "mix-shortcut.mjs", "modo": "ok-line", "esperado": { "ok": 15, "total": 15 } },
+    { "nombre": "fin-de-cola-func", "archivo": "fin-de-cola-func.mjs", "modo": "name-line", "esperado": { "ok": 11, "total": 11 } },
     { "nombre": "plays-unit", "archivo": "plays-unit.mjs", "modo": "name-line", "esperado": { "ok": 14, "total": 14 } },
     { "nombre": "plays-func", "archivo": "plays-func.mjs", "modo": "name-line", "esperado": { "ok": 18, "total": 18 } },
     { "nombre": "share-unit", "archivo": "share-unit.mjs", "modo": "name-line", "esperado": { "ok": 26, "total": 26 }, "requiere": { "ruta": { "env": "IOS_REPO", "defecto": "C:/Dev/sonorarev-ios", "archivo": "lib/compartir.ts" } } },
