@@ -1,5 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api } from '../api/client.js';
+import SearchBox from './SearchBox.jsx';
+import { useListFilter } from '../utils/useListFilter.js';
+
+// Dónde busca el buscador: el texto del punto (ya sin las marcas de formato), y la versión y la fecha
+// de su entrada — así "1.28" o "2026-09" traen la entrada completa, porque coinciden todos sus puntos.
+const SEARCH_FIELDS = ['texto', 'version', 'date'];
 
 // Parser mínimo del CHANGELOG.md (sin dependencias): agrupa por versión (## ) y
 // sección (### ), con items de lista (- ). Ignora el título y la intro.
@@ -79,9 +85,34 @@ function SectionIcon({ kind }) {
   );
 }
 
-export default function Changelog() {
+export default function Changelog({ target, clearTarget }) {
   const [versions, setVersions] = useState(null);
   const [error, setError] = useState(false);
+
+  // BUSCADOR (utils/useListFilter.js, el de las demás vistas). El hook filtra una lista PLANA, y acá
+  // hay versión → sección → puntos: se aplanan los puntos (cada uno sabe de qué versión y sección es),
+  // se filtran, y con los que quedan se vuelve a armar el árbol. Se filtra POR PUNTO: una sección o
+  // una versión sin puntos visibles no se muestra. El texto buscable va sin `**` ni backticks (una
+  // frase que cruza el borde de una negrita tiene que coincidir); lo demás queda tal cual se ve.
+  const puntos = useMemo(() => (versions ?? []).flatMap((v, vi) => v.sections.flatMap((sec, si) => sec.items.map((it, k) => ({
+    vi, si, k, texto: it.replace(/\*\*|`/g, ''), version: `v${v.version.replace(/^v/i, '')}`, date: v.date,
+  })))), [versions]);
+  const { query, setQuery, activeQuery, filtered } = useListFilter(puntos, SEARCH_FIELDS);
+  const shown = useMemo(() => {
+    if (!versions || filtered === puntos) return versions ?? [];
+    const quedan = new Set(filtered.map((p) => `${p.vi}/${p.si}/${p.k}`));
+    return versions
+      .map((v, vi) => ({ ...v, sections: v.sections.map((sec, si) => ({ ...sec, items: sec.items.filter((_, k) => quedan.has(`${vi}/${si}/${k}`)) })).filter((sec) => sec.items.length) }))
+      .filter((v) => v.sections.length);
+  }, [versions, puntos, filtered]);
+
+  // Tocar "Novedades" estando ya en Novedades (el `tab` de Layout.navigate) borra el buscador.
+  useEffect(() => {
+    if (!target?.reset) return;
+    if (target.tab) setQuery('');
+    clearTarget?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
 
   useEffect(() => {
     api.changelog()
@@ -108,6 +139,9 @@ export default function Changelog() {
     <div className="changelog">
       <div className="section-header">
         <h1 className="section-title">Novedades</h1>
+        {versions.length > 0 && (
+          <SearchBox value={query} onChange={setQuery} placeholder="Buscar en novedades…" label="Buscar en novedades" />
+        )}
       </div>
 
       {versions.length === 0 ? (
@@ -115,9 +149,15 @@ export default function Changelog() {
           <div className="empty-icon">📋</div>
           <div className="empty-title">Sin novedades por ahora</div>
         </div>
+      ) : shown.length === 0 ? (
+        // Hay novedades pero ningún punto coincide: el título y el buscador siguen arriba para corregir.
+        <div className="empty-state">
+          <div className="empty-icon">📋</div>
+          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+        </div>
       ) : (
-        versions.map((v, i) => (
-          <section key={i} className="cl-version">
+        shown.map((v) => (
+          <section key={v.version} className="cl-version">
             <div className="cl-version-head">
               <span className="cl-badge">v{v.version.replace(/^v/i, '')}</span>
               {v.date && <span className="cl-date">{v.date}</span>}
