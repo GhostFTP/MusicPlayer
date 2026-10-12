@@ -2,8 +2,8 @@
 // vistas, con tracks = lo que se ve y noun="videos").
 //
 // Necesita más de tres videos: suma a la carpeta de fixtures de la corrida los cuatro EXTRAS de
-// video-fixtures.mjs (mismo método, con ffmpeg) y los BORRA al terminar, esperando a que el backend
-// vuelva a ver sólo los tres de siempre. Por eso pide VIDEO_DIR (la carpeta que se le pasó al backend;
+// video-fixtures.mjs (mismo método, con ffmpeg) y los BORRA al terminar (también si se corta: ver
+// `limpiar`), esperando a que el backend vuelva a ver sólo los tres de siempre. Por eso pide VIDEO_DIR (la carpeta que se le pasó al backend;
 // regresion.mjs la pasa sola) y se NIEGA a escribir si esa carpeta no es la de los fixtures: nunca
 // toca una carpeta de videos de verdad.
 //
@@ -19,6 +19,8 @@
 //     repetir apagado, al terminar el último se detiene; con «repetir todo» arranca otro ciclo que no
 //     empieza por el último que sonó ni repite hasta agotarse;
 //   · «anterior» vuelve al que sonó antes;
+//   · apagar el aleatorio de la barra a mitad de la cola: sigue sonando el mismo y «siguiente» pasa a
+//     recorrer la cola en su orden desde ahí;
 //   · en pantalla completa «siguiente» avanza y sigue en pantalla completa;
 //   · teclado: el botón toma foco, Enter lo activa y el foco se queda en él.
 // A 360, 390 y 430 con touch: la fila de acciones no desborda ni se pisa, el tap arma la cola y no
@@ -42,6 +44,22 @@ const ARTISTAS_FIX = new Set(FIXTURES.map((f) => f.artista)), ARTISTAS_EXTRA = n
 const enDisco = readdirSync(DIR);
 if (!enDisco.length || enDisco.some((n) => !ARTISTAS_FIX.has(n) && !ARTISTAS_EXTRA.has(n))) noCorrio(`VIDEO_DIR no es una carpeta de fixtures (${enDisco.slice(0, 4).join(', ')}…): no escribo ahí`);
 
+// LOS EXTRAS SE BORRAN SIEMPRE. `limpiar` los quita y espera a que el backend vuelva a ver tres; corre
+// en el finally, con Ctrl+C / SIGTERM y ante una excepción que nadie atrapó. Como último recurso, al
+// salir el proceso por donde sea se borran igual (sin esperar al backend: 'exit' es síncrono). Lo
+// único que no se puede atrapar es un kill forzado (taskkill /F, el tope de regresion.mjs): para eso
+// el script borra al ARRANCAR lo que haya quedado de una corrida cortada.
+let extrasPuestos = false;
+async function limpiar() {
+  if (!extrasPuestos) return null;
+  borrarExtras(DIR); extrasPuestos = false;
+  return esperarIndice(FIXTURES.length).catch(() => null);
+}
+process.on('exit', () => { if (extrasPuestos) { try { borrarExtras(DIR); } catch { /* nada más que hacer */ } } });
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) process.on(sig, () => { limpiar().finally(() => process.exit(130)); });
+process.on('uncaughtException', (e) => { console.error(`[${NOMBRE}] excepción no atrapada: ${e?.message}`); limpiar().finally(() => process.exit(1)); });
+process.on('unhandledRejection', (e) => { console.error(`[${NOMBRE}] promesa rechazada sin atrapar: ${e?.message}`); limpiar().finally(() => process.exit(1)); });
+
 await preflight();
 const token = await getToken();
 const { chromium } = await loadPlaywright();
@@ -59,8 +77,11 @@ const ok = (k, v, extra = {}) => { R[k] = { ok: !!v, ...extra }; };
 const medidas = {};
 const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
-borrarExtras(DIR);   // restos de una corrida cortada
-try { crearExtras(DIR); } catch (e) { borrarExtras(DIR); noCorrio(e instanceof SinFfmpeg ? 'no hay ffmpeg' : e.message); }
+const restos = readdirSync(DIR).filter((n) => ARTISTAS_EXTRA.has(n));
+if (restos.length) console.log(`[${NOMBRE}] había extras de una corrida cortada (${restos.join(', ')}): los borro antes de empezar`);
+borrarExtras(DIR);
+extrasPuestos = true;
+try { crearExtras(DIR); } catch (e) { borrarExtras(DIR); extrasPuestos = false; noCorrio(e instanceof SinFfmpeg ? 'no hay ffmpeg' : e.message); }
 const TOTAL = FIXTURES.length + EXTRAS.length;
 let browser;
 try {
@@ -204,6 +225,19 @@ try {
     const vuelve2 = await cambia(p, vuelve);
     ok('anterior_en_cola_barajada', vuelve === a[1] && vuelve2 === a[0] && (await estado(p)).kind === 'video', { sonaron: a, anterior: vuelve, anterior_otra_vez: vuelve2 });
 
+    // Apagar el aleatorio de la barra a mitad de la cola barajada: el que suena sigue sonando, la cola
+    // no cambia y «siguiente» pasa a recorrerla EN SU ORDEN desde ahí (lo de antes de ese punto no vuelve).
+    await mezclar(p);
+    await recorrer(p, 1);
+    const m0 = await estado(p);
+    await p.locator('.player-bar .shuffle-btn').click(); await p.waitForTimeout(400);
+    const m1 = await estado(p);
+    const idx = m1.cola.indexOf(m1.actual);
+    const sigue = await p.evaluate(() => { const v = document.querySelector('video.player-video'); return !v.paused && v.currentTime > 0; });
+    const despues = (await recorrer(p, m1.cola.length - 1 - idx)).slice(1);
+    ok('apagar_aleatorio_sigue_en_orden', m0.shuffle === true && m1.shuffle === false && m1.actual === m0.actual && sigue && m1.cola.join('|') === m0.cola.join('|')
+      && despues.join('|') === m1.cola.slice(idx + 1).join('|'), { sonaba: m0.actual, posicion_en_la_cola: idx, cola: m1.cola, despues });
+
     // Teclado: foco con Tab desde el buscador, Enter activa, el foco se queda.
     await p.locator(INPUT).focus();
     await p.keyboard.press('Tab');
@@ -270,8 +304,7 @@ try {
   ok('sin_excepciones', false, { error: String(e.message).split('\n')[0].slice(0, 200) });
 } finally {
   await browser?.close().catch(() => {});
-  borrarExtras(DIR);
-  const vuelta = await esperarIndice(FIXTURES.length);
+  const vuelta = await limpiar();
   ok('limpieza_quedan_los_tres_fixtures', !!vuelta && same(readdirSync(DIR), [...ARTISTAS_FIX]), { en_disco: readdirSync(DIR), en_el_backend: vuelta?.length ?? null });
 }
 
