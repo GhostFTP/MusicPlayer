@@ -15,7 +15,8 @@
 //     el expandido con su hoja (así funciona desde la 1.9.0: no es una regresión);
 //   · con un video: sin corazón, sin letra, tres botones de 48×48.
 // En 701 y 899 (sin touch): la barra es la de escritorio y NO hay corazón a la vista (ni el de la
-// mini ni el de escritorio, que va desde 900).
+// mini ni el de escritorio, que va desde 900); y el slider de volumen entra en la pantalla (hasta la
+// 1.31.0 se salía 17 px a 701).
 // Con SNAP_REF (el build de referencia servido en otro puerto) compara además contra él: con una
 // canción el título pierde exactamente 8 px, la barra, la portada, el borde derecho de siguiente y
 // todo lo de fuera de la barra (contenido y navegación de abajo) no cambian; con un video y en
@@ -28,7 +29,10 @@
 //   cd /tmp/ref-9f8bfca/music-client && npm ci && npm run build
 //   echo "export default { preview: { proxy: { '/api': 'http://localhost:3100', '/stream': 'http://localhost:3100' } } };" > ref.config.mjs
 //   node node_modules/vite/bin/vite.js preview --config ref.config.mjs --port 4174 --strictPort
-// Esperado: sin SNAP_REF 43/43 · con SNAP_REF=http://localhost:4174 (9f8bfca) 57/57.
+// Esperado: sin SNAP_REF 45/45 · con SNAP_REF=http://localhost:4174 (9f8bfca) 59/59.
+// Desde la 1.31.1, entre 701 y 759 el slider de volumen mide lo que entra: contra la referencia, en
+// 701 se compara todo lo demás igual y el volumen aparte (mismo lugar, más angosto, y que en la
+// referencia sí se salía).
 // Necesita VIDEO_DIR con los fixtures (como lo arma regresion.mjs).
 // ⚠️ ESCRIBE (crea/borra "Mis favoritos" de la cuenta de prueba): correr contra la COPIA de la base.
 // Uso: SNAP_BASE=http://localhost:4173 [SNAP_REF=http://localhost:4174] node fav-bar-mobile-func.mjs
@@ -236,9 +240,19 @@ for (const w of MOVILES) {
 for (const w of ESCRITORIO) {
   const o = await conCancion(BASE, w, false); const m = await medir(o.p); await o.ctx.close();
   ok(`sin_corazon_${w}`, m.mini === null && !(m.corazonMini?.visible) && !m.corazonEscritorioVisible && !m.controles.some((k) => k.k.includes('fav')), { mini: m.mini, corazonMini: m.corazonMini?.visible ?? null, corazonEscritorio: m.corazonEscritorioVisible });
+  // El volumen es el último slider de la barra (el primero es el de posición).
+  const iVol = (cs) => cs.map((k) => k.k).lastIndexOf('range');
+  const vol = m.controles[iVol(m.controles)];
+  ok(`volumen_entra_${w}`, !!vol && vol.w > 0 && vol.r <= w && m.bar.scrollW === m.bar.clientW && m.pageScrollW === m.innerW, { slider: vol && [vol.x, vol.r, vol.w], barra_scrollW: m.bar.scrollW, pagina_scrollW: m.pageScrollW });
   if (REF) {
     const Rf = await conCancion(REF, w, false); const ref = await medir(Rf.p); await Rf.ctx.close();
-    ok(`barra_igual_a_main_${w}`, igual(m.controles, ref.controles) && igual(m.titulo, ref.titulo) && igual(m.bar, ref.bar), { nuevo: m.controles.length, main: ref.controles.length, titulo: [m.titulo.clientW, ref.titulo.clientW] });
+    const angosto = w >= 701 && w <= 759;   // 1.31.1: en este rango el volumen ya no mide lo mismo que en la referencia
+    const sinVol = (cs) => cs.filter((_, i) => i !== iVol(cs));
+    const vr = ref.controles[iVol(ref.controles)];
+    const controlesOk = !angosto ? igual(m.controles, ref.controles)
+      : igual(sinVol(m.controles), sinVol(ref.controles)) && !!vol && !!vr && vol.x === vr.x && vol.y === vr.y && vol.h === vr.h && vol.w < vr.w && vr.r > w;
+    const barOk = !angosto ? igual(m.bar, ref.bar) : igual({ ...m.bar, scrollW: 0 }, { ...ref.bar, scrollW: 0 }) && ref.bar.scrollW > ref.bar.clientW;
+    ok(`barra_igual_a_main_${w}`, controlesOk && igual(m.titulo, ref.titulo) && barOk, { nuevo: m.controles.length, main: ref.controles.length, titulo: [m.titulo.clientW, ref.titulo.clientW], ...(angosto ? { volumen: { nuevo: vol, referencia: vr }, barra_scrollW: [m.bar.scrollW, ref.bar.scrollW] } : {}) });
   }
 }
 await wipeFavs();
