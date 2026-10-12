@@ -320,7 +320,8 @@ try {
     const falta = requisitos(s);
     if (falta) { add({ nombre: s.nombre, esperado: s.esperado.ok != null ? `${s.esperado.ok}/${s.esperado.total}` : '—', estado: 'NO CORRIÓ', detalle: falta }); continue; }
     const ts = Date.now();
-    const env = { ...process.env, SNAP_BASE: BASE, CPU: String(s.cpu ?? 1) };
+    // VIDEO_DIR: la carpeta de fixtures de ESTA corrida (video-mix-func.mjs le suma videos y los borra).
+    const env = { ...process.env, SNAP_BASE: BASE, CPU: String(s.cpu ?? 1), VIDEO_DIR: videoDir };
     const r = await runCmd(process.execPath, [s.archivo], { cwd: HERE, env, label: s.nombre }, SCRIPT_TIMEOUT_MS);
     const ms = Date.now() - ts;
     if (r.timedOut) { add({ nombre: s.nombre, estado: 'NO CORRIÓ', detalle: `pasó el tope de ${SCRIPT_TIMEOUT_MS / 60000} min`, ms }); continue; }

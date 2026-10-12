@@ -30,9 +30,12 @@ import { shuffled, MIN_TRACKS, ERROR_TOAST_MS, MIX_ERROR_TEXT } from '../utils/m
 //    repetido lo frena el guard de inFlight, y se ve igual que antes (main.css: [aria-busy="true"]
 //    comparte la regla de :disabled). Con < 2 pistas sigue siendo disabled real.
 //
+// `noun` (opcional): qué se mezcla, para el tooltip. Por defecto 'canciones'; la vista Videos pasa
+// 'videos' (sus ítems van con kind:'video' y el motor los reproduce como cualquier otro de la cola).
+//
 // `onPlayed` (opcional, V8c): se llama DESPUÉS de arrancar el Mix. Hoy sólo lo pasa el detalle de
 // playlist, para avisar los videos que quedaron afuera; sin él, el botón hace exactamente lo de antes.
-export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix aleatorio', onPlayed }) {
+export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix aleatorio', onPlayed, noun = 'canciones' }) {
   const { play, shuffle, toggleShuffle } = usePlayer();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -83,7 +86,7 @@ export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix a
       disabled={disabled}
       aria-disabled={disabled || busy || undefined}
       aria-busy={busy || undefined}
-      title={tooFew ? 'No hay suficientes canciones para mezclar' : 'Baraja estas canciones y reproduce al azar'}
+      title={tooFew ? `No hay suficientes ${noun} para mezclar` : noun === 'videos' ? 'Baraja estos videos y los reproduce al azar' : 'Baraja estas canciones y reproduce al azar'}
     >
       <ShuffleIcon size={18} />
       {busy ? 'Cargando…' : label}

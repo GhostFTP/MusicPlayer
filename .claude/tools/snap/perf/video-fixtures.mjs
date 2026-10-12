@@ -113,6 +113,39 @@ export function crearFixtures(dir) {
   return { dir: raiz, ffmpeg, videos };
 }
 
+// EXTRAS: cuatro videos cortos más, en dos artistas NUEVOS, para los scripts que necesitan más de
+// tres (video-mix-func.mjs: una cola barajada de 3 no dice nada). Mismo método que los de arriba.
+// NO entran en crearFixtures: los demás scripts cuentan con que haya exactamente tres. Quien los
+// crea los BORRA al terminar (borrarExtras). Como son carpetas de artista nuevas, cambia el mtime de
+// VIDEO_DIR y el backend rehace su índice en el siguiente pedido.
+export const EXTRAS = [
+  { artista: 'Mix Uno', archivo: 'Alfa (2019).mp4', segundos: 2.5, faststart: true, portada: true },
+  { artista: 'Mix Uno', archivo: 'Beta (2018).mp4', segundos: 2.5, faststart: true, portada: false },
+  { artista: 'Mix Dos', archivo: 'Gamma.mp4', segundos: 2.5, faststart: true, portada: true },
+  { artista: 'Mix Dos', archivo: 'Delta (2022).mp4', segundos: 2.5, faststart: true, portada: false },
+];
+
+/** Genera los EXTRAS dentro de `dir` (una carpeta de fixtures que ya existe). Lanza SinFfmpeg sin ffmpeg. */
+export function crearExtras(dir) {
+  if (!versionFfmpeg()) throw new SinFfmpeg(`no encuentro ffmpeg ("${FFMPEG}")`);
+  const raiz = resolve(dir);
+  if (!existsSync(raiz)) throw new Error(`${raiz} no existe`);
+  for (const f of EXTRAS) if (existsSync(join(raiz, f.artista))) throw new Error(`${join(raiz, f.artista)} ya existe: no escribo ahí`);
+  return EXTRAS.map((f, i) => {
+    const carpeta = join(raiz, f.artista);
+    mkdirSync(carpeta, { recursive: true });
+    const ruta = join(carpeta, f.archivo);
+    generarVideo(ruta, f, FIXTURES.length + i);
+    if (f.portada) generarPortada(join(carpeta, f.archivo.replace(/.mp4$/, '.jpg')), i);
+    return { rel: `${f.artista}/${f.archivo}`, ruta, titulo: f.archivo.replace(/( (d{4}))?.mp4$/, '') };
+  });
+}
+
+/** Borra las carpetas de los EXTRAS (sólo ésas). */
+export function borrarExtras(dir) {
+  for (const a of new Set(EXTRAS.map((f) => f.artista))) rmSync(join(resolve(dir), a), { recursive: true, force: true });
+}
+
 // ── CLI ──
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const i = process.argv.indexOf('--out');
