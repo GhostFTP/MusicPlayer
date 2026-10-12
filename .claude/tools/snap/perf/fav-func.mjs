@@ -197,12 +197,13 @@ favs = await favLists();
 ok('vuelo_unico', creates.length === 1 && favs.length === 1 && (await favTrackIds(favs[0].id)).length === 2, { creates: creates.length, favs: favs.length });
 delayCreate = 0;
 
-// El corazón de la BARRA sólo donde cabe sin apretar el título (>= 1280px); debajo, oculto.
+// El corazón de la BARRA va desde 900px; debajo (barra de escritorio angosta y barra mini), oculto.
+// (Hasta la 1.28.0 era sólo desde 1280px: la geometría la cubre fav-bar-desktop-func.mjs.)
 {
   const vis = {};
-  for (const w of [1440, 1280, 1279, 1024]) { await page.setViewportSize({ width: w, height: 900 }); await wait(250); vis[w] = await heart().isVisible(); }
+  for (const w of [1440, 1280, 1279, 1024, 900, 899, 700]) { await page.setViewportSize({ width: w, height: 900 }); await wait(250); vis[w] = await heart().isVisible(); }
   await page.setViewportSize({ width: 1440, height: 900 }); await wait(250);
-  ok('barra_solo_desde_1280', vis[1440] && vis[1280] && !vis[1279] && !vis[1024], vis);
+  ok('barra_desde_900', vis[1440] && vis[1280] && vis[1279] && vis[1024] && vis[900] && !vis[899] && !vis[700], vis);
 }
 
 // Capturas: barra 1440/1280/1024 con el corazón lleno y vacío; expandido.
@@ -223,13 +224,17 @@ if (process.env.SHOTS) {
 }
 await ctx.close();
 
-// 10) MÓVIL: el corazón vive en el header del expandido (la barra mini no lo muestra).
+// 10) MÓVIL: el corazón sigue viviendo en el header del expandido. Desde que la barra mini lleva su
+// propio corazón (.fav-mini, lo cubre fav-bar-mobile-func.mjs) el expandido se abre tocando la PORTADA:
+// el centro de la barra a 390px cae sobre un botón (en main, el de cola; con el corazón nuevo, el
+// corazón, que frena la propagación y no abre nada). .fav-player es el de la barra de escritorio y
+// acá no debe verse.
 const m = await newCtx({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 const mp = await m.newPage();
 await mp.goto(BASE + '/'); await mp.waitForSelector(LIB);
 await mp.locator(LIB).nth(1).click(); await mp.waitForTimeout(800);
 const barVisible = await mp.locator('.player-bar .fav-player').isVisible().catch(() => false);
-await mp.locator('.player-bar').click(); await mp.waitForTimeout(900);
+await mp.locator('.player-bar .player-art').click(); await mp.waitForTimeout(900);
 const expHeart = mp.locator('.exp-head-actions .fav-exp');
 const expVis = await expHeart.isVisible().catch(() => false);
 const expOn = (await expHeart.getAttribute('aria-pressed').catch(() => null)) === 'true';

@@ -175,6 +175,10 @@ export function toggleFavorite(trackId, onError, afterLoad = false) {
   );
 }
 
+// Se resuelve cuando ya salieron al servidor (bien o mal) todos los cambios pedidos hasta ahora. Lo
+// usa el detalle de "Mis favoritos" para releer la lista DESPUÉS de que el servidor se enteró.
+export const favoritesSettled = () => chain;
+
 // Hook: se re-renderiza sólo cuando cambia el conjunto. NO carga nada por sí solo (ver arriba):
 // quien lo usa llama a loadFavorites() cuando de verdad lo necesita. `version` sirve de dependencia
 // para recalcular lo que dependa del conjunto (p. ej. los ítems del menú).

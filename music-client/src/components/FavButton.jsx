@@ -3,9 +3,11 @@ import { useFavorites, loadFavorites } from '../utils/favorites.js';
 import { useToast } from './Toast.jsx';
 
 // Corazón de "Mis favoritos" (utils/favorites.js) para la pista que suena. Vive en la barra de
-// escritorio y en el reproductor expandido; NO en las filas (ver la propuesta en el reporte).
+// escritorio (desde 900px), en la barra mini del teléfono (≤700px) y en el reproductor expandido;
+// NO en las filas (ver la propuesta en el reporte).
 // Optimista: se llena al instante; si el servidor falla, vuelve atrás y avisa con un toast ámbar.
-// `className` elige la piel: 'fav-player' (barra) o 'exp-icon-btn fav-exp' (expandido).
+// `className` elige la piel: 'fav-player' (barra de escritorio), 'mini-btn fav-mini' (barra mini) o
+// 'exp-icon-btn fav-exp' (expandido).
 export default function FavButton({ trackId, className }) {
   const { isFavorite, toggle } = useFavorites();
   const toast = useToast();

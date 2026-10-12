@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { api, coverUrl, videoCoverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import QualityChip from './QualityChip.jsx';
@@ -12,7 +12,7 @@ import { emojiHue } from '../utils/emojiHue.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 import BackButton from './BackButton.jsx';
 import { useToast } from './Toast.jsx';
-import { favoritesIdIn } from '../utils/favorites.js';
+import { favoritesIdIn, useFavorites, loadFavorites, isFavorite, toggleFavorite, favoritesSettled } from '../utils/favorites.js';
 import {
   estadoFila, notaFila, videoReproducible, itemDeVideo, estadoSeccion, vistaSeccion,
   vistaSinCanciones, renglonSinCanciones, contadorDeLista, avisoVideosOmitidos,
@@ -85,6 +85,44 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, playlists]);
+
+  // SINCRONÍA CON EL CORAZÓN: con el detalle de "Mis favoritos" abierto, la lista sigue al store de
+  // favoritos (utils/favorites.js), que es el que mueven el corazón de la barra, el del expandido y
+  // el menú. Dos pasos, los dos colgados de `favVersion`:
+  //   1. lo que DEJÓ de ser favorito se filtra acá mismo, al instante (el store es optimista);
+  //   2. cuando el servidor ya se enteró, se relee la playlist: trae la pista recién agregada con sus
+  //      datos y deja la lista como la tiene el servidor (también tras un rollback del store).
+  // Sólo se cambia el array de pistas y las filas van por key: no hay parpadeo ni se pierde el scroll.
+  const { version: favVersion } = useFavorites();
+  const favPlId = selected?.esFav ? selected.playlist.id : null;
+  const favTracks = favPlId != null ? selected.tracks : null;
+  const favWas = useRef(new Set());   // las del detalle que el store daba por favoritas la última vez
+  const favOpen = useRef(null);       // playlist para la que ya corrió el primer efecto (no relee al abrir)
+  const favSeq = useRef(0);           // sólo se aplica la última relectura
+  useEffect(() => {
+    if (!favTracks) { favWas.current = new Set(); return; }
+    const gone = new Set(favTracks.filter((t) => favWas.current.has(t.id) && !isFavorite(t.id)).map((t) => t.id));
+    favWas.current = new Set(favTracks.filter((t) => isFavorite(t.id)).map((t) => t.id));
+    if (gone.size) setSelected((cur) => (cur && cur.playlist.id === favPlId ? { ...cur, tracks: cur.tracks.filter((t) => !gone.has(t.id)) } : cur));
+  }, [favVersion, favPlId, favTracks]);
+  useEffect(() => {
+    if (favPlId == null) { favOpen.current = null; return; }
+    if (favOpen.current !== favPlId) { favOpen.current = favPlId; loadFavorites(); return; }
+    const seq = ++favSeq.current;
+    favoritesSettled().then(() => api.playlistTracks(favPlId)).then((fresh) => {
+      if (seq !== favSeq.current) return;
+      setSelected((cur) => (cur && cur.playlist.id === favPlId
+        && !(cur.tracks.length === fresh.length && cur.tracks.every((t, i) => t.id === fresh[i].id))
+        ? { ...cur, tracks: fresh } : cur));
+    }).catch(() => {});
+  }, [favVersion, favPlId]);
+  // El contador de la tarjeta de la lista sigue a lo que muestra el detalle.
+  const favCount = favTracks?.length;
+  useEffect(() => {
+    if (favPlId == null) return;
+    setPlaylists((prev) => (prev.some((p) => p.id === favPlId && p.track_count !== favCount)
+      ? prev.map((p) => (p.id === favPlId ? { ...p, track_count: favCount } : p)) : prev));
+  }, [favPlId, favCount]);
 
   // Reporta a Layout si hay un detalle abierto (para el Esc de Player). Reactivo a
   // `selected`; el cleanup de desmontaje evita que el flag quede colgado en true.
@@ -165,6 +203,13 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
   // menú ya paró la propagación al abrirse); cuando la corría el botón "✕" de la fila, sí.
   async function removeTrack(trackId, e) {
     e?.stopPropagation();
+    // En "Mis favoritos" quitar ES apagar el corazón: va por el store (optimista, con rollback y su
+    // aviso) y la fila se va por el efecto de arriba. Si el store no la tiene por favorita (quedó
+    // viejo), sigue el camino directo de siempre.
+    if (selected.esFav) {
+      await loadFavorites();
+      if (isFavorite(trackId)) { toggleFavorite(trackId, (msg) => toast(msg, { variant: 'warning' })); return; }
+    }
     await api.removeFromPlaylist(selected.playlist.id, trackId);
     setSelected(s => ({ ...s, tracks: s.tracks.filter(t => t.id !== trackId) }));
     setPlaylists(prev => prev.map(p =>

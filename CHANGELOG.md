@@ -3,6 +3,31 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.30.0] - 2026-10-11
+
+### Añadido
+- **El corazón de favoritos, en la barra del reproductor.** En la computadora ya se ve en la barra de
+  abajo desde los 900 px de ancho (antes hacía falta una ventana de 1280). Un clic guarda o quita
+  de «Mis favoritos» la canción que suena.
+- **Y también en la barra del teléfono.** Con una canción sonando, la barra pequeña lleva el corazón
+  junto a los demás botones. Para hacerle lugar, los cinco botones miden 40 px en lugar de 48. Con
+  un video la barra queda como antes.
+
+### Mejorado
+- **«Mis favoritos» abierto se mantiene al día con el corazón.** Si quitas el corazón de la canción
+  que suena, desaparece de la lista al instante; si lo pones, aparece en cuanto el servidor lo
+  confirma. Y al revés: quitar una canción desde esa lista apaga su corazón en el reproductor.
+
+### Corregido
+- **«Mis favoritos» ya no queda desfasado.** Antes, con la lista abierta, los cambios hechos con el
+  corazón no se veían hasta salir y volver a entrar.
+
+### Para tener en cuenta
+- Entre 701 y 899 px de ancho la barra no muestra el corazón: ahí sigue en el reproductor abierto y
+  en el menú de la canción.
+- Los cambios hechos desde otra pestaña o desde otro dispositivo no llegan a la lista abierta hasta
+  que la vuelves a abrir.
+
 ## [1.29.0] - 2026-10-10
 
 ### Añadido
