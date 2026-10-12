@@ -90,7 +90,7 @@ const geoEscritorio = (p) => p.evaluate(() => {
 const cajaBien = (g) => g.bLeft > g.tRight && g.tMid > g.bTop && g.tMid < g.bBottom && g.bW === 280;
 // Esc con la cola abierta y con el expandido abierto (lo mismo que en los otros dos scripts).
 async function escCola(p, total, cards) {
-  await p.click('.player-bar [aria-label="Cola"]'); await p.waitForSelector('.queue-panel');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForSelector('.queue-panel');
   await p.evaluate(() => { window.__esc = 0; window.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.__esc++; }); });
   await p.locator(INPUT).click(); await p.keyboard.type('a'); await p.waitForTimeout(150);
   await p.keyboard.press('Escape'); await p.waitForTimeout(200);
@@ -453,7 +453,7 @@ const movilBien = (g) => g.bTop >= g.tBottom && g.bW === g.hW && g.fab && g.camp
 
   // Esc con cola y expandido: hace falta algo sonando.
   await p.evaluate(async () => { const t = await (await fetch('/api/tracks?limit=3', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } })).json(); window.__player().play(t, 0); });
-  await p.waitForSelector('.player-bar [aria-label="Cola"]'); await p.waitForTimeout(400);
+  await p.waitForSelector('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForTimeout(400);
   const ec = await escCola(p, PLS.length, CARDS);
   ok('p_esc_limpia_sin_cerrar_la_cola', ec.bien, ec);
   const ee = await escExpandido(p);

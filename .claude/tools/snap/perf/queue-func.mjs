@@ -112,7 +112,7 @@ const playingTitle = (p) => p.evaluate(() => document.querySelector('.player-bar
   await p.waitForTimeout(1200);
   // el mix arranca SIEMPRE en la 0 de la lista barajada: un "siguiente" (aleatorio) la lleva a mitad
   await p.click('.player-bar .ctrl-next'); await p.waitForTimeout(900);
-  await p.click('.player-bar [aria-label="Cola"]');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]');
   await p.waitForSelector('.queue-row.current');
   await p.waitForTimeout(600);
   let s = await qstate(p);

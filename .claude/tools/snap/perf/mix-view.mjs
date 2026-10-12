@@ -75,10 +75,10 @@ async function clickMix() {
   });
   r.requests = reqs - r0;
   // pistas en la cola: abrir la cola, leer el kicker, cerrar
-  await page.click('.player-bar [aria-label="Cola"]');
+  await page.click('.player-bar .action-btn[aria-label="Cola"]');
   await page.waitForSelector('.queue-panel .queue-kicker');
   r.enCola = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
-  await page.click('.player-bar [aria-label="Cola"]');
+  await page.click('.player-bar .action-btn[aria-label="Cola"]');
   await page.waitForSelector('.queue-panel', { state: 'detached' });
   await page.evaluate(() => window.__audio?.pause());
   return r;

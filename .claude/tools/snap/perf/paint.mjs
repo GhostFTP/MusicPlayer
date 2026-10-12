@@ -145,7 +145,7 @@ if (!BEHAVIOR) {
   await page.click('.player-bar .ctrl-next'); await page.waitForTimeout(600);
   r.trasSiguiente = await page.evaluate(() => [...document.querySelectorAll('.library-tracks .track-row')].findIndex((x) => x.classList.contains('playing')));
   // arrastrar una fila (lejana) a la cola
-  await page.click('.player-bar [aria-label="Cola"]');
+  await page.click('.player-bar .action-btn[aria-label="Cola"]');
   await page.waitForSelector('.queue-panel .queue-row');
   const q0 = await page.locator('.queue-panel .queue-row').count();
   const far = page.locator('.library-tracks .track-row').nth(300);
@@ -153,7 +153,7 @@ if (!BEHAVIOR) {
   await far.dragTo(page.locator('.queue-panel'));
   await page.waitForTimeout(800);
   r.dragACola = `${q0} → ${await page.locator('.queue-panel .queue-row').count()}`;
-  await page.click('.player-bar [aria-label="Cola"]');
+  await page.click('.player-bar .action-btn[aria-label="Cola"]');
   // TrackTable: auto-scroll a la pista que suena al abrir un detalle (Álbumes → un álbum con la actual)
   r.autoScrollDetalle = 'ver func2 (Biblioteca no tiene auto-scroll; TrackTable sí)';
   // modo lista (<=1024px): ¿la fila deja de ser table-row y el content-visibility pasa a aplicar?

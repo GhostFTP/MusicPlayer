@@ -174,8 +174,8 @@ const wantNames = (list) => list.map((a) => `${a.album}\n${a.album_artist ?? 'â€
   ok('sin_desborde_1440', sinDesborde(ov) && sinDesborde(ovLista), { cuadricula: ov, lista: ovLista });
 
   // 11) Mix: sin filtro mezcla TODA la vista (las pistas con Ã¡lbum); con filtro, las de lo que se ve.
-  await p.locator('.view-actions .mix-btn').click(); await p.waitForSelector('.player-bar [aria-label="Cola"]');
-  await p.click('.player-bar [aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-row');
+  await p.locator('.view-actions .mix-btn').click(); await p.waitForSelector('.player-bar .action-btn[aria-label="Cola"]');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-row');
   const qTodo = await queueCount(p);
   await type(p, Q);
   await p.locator('.view-actions .mix-btn').click(); await p.waitForTimeout(700);
@@ -210,7 +210,7 @@ const wantNames = (list) => list.map((a) => `${a.album}\n${a.album_artist ?? 'â€
 
   // 14) El Esc del filtro del DETALLE DE PLAYLIST tampoco cierra la cola (y sigue limpiando).
   await p.goto(`${BASE}/playlists/${pl.id}`); await p.waitForSelector('.pl-search input');
-  await p.click('.player-bar [aria-label="Cola"]'); await p.waitForSelector('.queue-panel');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForSelector('.queue-panel');
   await p.locator('.pl-search input').click(); await p.keyboard.type('zz'); await p.waitForTimeout(150);
   const y0 = await p.locator('.pl-search input').inputValue();
   await p.keyboard.press('Escape'); await p.waitForTimeout(250);

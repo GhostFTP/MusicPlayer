@@ -183,7 +183,7 @@ const segundos = (s) => { const [m, x] = s.split(':').map(Number); return m * 60
   await p.evaluate(() => { const v = window.__player(); if (v.shuffle) v.toggleShuffle(); });
 
   // Esc con la COLA abierta: 1.º limpia, 2.º suelta el foco, la cola sigue; el 3.º (fuera) la cierra.
-  await p.click('.player-bar [aria-label="Cola"]'); await p.waitForSelector('.queue-panel');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForSelector('.queue-panel');
   await p.evaluate(() => { window.__esc = 0; window.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.__esc++; }); });
   await type(p, Q);
   const st = async () => ({ ...(await snap(p)), cola: await p.locator('.queue-panel').count(), fugas: await p.evaluate(() => window.__esc) });
