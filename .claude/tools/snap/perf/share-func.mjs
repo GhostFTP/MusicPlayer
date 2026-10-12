@@ -132,11 +132,11 @@ await clearToasts();
 // 8) Fila de la COLA: también ofrece Compartir.
 await page.goto(BASE + '/'); await page.waitForSelector(LIB);
 await page.locator(LIB).nth(0).click(); await wait(500);
-await page.click('.player-bar [aria-label="Cola"]'); await wait(600);
+await page.click('.player-bar .action-btn[aria-label="Cola"]'); await wait(600);
 const qLabels = await menuOn(page.locator('.queue-row').nth(1), null);
 ok('cola_tiene_compartir', qLabels.some((l) => l.includes('Compartir')), { qLabels });
 await page.keyboard.press('Escape'); await wait(300);
-await page.click('.player-bar [aria-label="Cola"]').catch(() => {}); await wait(300);
+await page.click('.player-bar .action-btn[aria-label="Cola"]').catch(() => {}); await wait(300);
 
 // 8b) Fila de una PLAYLIST (tipo playlist-track): Compartir con el texto de esa pista. La playlist
 //     se crea y se borra acá (backend con COPIA de la base).

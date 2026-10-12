@@ -85,7 +85,7 @@ async function shot(p, sel, name, where) {
 // columna
 if (MODES.includes('col')) {
   const { ctx, p } = await setup({ viewport: { width: 1440, height: 900 } });
-  await p.click('.player-bar [aria-label="Cola"]');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]');
   await p.waitForSelector('.queue-row.current');
   for (const w of ['actual', 'top', 'mid', 'end']) await shot(p, '.queue-panel', 'col', w);
   await ctx.close();

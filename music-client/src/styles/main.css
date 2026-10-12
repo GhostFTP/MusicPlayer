@@ -5142,6 +5142,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-bar { padding: 0 16px; gap: 12px; }
   .player-volume input[type="range"] { width: 56px; }
 }
+/* 701–759: la columna derecha no alcanza para los tres botones más el volumen y el slider se
+   salía de la pantalla (hasta 17px a 701; el desborde baja ~0,29px por cada px de ancho y se
+   acaba en 760). Acá el slider mide justo lo que entra: 56px menos lo que sobraría. Es continuo
+   con los 56px de 760 (a 759 mide 54,8) y desde 760 no se toca nada. */
+@media (min-width: 701px) and (max-width: 759px) {
+  .player-volume input[type="range"] { width: calc(56px - (763px - 100vw) * 0.29); }
+  /* Su tooltip va centrado sobre el volumen y, tan cerca del borde, también se salía (hasta 8px
+     con «Volumen · 100%»): se corre a la izquierda lo que le sobraría. */
+  .player-volume > .bar-tip { left: calc(50% - (761px - 100vw) * 0.14); }
+}
 
 /* ── Toast central reutilizable ───────────────────────────────────────────── */
 .toast-layer {

@@ -64,9 +64,9 @@ const pageErrs = async (p, errs) => [...errs, ...(await p.evaluate(() => window.
 const kicker = (p) => p.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 async function queueLen(p) {
   const open = await p.locator('.queue-panel').count();
-  if (!open) { await p.click('.player-bar [aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-kicker'); }
+  if (!open) { await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-kicker'); }
   const n = await kicker(p);
-  if (!open) await p.click('.player-bar [aria-label="Cola"]');
+  if (!open) await p.click('.player-bar .action-btn[aria-label="Cola"]');
   return n;
 }
 const blurToBody = (p) => p.evaluate(() => { document.activeElement?.blur?.(); });
@@ -77,7 +77,7 @@ for (const [name, prep] of [
   ['artistas', async (p) => { await p.goto(BASE + '/artists'); await p.waitForSelector('.mix-btn'); }],
   ['biblioteca_con_busqueda', async (p) => { await p.goto(BASE + '/'); await p.waitForSelector('.library-tracks .track-row'); await p.waitForTimeout(800); await p.fill('.search-box input', 'daf'); await p.waitForTimeout(700); }],
   ['detalle_album', async (p) => { await p.goto(`${BASE}/albums/${enc('Daft Punk')}/${enc('Discovery')}`); await p.waitForSelector('.detail-hero'); }],
-  ['cola_abierta', async (p) => { await p.goto(BASE + '/'); await p.waitForSelector('.library-tracks .track-row'); await p.locator('.library-tracks .track-row').nth(2).click(); await p.waitForTimeout(600); await p.click('.player-bar [aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-row'); }],
+  ['cola_abierta', async (p) => { await p.goto(BASE + '/'); await p.waitForSelector('.library-tracks .track-row'); await p.locator('.library-tracks .track-row').nth(2).click(); await p.waitForTimeout(600); await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-row'); }],
 ]) {
   const { ctx, p, errs } = await newPage();
   await prep(p); await p.waitForTimeout(800);

@@ -67,10 +67,10 @@ async function newPage({ tracksBody, delayTracks } = {}) {
 }
 const kicker = (p) => p.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 async function queueLen(p) {
-  await p.click('.player-bar [aria-label="Cola"]');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]');
   await p.waitForSelector('.queue-panel .queue-kicker');
   const n = await kicker(p);
-  await p.click('.player-bar [aria-label="Cola"]');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]');
   return n;
 }
 

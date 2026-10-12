@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import { api } from '../api/client.js';
 import AlbumGrid from './AlbumGrid.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
-import { yearsViewTracks } from '../utils/viewTracks.js';
+import { yearsViewTracks, onLibraryChange, refreshLibraryIfStale } from '../utils/viewTracks.js';
 import BackButton from './BackButton.jsx';
 import SearchBox from './SearchBox.jsx';
 import { foldForSearch } from '../utils/searchText.js';
@@ -55,6 +55,19 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
     yearsViewTracks().then((t) => { if (vivo) setLib(t); }, () => { if (vivo) setLib('error'); });
     return () => { vivo = false; };
   }, [porTexto, lib]);
+  // La biblioteca en memoria puede quedar vieja (un escaneo con la pestaña abierta). Al escribir se
+  // pide revalidarla —viewTracks decide: a lo sumo una vez por ventana, nunca por tecla— y, si
+  // llega distinta, la lista se recalcula en el lugar: sin spinner y sin desmontar nada. Si llega
+  // igual no hay aviso, así que no hay ni un render.
+  useEffect(() => { if (porTexto) refreshLibraryIfStale(); }, [porTexto, q]);
+  useEffect(() => {
+    let vivo = true;
+    const off = onLibraryChange(() => {
+      yearsViewTracks().then((t) => { if (vivo) setLib((prev) => (Array.isArray(prev) ? t : prev)); }, () => {});
+      api.years().then((ys) => { if (vivo) setYears(ys); }, () => {});   // los conteos y los años nuevos
+    });
+    return () => { vivo = false; off(); };
+  }, []);
   const libFold = useMemo(() => (Array.isArray(lib)
     ? lib.map((t) => [t, foldForSearch(`${t.album ?? ''}\n${t.album_artist ?? ''}\n${t.artist ?? ''}`)])
     : null), [lib]);

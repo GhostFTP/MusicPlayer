@@ -88,7 +88,7 @@ await page.click('.player-bar .ctrl-next'); await wait(900);
 const t3 = filtered[3].split(' | ')[0];
 ok('siguiente_en_filtrada', (await playingTitle()) === t3, { suena: await playingTitle(), esperado: t3 });
 // 6) la cola se armó desde la lista filtrada
-await page.click('.player-bar [aria-label="Cola"]');
+await page.click('.player-bar .action-btn[aria-label="Cola"]');
 await page.waitForSelector('.queue-panel .queue-row');
 const q0 = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 ok('cola_desde_filtrada', q0 === filtered.length, { cola: q0, filtradas: filtered.length });
@@ -99,7 +99,7 @@ ok('clic_derecho_filtrada', menu);
 await page.keyboard.press('Escape'); await wait(300);
 await page.locator(ROWS).nth(6).dragTo(page.locator('.queue-panel')); await wait(800);
 ok('arrastre_filtrada_a_cola', (await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0))) === q0 + 1, { cola: `${q0}→${await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0))}` });
-await page.click('.player-bar [aria-label="Cola"]'); await wait(300);
+await page.click('.player-bar .action-btn[aria-label="Cola"]'); await wait(300);
 // 8) la barra sigue normal mientras se busca
 const a1 = await page.evaluate(() => window.__audio.currentTime);
 await type('metal'); await type('');

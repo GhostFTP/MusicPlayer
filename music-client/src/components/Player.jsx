@@ -1204,6 +1204,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 className={`exp-icon-btn${expPanel === 'queue' ? ' active' : ''}`}
                 onClick={() => toggleExpPanel('queue')}
                 title="Cola"
+                aria-label="Cola"
               >
                 <QueueGlyph size={22} />
               </button>
@@ -1213,6 +1214,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                   className={`exp-icon-btn${showLyrics ? ' active' : ''}`}
                   onClick={toggleLyricsExpanded}
                   title="Letra"
+                  aria-label="Letra"
                 >
                   <LyricsGlyph size={22} />
                 </button>
@@ -1223,6 +1225,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                   onClick={toggleInfo}
                   disabled={!currentTrack}
                   title="Información de la pista"
+                  aria-label="Información de la pista"
                 >
                   <InfoIcon size={22} />
                 </button>
@@ -1335,6 +1338,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               onClick={() => { toggleShuffle(); setShuffleSpin(true); }}
               aria-pressed={shuffle}
               title={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
+              aria-label={`Aleatorio: ${shuffle ? 'activado' : 'desactivado'}`}
             >
               <span
                 className={`shuffle-icon${shuffleSpin ? ' spin' : ''}`}
@@ -1343,15 +1347,15 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 <ShuffleIcon size={24} />
               </span>
             </button>
-            <button className="exp-btn exp-prev" onClick={prev}>
+            <button className="exp-btn exp-prev" onClick={prev} aria-label="Anterior">
               <PrevIcon size={28} />
             </button>
-            <button className="exp-btn play" onClick={togglePlay}>
+            <button className="exp-btn play" onClick={togglePlay} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
               <span key={isPlaying ? 'pause' : 'play'} className="exp-play-swap">
                 {isPlaying ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
               </span>
             </button>
-            <button className="exp-btn exp-next" onClick={next}>
+            <button className="exp-btn exp-next" onClick={next} aria-label="Siguiente">
               <NextIcon size={28} />
             </button>
             <button
@@ -1359,6 +1363,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               onClick={() => { cycleRepeat(); setRepeatSpin(true); }}
               aria-pressed={repeat !== 'off'}
               title={repeatTitle}
+              aria-label={repeatTitle}
             >
               <span
                 className={`repeat-icon${repeatSpin ? ' spin' : ''}`}
@@ -1382,6 +1387,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               type="range"
               min={0} max={1} step={0.02}
               value={volume}
+              aria-label="Volumen"
+              aria-valuetext={volume === 0 ? 'Silenciado' : `${Math.round(volume * 100)}%`}
               onChange={e => setVolume(Number(e.target.value))}
               style={volumeVars(volume)}
             />
@@ -1399,6 +1406,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               className={`exp-icon-btn${expPanel === 'queue' ? ' active' : ''}`}
               onClick={() => toggleExpPanel('queue')}
               title="Cola"
+              aria-label="Cola"
             >
               <QueueGlyph size={22} />
             </button>
@@ -1408,6 +1416,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 className={`exp-icon-btn${expPanel === 'lyrics' ? ' active' : ''}`}
                 onClick={() => toggleExpPanel('lyrics')}
                 title="Letra"
+                aria-label="Letra"
               >
                 <LyricsGlyph size={22} />
               </button>
@@ -1418,6 +1427,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 onClick={toggleInfo}
                 disabled={!currentTrack}
                 title="Información de la pista"
+                aria-label="Información de la pista"
               >
                 <InfoIcon size={22} />
               </button>
@@ -1684,6 +1694,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               type="range"
               min={0} max={1} step={0.02}
               value={volume}
+              aria-label="Volumen"
+              aria-valuetext={volume === 0 ? 'Silenciado' : `${Math.round(volume * 100)}%`}
               onChange={e => setVolume(Number(e.target.value))}
               onClick={e => e.stopPropagation()}
               onMouseDown={e => e.stopPropagation()}
@@ -1714,6 +1726,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
             className="mini-btn queue-mini"
             onClick={openQueueMobile}
             title="Cola"
+            aria-label="Cola"
           >
             <QueueGlyph size={22} />
           </button>
@@ -1722,6 +1735,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               className={`mini-btn lyrics-mini${showLyrics ? ' active' : ''}`}
               onClick={toggleLyricsBar}
               title="Letra"
+              aria-label="Letra"
             >
               <LyricsGlyph size={22} />
             </button>
@@ -1729,12 +1743,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           <button
             className="mini-btn play-mini"
             onClick={e => { e.stopPropagation(); togglePlay(); }}
+            aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
           >
             {isPlaying ? <PauseIcon size={24} /> : <PlayIcon size={24} />}
           </button>
           <button
             className="mini-btn mini-next"
             onClick={e => { e.stopPropagation(); next(); }}
+            aria-label="Siguiente"
           >
             <NextIcon size={22} />
           </button>
@@ -1876,6 +1892,8 @@ function SeekBar({ value, max, playing, onSeek }) {
         min={0} max={max || 0} step={0.5}
         value={value}
         onChange={e => onSeek(Number(e.target.value))}
+        aria-label="Posición"
+        aria-valuetext={`${fmt(value)} de ${fmt(max)}`}
       />
     </div>
   );

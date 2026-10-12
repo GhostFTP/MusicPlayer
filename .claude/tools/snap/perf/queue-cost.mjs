@@ -78,7 +78,7 @@ const med = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[s.length
 const heap = async () => { await cdp.send('HeapProfiler.collectGarbage'); const h = await cdp.send('Runtime.getHeapUsage'); return +(h.usedSize / 1048576).toFixed(1); };
 const R = { cpu: CPU, scale: SCALE || 680 };
 const wait = (ms) => page.waitForTimeout(ms);
-const QUEUE_BTN = '.player-bar [aria-label="Cola"]';
+const QUEUE_BTN = '.player-bar .action-btn[aria-label="Cola"]';
 // Móvil: la 1.ª vez desde la mini barra (promueve al expandido); después, desde el header del expandido.
 const OPEN_SELS = MOBILE ? ['.exp-head-actions .exp-icon-btn[title="Cola"]', '.player-mini-controls .queue-mini'] : [QUEUE_BTN];
 

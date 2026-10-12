@@ -81,18 +81,18 @@ for (const [label, sec] of [['0', 0], ['50', 60], ['100', 117]]) {
 }
 // glifo de Letra: reposo (fase 0) y pico (fase 900 = scale 1.8)
 await freeze({ ...PHASE, 'sparkle-pulse': 0 });
-await shot('glyph-rest', '.player-bar [aria-label="Letra"]');
+await shot('glyph-rest', '.player-bar .action-btn[aria-label="Letra"]');
 await freeze({ ...PHASE, 'sparkle-pulse': 900 });
-await shot('glyph-peak', '.player-bar [aria-label="Letra"]');
+await shot('glyph-peak', '.player-bar .action-btn[aria-label="Letra"]');
 await freeze({ ...PHASE, 'sparkle-pulse': 450 });
-await shot('glyph-mid', '.player-bar [aria-label="Letra"]');
+await shot('glyph-mid', '.player-bar .action-btn[aria-label="Letra"]');
 // glifo ACTIVO (Letra abierta → drop-shadow)
 await unfreeze();
-await page.click('.player-bar [aria-label="Letra"]'); await wait(1200);
+await page.click('.player-bar .action-btn[aria-label="Letra"]'); await wait(1200);
 await freeze({ ...PHASE, 'sparkle-pulse': 900 });
-await shot('glyph-active-peak', '.player-bar [aria-label="Letra"]');
+await shot('glyph-active-peak', '.player-bar .action-btn[aria-label="Letra"]');
 await unfreeze();
-await page.click('.player-bar [aria-label="Letra"]'); await wait(800);
+await page.click('.player-bar .action-btn[aria-label="Letra"]'); await wait(800);
 // time-tick en mitad del tick
 await unfreeze(); await seekTo(30, '.player-bar'); await wait(1300);
 await freeze({ ...PHASE, 'time-tick': 60 });

@@ -194,8 +194,8 @@ for (const V of VIEWS) {
     ok(K('sin_desborde_1440'), sinDesborde(ov) && sinDesborde(ov0), { conFiltro: ov, sinFiltro: ov0 });
 
     // Mix: sin filtro, TODA la vista; con filtro, lo que se ve.
-    await p.locator('.view-actions .mix-btn').click(); await p.waitForSelector('.player-bar [aria-label="Cola"]');
-    await p.click('.player-bar [aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-row');
+    await p.locator('.view-actions .mix-btn').click(); await p.waitForSelector('.player-bar .action-btn[aria-label="Cola"]');
+    await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-row');
     const qTodo = await queueCount(p);
     await type(p, Q);
     await p.locator('.view-actions .mix-btn').click(); await p.waitForTimeout(700);

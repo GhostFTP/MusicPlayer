@@ -10,10 +10,19 @@
 // a 900 se comprueba contra un número.
 // La columna izquierda no se mide por scrollWidth: los tooltips ocultos (.bar-tip, en absoluto) lo
 // inflan aunque nada se vea fuera; se mide por las cajas.
-// Con SNAP_REF (el build de main servido en otro puerto) compara además contra main: el resto de
+// Con SNAP_REF (el build de referencia servido en otro puerto) compara además contra él: el resto de
 // los controles no cambia de tamaño ni de lugar salvo el "+", que se corre 42 px (corazón +
 // separación) donde el corazón es nuevo (900 a 1279); en 899 y en 1280 todo es idéntico; y el
 // desborde de barra y página no es mayor. Sin SNAP_REF esas comprobaciones NO se cuentan y se avisa.
+// LA REFERENCIA ES FIJA: 9f8bfca, el último commit de main ANTES de la 1.30.0 (v1.29.0). No es "el
+// main de hoy": main ya trae este cambio y contra él estas filas fallan a propósito. Las claves
+// conservan «main» en el nombre (resto_igual_a_main_*, desborde_no_mayor_que_main_*) para no mover el historial de resultados.
+// Para armarla y servirla en 4174 (con el backend de la copia de la base en 3100), desde el repo:
+//   mkdir -p /tmp/ref-9f8bfca && git archive 9f8bfca music-client | tar -x -C /tmp/ref-9f8bfca
+//   cd /tmp/ref-9f8bfca/music-client && npm ci && npm run build
+//   echo "export default { preview: { proxy: { '/api': 'http://localhost:3100', '/stream': 'http://localhost:3100' } } };" > ref.config.mjs
+//   node node_modules/vite/bin/vite.js preview --config ref.config.mjs --port 4174 --strictPort
+// Esperado: sin SNAP_REF 34/34 · con SNAP_REF=http://localhost:4174 (9f8bfca) 44/44.
 // ⚠️ ESCRIBE (crea/borra "Mis favoritos" de la cuenta de prueba): correr contra la COPIA de la base.
 // Uso: SNAP_BASE=http://localhost:4173 [SNAP_REF=http://localhost:4174] node fav-bar-desktop-func.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
@@ -55,7 +64,7 @@ const CORTE = 900;                        // el corazón se ve desde acá
 const WIDTHS = [899, 900, 1024, 1279, 1280];
 const TITULO_ESPERADO = { 899: 128, 900: 86, 1024: 121, 1279: 185, 1280: 185 };   // medido (T41 y T42)
 const TOL = 4;
-const CORAZON_NUEVO = (w) => w >= CORTE && w < 1280;   // en main el corazón ya estaba desde 1280
+const CORAZON_NUEVO = (w) => w >= CORTE && w < 1280;   // en la referencia (9f8bfca) el corazón ya estaba desde 1280
 
 async function abrir(base, w, track) {
   const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
@@ -156,7 +165,7 @@ for (const w of WIDTHS) {
   { titulo: { clientW: t.clientW, scrollW: t.scrollW, h: t.h, h_corto: m.titulo.h }, corazon_x: [ml.corazon?.x, m.corazon?.x] });
   await L.ctx.close();
 
-  // ── contra main: el resto de la barra no se movió ──
+  // ── contra la referencia (9f8bfca): el resto de la barra no se movió ──
   if (REF) {
     const N = await abrir(BASE, w, CORTO); const nuevo = await medir(N.p); await N.ctx.close();
     const Rf = await abrir(REF, w, CORTO); const ref = await medir(Rf.p); await Rf.ctx.close();
@@ -182,7 +191,7 @@ const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok
 console.log(JSON.stringify(R, null, 1));
 console.log('medidas: ' + JSON.stringify(medidas));
 console.log(`casos: corto «${CORTO.title}» (id ${CORTO.id}) · largo «${LARGO.title}» (id ${LARGO.id})`);
-console.log(REF ? `referencia (main): ${REF}` : 'SIN SNAP_REF: las comprobaciones contra main (resto_igual_a_main_*) NO se corrieron ni se cuentan.');
+console.log(REF ? `referencia (debe ser el build de 9f8bfca, previo a la 1.30.0): ${REF}` : 'SIN SNAP_REF: las comprobaciones contra la referencia 9f8bfca (resto_igual_a_main_*) NO se corrieron ni se cuentan.');
 console.log(`\nfav-bar-desktop-func: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
 await browser.close();
 process.exit(fails.length ? 1 : 0);

@@ -107,7 +107,7 @@ await page.click('.player-bar .ctrl-next'); await wait(800);
 ok('playAfterCurrent', (await playingTitle()) === t10, { playing: await playingTitle(), esperado: t10 });
 
 // 7) agregar a la cola + cola: abrir, progreso, saltar a una fila
-await page.click('.player-bar [aria-label="Cola"]');
+await page.click('.player-bar .action-btn[aria-label="Cola"]');
 await page.waitForSelector('.queue-panel .queue-row');
 const qn0 = await page.evaluate(() => Number((document.querySelector('.queue-panel .queue-kicker')?.textContent.match(/(\d+)\s+pistas?/) ?? [])[1] ?? 0));
 await menu(20, 'Agregar a la cola'); await wait(400);
@@ -120,7 +120,7 @@ const target = await page.locator('.queue-panel .queue-row').nth(5).locator('.qu
 await page.locator('.queue-panel .queue-row').nth(5).click(); await wait(800);
 const cur = await page.evaluate(() => document.querySelector('.queue-panel .queue-row.current')?.textContent ?? null);
 ok('jumpTo_desde_cola', !!cur && (!target || cur.includes(target)), { target, cur: cur?.slice(0, 60) });
-await page.click('.player-bar [aria-label="Cola"]'); await wait(400);
+await page.click('.player-bar .action-btn[aria-label="Cola"]'); await wait(400);
 
 // 8) expandido: tiempo y duración
 await page.click('.player-bar', { position: { x: 6, y: 6 } });
@@ -136,7 +136,7 @@ ok('seek_expandido', Math.abs((await audio()).t - 75) < 2, { t: (await audio()).
 await page.keyboard.press('Escape'); await wait(500);
 
 // 9) letra sincronizada: línea activa a tiempos fijos (se compara entre builds)
-await page.click('.player-bar [aria-label="Letra"]');
+await page.click('.player-bar .action-btn[aria-label="Letra"]');
 const hasLines = await page.waitForSelector('.lyrics-line', { timeout: 12000 }).then(() => true).catch(() => false);
 if (!hasLines) ok('letra', 'NO MEDÍ: la pista no trajo letra sincronizada en local');
 else {

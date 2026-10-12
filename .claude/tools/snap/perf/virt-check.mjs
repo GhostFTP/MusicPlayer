@@ -115,7 +115,7 @@ const stopProbe = (p) => p.evaluate(() => { window.__run = false; return { frame
   ok('tab_sigue_en_la_tabla', await p.evaluate(() => !!document.activeElement?.closest?.('.library-tracks') || document.activeElement?.tagName));
   // 6) arrastre con scroll a mitad del gesto: la fila de origen sigue montada y el drop encola
   await p.locator('body').click({ position: { x: 2, y: 2 } }).catch(() => {});
-  await p.click('.player-bar [aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-row');
+  await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForSelector('.queue-panel .queue-row');
   const q0 = await p.locator('.queue-panel .queue-row').count();
   await p.evaluate(() => { document.querySelector('.main-content').scrollTop = 0; }); await p.waitForTimeout(400);
   const src = p.locator(`${ROWS}[data-index="3"]`);
@@ -129,7 +129,7 @@ const stopProbe = (p) => p.evaluate(() => { window.__run = false; return { frame
   const pinLibre = await p.evaluate(() => ({ fila3Montada: !!document.querySelector('.library-tracks tr[data-index="3"]') }));
   ok('arrastre_con_scroll', q1 === q0 + 1 && srcMounted, { cola: `${q0}→${q1}`, origenMontadoDuranteScroll: srcMounted, despuesDelDrop: pinLibre });
   // 7) cambio de modo con el scroll a mitad (la cola abierta pasa a modo lista a este ancho? → forzamos 1000px)
-  await p.click('.player-bar [aria-label="Cola"]'); await p.waitForTimeout(300);
+  await p.click('.player-bar .action-btn[aria-label="Cola"]'); await p.waitForTimeout(300);
   await p.evaluate(() => { const sc = document.querySelector('.main-content'); sc.scrollTop = (sc.scrollHeight - sc.clientHeight) / 2; }); await p.waitForTimeout(300);
   await installProbe(p);
   await p.setViewportSize({ width: 900, height: 900 }); await p.waitForTimeout(600);

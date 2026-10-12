@@ -3,6 +3,22 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.31.1] - 2026-10-12
+
+### Corregido
+- **Años y los Mix ya ven los cambios de la biblioteca.** Si la biblioteca cambiaba con la app
+  abierta, el buscador de Años y el «Mix aleatorio» de Álbumes, Artistas, Géneros y Años seguían con
+  la lista vieja hasta pasar por Biblioteca o recargar la página. Ahora se ponen al día solos, en
+  segundo plano: en Años basta con seguir escribiendo, y el Mix toma la lista nueva desde el
+  siguiente clic.
+- **Los controles del reproductor ahora tienen nombre para lectores de pantalla.** Anterior,
+  reproducir o pausar y siguiente (en el reproductor expandido y en la barra del teléfono), la barra
+  de progreso y el volumen se anunciaban sin nombre. La barra de progreso dice además por dónde va
+  la canción y el volumen su porcentaje.
+- **El volumen ya no se corta en ventanas angostas.** Entre 701 y 760 px de ancho, el control de
+  volumen de la barra se salía por el borde derecho de la pantalla. Ahora se acorta lo justo para
+  entrar.
+
 ## [1.31.0] - 2026-10-11
 
 ### Añadido

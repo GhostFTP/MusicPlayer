@@ -18,6 +18,12 @@
 //     búsqueda sigue ahí.
 // A 360, 390 y 430 con touch: el campo no se pisa con el engrane ni con la campana flotantes, no se
 // sale de la pantalla, la página no desborda y escribir filtra. Los números van en `medidas`.
+// FRESCURA (1.31.1): con Biblioteca ya visitada (biblioteca en memoria), la respuesta de
+// /api/tracks?limit=10000 trae desde la 2ª vez un álbum cambiado (se intercepta: la base no se toca).
+// Sin pasar por Biblioteca ni recargar, al escribir en Años el álbum nuevo aparece; no hay spinner y
+// el campo no se remonta; escribir más letras no dispara más pedidos (a lo sumo uno por ventana de
+// 30 s; el reloj de la página se adelanta, no se espera de verdad); y una revalidación que trae lo
+// mismo no toca el DOM de la lista.
 // Con SNAP_REF (el build de main en otro puerto): en main no hay buscador y, sin buscar, la rama pinta
 // la misma lista. Sin SNAP_REF esas dos NO se corren ni se cuentan, y se avisa.
 // Contra un build sin buscador las comprobaciones fallan una por una (no se corta con un timeout).
@@ -231,6 +237,65 @@ for (const w of [360, 390, 430]) {
   if (await hayCampo(p)) await p.locator(INPUT).tap();
   const vm = await buscar(p, ARTISTA);
   ok(`movil_escribir_filtra_${w}`, await hayCampo(p) && coincide(vm, ARTISTA) && !errores.length, { visto: vm.anios.length, contador: vm.contador });
+  await ctx.close();
+}
+
+// ── Frescura: la biblioteca en memoria se revalida sola ──
+{
+  const X = LIB.find((t) => t.album && YEARS.some((y) => y.year === t.year));
+  const NUEVO = 'Zzz Album Nuevo'; const Q = 'zzz album';
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
+  let pedidos = 0;
+  await ctx.route('**/api/tracks?limit=10000', async (r) => {
+    const res = await r.fetch(); const data = await res.json();
+    if (++pedidos >= 2) { const t = data.find((x) => x.id === X.id); if (t) t.album = NUEVO; await new Promise((f) => setTimeout(f, 300)); }
+    r.fulfill({ response: res, body: JSON.stringify(data) });
+  });
+  const p = await ctx.newPage();
+  await p.clock.install();
+  await p.goto(BASE + '/'); await p.waitForSelector('.library-tracks .track-row'); await p.waitForTimeout(600);
+  await p.evaluate(() => { window.__sinRecargar = true; });   // una recarga borraría esta marca
+  await p.evaluate(() => [...document.querySelectorAll('.sidebar button')].find((b) => b.textContent.trim().startsWith('Años')).click());
+  await p.waitForSelector('.main-content .browse-list .browse-item').catch(() => {});
+  const campo = await hayCampo(p);
+  if (campo) await p.locator(INPUT).evaluate((e) => { e.dataset.marca = '1'; });
+  const antes = pedidos;
+  await p.clock.fastForward(31000);
+  // la primera letra pide la biblioteca (está en memoria: sale al instante) y dispara la revalidación;
+  // desde ahí se registra cada frame: mientras llega lo nuevo no tiene que verse ningún spinner
+  if (campo) { await p.locator(INPUT).press(Q[0]); await p.waitForTimeout(120); }
+  await p.evaluate(() => {
+    window.__fr = { spinner: 0, frames: 0 };
+    const f = () => { window.__fr.frames++; if (document.querySelector('.main-content .spinner')) window.__fr.spinner++; requestAnimationFrame(f); };
+    requestAnimationFrame(f);
+  });
+  if (campo) await p.locator(INPUT).pressSequentially(Q.slice(1), { delay: 40 });
+  await p.waitForFunction((y) => [...document.querySelectorAll('.main-content .browse-list .browse-item-name')].some((e) => e.textContent.trim() === String(y)), X.year, { timeout: 4000 }).catch(() => {});
+  await p.waitForTimeout(200);
+  const v1 = await visto(p); const fr = await p.evaluate(() => window.__fr);
+  const sinRecargar = await p.evaluate(() => window.__sinRecargar === true);
+  const marca = campo ? await p.locator(INPUT).evaluate((e) => ({ marca: e.dataset.marca ?? null, foco: document.activeElement === e, valor: e.value })) : null;
+  ok('frescura_album_nuevo_aparece', campo && same(v1.anios, [X.year]) && v1.contador === contador(1) && pedidos === antes + 1 && sinRecargar,
+    { pista: X.id, anio: X.year, visto: v1.anios, contador: v1.contador, pedidos_de_biblioteca: [antes, pedidos], sin_recargar: sinRecargar });
+  ok('frescura_sin_spinner_ni_remontar_el_campo', campo && fr.spinner === 0 && fr.frames > 5 && marca?.marca === '1' && marca.foco && marca.valor === Q, { frames: fr.frames, frames_con_spinner: fr.spinner, campo: marca });
+  // más letras dentro de la misma ventana: ni un pedido más
+  const p2 = pedidos;
+  if (campo) { await p.locator(INPUT).fill(''); await p.locator(INPUT).pressSequentially(String(ARTISTA).slice(0, 8), { delay: 60 }); await p.waitForTimeout(600); }
+  ok('frescura_sin_pedido_por_tecla', campo && pedidos === p2, { teclas: 8, pedidos_antes: p2, pedidos_despues: pedidos });
+  // otra ventana, y lo que llega es idéntico: el pedido sale, la lista no se toca
+  const vA = await buscar(p, ARTISTA);
+  await p.clock.fastForward(31000);
+  const p3 = pedidos;
+  if (campo) { await p.locator(INPUT).press('End'); await p.locator(INPUT).press('Backspace'); await p.waitForTimeout(150); }
+  await p.evaluate(() => {
+    document.querySelectorAll('.main-content .browse-list .browse-item').forEach((e) => { e.dataset.marca = '1'; });
+    window.__mut = 0; new MutationObserver((ms) => { window.__mut += ms.length; }).observe(document.querySelector('.main-content'), { subtree: true, childList: true, characterData: true, attributes: true });
+  });
+  for (let i = 0; i < 30 && pedidos === p3; i++) await p.waitForTimeout(100);
+  await p.waitForTimeout(700);
+  const quieto = await p.evaluate(() => ({ mutaciones: window.__mut, filas: document.querySelectorAll('.main-content .browse-list .browse-item').length, marcadas: document.querySelectorAll('.main-content .browse-list .browse-item[data-marca="1"]').length }));
+  ok('frescura_datos_iguales_no_tocan_la_lista', campo && pedidos === p3 + 1 && quieto.mutaciones === 0 && quieto.filas > 0 && quieto.marcadas === quieto.filas, { pedidos: [p3, pedidos], ...quieto, anios_con_el_artista: vA.anios.length });
   await ctx.close();
 }
 
