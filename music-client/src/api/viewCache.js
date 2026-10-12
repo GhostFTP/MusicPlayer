@@ -12,7 +12,7 @@
 //     (cerrar sesión).
 
 let owner = null;            // usuario dueño de lo cacheado
-const store = new Map();     // key → { data, sig }
+const store = new Map();     // key → { data, sig, at }  (at = cuándo llegó, Date.now())
 
 // Id del usuario del JWT guardado (payload base64url). null = sin sesión.
 function currentUser() {
@@ -54,7 +54,7 @@ export async function fetchFresh(key, fetcher) {
   const data = await fetcher();
   if (!user || currentUser() !== user) return null;
   if (owner !== user) { store.clear(); owner = user; }
-  const entry = { data, sig: signatureOf(data) };
+  const entry = { data, sig: signatureOf(data), at: Date.now() };
   store.set(key, entry);
   return entry;
 }
