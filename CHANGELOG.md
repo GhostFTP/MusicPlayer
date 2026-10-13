@@ -3,6 +3,19 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.33.0] - 2026-10-13
+
+### Mejorado
+- **La biblioteca ya no tiene un máximo de canciones.** Hasta ahora la aplicación traía como mucho
+  10 000 canciones: con una biblioteca más grande, Biblioteca, el buscador de Años y el «Mix
+  aleatorio» de Álbumes, Artistas, Géneros y Años mostraban y mezclaban solo las primeras 10 000,
+  sin avisar. Ahora traen todas, por tandas. Lo mismo al reproducir un artista, un género o un año
+  entero.
+- **Revisar si la biblioteca cambió cuesta menos.** Al volver a Biblioteca, y cada tanto en Años y
+  en los Mix, la aplicación comprueba si hay música nueva. Esa comprobación ya no recorre la
+  biblioteca entera, y lo que se arma para buscar en Años se prepara una sola vez en lugar de cada
+  vez que entras.
+
 ## [1.32.1] - 2026-10-12
 
 ### Mejorado
