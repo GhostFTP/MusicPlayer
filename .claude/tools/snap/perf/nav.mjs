@@ -36,7 +36,7 @@ if (SCALE) {
   albums = []; for (let k = 0; k < reps; k++) for (const a of realAlb) albums.push({ ...a, album: k ? `${a.album} · ${k}` : a.album });
 }
 if (SCALE || LATENCY) {
-  const isList = (u) => (u.pathname === '/api/tracks' && u.searchParams.get('limit') === '10000' && [...u.searchParams.keys()].length === 1) || u.pathname === '/api/albums';
+  const isList = (u) => (u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k))) || u.pathname === '/api/albums';
   await ctx.route((url) => isList(new URL(url)), async (r) => {
     const u = new URL(r.request().url());
     if (LATENCY) await new Promise((s) => setTimeout(s, LATENCY));

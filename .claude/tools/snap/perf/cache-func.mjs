@@ -11,7 +11,15 @@
 //   sesión desde Ajustes, se entra como B y se registra, frame a frame, si aparece algo de A.
 // Termina con la línea `cache-func: N/N` y código de salida 0/1 (lo que lee regresion.mjs).
 // Uso: SNAP_BASE=http://localhost:4173 node cache-func.mjs
+import { createHash } from 'node:crypto';
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
+
+// El pedido de la BIBLIOTECA de la app: /api/tracks sin filtros. Desde la 1.33.0 llega paginado
+// (?limit=5000&offset=N), ya no como ?limit=10000.
+const esBiblioteca = (u) => u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k));
+// Una respuesta con el cuerpo cambiado lleva SU ETag (como haría el servidor): la app arma la firma
+// de la biblioteca con los ETag, y dejar el del cuerpo original sería decirle "no cambió nada".
+const conEtag = (res, body) => ({ response: res, body, headers: { ...res.headers(), etag: `W/"${createHash('sha1').update(body).digest('base64')}"` } });
 
 await preflight();
 const token = await getToken();
@@ -30,15 +38,16 @@ const click = (p, label) => p.evaluate((label) => [...document.querySelectorAll(
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
   let nT = 0, nA = 0, tituloVisible = null, albumVisible = null, cambiadas = { pista: false, album: false };
-  await ctx.route('**/api/tracks?limit=10000', async (r) => {
+  const rutaBiblioteca = async (r) => {
     const res = await r.fetch(); const data = await res.json();
     if (++nT >= 2) {
       const t = data.find((x) => x.title === tituloVisible);
       if (t) { t.title = 'TITULO-CAMBIADO'; cambiadas.pista = true; }
       await espera(DEMORA_MS);
     }
-    r.fulfill({ response: res, body: JSON.stringify(data) });
-  });
+    r.fulfill(conEtag(res, JSON.stringify(data)));
+  };
+  await ctx.route(esBiblioteca, rutaBiblioteca);
   // la app pide '/api/albums?' (query vacía): se matchea por pathname, no con glob
   await ctx.route((url) => new URL(url).pathname === '/api/albums', async (r) => {
     const res = await r.fetch(); const data = await res.json();
@@ -93,8 +102,8 @@ const click = (p, label) => p.evaluate((label) => [...document.querySelectorAll(
   });
   ok('frescura_albumes', alb.primeroLoCacheado && alb.cambioVisible_ms != null, { ...alb, album_cambiado: albumVisible, la_ruta_lo_encontro: cambiadas.album });
   // revalidación que FALLA: con caché, se queda lo cacheado y sin error visible
-  await ctx.unroute('**/api/tracks?limit=10000');
-  await ctx.route('**/api/tracks?limit=10000', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"x"}' }));
+  await ctx.unroute(esBiblioteca, rutaBiblioteca);
+  await ctx.route(esBiblioteca, (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"x"}' }));
   await click(p, 'Biblioteca'); await p.waitForTimeout(2000);
   ok('revalidacion_falla_sin_error', (await p.locator(LIBROWS).count()) > 0 && (await p.locator('.empty-state').count()) === 0,
     { filas: await p.locator(LIBROWS).count(), estadoError: await p.locator('.empty-state').count() });

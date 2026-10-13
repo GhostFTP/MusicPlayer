@@ -247,10 +247,13 @@ for (const w of [360, 390, 430]) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
   let pedidos = 0;
-  await ctx.route('**/api/tracks?limit=10000', async (r) => {
+  // El pedido de la biblioteca de la app: /api/tracks sin filtros (paginado desde la 1.33.0). La
+  // respuesta cambiada lleva su propio ETag, como haría el servidor: la app firma con ellos.
+  await ctx.route((u) => u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k)), async (r) => {
     const res = await r.fetch(); const data = await res.json();
     if (++pedidos >= 2) { const t = data.find((x) => x.id === X.id); if (t) t.album = NUEVO; await new Promise((f) => setTimeout(f, 300)); }
-    r.fulfill({ response: res, body: JSON.stringify(data) });
+    const body = JSON.stringify(data);
+    r.fulfill({ response: res, body, headers: { ...res.headers(), etag: `W/"${body.length}-${pedidos >= 2 ? 'cambiada' : 'original'}"` } });
   });
   const p = await ctx.newPage();
   await p.clock.install();

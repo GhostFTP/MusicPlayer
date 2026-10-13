@@ -43,7 +43,7 @@ async function newPage({ tracksBody, delayTracks } = {}) {
     r.fulfill({ status: 206, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${total}` }, body: WAV.subarray(start, end + 1) });
   });
   if (tracksBody || delayTracks) {
-    await ctx.route((url) => { const u = new URL(url); return u.pathname === '/api/tracks' && u.searchParams.get('limit') === '10000' && [...u.searchParams.keys()].length === 1; },
+    await ctx.route((url) => { const u = new URL(url); return u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k)); },
       async (r) => {
         if (delayTracks) await new Promise((s) => setTimeout(s, delayTracks));
         if (tracksBody) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tracksBody) });

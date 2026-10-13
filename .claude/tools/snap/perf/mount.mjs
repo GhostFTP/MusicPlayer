@@ -33,7 +33,7 @@ if (SCALE) {
   const reps = Math.ceil(SCALE / real.length);
   albums = []; for (let k = 0; k < reps; k++) for (const a of realAlb) albums.push({ ...a, album: k ? `${a.album} · ${k}` : a.album });
   // la app pide '/api/albums?' (query vacía): se matchea por pathname
-  await ctx.route((url) => { const u = new URL(url); return (u.pathname === '/api/tracks' && u.searchParams.get('limit') === '10000' && [...u.searchParams.keys()].length === 1) || u.pathname === '/api/albums'; },
+  await ctx.route((url) => { const u = new URL(url); return (u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k))) || u.pathname === '/api/albums'; },
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(new URL(r.request().url()).pathname === '/api/albums' ? albums : tracks) }));
 }
 

@@ -76,7 +76,7 @@ for (const [w, opts] of [
   await go('/albums'); if (await focusMix()) await shot('albumes-foco');
   await go(`/artists/${enc('Daft Punk')}`); if (await focusMix()) await shot('artista-foco');
   // M2c · "Cargando…" congelado: el pedido de la biblioteca no responde nunca (en frío, URL directa)
-  const isLib = (u) => { const x = new URL(u); return x.pathname === '/api/tracks' && x.searchParams.get('limit') === '10000' && [...x.searchParams.keys()].length === 1; };
+  const isLib = (u) => { const x = new URL(u); return x.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => x.searchParams.has(k)); };
   const hang = () => {};   // no fulfill: queda pendiente
   await p.route(isLib, hang);
   await go('/albums'); await p.locator(':is(.section-header, .view-actions) .mix-btn').click(); await p.waitForTimeout(600); await shot('albumes-cargando');

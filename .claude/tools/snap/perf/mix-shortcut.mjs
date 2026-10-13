@@ -27,7 +27,7 @@ const WAV = wav();
 const H = { Authorization: `Bearer ${token}` };
 const LIB = await fetch(`${BASE}/api/tracks?limit=10000`, { headers: H }).then((r) => r.json());
 const TOTAL = LIB.length;
-const isLib = (u) => { const x = new URL(u); return x.pathname === '/api/tracks' && x.searchParams.get('limit') === '10000' && [...x.searchParams.keys()].length === 1; };
+const isLib = (u) => { const x = new URL(u); return x.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => x.searchParams.has(k)); };
 const enc = encodeURIComponent;
 const R = {};
 const ok = (k, v, extra) => { R[k] = extra === undefined ? v : { ok: v, ...extra }; };

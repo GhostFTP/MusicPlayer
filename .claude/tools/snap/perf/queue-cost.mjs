@@ -49,7 +49,7 @@ await ctx.route('**/stream/**', (r) => {
 if (SCALE) {
   const real = await fetch(`${BASE}/api/tracks?limit=10000`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
   const tracks = []; for (let k = 0; tracks.length < SCALE; k++) for (const t of real) { if (tracks.length >= SCALE) break; tracks.push({ ...t, id: t.id + k * 1_000_000 }); }
-  await ctx.route((url) => { const u = new URL(url); return u.pathname === '/api/tracks' && u.searchParams.get('limit') === '10000' && [...u.searchParams.keys()].length === 1; },
+  await ctx.route((url) => { const u = new URL(url); return u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k)); },
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tracks) }));
 }
 if (process.env.EXTRA_CSS) await ctx.addInitScript((css) => { window.__EXTRA_CSS = css; }, process.env.EXTRA_CSS);
