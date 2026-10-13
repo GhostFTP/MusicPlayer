@@ -3,6 +3,19 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.32.0] - 2026-10-12
+
+### Añadido
+- **Menú en los años.** En la vista Años, el clic derecho sobre un año (o mantenerlo presionado en
+  el teléfono) abre un menú con «Reproducir año» y «Agregar a la cola», como ya pasaba con los
+  géneros. En la computadora también puedes arrastrar un año hasta la cola o hasta la barra del
+  reproductor. Siempre lleva el año completo, aunque tengas algo escrito en el buscador.
+- **De un video a su artista.** Si el artista de un video también está en tu música, su nombre en la
+  tarjeta de Videos es un enlace que te lleva a la página del artista sin reproducir el video. El
+  menú del video suma «Ir al artista» y, con el video abierto en grande, el nombre del artista
+  también te lleva. Si el artista no está en tu música (o es una colaboración, como «A feat. B»), el
+  nombre queda como texto, igual que antes.
+
 ## [1.31.1] - 2026-10-12
 
 ### Corregido

@@ -6,6 +6,9 @@ import { yearsViewTracks, onLibraryChange, refreshLibraryIfStale } from '../util
 import BackButton from './BackButton.jsx';
 import SearchBox from './SearchBox.jsx';
 import { foldForSearch } from '../utils/searchText.js';
+import { useContextMenu } from './ContextMenu.jsx';
+import { useLongPress } from '../utils/useLongPress.js';
+import { useDragQueue } from '../context/DragQueueContext.jsx';
 
 export default function Years({ target, clearTarget, setDetailOpen, navigate }) {
   const [years,    setYears]    = useState(null);
@@ -13,6 +16,14 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
   const [albums,   setAlbums]   = useState(null);
 
   useEffect(() => { api.years().then(setYears); }, []);
+
+  // Menú sobre una FILA de año, igual que la tarjeta de género: clic derecho en escritorio y
+  // pulsación larga en el teléfono (ContextMenu, case 'year': reproducir el año o mandarlo a la
+  // cola). Y la fila se arrastra a la cola o a la barra (DragQueueContext, kind 'year'). El detalle
+  // de un año no necesita nada: sus tarjetas son las de AlbumGrid, que ya traen el menú de álbum.
+  const { openMenu } = useContextMenu();
+  const bindPress = useLongPress((y, ev) => openMenu(ev, { type: 'year', item: y, via: 'longpress' }));
+  const { dragProps } = useDragQueue();
 
   // Consumo del target de navegación: reset vuelve a la lista; { year } abre el detalle del año
   // (deep-link /years/2007 y pop de ruta). El year llega como NÚMERO (coerción en pathToState) →
@@ -153,7 +164,15 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
       ) : (
       <ul className="browse-list">
         {shown.map(y => (
-          <li key={y.year} className="browse-item" onClick={() => navigate('years', { year: y.year })}>
+          <li
+            key={y.year}
+            className="browse-item year-item"
+            {...bindPress(y, {
+              onClick: () => navigate('years', { year: y.year }),
+              onContextMenu: (e) => openMenu(e, { type: 'year', item: y }),
+            })}
+            {...dragProps(y, 'year')}
+          >
             <span className="browse-item-name">{y.year}</span>
             <span className="browse-item-meta">{y.album_count} álbumes · {y.track_count} pistas</span>
           </li>

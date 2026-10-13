@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { artistImageUrl, coverUrl } from '../api/client.js';
 import { genreEmoji } from '../utils/genreEmoji.js';
-import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
+import { albumTracks, artistTracks, genreTracks, yearTracks } from '../utils/itemTracks.js';
 import { usePlayer } from './PlayerContext.jsx';
 import { useToast } from '../components/Toast.jsx';
 
@@ -103,6 +103,7 @@ export function DragQueueProvider({ children }) {
       sub: count(a.track_count),
     }),
     genre: (g) => ({ cover: null, glyph: genreEmoji(g.genre), title: g.genre ?? 'Género', sub: count(g.track_count) }),
+    year:  (y) => ({ cover: null, glyph: '📅', title: String(y.year ?? 'Año'), sub: count(y.track_count) }),
   };
 
   // El ghost es un nodo EFÍMERO: se crea en dragstart, el navegador le saca una foto al terminar
@@ -222,6 +223,7 @@ const DROP_SETS = {
   album:  { load: albumTracks,  name: (i) => i.album,  empty: 'Ese álbum no tiene pistas' },
   artist: { load: artistTracks, name: (i) => i.artist, empty: 'Ese artista no tiene pistas' },
   genre:  { load: genreTracks,  name: (i) => i.genre,  empty: 'Ese género no tiene pistas' },
+  year:   { load: yearTracks,   name: (i) => i.year,   empty: 'Ese año no tiene pistas' },
 };
 
 // En dragover/dragenter el navegador NO deja leer los datos (sólo `types`), así que la marca es lo

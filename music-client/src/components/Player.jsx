@@ -13,6 +13,7 @@ import InfoPanel from './InfoPanel.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
 import { useToast } from './Toast.jsx';
+import { matchArtist, useLibraryArtists } from '../utils/artistMatch.js';
 
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00';
@@ -851,6 +852,19 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
   // Handlers de la barra y el expandido: la MISMA navegación sobre la pista que suena, tomando el
   // `trackMeta` enriquecido cuando existe (puede traer album/album_artist que la cola no tenía).
   const goArtist = (e) => { e.stopPropagation(); goArtistOf(trackMeta ?? currentTrack); };
+  // Video → artista (1.32.0). Un video no tiene album_artist ni id de pista (goArtistOf haría
+  // api.track con su id hex): su artista es el nombre de la carpeta. Si ese nombre es un artista de
+  // la biblioteca (utils/artistMatch.js) se navega con el nombre de la biblioteca. La lista de
+  // artistas sólo se pide cuando suena un video.
+  const libArtists = useLibraryArtists(isVideo);
+  const videoArtist = isVideo ? matchArtist(currentTrack?.artist, libArtists) : null;
+  const goVideoArtist = (e) => {
+    e.stopPropagation();
+    if (!videoArtist) return;
+    setExpanded(false);
+    setShowLyrics(false);
+    navigate('artists', { artist: videoArtist });
+  };
   const goAlbum  = (e) => { e.stopPropagation(); goAlbumOf(trackMeta ?? currentTrack); };
 
   // Info: los botones del reproductor siguen mostrando la pista que SUENA (infoTrack a null); el
@@ -1296,9 +1310,14 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
               {currentTrack?.title ?? 'Sin reproducción'}
             </div>
             <div className="exp-subline">
+              {/* Hasta la 1.31.1 el artista de un video iba SIEMPRE sin enlace, a propósito: no había
+                  cómo saber si era un artista de la biblioteca. Desde la 1.32.0 es enlace cuando
+                  matchArtist lo encuentra (videoArtist); si no, sigue siendo texto. */}
               {currentTrack?.artist && !isVideo
                 ? <span className="exp-artist exp-link" onClick={goArtist} title="Ir al artista">{currentTrack.artist}</span>
-                : <span className="exp-artist">{currentTrack?.artist ?? '—'}</span>}
+                : videoArtist
+                  ? <span className="exp-artist exp-link" onClick={goVideoArtist} title="Ir al artista">{currentTrack.artist}</span>
+                  : <span className="exp-artist">{currentTrack?.artist ?? '—'}</span>}
               {genre && (
                 <span className="exp-genre exp-link" onClick={goGenre} title={`Ver género: ${genre}`}>{genre}</span>
               )}

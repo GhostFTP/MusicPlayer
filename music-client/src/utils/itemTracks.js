@@ -1,4 +1,5 @@
 import { api } from '../api/client.js';
+import { yearsViewTracks } from './viewTracks.js';
 
 // Pistas de un álbum / de un artista / de un género, con los MISMOS parámetros que ya usan las
 // vistas (Albums.openAlbum, el ShuffleButton del hero de Artistas, Genres.open) → el orden que se
@@ -15,3 +16,8 @@ export const artistTracks = (a) => api.tracks({ album_artist: a.artist, limit: 1
 // Mismo `limit: 500` que usa Genres.open() al abrir el detalle → lo que se encola es exactamente
 // lo que se ve al entrar al género, no otro conjunto.
 export const genreTracks  = (g) => api.tracks({ genre: g.genre, limit: 500 });
+// Las pistas de un AÑO salen de la biblioteca en memoria (viewTracks: la misma que usan el buscador
+// y el Mix de Años, con su revalidación en segundo plano), no de un pedido por año: con la
+// biblioteca ya cargada no hay request, y el orden es el del servidor (artista, álbum, nº de pista),
+// el mismo de GET /api/tracks?year=. Siempre el año COMPLETO, haya o no texto en el buscador.
+export const yearTracks   = async (y) => (await yearsViewTracks()).filter((t) => t.year === y.year);

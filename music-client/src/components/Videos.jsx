@@ -6,6 +6,7 @@ import { useLongPress } from '../utils/useLongPress.js';
 import SearchBox from './SearchBox.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { useListFilter } from '../utils/useListFilter.js';
+import { matchArtist, useLibraryArtists } from '../utils/artistMatch.js';
 
 // Dónde busca el buscador: lo que dice la tarjeta con texto propio, artista y título.
 const SEARCH_FIELDS = ['artist', 'title'];
@@ -24,10 +25,19 @@ const SEARCH_FIELDS = ['artist', 'title'];
 // tarjetas de álbum (AlbumGrid). Va con el MISMO ítem de cola (kind:'video') que arma el toque, y
 // trae sólo "a continuación" y "a la cola" (ContextMenu, case 'video'). El long-press envuelve el
 // onClick: una pulsación larga abre el menú y no reproduce.
-export default function Videos({ target, clearTarget }) {
+//
+// Video → artista (1.32.0): si el artista del video (el nombre de su carpeta) es un artista de la
+// biblioteca (utils/artistMatch.js), su nombre en la tarjeta es un enlace a la página del artista y
+// el menú suma «Ir al artista». Sin coincidencia la tarjeta queda como siempre: texto y nada más.
+export default function Videos({ target, clearTarget, navigate }) {
   const { play } = usePlayer();
   const { openMenu } = useContextMenu();
-  const bindPress = useLongPress((item, ev) => openMenu(ev, { type: 'video', item, via: 'longpress' }));
+  const libArtists = useLibraryArtists();
+  // `artistLink` viaja en el payload del menú (como el onRemove de las playlists): el menú no compara
+  // nombres, sólo ofrece «Ir al artista» si llega.
+  const menuOf = useCallback((v) => ({ type: 'video', item: v, artistLink: matchArtist(v.artist, libArtists) }), [libArtists]);
+  const bindPress = useLongPress((item, ev) => openMenu(ev, { ...menuOf(item), via: 'longpress' }));
+  const goArtist = useCallback((artist) => navigate('artists', { artist }), [navigate]);
   const [videos, setVideos]   = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -110,9 +120,11 @@ export default function Videos({ target, clearTarget }) {
           <VideoCard
             key={v.id}
             video={v}
+            artistLink={matchArtist(v.artist, libArtists)}
+            onArtist={goArtist}
             press={bindPress(v, {
               onClick: () => onPlay(i),
-              onContextMenu: (e) => openMenu(e, { type: 'video', item: v }),
+              onContextMenu: (e) => openMenu(e, menuOf(v)),
             })}
           />
         ))}
@@ -122,7 +134,9 @@ export default function Videos({ target, clearTarget }) {
   );
 }
 
-function VideoCard({ video, press }) {
+// Con `artistLink` (el nombre del artista en la biblioteca) el artista es un botón que navega; el
+// stopPropagation evita que el toque llegue a la tarjeta, que reproduciría el video.
+function VideoCard({ video, press, artistLink, onArtist }) {
   const meta = [video.year, fmtDuration(video.duration)].filter(Boolean).join(' · ');
   return (
     <div className="album-card video-card" {...press}>
@@ -133,7 +147,20 @@ function VideoCard({ video, press }) {
         }
       </div>
       <div className="album-name">{video.title}</div>
-      <div className="album-artist">{video.artist}</div>
+      {artistLink
+        ? (
+          <div className="album-artist album-artist--link">
+            <button
+              type="button"
+              className="video-artist-link"
+              title="Ir al artista"
+              onClick={(e) => { e.stopPropagation(); onArtist(artistLink); }}
+            >
+              {video.artist}
+            </button>
+          </div>
+        )
+        : <div className="album-artist">{video.artist}</div>}
       {meta && <div className="album-count">{meta}</div>}
     </div>
   );

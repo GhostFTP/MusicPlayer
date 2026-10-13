@@ -892,6 +892,20 @@ button, input, select, textarea { font-family: inherit; }
   overflow: hidden;
 }
 .album-artist { font-size: 12px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* El artista de un VIDEO como enlace a su página (Videos.jsx, sólo si es un artista de la
+   biblioteca). El botón no cambia nada de lo que se ve en reposo: mismo texto, mismo lugar, misma
+   altura de línea; el … lo corta el botón (el contenedor deja de recortar para que en el teléfono
+   el área táctil pueda salirse de la línea, ver @media ≤700). */
+.album-artist--link { overflow: visible; }
+.video-artist-link {
+  display: block; max-width: 100%; width: fit-content;
+  margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color .12s;
+}
+.video-artist-link:hover { color: var(--text); text-decoration: underline; }
+.video-artist-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .album-count  { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 
 /* ── VISTAS DEL LISTADO DE ÁLBUMES (Frente 3, F3c/F3d) ──
@@ -5032,13 +5046,19 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .track-row, .queue-row,
   /* Las TARJETAS también, desde que tienen long-press: la carátula de un álbum o el retrato de
      un artista son <img>, y sobre una imagen el callout de iOS ofrece "Guardar imagen" — el
-     preventDefault del 'contextmenu' no lo tapa. `.genre-item` y no `.browse-item` a propósito:
-     esa clase la comparte Años, que no tiene menú y no necesita perder la selección. */
-  .album-card, .artist-portrait, .genre-item {
+     preventDefault del 'contextmenu' no lo tapa. `.genre-item` y `.year-item` (las filas de Años
+     tienen menú desde la 1.32.0) y no `.browse-item` a secas: es la clase base de las dos. */
+  .album-card, .artist-portrait, .genre-item, .year-item {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
   }
+
+  /* El enlace de artista de un video mide una línea de texto (~15px): poco para un dedo. Se le
+     suma área táctil arriba y abajo SIN mover nada: el padding la agranda y el margen negativo le
+     devuelve al layout exactamente lo mismo. Encima de sus vecinas (z-index) para que el toque en
+     esa franja sea suyo. */
+  .video-artist-link { position: relative; z-index: 1; padding: 9px 0; margin: -9px 0; }
 
   /* Slightly smaller art in track rows */
   .track-art, .track-art-placeholder { width: 34px; height: 34px; }

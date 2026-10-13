@@ -125,13 +125,15 @@ export const EXTRAS = [
   { artista: 'Mix Dos', archivo: 'Delta (2022).mp4', segundos: 2.5, faststart: true, portada: false },
 ];
 
-/** Genera los EXTRAS dentro de `dir` (una carpeta de fixtures que ya existe). Lanza SinFfmpeg sin ffmpeg. */
-export function crearExtras(dir) {
+/** Genera los EXTRAS dentro de `dir` (una carpeta de fixtures que ya existe). Lanza SinFfmpeg sin ffmpeg.
+ *  `lista`: otra tanda con la misma forma que EXTRAS (video-artist-link-func.mjs trae la suya, con
+ *  carpetas que se llaman como artistas de la biblioteca de la prueba). */
+export function crearExtras(dir, lista = EXTRAS) {
   if (!versionFfmpeg()) throw new SinFfmpeg(`no encuentro ffmpeg ("${FFMPEG}")`);
   const raiz = resolve(dir);
   if (!existsSync(raiz)) throw new Error(`${raiz} no existe`);
-  for (const f of EXTRAS) if (existsSync(join(raiz, f.artista))) throw new Error(`${join(raiz, f.artista)} ya existe: no escribo ahí`);
-  return EXTRAS.map((f, i) => {
+  for (const f of lista) if (existsSync(join(raiz, f.artista))) throw new Error(`${join(raiz, f.artista)} ya existe: no escribo ahí`);
+  return lista.map((f, i) => {
     const carpeta = join(raiz, f.artista);
     mkdirSync(carpeta, { recursive: true });
     const ruta = join(carpeta, f.archivo);
@@ -141,9 +143,9 @@ export function crearExtras(dir) {
   });
 }
 
-/** Borra las carpetas de los EXTRAS (sólo ésas). */
-export function borrarExtras(dir) {
-  for (const a of new Set(EXTRAS.map((f) => f.artista))) rmSync(join(resolve(dir), a), { recursive: true, force: true });
+/** Borra las carpetas de los EXTRAS (sólo ésas), o las de la `lista` que se le pase. */
+export function borrarExtras(dir, lista = EXTRAS) {
+  for (const a of new Set(lista.map((f) => f.artista))) rmSync(join(resolve(dir), a), { recursive: true, force: true });
 }
 
 // ── CLI ──
