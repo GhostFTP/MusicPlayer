@@ -13,9 +13,10 @@ import { yearsViewTracks } from './viewTracks.js';
 // Filtrar el álbum por album_artist desambigua los homónimos.
 export const albumTracks  = (a) => api.tracks({ album: a.album, limit: 500, ...(a.album_artist ? { album_artist: a.album_artist } : {}) });
 export const artistTracks = (a) => api.tracks({ album_artist: a.artist, limit: 10000 });
-// Mismo `limit: 500` que usa Genres.open() al abrir el detalle → lo que se encola es exactamente
-// lo que se ve al entrar al género, no otro conjunto.
-export const genreTracks  = (g) => api.tracks({ genre: g.genre, limit: 500 });
+// Mismo `limit` que usa Genres.open() al abrir el detalle → lo que se encola es exactamente lo que
+// se ve al entrar al género, no otro conjunto. 10000 como artistas (hasta la 1.32.0 era 500 y un
+// género con más pistas se reproducía cortado, sin aviso).
+export const genreTracks  = (g) => api.tracks({ genre: g.genre, limit: 10000 });
 // Las pistas de un AÑO salen de la biblioteca en memoria (viewTracks: la misma que usan el buscador
 // y el Mix de Años, con su revalidación en segundo plano), no de un pedido por año: con la
 // biblioteca ya cargada no hay request, y el orden es el del servidor (artista, álbum, nº de pista),
