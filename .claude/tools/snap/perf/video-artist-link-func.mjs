@@ -26,6 +26,7 @@
 // A 390 y 360 con touch: el enlace mide 32 px de alto o más (el texto solo mide menos: va en
 // `medidas`), el toque en el título de la tarjeta no cae en el enlace, tocar el enlace navega y no
 // reproduce, tocar la portada reproduce, y la pulsación larga trae el tile «Artista» sólo donde toca.
+// En la tablet (1280 con touch, 1.32.1): el enlace mide 44 px de alto o más y tocarlo navega.
 // Con SNAP_REF (un build SIN el enlace, p. ej. el de v1.31.1 en otro puerto): control negativo. Sin
 // SNAP_REF ese control NO se corre ni se cuenta, y se avisa.
 // Contra un build sin el enlace las comprobaciones fallan una por una (no se corta con un timeout).
@@ -266,6 +267,23 @@ try {
     await card(p, T.exacto).locator('.video-cover-frame').tap(); await p.waitForFunction(() => window.__player().currentTrack?.kind === 'video', null, { timeout: 5000 }).catch(() => {}); await sleep(400);
     const s2 = await suena(p); await pausar(p);
     ok(`toque_en_la_portada_reproduce_${w}`, s2.actual === T.exacto && !errores.length, { suena: s2, errores });
+    await ctx.close();
+  }
+
+  // ── Tablet (dedo + layout de escritorio): 44 px ──
+  {
+    const { ctx, p, videos } = await abrir(BASE, 1280, 800, true);
+    await card(p, T.exacto).scrollIntoViewIfNeeded().catch(() => {}); await sleep(300);
+    const g = await card(p, T.exacto).evaluate((c) => {
+      const b = c.querySelector('.video-artist-link'); if (!b) return null;
+      const r = b.getBoundingClientRect(); const en = (x, y) => !!document.elementFromPoint(x, y)?.closest('.video-artist-link');
+      const t = c.querySelector('.album-name')?.getBoundingClientRect(); const cx = r.left + r.width / 2;
+      let arriba = 0, abajo = 0; const cy = r.top + r.height / 2; while (arriba < 40 && en(cx, cy - arriba - 1)) arriba++; while (abajo < 40 && en(cx, cy + abajo + 1)) abajo++;
+      return { caja_alto: Math.round(r.height * 10) / 10, alto_de_toque: arriba + abajo + 1, el_titulo_no_cae_en_el_enlace: t ? !en(t.left + Math.min(t.width, 40) / 2, t.top + t.height / 2) : null };
+    }).catch(() => null);
+    medidas.enlace_tactil[1280] = g;
+    const h = await pulsarEnlace(p, T.exacto, true); const s = await suena(p);
+    ok('enlace_tactil_tablet_1280', g && g.alto_de_toque >= 44 && g.el_titulo_no_cae_en_el_enlace && h && (await heroe(p)) === A && s.actual === null, { ...(g ?? { motivo: 'no hay enlace' }), navega_a: await heroe(p), suena: s.actual });
     await ctx.close();
   }
 
