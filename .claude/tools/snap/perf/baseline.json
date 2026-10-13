@@ -39,7 +39,7 @@
     { "nombre": "video-fullscreen-func", "archivo": "video-fullscreen-func.mjs", "modo": "name-line", "esperado": { "ok": 28, "total": 28 } },
     { "nombre": "video-grid-func", "archivo": "video-grid-func.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 } },
     { "nombre": "video-mix-func", "archivo": "video-mix-func.mjs", "modo": "name-line", "esperado": { "ok": 37, "total": 37 } },
-    { "nombre": "video-artist-link-func", "archivo": "video-artist-link-func.mjs", "modo": "name-line", "esperado": { "ok": 22, "total": 22 } },
+    { "nombre": "video-artist-link-func", "archivo": "video-artist-link-func.mjs", "modo": "name-line", "esperado": { "ok": 23, "total": 23 } },
     { "nombre": "video-firstframe-func", "archivo": "video-firstframe-func.mjs", "modo": "name-line", "esperado": { "ok": 15, "total": 15 } },
     { "nombre": "search-views-func", "archivo": "search-views-func.mjs", "modo": "name-line", "esperado": { "ok": 19, "total": 19 } },
     { "nombre": "search-browse-func", "archivo": "search-browse-func.mjs", "modo": "name-line", "esperado": { "ok": 33, "total": 33 } },
@@ -48,6 +48,11 @@
     { "nombre": "search-changelog-func", "archivo": "search-changelog-func.mjs", "modo": "name-line", "esperado": { "ok": 19, "total": 19 } },
     { "nombre": "search-years-func", "archivo": "search-years-func.mjs", "modo": "name-line", "esperado": { "ok": 26, "total": 26 } },
     { "nombre": "year-menu-func", "archivo": "year-menu-func.mjs", "modo": "name-line", "esperado": { "ok": 12, "total": 12 } },
+    { "nombre": "tablet-longpress-func", "archivo": "tablet-longpress-func.mjs", "modo": "name-line", "esperado": { "ok": 18, "total": 18 } },
+    { "nombre": "inputs-16-func", "archivo": "inputs-16-func.mjs", "modo": "name-line", "esperado": { "ok": 12, "total": 12 } },
+    { "nombre": "drag-touch-func", "archivo": "drag-touch-func.mjs", "modo": "name-line", "esperado": { "ok": 11, "total": 11 } },
+    { "nombre": "touch-areas-func", "archivo": "touch-areas-func.mjs", "modo": "name-line", "esperado": { "ok": 15, "total": 15 } },
+    { "nombre": "genre-limit-func", "archivo": "genre-limit-func.mjs", "modo": "name-line", "esperado": { "ok": 5, "total": 5 } },
     {
       "nombre": "rows", "archivo": "rows.mjs", "modo": "rows", "cpu": 1,
       "esperado": {

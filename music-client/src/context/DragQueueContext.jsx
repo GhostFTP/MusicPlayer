@@ -49,6 +49,16 @@ const DESKTOP = '(min-width: 701px)';
 
 const NO_DRAG = {};
 
+// 1.32.1 · CON QUÉ se hizo el último pointerdown. El arrastre es cosa de ratón o trackpad: con un
+// dedo (o lápiz) sobre algo `draggable`, iPadOS levanta su propio arrastre a los ~500 ms y le gana
+// la carrera al menú de la pulsación larga. Se decide POR GESTO y no con una media query: un iPad
+// con trackpad sigue arrastrando con el trackpad y abriendo el menú con el dedo.
+let lastPointerType = 'mouse';
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', (e) => { lastPointerType = e.pointerType || 'mouse'; }, { capture: true, passive: true });
+}
+const fromTouch = () => lastPointerType === 'touch' || lastPointerType === 'pen';
+
 // ⚠️ EL GATE DEL ORIGEN CAMBIÓ al sumarse la barra como segundo destino (ver §Destinos abajo).
 // Antes colgaba de `showQueue`: sin cola abierta no había dónde soltar, así que no tenía sentido
 // levantar nada. Ahora la BARRA acepta drops y está SIEMPRE visible, así que en desktop siempre
@@ -153,6 +163,8 @@ export function DragQueueProvider({ children }) {
     // Segunda red del gate. preventDefault en dragstart CANCELA el arrastre: si por un resize la
     // cola quedó abierta en móvil, no se levanta nada.
     if (!window.matchMedia(DESKTOP).matches) { e.preventDefault(); return; }
+    // Tercera red (1.32.1): el gesto nació de un toque → no se levanta nada (ver lastPointerType).
+    if (fromTouch()) { e.preventDefault(); return; }
     payloadRef.current = { kind, item };
     // Sólo la marca. A propósito NO se setea 'text/plain': con él, arrastrar algo sobre el
     // buscador de la biblioteca o el input de renombrar playlist ofrecería pegar el texto ahí.

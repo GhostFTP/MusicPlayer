@@ -2369,8 +2369,12 @@ button, input, select, textarea { font-family: inherit; }
    C1 se ensancha, esto ya lo acompaña.
 
    Especificidad (0,2,0) donde hay que ganarle a .ctx-menu / .ctx-menu--wide, sin depender del
-   orden del archivo — el mismo criterio que ya usa .track-row .ctx-row-btn. */
-@media (max-width: 880px) {
+   orden del archivo — el mismo criterio que ya usa .track-row .ctx-row-btn.
+
+   1.32.1 · Se sumó `(pointer: coarse)`: la pulsación larga ya abre el menú también en una tablet
+   (más de 880 px), y sin estas reglas los tiles salían sin estilo, en una tira de 21 px de alto.
+   Con ratón no cambia nada: `tiles` sólo lo pone una pulsación larga, que un ratón no hace. */
+@media (max-width: 880px), (pointer: coarse) {
   .ctx-scrim {
     position: fixed;
     inset: 0;
@@ -5664,4 +5668,94 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     justify-content: center;
     column-gap: 36px;
   }
+}
+
+/* ══ 1.32.1 · TÁCTIL: teléfono, y tablet con el layout de escritorio ═══════════════════════════
+   Todo lo de este bloque cuelga del PUNTERO (pointer: coarse / hover: none), no del ancho: una
+   tablet en horizontal mide más de 700 px pero se maneja con el dedo. En una computadora con ratón
+   no aplica nada de esto. */
+
+/* Campos de texto a 16 px. Con menos, Safari de iOS agranda la página al enfocar el campo y no
+   vuelve sola. También a 700 px o menos aunque el puntero sea fino (un escritorio angosto queda
+   igual que el teléfono). El de renombrar playlist (.pl-rename) ya mide 20 px. */
+@media (pointer: coarse), (max-width: 700px) {
+  .search-box input,
+  .new-playlist-form input,
+  .ptp-edit-input,
+  .ptp-new input,
+  .pl-search input,
+  .field input { font-size: 16px; }
+}
+
+/* Las defensas de la pulsación larga (ver el bloque de ≤700 px: callout de iOS y selección de
+   texto) para cualquier ancho con dedo: desde la 1.32.1 el menú también abre así en la tablet. */
+@media (pointer: coarse) {
+  .track-row, .queue-row, .album-card, .artist-portrait, .genre-item, .year-item {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Sin ratón no hay hover: lo que sólo aparecía al pasar por encima se ve siempre. El «+» de la fila
+   y el pulgar del progreso y del volumen (sin él no se sabe de dónde agarrar). Los tooltips no se
+   tocan: son una ayuda de ratón. */
+@media (hover: none) {
+  .track-row .ptp-btn { opacity: 1; }
+  input[type="range"]::-webkit-slider-thumb,
+  .seek input[type="range"]::-webkit-slider-thumb { opacity: 1; }
+  .player-volume input[type="range"]::-webkit-slider-thumb { opacity: 1; transform: scale(1); }
+}
+
+/* ── Áreas de toque de 44 px en la TABLET (dedo + layout de escritorio, de 701 px en adelante) ──
+   Los controles de la barra, del expandido y de las listas se dibujaron para el ratón (16 a 40 px).
+   Acá NO se mueve nada de lo que se ve: a cada control se le suma un área de toque invisible
+   (::after) hasta 44×44, y donde dos controles están a menos de 44 px el área se reparte SIN
+   solaparse (por eso algunas van corridas hacia el lado libre). Las únicas dos cosas que crecen de
+   verdad son el selector de vista de Álbumes y el de orden de Biblioteca: no hay otra forma de
+   darles 44 px sin que se pisen entre sí. */
+@media (pointer: coarse) and (min-width: 701px) {
+  .player-bar .ptp-btn, .player-bar .fav-player, .player-bar .ctrl-btn, .player-bar .action-btn, .player-bar .volume-btn,
+  .track-row .ctx-row-btn, .queue-close,
+  .player-expanded .ptp-btn, .player-expanded .volume-btn,
+  .exp-title.exp-link, .exp-artist.exp-link, .exp-genre.exp-link { position: relative; }
+
+  /* Centrada: el control tiene 44 px libres alrededor de su centro. */
+  .player-bar .ctrl-btn::after, .player-bar .action-btn::after,
+  .track-row .ctx-row-btn::after, .queue-close::after, .player-expanded .ptp-btn::after {
+    content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%);
+  }
+  /* El «+» del expandido tiene 46 px entre «info» y el corazón, que ya traen su propia área: va
+     encima para que el borde compartido sea suyo. */
+  .player-expanded .ptp-btn::after { z-index: 1; }
+  /* «+» y corazón de la barra: están a 42 px uno del otro → cada área crece hacia su lado libre. */
+  .player-bar .ptp-btn::after    { content: ''; position: absolute; top: -7px; bottom: -7px; left: -8px; right: -6px; }
+  .player-bar .fav-player::after { content: ''; position: absolute; top: -7px; bottom: -7px; left: -6px; right: -8px; }
+  /* Silenciar de la barra: entre «info» y el slider sólo hay 23 px. Se le da todo ese ancho y los
+     44 de alto; más ancho se pisaría con sus vecinos. */
+  .player-bar .volume-btn::after { content: ''; position: absolute; top: -14px; bottom: -14px; left: -3px; right: -4px; }
+  /* Silenciar del expandido: a su izquierda no hay nada → crece hacia ahí. */
+  .player-expanded .volume-btn::after { content: ''; position: absolute; top: -14px; bottom: -14px; left: -22px; right: -6px; }
+  /* Título, artista y género del expandido: apilados con 6 px de aire y el progreso justo debajo.
+     El título crece hacia arriba; artista y género toman la franja entre el título y el progreso. */
+  .exp-title.exp-link::after { content: ''; position: absolute; left: 0; right: 0; top: -4px; bottom: 0; }
+  .exp-artist.exp-link::after { content: ''; position: absolute; left: 0; right: 0; top: -8px; bottom: -12px; z-index: 1; }
+  .exp-genre.exp-link::after  { content: ''; position: absolute; left: 0; right: 0; top: -9px; bottom: -14px; z-index: 1; }
+
+  /* Sliders. El de progreso es un input transparente sobre la barra dibujada: se le da alto y el
+     margen negativo deja todo donde estaba (el pulgar sigue centrado). En la barra de escritorio
+     tiene los botones a 3 px por encima: llega a 20 px y no más. */
+  .player-bar .seek input[type="range"] { height: 20px; margin: -2px 0; }
+  .exp-progress .seek input[type="range"] { height: 44px; margin: -11px 0; }
+  /* El de volumen SÍ se pinta a sí mismo (el riel de color): el alto de toque va en padding y el
+     riel se recorta al contenido, así sigue midiendo lo mismo. */
+  .player-volume input[type="range"],
+  .exp-volume input[type="range"] { box-sizing: content-box; padding: 20px 0; margin: -20px 0; background-clip: content-box; }
+
+  /* El enlace de artista de un video (a 700 px o menos ya tiene 34 px, ver arriba). */
+  .video-artist-link { position: relative; z-index: 1; padding: 14px 0; margin: -14px 0; }
+
+  /* Los dos que crecen de verdad. */
+  .avs-seg [role="radio"] { min-width: 44px; min-height: 44px; }
+  .pl-sort-seg { min-height: 44px; }
 }

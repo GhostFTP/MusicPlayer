@@ -26,6 +26,10 @@ const MOVE_TOL = 10;    // px que cancelan. A propósito por DEBAJO de AXIS_DIST
                         // de que otro gesto se declare — nunca compiten dos ganadores.
 
 const isMobile  = () => window.matchMedia('(max-width: 700px)').matches;
+// 1.32.1 · Además del ancho, cuenta el PUNTERO: un dedo o un lápiz a cualquier ancho. En una tablet
+// (más de 700 px, layout de escritorio) no hay clic derecho, así que sin esto las tarjetas no tenían
+// ninguna puerta al menú. A 700 px o menos no cambia nada; el ratón sigue con su clic derecho.
+const isTouch   = (pointerType) => pointerType === 'touch' || pointerType === 'pen';
 const isControl = (t) => !!t?.closest?.('button, a, input, [role="button"]');
 
 export function useLongPress(onFire) {
@@ -77,9 +81,10 @@ export function useLongPress(onFire) {
       cancel();
       fired.current = false;             // gesto nuevo → el guard del click arranca limpio
       down.current  = null;
-      if (!isMobile()) return;
+      if (!isMobile() && !isTouch(e.pointerType)) return;
       if (isControl(e.target)) return;   // el "⋯", enlaces e inputs conservan su toque de siempre
-      down.current  = { x0: e.clientX, y0: e.clientY, el: e.currentTarget, pointerId: e.pointerId, arg };
+      // `touch`: esta secuencia nació de un dedo/lápiz → su 'contextmenu' (Android) es NUESTRO menú.
+      down.current  = { x0: e.clientX, y0: e.clientY, el: e.currentTarget, pointerId: e.pointerId, arg, touch: isTouch(e.pointerType) };
       armed.current = true;
 
       const move = (ev) => {
@@ -105,14 +110,16 @@ export function useLongPress(onFire) {
 
     // 'contextmenu' nativo:
     //  · DESKTOP → es el disparador de siempre: se delega tal cual (clic derecho, sin tocar nada).
-    //  · MÓVIL   → se previene SIEMPRE (Android lo dispara con el long-press y sacaría el menú del
+    //    "Desktop" = más de 700 px Y la secuencia en curso NO es táctil. Un clic derecho de ratón
+    //    siempre pasa antes por `start`, que deja `down` en null (no es móvil ni táctil).
+    //  · MÓVIL o TÁCTIL → se previene SIEMPRE (Android lo dispara con el long-press y sacaría el menú del
     //    SISTEMA encima del nuestro) y, si nuestro timer todavía no llegó, dispara el nuestro.
     //    Ese segundo camino es el que salva el orden REAL de Android: al reconocer el long-press el
     //    navegador manda un 'pointercancel' que apaga nuestro timer y recién después el
     //    'contextmenu' — sin esto, ahí el menú no se abriría nunca. Por eso `fire` no exige
     //    `armed`: le alcanza con el `down` de esta misma secuencia de toque.
     const context = (e, arg, onContextMenu) => {
-      if (!isMobile()) { onContextMenu?.(e); return; }
+      if (!isMobile() && !down.current?.touch) { onContextMenu?.(e); return; }
       e.preventDefault();
       fire(e.clientX, e.clientY);
     };

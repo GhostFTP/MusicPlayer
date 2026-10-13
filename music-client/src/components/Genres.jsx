@@ -73,7 +73,8 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   async function open(g) {
     setSel(g);
     setTracks(null);
-    setTracks(await api.tracks({ genre: g.genre, limit: 500 }));
+    // 10000 como artistas y años (hasta la 1.32.0 era 500: un género más grande salía cortado).
+    setTracks(await api.tracks({ genre: g.genre, limit: 10000 }));
   }
 
   // Consumo del target de navegación (clic en el género de la barra del player).

@@ -3,6 +3,26 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.32.1] - 2026-10-12
+
+### Mejorado
+- **En una tablet ya puedes abrir los menús.** Mantener el dedo sobre un álbum, un artista, un
+  género, un año, una canción o un video abre su menú, igual que en el teléfono. Antes solo había
+  menú con el clic derecho, que una tablet no tiene.
+- **Botones más fáciles de tocar en la tablet.** Los controles de la barra del reproductor, los del
+  reproductor en grande, el «⋯» de cada canción y el botón de cerrar la cola responden en un área
+  más grande, sin que nada cambie de lugar ni de tamaño a la vista. Y la bolita del progreso y la
+  del volumen se ven siempre, sin tener que pasar el ratón.
+
+### Corregido
+- **Escribir en un buscador ya no agranda la pantalla en el iPhone.** Los buscadores, «Nueva
+  playlist…» y el inicio de sesión usan ahora una letra un poco más grande en teléfonos y tablets,
+  que es lo que evita ese zoom.
+- **Un género con más de 500 canciones ya no sale cortado.** Al entrar a un género o usar
+  «Reproducir género» solo aparecían y sonaban las primeras 500.
+- **En la tablet, mantener el dedo ya no intenta arrastrar.** Arrastrar a la cola sigue siendo cosa
+  del ratón o del trackpad; con el dedo se abre el menú.
+
 ## [1.32.0] - 2026-10-12
 
 ### Añadido
