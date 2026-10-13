@@ -546,6 +546,9 @@ export function ContextMenuProvider({ children }) {
         });
         // V8d: un video de la lista está en el índice → se puede agregar (sin red, el selector lo dice).
         if (accionesHoja({ offline: videoOffline, disponibilidad: 'si', desdePlaylist: false }).agregar !== 'no') pushAddToPlaylist();
+        // 1.32.0 · «Ir al artista» sólo si la vista encontró al artista del video en la biblioteca
+        // (`artistLink` = su nombre ahí; lo calcula Videos.jsx con matchArtist). Sin eso no aparece.
+        if (menu.artistLink) pushGoArtist(menu.artistLink, { album_artist: menu.artistLink });
         break;
       }
 
