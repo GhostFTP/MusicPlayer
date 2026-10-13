@@ -9,6 +9,7 @@ import { useDragQueue } from '../context/DragQueueContext.jsx';
 import { fmtTotal } from '../utils/formatTotal.js';
 import { foldForSearch, trackHaystack } from '../utils/searchText.js';
 import { readCache, fetchFresh } from '../api/viewCache.js';
+import { loadAllTracks } from '../utils/libraryLoader.js';
 import { useWindowedRows } from '../utils/useWindowedRows.js';
 import SearchBox from './SearchBox.jsx';
 
@@ -66,11 +67,19 @@ export default function Library({ target, clearTarget }) {
   // El servidor sigue aceptando `search` (lo usa la app iOS); acá simplemente ya no se le pide.
   // `background`: revalidación con datos ya en pantalla → sin spinner y, si falla, se queda lo
   // cacheado sin mostrar error.
+  // La carga en curso, para cancelarla: la biblioteca llega PAGINADA (utils/libraryLoader.js) y, si
+  // la vista se desmonta a mitad, no tiene sentido seguir pidiendo páginas.
+  const loadCtl = useRef(null);
   const fetchTracks = useCallback(async ({ background = false } = {}) => {
+    loadCtl.current?.abort();
+    const ctl = new AbortController();
+    loadCtl.current = ctl;
     if (!background) setLoading(true);
     try {
-      // Hogar central: traemos TODA la biblioteca (no el tope de 50 por defecto).
-      const fresh = await fetchFresh(LIB_CACHE_KEY, () => api.tracks({ limit: 10000 }));
+      // Hogar central: traemos TODA la biblioteca, sin tope (hasta la 1.32.1 eran 10000 pistas como
+      // máximo y lo demás no aparecía). Se pinta cuando llegó entera: la lista se ordena en cliente
+      // y pintar página por página la haría saltar con cada tanda.
+      const fresh = await fetchFresh(LIB_CACHE_KEY, () => loadAllTracks({ signal: ctl.signal }));
       if (!fresh) return;   // cambió la cuenta mientras la petición estaba en vuelo → se descarta
       // Sólo si cambió algo: una revalidación idéntica no toca el estado (cero re-renders de filas).
       if (fresh.sig !== sigRef.current) {
@@ -85,18 +94,19 @@ export default function Library({ target, clearTarget }) {
       setHasLoaded(true);
       setError(null);
     } catch (e) {
+      if (ctl.signal.aborted) return;   // la cancelamos nosotros (desmontaje u otra carga): no es un error
       // No tragar el error: sin esto, un 401 dejaba `tracks` en su valor previo
       // y se veía "Biblioteca vacía" — indistinguible de una biblioteca real
       // vacía. Un 401 además dispara la reautenticación automática (client.js).
       // En segundo plano no se muestra: se queda lo cacheado.
       if (!background) setError(e);
     } finally {
-      if (!background) setLoading(false);
+      if (!background && !ctl.signal.aborted) setLoading(false);
     }
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchTracks({ background: !!cached }); }, [fetchTracks]);
+  useEffect(() => { fetchTracks({ background: !!cached }); return () => loadCtl.current?.abort(); }, [fetchTracks]);
 
   // Tap en la pestaña ya activa → limpiar el buscador (volver a la lista completa).
   // La Biblioteca no tiene "detalle", pero el filtro de búsqueda es su estado navegable.

@@ -6,6 +6,7 @@ import AlbumGrid from './AlbumGrid.jsx';
 import ArtistImage from './ArtistImage.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { artistsViewTracks } from '../utils/viewTracks.js';
+import { artistTracks } from '../utils/itemTracks.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
@@ -197,7 +198,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
             {/* Fila de acciones B (Frente 2, M2d): el Mix salió de los chips. El contador ya está en
                 .artist-hero-stats (arriba), así que la fila lleva sólo el Mix. */}
             <div className="view-actions">
-              <ShuffleButton getTracks={() => api.tracks({ album_artist: sel.artist, limit: 10000 })} count={sel.track_count} />
+              <ShuffleButton getTracks={() => artistTracks(sel)} count={sel.track_count} />
             </div>
           </div>
         </div>

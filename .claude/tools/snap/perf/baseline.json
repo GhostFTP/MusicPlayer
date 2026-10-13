@@ -53,6 +53,7 @@
     { "nombre": "drag-touch-func", "archivo": "drag-touch-func.mjs", "modo": "name-line", "esperado": { "ok": 11, "total": 11 } },
     { "nombre": "touch-areas-func", "archivo": "touch-areas-func.mjs", "modo": "name-line", "esperado": { "ok": 15, "total": 15 } },
     { "nombre": "genre-limit-func", "archivo": "genre-limit-func.mjs", "modo": "name-line", "esperado": { "ok": 5, "total": 5 } },
+    { "nombre": "library-full-func", "archivo": "library-full-func.mjs", "modo": "name-line", "esperado": { "ok": 14, "total": 14 } },
     {
       "nombre": "rows", "archivo": "rows.mjs", "modo": "rows", "cpu": 1,
       "esperado": {

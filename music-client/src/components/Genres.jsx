@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { genresViewTracks } from '../utils/viewTracks.js';
+import { genreTracks } from '../utils/itemTracks.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
@@ -73,8 +74,8 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   async function open(g) {
     setSel(g);
     setTracks(null);
-    // 10000 como artistas y años (hasta la 1.32.0 era 500: un género más grande salía cortado).
-    setTracks(await api.tracks({ genre: g.genre, limit: 10000 }));
+    // Sin tope: el mismo cargador paginado que «Reproducir género» (utils/itemTracks.js).
+    setTracks(await genreTracks(g));
   }
 
   // Consumo del target de navegación (clic en el género de la barra del player).

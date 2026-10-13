@@ -34,7 +34,7 @@ async function newCtx(opts) {
     const [, a, b] = h.match(/bytes=(\d*)-(\d*)/); const start = a ? +a : 0; const end = b ? +b : total - 1;
     r.fulfill({ status: 206, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${total}` }, body: WAV.subarray(start, end + 1) });
   });
-  if (tracks) await ctx.route((url) => { const u = new URL(url); return u.pathname === '/api/tracks' && u.searchParams.get('limit') === '10000' && [...u.searchParams.keys()].length === 1; },
+  if (tracks) await ctx.route((url) => { const u = new URL(url); return u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k)); },
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tracks) }));
   await ctx.addInitScript((t) => {
     localStorage.setItem('token', t);

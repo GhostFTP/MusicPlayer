@@ -30,7 +30,7 @@ for (const mode of MODES) {
   const ctx = await browser.newContext({ deviceScaleFactor: 1, ...VIEW[mode] });
   await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
   if (tracks) {
-    await ctx.route((url) => { const u = new URL(url); return u.pathname === '/api/tracks' && u.searchParams.get('limit') === '10000' && [...u.searchParams.keys()].length === 1; },
+    await ctx.route((url) => { const u = new URL(url); return u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k)); },
       (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tracks) }));
   }
   const p = await ctx.newPage();

@@ -109,7 +109,7 @@ ok('barra_sigue_avanzando', a2 > a1, { t: `${a1.toFixed(1)}→${a2.toFixed(1)}`,
 ok('requests_search_desde_la_app', searchReqs === 1, { requestsConSearch: searchReqs, nota: '1 = la consulta manual de la prueba 1' });
 // 10) escribir ANTES de que cargue la biblioteca no se pierde
 const p2 = await ctx.newPage();
-await p2.route('**/api/tracks?limit=10000', async (r) => { await new Promise((s) => setTimeout(s, 2500)); r.fallback(); });
+await p2.route((u) => u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k)), async (r) => { await new Promise((s) => setTimeout(s, 2500)); r.fallback(); });
 await p2.goto(BASE + '/');
 await p2.waitForSelector('.search-box input');
 await p2.fill('.search-box input', 'daf');
