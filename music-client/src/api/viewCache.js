@@ -32,11 +32,53 @@ export function clearViewCache() {
   owner = null;
 }
 
-// Firma barata para "¿cambió algo?": el JSON de la respuesta. Ante cualquier diferencia en
-// cualquier campo, la vista se actualiza; si es idéntica, no se hace setState (no se re-renderizan
-// las filas por una revalidación sin cambios).
+// Firma para "¿cambió algo?". Ante cualquier diferencia en cualquier campo la vista se actualiza;
+// si es idéntica no se hace setState (no se re-renderizan las filas por una revalidación sin cambios).
+//
+// Hasta la 1.32.1 era el JSON.stringify de toda la respuesta: una cadena del tamaño de la
+// biblioteca (20 MB con 50 000 pistas) armada en cada revalidación. Ahora es la CANTIDAD más dos
+// hashes de 32 bits que recorren, en orden, cada campo de cada elemento: los números enteros, los
+// strings carácter por carácter, y null/booleanos con su marca. Mira lo mismo que miraba el JSON
+// (cualquier campo, y el orden), sin construir la cadena. Dos hashes independientes: que dos
+// respuestas distintas coincidan en la cantidad y en los 64 bits no es un caso práctico.
+// Lo que no es un array de objetos planos (o trae algo anidado) cae al JSON de antes.
+//
+// Y el atajo: la biblioteca que arma utils/libraryLoader.js ya trae su firma (`serverSig`, hecha con
+// los ETag del servidor: el hash de cada página tal como salió). Si está, se usa ésa y no se
+// recorre nada; el hash de abajo queda para las listas chicas (álbumes) y para cuando no hay ETag.
 export function signatureOf(data) {
-  return JSON.stringify(data);
+  if (typeof data?.serverSig === 'string') return data.serverSig;
+  if (!Array.isArray(data)) return JSON.stringify(data);
+  let h1 = 0x811c9dc5, h2 = 5381;
+  for (let i = 0; i < data.length; i++) {
+    const o = data[i];
+    if (o === null || typeof o !== 'object') return JSON.stringify(data);
+    for (const k in o) {
+      const v = o[k];
+      let n;
+      if (typeof v === 'string') {
+        for (let c = 0; c < v.length; c++) {
+          n = v.charCodeAt(c);
+          h1 = Math.imul(h1 ^ n, 16777619);
+          h2 = (Math.imul(h2, 33) + n) | 0;
+        }
+        n = -1;                                              // fin de string: "ab","c" ≠ "a","bc"
+      } else if (typeof v === 'number') {
+        n = Number.isInteger(v) ? v | 0 : Math.round(v * 1000) | 0;   // duración con decimales
+      } else if (v === null || v === undefined) {
+        n = -2;
+      } else if (typeof v === 'boolean') {
+        n = v ? -3 : -4;
+      } else {
+        return JSON.stringify(data);                         // algo anidado: no es el caso de las listas
+      }
+      h1 = Math.imul(h1 ^ n, 16777619);
+      h2 = (Math.imul(h2, 33) + n) | 0;
+    }
+    h1 = Math.imul(h1 ^ -5, 16777619);                       // fin de elemento
+    h2 = (Math.imul(h2, 33) - 5) | 0;
+  }
+  return `${data.length}:${h1 >>> 0}:${h2 >>> 0}`;
 }
 
 // { data, sig } de la caché del usuario ACTUAL, o undefined.

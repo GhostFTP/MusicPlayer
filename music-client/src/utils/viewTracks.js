@@ -1,5 +1,6 @@
-import { api } from '../api/client.js';
+import { foldForSearch } from './searchText.js';
 import { readCache, fetchFresh } from '../api/viewCache.js';
+import { loadAllTracks } from './libraryLoader.js';
 
 // Pistas de cada VISTA de listado para el "Mix aleatorio" (Frente 2, sub-paso M2a).
 //
@@ -25,7 +26,8 @@ import { readCache, fetchFresh } from '../api/viewCache.js';
 //   · Artistas → music-server/src/api/browse.js   `WHERE album_artist IS NOT NULL AND album_artist <> ''`
 //   · Géneros  → music-server/src/api/browse.js   `WHERE genre IS NOT NULL AND genre <> ''`
 //   · Años     → music-server/src/api/browse.js   `WHERE year IS NOT NULL`
-// Mismo tope que Biblioteca (limit 10000).
+// Sin tope de pistas (1.33.0): la biblioteca se trae paginando hasta agotar (utils/libraryLoader.js),
+// igual que la de Biblioteca.
 
 // La MISMA clave que Library.jsx (LIB_CACHE_KEY): las dos vistas comparten la entrada.
 const LIBRARY_KEY = 'tracks:all';
@@ -46,7 +48,7 @@ function refresh() {
   if (inflight) return inflight;
   lastTry = Date.now();
   const before = readCache(LIBRARY_KEY)?.sig;
-  inflight = fetchFresh(LIBRARY_KEY, () => api.tracks({ limit: 10000 }))
+  inflight = fetchFresh(LIBRARY_KEY, () => loadAllTracks())
     .then((fresh) => {
       // Sólo si había algo antes y es distinto: la primera carga no es un "cambio".
       if (fresh && before !== undefined && fresh.sig !== before) listeners.forEach((fn) => fn());
@@ -82,7 +84,29 @@ export async function libraryTracks() {
 
 const hasText = (v) => v != null && v !== '';
 
+// ÍNDICES DE LA BIBLIOTECA (1.33.0). Se arman UNA vez por array de biblioteca y se guardan por
+// IDENTIDAD (WeakMap): mientras la biblioteca en memoria sea el mismo array, todos reciben el mismo
+// índice ya hecho; cuando una revalidación trae otra, el array es nuevo y el índice viejo se va con
+// él. Antes cada montaje de Años volvía a plegar el texto de toda la biblioteca, y cada «Reproducir
+// año» la recorría entera.
+const memo = (build) => {
+  const cache = new WeakMap();
+  return (arr) => { let v = cache.get(arr); if (v === undefined) { v = build(arr); cache.set(arr, v); } return v; };
+};
+// Las pistas con año, en el orden de la biblioteca. Mismo array para la misma biblioteca: es la
+// clave de los dos índices de abajo (y lo que hace que Años no recalcule nada si no cambió).
+const withYear = memo((lib) => lib.filter((t) => t.year != null));
+// año → sus pistas (en el orden de la biblioteca). Recibe el array de yearsViewTracks().
+export const tracksByYear = memo((tracks) => {
+  const m = new Map();
+  for (const t of tracks) { const l = m.get(t.year); if (l) l.push(t); else m.set(t.year, [t]); }
+  return m;
+});
+// [pista, texto plegado de álbum · artista del álbum · artista] para el buscador de Años. Recibe el
+// array de yearsViewTracks(). El plegado es el de la búsqueda (sin mayúsculas ni acentos).
+export const foldedYearTracks = memo((tracks) => tracks.map((t) => [t, foldForSearch(`${t.album ?? ''}\n${t.album_artist ?? ''}\n${t.artist ?? ''}`)]));
+
 export const albumsViewTracks  = async () => (await libraryTracks()).filter((t) => t.album != null);
 export const artistsViewTracks = async () => (await libraryTracks()).filter((t) => hasText(t.album_artist));
 export const genresViewTracks  = async () => (await libraryTracks()).filter((t) => hasText(t.genre));
-export const yearsViewTracks   = async () => (await libraryTracks()).filter((t) => t.year != null);
+export const yearsViewTracks   = async () => withYear(await libraryTracks());

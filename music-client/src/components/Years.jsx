@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import { api } from '../api/client.js';
 import AlbumGrid from './AlbumGrid.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
-import { yearsViewTracks, onLibraryChange, refreshLibraryIfStale } from '../utils/viewTracks.js';
+import { yearsViewTracks, foldedYearTracks, onLibraryChange, refreshLibraryIfStale } from '../utils/viewTracks.js';
+import { yearTracks } from '../utils/itemTracks.js';
 import BackButton from './BackButton.jsx';
 import SearchBox from './SearchBox.jsx';
 import { foldForSearch } from '../utils/searchText.js';
@@ -79,9 +80,9 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
     });
     return () => { vivo = false; off(); };
   }, []);
-  const libFold = useMemo(() => (Array.isArray(lib)
-    ? lib.map((t) => [t, foldForSearch(`${t.album ?? ''}\n${t.album_artist ?? ''}\n${t.artist ?? ''}`)])
-    : null), [lib]);
+  // El texto plegado sale del índice compartido (viewTracks.foldedYearTracks): se arma una vez por
+  // biblioteca, no en cada montaje de Años.
+  const libFold = Array.isArray(lib) ? foldedYearTracks(lib) : null;
   // Las pistas que coinciden con el texto: de ahí salen los años que se ven Y lo que mezcla el Mix.
   const matchTracks = useMemo(() => (porTexto && libFold ? libFold.filter(([, h]) => h.includes(q)).map(([t]) => t) : null), [porTexto, libFold, q]);
   const shown = useMemo(() => {
@@ -110,7 +111,7 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
         </div>
         {/* Fila de acciones B (Frente 2, M2d): debajo del título — Mix y contador. */}
         <div className="view-actions">
-          <ShuffleButton getTracks={() => api.tracks({ year: sel.year, limit: 10000 })} count={sel.track_count} />
+          <ShuffleButton getTracks={() => yearTracks(sel)} count={sel.track_count} />
           <span className="section-count">{sel.album_count} álbumes · {sel.track_count} pistas</span>
         </div>
         {albums ? <AlbumGrid albums={albums} onOpen={(a) => navigate('albums', { album: a.album, album_artist: a.album_artist })} /> : <div className="spinner">Cargando…</div>}

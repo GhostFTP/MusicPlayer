@@ -74,7 +74,9 @@ async function request(path, { raw, ...options } = {}) {
     }
     throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status });
   }
-  if (raw) return { status: res.status, data: res.status === 204 ? null : await res.json().catch(() => null) };
+  // `etag`: el que manda el servidor para esta respuesta (o null). utils/libraryLoader.js arma con
+  // él la firma de la biblioteca, sin recorrerla.
+  if (raw) return { status: res.status, etag: res.headers.get('etag'), data: res.status === 204 ? null : await res.json().catch(() => null) };
   if (res.status === 204) return null;
   return res.json();
 }
@@ -91,7 +93,8 @@ export const api = {
   authConfig: () => request('/api/auth/config'),
 
   // Tracks
-  tracks:   (params = {}) => request('/api/tracks?' + new URLSearchParams(params)),
+  // `options.signal`: para cancelar (utils/libraryLoader.js pagina y corta al desmontar la vista).
+  tracks:   (params = {}, options) => request('/api/tracks?' + new URLSearchParams(params), options),
   track:    (id)          => request(`/api/tracks/${id}`),
   lyrics:   (id, options) => request(`/api/tracks/${id}/lyrics`, options),   // options.signal: timeout del panel
 
