@@ -324,6 +324,11 @@ const medirAreas = (p, raiz, minimo) => p.evaluate(({ raiz, minimo }) => {
     if (!vis(el) || el.disabled) continue;
     const r = el.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     if (!dentro(el, cx, cy)) continue;   // tapado en su centro: no es alcanzable ahora
+    // Sólo los que se ven ENTEROS: una fila cortada por el borde de la lista (o debajo de la barra) mide menos sin ser un defecto.
+    if (![[cx, r.top + 1], [cx, r.bottom - 1], [r.left + 1, cy], [r.right - 1, cy]].every(([x, y]) => dentro(el, x, y))) continue;
+    // …y con sus 44 px dentro de la zona que scrollea: la fila pegada al borde se alcanza scrolleando.
+    const zona = el.closest('.main-content, .queue-body')?.getBoundingClientRect();
+    if (zona && (cy - 22 < zona.top || cy + 22 > Math.min(zona.bottom, innerHeight))) continue;
     const hasta = (dx, dy) => { let n = 0; while (n < 60 && dentro(el, cx + dx * (n + 1), cy + dy * (n + 1))) n++; return n; };
     const w = hasta(-1, 0) + hasta(1, 0) + 1, h = hasta(0, -1) + hasta(0, 1) + 1;
     const clave = (el.className?.toString().split(' ').filter((c) => c && !['active', 'playing', 'current', 'fav-on'].includes(c)).slice(0, 2).join('.') || el.tagName.toLowerCase()) + (el.type === 'range' ? '[range]' : '');
