@@ -4,7 +4,7 @@ import {
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from './Toast.jsx';
 import { api } from '../api/client.js';
-import { albumTracks, artistTracks, genreTracks } from '../utils/itemTracks.js';
+import { albumTracks, artistTracks, genreTracks, yearTracks } from '../utils/itemTracks.js';
 import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
 import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
@@ -118,6 +118,7 @@ const MENU_LABEL = {
   'album':          'Acciones del álbum',
   'artist':         'Acciones del artista',
   'genre':          'Acciones del género',
+  'year':           'Acciones del año',
 };
 
 export function ContextMenuProvider({ children }) {
@@ -503,6 +504,26 @@ export function ContextMenuProvider({ children }) {
             addToQueue(ts);
             toast(`«${it.genre}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
           }, 'Ese género no tiene pistas'),
+        });
+        break;
+      }
+
+      // ── Fila de AÑO (lista de Años). Como el género: sólo las dos acciones de conjunto, porque un
+      //    año abarca muchos artistas y álbumes (no hay "ir al artista"), y compartir, playlist,
+      //    favorito e info son de pista o de álbum. Lleva el año COMPLETO aunque el buscador de Años
+      //    tenga texto: la fila es el año (su rótulo y su detalle son del año entero); lo que sigue
+      //    "lo que se ve" es el Mix, que es una acción de la vista.
+      case 'year': {
+        list.push({
+          id: 'play', label: 'Reproducir año', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
+          run: () => onTracks(() => yearTracks(it), (ts) => play(ts, 0), 'Ese año no tiene pistas'),
+        });
+        list.push({
+          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
+          run: () => onTracks(() => yearTracks(it), (ts) => {
+            addToQueue(ts);
+            toast(`«${it.year}» a la cola · ${ts.length} ${ts.length === 1 ? 'pista' : 'pistas'}`);
+          }, 'Ese año no tiene pistas'),
         });
         break;
       }
