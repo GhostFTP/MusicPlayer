@@ -8,14 +8,19 @@
 // EL TOQUE:
 //   · tap()           → page.touchscreen.tap en los perfiles con touch (toque de verdad para el motor:
 //                       genera touch + pointer + click y cuenta como gesto del usuario); click si no.
-//   · pulsacionLarga()→ pixel7: Input.dispatchTouchEvent por CDP (touchStart, esperar, touchEnd): es
-//                       el camino real de Chromium, que además reconoce el long-press y manda el
-//                       'contextmenu' como Android.
+//   · pulsacionLarga()→ chromium con touch (pixel7, android-tablet): Input.dispatchTouchEvent por CDP
+//                       (touchStart, esperar, touchEnd). Es un dedo de verdad para Chromium, pero
+//                       ⚠️ Chromium emulado NO manda 'pointercancel' ni 'contextmenu' mientras el dedo
+//                       está puesto (medido): el menú abre por el TIMER. El camino de Android
+//                       (pointercancel + contextmenu) NO queda probado: requiere Chrome de Android real.
 //                       webkit con touch: Playwright no tiene cómo sostener un dedo en WebKit, así que
 //                       se despachan PointerEvent sintéticos (pointerdown · esperar · pointerup · click).
 //                       Prueba el camino del TIMER de useLongPress (el de iOS, que no manda
 //                       'contextmenu'), pero NO es un dedo: no hay callout ni selección de texto.
 //                       sin touch: clic derecho.
+//   · arrastrar()     → chromium con touch: touchStart · touchMove… · touchEnd por CDP (real: respeta
+//                       touch-action). webkit con touch: PointerEvent sintéticos (prueba el JS, no
+//                       touch-action). Sin touch: ratón.
 //   Cada resultado dice con qué se hizo (`toque`).
 
 export const PERFILES = {
@@ -23,9 +28,13 @@ export const PERFILES = {
   iphone15:         { motor: 'webkit', dispositivo: 'iPhone 15', touch: true, etiqueta: 'MEDIDO-webkit-emulado' },
   ipad:             { motor: 'webkit', dispositivo: 'iPad (gen 7)', touch: true, etiqueta: 'MEDIDO-webkit-emulado' },
   'desktop-webkit': { motor: 'webkit', viewport: { width: 1440, height: 900 }, touch: false, etiqueta: 'MEDIDO-webkit-emulado' },
+  // Tablets en horizontal: el layout es el de escritorio (más de 700 px) pero el puntero es un dedo.
+  'ipad-landscape':      { motor: 'webkit', viewport: { width: 1180, height: 820 }, contexto: { hasTouch: true, isMobile: true }, touch: true, etiqueta: 'MEDIDO-webkit-emulado' },
+  'ipad-landscape-1366': { motor: 'webkit', viewport: { width: 1366, height: 1024 }, contexto: { hasTouch: true, isMobile: true }, touch: true, etiqueta: 'MEDIDO-webkit-emulado' },
+  'android-tablet':      { motor: 'chromium', viewport: { width: 1280, height: 800 }, contexto: { hasTouch: true, isMobile: true, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36' }, touch: true, etiqueta: 'MEDIDO-android-tablet-emulado' },
   firefox:          { motor: 'firefox', viewport: { width: 1440, height: 900 }, touch: false, etiqueta: 'MEDIDO-firefox', opcional: true },
 };
-export const POR_DEFECTO = ['pixel7', 'iphone15', 'ipad', 'desktop-webkit'];
+export const POR_DEFECTO = ['pixel7', 'iphone15', 'ipad', 'ipad-landscape', 'ipad-landscape-1366', 'android-tablet', 'desktop-webkit'];
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -72,7 +81,7 @@ export function herramientas({ nombre, perfil, browser, devices, token, BASE }) 
   const toque = perfil.touch ? (perfil.motor === 'chromium' ? 'toque real (CDP)' : 'tap real + pulsación larga sintética (PointerEvent)') : 'ratón';
 
   async function abrir(ruta = '/', { viewport, esperar, audio = true } = {}) {
-    const base = perfil.dispositivo ? { ...devices[perfil.dispositivo] } : { viewport: perfil.viewport };
+    const base = perfil.dispositivo ? { ...devices[perfil.dispositivo] } : { viewport: perfil.viewport, ...(perfil.contexto ?? {}) };
     const ctx = await browser.newContext({ ...base, ...(viewport ? { viewport } : {}) });
     if (audio) await ctx.route('**/stream/**', (r) => {
       if (r.request().url().includes('/stream/video/')) return r.fallback();   // los videos van al backend
@@ -119,6 +128,26 @@ export function herramientas({ nombre, perfil, browser, devices, token, BASE }) 
     }, { x: c.x, y: c.y, ms });
   }
 
+  // Arrastra desde el centro de `loc` (dx, dy) px, en pasos. Ver el banner: real en chromium táctil.
+  async function arrastrar(p, loc, dx, dy, pasos = 12) {
+    const c = await centro(loc);
+    if (!perfil.touch) { await p.mouse.move(c.x, c.y); await p.mouse.down(); for (let k = 1; k <= pasos; k++) { await p.mouse.move(c.x + dx * k / pasos, c.y + dy * k / pasos); await sleep(25); } await p.mouse.up(); return; }
+    if (perfil.motor === 'chromium') {
+      const cdp = await p.context().newCDPSession(p); const pt = (k) => [{ x: Math.round(c.x + dx * k / pasos), y: Math.round(c.y + dy * k / pasos) }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(0) }); await sleep(120);
+      for (let k = 1; k <= pasos; k++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt(k) }); await sleep(30); }
+      await sleep(150); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await cdp.detach().catch(() => {});
+      return;
+    }
+    await p.evaluate(async ({ x, y, dx, dy, pasos }) => {
+      const el = document.elementFromPoint(x, y); const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const o = (cx, cy, b) => ({ bubbles: true, cancelable: true, composed: true, clientX: cx, clientY: cy, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, buttons: b });
+      el.dispatchEvent(new PointerEvent('pointerdown', o(x, y, 1))); await wait(120);
+      for (let k = 1; k <= pasos; k++) { const cx = x + dx * k / pasos, cy = y + dy * k / pasos; (document.elementFromPoint(cx, cy) ?? el).dispatchEvent(new PointerEvent('pointermove', o(cx, cy, 1))); await wait(30); }
+      await wait(150); (document.elementFromPoint(x + dx, y + dy) ?? el).dispatchEvent(new PointerEvent('pointerup', o(x + dx, y + dy, 0)));
+    }, { x: c.x, y: c.y, dx, dy, pasos });
+  }
+
   const estado = (p) => p.evaluate(() => {
     const v = window.__player?.(); const a = window.__audio; const vid = document.querySelector('video');
     return { ruta: decodeURI(location.pathname), ids: v ? v.queue.map((t) => t.id) : [], actual: v?.currentTrack?.id ?? null, titulo: v?.currentTrack?.title ?? null, kind: v?.currentTrack?.kind ?? null,
@@ -154,5 +183,5 @@ export function herramientas({ nombre, perfil, browser, devices, token, BASE }) 
   const noMedibles = [];
   const noMedible = (clave, motivo) => { noMedibles.push({ clave, motivo }); };
 
-  return { nombre, perfil, movil, toque, BASE, audioSuena, noMedible, noMedibles, abrir, tap, pulsacionLarga, estado, etiquetasMenu, esperarMenu, cerrarMenu, elegirDelMenu, avisos, sleep };
+  return { nombre, perfil, movil, toque, BASE, audioSuena, noMedible, noMedibles, arrastrar, tablet: perfil.touch && !movil, abrir, tap, pulsacionLarga, estado, etiquetasMenu, esperarMenu, cerrarMenu, elegirDelMenu, avisos, sleep };
 }

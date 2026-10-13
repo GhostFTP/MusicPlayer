@@ -21,7 +21,7 @@ línea por perfil: `compat-<perfil>: N/N` (código de salida 0 / 1 / 2 = no corr
 
 ```
 SNAP_BASE=http://localhost:4173 VIDEO_DIR=<fixtures del backend> \
-  node compat-matrix.mjs [--perfil pixel7,iphone15,ipad,desktop-webkit,firefox] [--escenario a,b,c,d,e,f,g,h]
+  node compat-matrix.mjs [--perfil pixel7,iphone15,ipad,ipad-landscape,ipad-landscape-1366,android-tablet,desktop-webkit,firefox] [--escenario a,…,l]
 ```
 
 - Necesita lo mismo que cualquier script de snap: backend en `:3100` con la **copia** de la base y un
@@ -41,9 +41,11 @@ escenario: `{ id, titulo, aplica?, run }`). Sumar un escenario es agregar un obj
 
 | Perfil | Qué es de verdad | Sirve para | NO es |
 |---|---|---|---|
-| `pixel7` | Chromium de escritorio + descriptor de Pixel 7 (412×839, touch). Toque y pulsación larga **reales** por CDP (`Input.dispatchTouchEvent`): Chromium reconoce el long-press y manda `contextmenu`, como Android | Layout del teléfono, el camino `pointercancel` + `contextmenu` de Android, gestos con dedo sintético | Chrome de Android: sin teclado en pantalla, sin barra de URL que se esconde, sin políticas de batería ni de autoplay de Android |
+| `pixel7` | Chromium de escritorio + descriptor de Pixel 7 (412×839, touch). Toque y pulsación larga **reales** por CDP (`Input.dispatchTouchEvent`). ⚠️ Chromium emulado **no** manda `pointercancel` ni `contextmenu` con el dedo puesto (medido: 900 ms, cero eventos): el menú abre por el timer, igual que en iOS | Layout del teléfono y gestos con dedo sintético por el camino del timer | Chrome de Android: **el camino `pointercancel` + `contextmenu` de Android queda NO PROBADO (requiere Chrome de Android real)**, sin teclado en pantalla, sin barra de URL que se esconde, sin políticas de batería ni de autoplay de Android |
 | `iphone15` | WebKit de Playwright **para Windows** + descriptor de iPhone 15 (393×659, touch) | Motor de render y de JS de la familia de Safari: CSS que WebKit no entiende, `font-size` de inputs, atributos de `<video>` | Safari de iOS: ver "Lo que no se puede probar así" |
 | `ipad` | El mismo WebKit + iPad gen 7 (810×1080, touch) | El caso **touch con más de 700 px**: ahí el layout es el de escritorio pero no hay ratón | iPadOS real |
+| `ipad-landscape`, `ipad-landscape-1366` | WebKit táctil a 1180×820 y a 1366×1024 | La tablet en horizontal: menús por pulsación larga, áreas táctiles de 44 px, lo que depende del ratón | iPadOS real: no levanta el arrastre del sistema ni sabe de un trackpad conectado |
+| `android-tablet` | Chromium táctil a 1280×800 (toque y arrastre **reales** por CDP) | Lo mismo, y reordenar la cola con el dedo de verdad (`touch-action` cuenta) | Chrome de Android real (mismo aviso que `pixel7`) |
 | `desktop-webkit` | WebKit 1440×900 sin touch | Aproximación a Safari de Mac | Safari de macOS (no es el mismo build ni tiene sus codecs) |
 | `firefox` (opcional) | Firefox de Playwright 1440×900 | Tercer motor de escritorio | — |
 
@@ -51,7 +53,7 @@ escenario: `{ id, titulo, aplica?, run }`). Sumar un escenario es agregar un obj
 
 - `tap` es `page.touchscreen.tap` donde hay touch: para el motor es un toque de verdad (touch →
   pointer → click) y cuenta como gesto del usuario.
-- La pulsación larga es **real en `pixel7`** (CDP) y **sintética en WebKit**: Playwright no puede
+- La pulsación larga es **real en `pixel7` y `android-tablet`** (CDP) y **sintética en WebKit**: Playwright no puede
   sostener un dedo en WebKit, así que se despachan `PointerEvent` (`pointerdown` · esperar ·
   `pointerup` · `click`). Eso ejercita el camino del **timer** de `useLongPress` —que es el de iOS,
   donde no hay `contextmenu`— pero no es un dedo: no aparece el callout ni la selección de texto.
@@ -109,7 +111,8 @@ con una página mínima fuera de la app).
 
 - [ ] **Long-press = `pointercancel` y después `contextmenu`**: el timer propio se apaga con el
       `pointercancel`; el menú tiene que abrirse desde el `contextmenu` (y prevenirlo, o sale el del
-      sistema encima). Escenario `e` en `pixel7`.
+      sistema encima). **NO PROBADO por el arnés**: `pixel7` y `android-tablet` abren por el timer
+      porque Chromium emulado no manda esos eventos. `[REQUIERE DISPOSITIVO REAL]` (Chrome de Android).
 - [ ] **A 700 px o menos un `contextmenu` cuenta como pulsación larga** a propósito (por lo de
       arriba): un clic derecho en una ventana angosta abre los tiles.
 - [ ] **Barra de URL que se esconde**: mismo problema de `100vh` que en iOS.
@@ -118,8 +121,19 @@ con una página mínima fuera de la app).
 
 **Los dos**
 
-- [ ] **Touch con más de 700 px (tablet)**: la pulsación larga está cerrada a 700 px o menos y en una
-      tablet no hay clic derecho → los menús de tarjeta no tienen puerta. Perfil `ipad`, escenario `e`.
+- [ ] **Touch con más de 700 px (tablet)**: sin ratón no hay clic derecho ni hover → el menú de una
+      tarjeta sólo puede salir de la pulsación larga, y nada puede depender de `:hover`. Escenarios
+      `e` e `i` en `ipad`, `ipad-landscape` y `android-tablet`.
+- [ ] **Arrastre con el dedo**: un elemento `draggable` no debe levantarse con un toque (en iPadOS
+      la pulsación larga sobre algo arrastrable arranca el arrastre del sistema y le gana al menú).
+      Escenario `j` — es una prueba **sintética** de la lógica; el arrastre del sistema de iPadOS es
+      `[REQUIERE DISPOSITIVO REAL]`.
+- [ ] **Gestos propios con el dedo** (reordenar la cola): necesitan `touch-action: none` en lo que se
+      arrastra, o el navegador se queda con el gesto para hacer scroll. Escenario `k`; sólo
+      `android-tablet` lo prueba con un dedo real (CDP), en WebKit es sintético.
+- [ ] **44 px donde hay dedo y el layout es el de escritorio**. Escenario `l`: mide el área de toque
+      EFECTIVA (con `elementFromPoint`, así cuenta un área ampliada con pseudo-elemento y descuenta
+      lo que tapa un vecino).
 - [ ] **Áreas táctiles**: 32 px de alto como mínimo donde hay dedo (`mobile-lab` → "Touch targets").
       El escenario `g` mide el enlace de artista de Videos.
 - [ ] **Desborde horizontal** a 360, 390 y 430. Escenario `a`.

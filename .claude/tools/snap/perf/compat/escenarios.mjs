@@ -130,11 +130,12 @@ export const safeAreas = {
   },
 };
 
-// ── e) Pulsación larga en una fila de Géneros y en una de Años ──
+// ── e) Pulsación larga en una tarjeta de género, una fila de año, un álbum y un artista ──
 export const pulsacionLarga = {
   id: 'e', titulo: 'Pulsación larga: abre el menú y al soltar no navega ni reproduce',
   async run(h, datos, ok) {
-    for (const [clave, ruta, fila] of [['generos', '/genres', '.main-content .genre-item'], ['anios', '/years', '.main-content .browse-list .browse-item']]) {
+    for (const [clave, ruta, fila] of [['generos', '/genres', '.main-content .genre-item'], ['anios', '/years', '.main-content .browse-list .browse-item'],
+      ['album', '/albums', '.main-content .album-grid .album-card'], ['artista', '/artists', '.main-content .artist-portrait']]) {
       const { ctx, p, errores } = await h.abrir(ruta, { esperar: fila });
       await h.pulsacionLarga(p, p.locator(fila).first());
       await h.esperarMenu(p);
@@ -241,4 +242,116 @@ export const frio = {
   },
 };
 
-export const ESCENARIOS = [carga, inputs, video, safeAreas, pulsacionLarga, menuAnios, videoArtista, frio];
+// ── i) El menú de una tarjeta con toque: abre y su opción hace lo que dice ──
+// Con el de GÉNERO (existe en todos los builds): «Reproducir» deja en cola las pistas del género.
+export const menuGenero = {
+  id: 'i', titulo: 'Menú de una tarjeta con toque: «Reproducir género» arma la cola',
+  async run(h, datos, ok) {
+    const { ctx, p, errores } = await h.abrir('/genres', { esperar: '.main-content .genre-item' });
+    const tarjeta = p.locator('.main-content .genre-item').first();
+    const genero = (await tarjeta.locator('.browse-item-name').textContent()).trim();
+    const esperadas = await p.evaluate(async (g) => (await (await fetch('/api/tracks?' + new URLSearchParams({ genre: g, limit: 100000 }), { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } })).json()).map((t) => t.id), genero);
+    await h.pulsacionLarga(p, tarjeta); await h.esperarMenu(p);
+    const etiquetas = await h.etiquetasMenu(p);
+    const elegido = await h.elegirDelMenu(p, ['Reproducir género', 'Reproducir']);
+    await p.waitForFunction(() => window.__player().queue.length > 0, null, { timeout: 6000 }).catch(() => {}); await sleep(300);
+    const e = await h.estado(p);
+    ok('i_menu_de_genero_reproduce', !!elegido && same(e.ids, esperadas) && e.actual === esperadas[0] && e.ruta === '/genres' && !errores.length,
+      { toque: h.toque, genero, etiquetas, opcion: elegido, en_cola: e.ids.length, pistas_del_genero: esperadas.length, ruta: e.ruta, errores });
+    await ctx.close();
+  },
+};
+
+// ── j) Un arrastre que nace de un TOQUE no levanta nada; con ratón sigue igual ──
+// ⚠️ SINTÉTICO: los navegadores emulados no arrancan un arrastre nativo desde un toque, así que no
+// se puede esperar a que "pase". Se prueba la lógica: tras un pointerdown táctil, un `dragstart` sobre
+// la tarjeta tiene que salir CANCELADO (defaultPrevented); tras uno de ratón, no.
+export const arrastreTactil = {
+  id: 'j', titulo: 'Arrastre: con toque no se levanta nada; con ratón sí (sintético)',
+  aplica: (h) => !h.movil,
+  async run(h, datos, ok) {
+    const { ctx, p } = await h.abrir('/genres', { esperar: '.main-content .genre-item' });
+    const r = await p.locator('.main-content .genre-item').first().evaluate((el) => {
+      const probar = (tipo) => {
+        const b = el.getBoundingClientRect(); const x = b.left + 40, y = b.top + b.height / 2;
+        el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: tipo === 'mouse' ? 1 : 7, pointerType: tipo, isPrimary: true, button: 0, buttons: 1 }));
+        let dt = null; try { dt = new DataTransfer(); } catch { /* este motor no lo deja construir */ }
+        let ev; try { ev = new DragEvent('dragstart', { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, dataTransfer: dt }); } catch { return { soportado: false }; }
+        let error = null; const onErr = (e) => { error = String(e.message ?? e); e.preventDefault?.(); }; window.addEventListener('error', onErr);
+        el.dispatchEvent(ev); window.removeEventListener('error', onErr);
+        el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: tipo === 'mouse' ? 1 : 7, pointerType: tipo, isPrimary: true }));
+        document.querySelectorAll('.dq-ghost').forEach((g) => g.remove());
+        return { soportado: true, cancelado: ev.defaultPrevented, con_datos: !!dt, error };
+      };
+      return { draggable: el.getAttribute('draggable'), toque: probar('touch'), lapiz: probar('pen'), raton: probar('mouse') };
+    });
+    ok('j_arrastre_con_toque_no_levanta', r.draggable !== 'true' || (r.toque.soportado && r.toque.cancelado && r.lapiz.cancelado), { draggable: r.draggable, toque: r.toque, lapiz: r.lapiz, tipo_de_prueba: 'sintética (PointerEvent + DragEvent)' });
+    if (r.raton.soportado && r.raton.con_datos) ok('j_arrastre_con_raton_sigue', r.draggable === 'true' && !r.raton.cancelado, { draggable: r.draggable, raton: r.raton });
+    else h.noMedible('j_arrastre_con_raton_sigue', 'este navegador no deja construir un DragEvent con datos');
+    await ctx.close();
+  },
+};
+
+// ── k) Reordenar la cola arrastrando una fila con el dedo ──
+export const colaConDedo = {
+  id: 'k', titulo: 'Reordenar la cola con el dedo',
+  aplica: (h) => h.tablet,
+  async run(h, datos, ok) {
+    const { ctx, p, errores } = await h.abrir('/', { esperar: '.library-tracks .track-row' });
+    await h.tap(p, p.locator('.library-actions .mix-btn').first()); await p.waitForFunction(() => window.__player().queue.length > 5, null, { timeout: 6000 }).catch(() => {}); await sleep(500);
+    await h.tap(p, p.locator('.player-bar .action-btn[aria-label="Cola"]')); await p.waitForSelector('.queue-panel .queue-row', { timeout: 4000 }).catch(() => {}); await sleep(600);
+    await p.evaluate(() => { const b = document.querySelector('.queue-body'); if (b) b.scrollTop = 0; }); await sleep(200);
+    const fila = p.locator('.queue-panel .queue-row').nth(3);
+    const alto = (await fila.boundingBox())?.height ?? 54;
+    const antes = await p.evaluate(() => ({ qids: window.__player().queue.slice(0, 10).map((t) => String(t._qid)), actual: window.__player().currentTrack?._qid, top: document.querySelector('.queue-body')?.scrollTop ?? null }));
+    const movida = await fila.getAttribute('data-qid');
+    await h.arrastrar(p, fila, 0, Math.round(alto * 2.6)); await sleep(700);
+    const des = await p.evaluate(() => ({ qids: window.__player().queue.slice(0, 10).map((t) => String(t._qid)), actual: window.__player().currentTrack?._qid, top: document.querySelector('.queue-body')?.scrollTop ?? null, touchAction: getComputedStyle(document.querySelector('.queue-row')).touchAction }));
+    const de = antes.qids.indexOf(movida), a = des.qids.indexOf(movida);
+    ok('k_reordenar_la_cola_con_el_dedo', de === 3 && a > de && des.actual === antes.actual && !errores.length, { toque: h.perfil.motor === 'chromium' ? 'arrastre real (CDP)' : 'arrastre sintético (PointerEvent)', fila_de: de, quedo_en: a, sigue_sonando_la_misma: des.actual === antes.actual, scroll_de_la_cola: [antes.top, des.top], touch_action_de_la_fila: des.touchAction, errores });
+    await ctx.close();
+  },
+};
+
+// ── l) Áreas táctiles de 44 px en la tablet ──
+// Mide el área de toque EFECTIVA de cada control: desde su centro, hasta dónde un toque sigue cayendo
+// en él (elementFromPoint). Así cuenta un área ampliada con pseudo-elemento y descuenta al vecino.
+const medirAreas = (p, raiz, minimo) => p.evaluate(({ raiz, minimo }) => {
+  const vis = (e) => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && cs.pointerEvents !== 'none' && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth; };
+  const dentro = (el, x, y) => { const t = document.elementFromPoint(x, y); return !!t && (t === el || el.contains(t)); };
+  const out = new Map();
+  for (const el of document.querySelectorAll(`${raiz} button, ${raiz} a[href], ${raiz} input[type="range"], ${raiz} [role="button"], ${raiz} [role="radio"], ${raiz} .exp-link`)) {
+    if (!vis(el) || el.disabled) continue;
+    const r = el.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    if (!dentro(el, cx, cy)) continue;   // tapado en su centro: no es alcanzable ahora
+    const hasta = (dx, dy) => { let n = 0; while (n < 60 && dentro(el, cx + dx * (n + 1), cy + dy * (n + 1))) n++; return n; };
+    const w = hasta(-1, 0) + hasta(1, 0) + 1, h = hasta(0, -1) + hasta(0, 1) + 1;
+    const clave = (el.className?.toString().split(' ').filter((c) => c && !['active', 'playing', 'current', 'fav-on'].includes(c)).slice(0, 2).join('.') || el.tagName.toLowerCase()) + (el.type === 'range' ? '[range]' : '');
+    const o = out.get(clave) ?? { n: 0, toque: [w, h], caja: [Math.round(r.width), Math.round(r.height)] }; o.n++; if (Math.min(w, h) < Math.min(...o.toque)) o.toque = [w, h]; out.set(clave, o);
+  }
+  const filas = [...out.entries()].map(([k, o]) => ({ control: k, n: o.n, caja: o.caja.join('×'), toque: o.toque.join('×'), ok: Math.min(...o.toque) >= minimo }));
+  return { medidos: filas.length, chicos: filas.filter((f) => !f.ok).map((f) => `${f.control} caja ${f.caja} toque ${f.toque}${f.n > 1 ? ' ×' + f.n : ''}`) };
+}, { raiz, minimo });
+export const areasTactiles = {
+  id: 'l', titulo: 'Áreas táctiles de 44 px o más en la tablet (barra, Biblioteca, cola, expandido, Álbumes)',
+  aplica: (h) => h.tablet,
+  async run(h, datos, ok) {
+    const { ctx, p } = await h.abrir('/', { esperar: '.library-tracks .track-row' });
+    await h.tap(p, p.locator('.library-actions .mix-btn').first()); await p.waitForFunction(() => window.__player().queue.length > 0, null, { timeout: 6000 }).catch(() => {}); await sleep(900);
+    const fila = (clave, m) => ok(`l_areas_${clave}`, m.medidos > 0 && m.chicos.length === 0, { umbral: '44 px de área de toque efectiva', controles_medidos: m.medidos, por_debajo: m.chicos });
+    fila('barra', await medirAreas(p, '.player-bar', 44));
+    fila('biblioteca', await medirAreas(p, '.main-content', 44));
+    await h.tap(p, p.locator('.player-bar .action-btn[aria-label="Cola"]')); await p.waitForSelector('.queue-panel .queue-row', { timeout: 4000 }).catch(() => {}); await sleep(500);
+    fila('cola', await medirAreas(p, '.queue-panel', 44));
+    await h.tap(p, p.locator('.player-bar .action-btn[aria-label="Cola"]')); await sleep(400);
+    await p.goto(h.BASE + '/albums'); await p.waitForSelector('.album-grid .album-card').catch(() => {}); await sleep(500);
+    fila('albumes', await medirAreas(p, '.main-content', 44));
+    // el expandido (hay que volver a tener algo sonando tras el goto)
+    await p.goto(h.BASE + '/'); await p.waitForSelector('.library-tracks .track-row').catch(() => {}); await h.tap(p, p.locator('.library-actions .mix-btn').first()); await sleep(1000);
+    await h.tap(p, p.locator('.player-bar .player-art, .player-bar .player-art-placeholder').first()); await p.waitForSelector('.player-expanded', { timeout: 4000 }).catch(() => {}); await sleep(900);
+    fila('expandido', await medirAreas(p, '.player-expanded', 44));
+    await ctx.close();
+  },
+};
+
+export const ESCENARIOS = [carga, inputs, video, safeAreas, pulsacionLarga, menuAnios, videoArtista, frio, menuGenero, arrastreTactil, colaConDedo, areasTactiles];

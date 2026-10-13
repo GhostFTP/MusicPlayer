@@ -2,12 +2,14 @@
 // emulados. Sale una línea por perfil: `compat-<perfil>: N/N`.
 //
 // PERFILES (compat/util.mjs): pixel7 (Chromium + Pixel 7, toque real por CDP) · iphone15 e ipad
-// (WebKit + descriptor de iPhone 15 / iPad gen 7) · desktop-webkit (WebKit 1440×900) · firefox
-// (opcional, sólo si se pide). Ningún navegador se lanza con --autoplay-policy: reproducir tiene
+// (WebKit + descriptor de iPhone 15 / iPad gen 7) · ipad-landscape e ipad-landscape-1366 (WebKit
+// táctil a 1180×820 y 1366×1024) · android-tablet (Chromium táctil 1280×800) · desktop-webkit
+// (WebKit 1440×900) · firefox (opcional, sólo si se pide). Ningún navegador se lanza con --autoplay-policy: reproducir tiene
 // que salir de un gesto.
 // ESCENARIOS (compat/escenarios.mjs): a carga y pestañas · b inputs ≥16 px · c <video> · d safe
-// areas · e pulsación larga · f menú de Años · g enlace de artista en Videos · h «Reproducir año»
-// con la biblioteca fría.
+// areas · e pulsación larga (género, año, álbum, artista) · f menú de Años · g enlace de artista en
+// Videos · h «Reproducir año» con la biblioteca fría · i menú de género con toque · j arrastre con
+// toque (sintético) · k reordenar la cola con el dedo · l áreas táctiles de 44 px en la tablet.
 //
 // ⚠️ ES EMULACIÓN. Chromium con un descriptor no es Chrome de Android y el WebKit de Playwright en
 // Windows no es Safari de iOS. Lo que este arnés NO puede decir (sesión de audio de iOS, callout,
