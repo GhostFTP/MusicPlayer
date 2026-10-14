@@ -3,6 +3,19 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.34.0] - 2026-10-14
+
+### Cambiado
+- **SonoraRev estrena logo.** La «R» azul del ícono de la aplicación reemplaza a la nota musical:
+  aparece junto al nombre en el menú lateral y en la pantalla de inicio de sesión, y en el teléfono
+  acompaña al título de cada sección (Biblioteca, Álbumes, Artistas…). El nombre «SonoraRev» pasa a
+  escribirse en blanco.
+- **Ícono nuevo en la pestaña y al instalar la aplicación.** La pestaña del navegador muestra la
+  «R», y al añadir SonoraRev a la pantalla de inicio del teléfono sale el mismo tornamesa que en la
+  aplicación del iPhone. En el teléfono, la barra del navegador deja el morado por un gris oscuro
+  neutro, del color del fondo. Si ya la tenías instalada, el ícono viejo puede tardar en cambiar o
+  pedir que la vuelvas a añadir.
+
 ## [1.33.0] - 2026-10-13
 
 ### Mejorado
