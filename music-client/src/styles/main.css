@@ -117,11 +117,13 @@ button, input, select, textarea { font-family: inherit; }
   padding: 0 20px 24px;
   font-size: 17px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text);
   letter-spacing: -0.3px;
 }
 
-.sidebar-logo svg { flex-shrink: 0; }
+/* La R mide 28 px y la línea de texto 22: el margen negativo deja la fila en el alto de
+   siempre (el menú de abajo no se corre). */
+.sidebar-logo img { flex-shrink: 0; margin: -3px 0; }
 
 .sidebar-section-title {
   font-size: 10px;
@@ -3467,7 +3469,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   gap: 10px;
   font-size: 20px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text);
   margin-bottom: 32px;
 }
 
@@ -5018,6 +5020,22 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   }
 
   .section-title { font-size: 20px; }
+
+  /* La "R" de la marca, a la izquierda del título de cada vista RAÍZ (en el teléfono no hay
+     sidebar: sin esto la marca no aparece en ninguna parte). Sólo raíces: ahí el
+     .section-header es el primer hijo de la vista; en los detalles (género, año) lo
+     precede el botón "atrás" y el título puede ser largo, así que no la llevan.
+     Va como ::before —decorativa, no entra al texto del <h1>— y en línea con el título:
+     no mueve los chips ni el buscador de abajo, y queda lejos del engrane y la campanita. */
+  .section-header:first-child .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 26px; height: 26px;
+    /* Márgenes negativos: la caja en línea mide 20 y no estira el renglón del título. */
+    margin: -3px 8px -3px 0;
+    vertical-align: -3px;
+    background: url('/icons/logo-r-56.v2.png') center / contain no-repeat;
+  }
 
   .search-box { width: 100%; }
 

@@ -4,7 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>SonoraRev</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><defs><linearGradient id='eq' x1='2' y1='0' x2='14' y2='0' gradientUnits='userSpaceOnUse'><stop offset='0' stop-color='%23a78bfa'/><stop offset='1' stop-color='%23f472b6'/></linearGradient></defs><rect width='16' height='16' rx='4' fill='%23181818'/><rect x='2' y='8' width='2.25' height='6' rx='1.125' fill='url(%23eq)'/><rect x='5.25' y='4' width='2.25' height='10' rx='1.125' fill='url(%23eq)'/><rect x='8.5' y='2' width='2.25' height='12' rx='1.125' fill='url(%23eq)'/><rect x='11.75' y='6' width='2.25' height='8' rx='1.125' fill='url(%23eq)'/></svg>" />
+    <!-- Favicon: la "R" sola, en PNG. El ícono completo (tornamesa) a 16–32 px es una mancha.
+         Sin SVG a propósito: si hay uno, varios navegadores lo prefieren sobre los PNG.
+         Nombres con versión (.v2): express.static los sirve sin hash, así que un logo nuevo
+         necesita URL nueva para esquivar la caché de favicons. Los genera
+         .claude/tools/brand/gen-icons.mjs. -->
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.v2.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.v2.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/icons/favicon-48.v2.png" />
 
     <!-- PWA (Fase 1: instalable, sin service worker / offline todavía) -->
     <!-- crossorigin="use-credentials": el navegador pide el manifest con las
@@ -13,8 +20,8 @@
          login → llega HTML donde se esperaba JSON. Es same-origin, así que no
          hace falta ningún header CORS del servidor. -->
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
-    <meta name="theme-color" content="#a78bfa" />
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#111111" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.v2.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <!-- "black" (opaco) y no "black-translucent": este último superpone el
          status bar al contenido y exigiría auditar safe-area-top en TODAS las

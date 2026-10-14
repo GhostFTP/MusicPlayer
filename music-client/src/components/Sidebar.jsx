@@ -37,7 +37,12 @@ export default function Sidebar({ view, navigate }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <MusicIcon />
+        {/* La "R" del ícono de la app. alt="" porque el nombre va escrito al lado. */}
+        <img
+          src="/icons/logo-r-28.v2.png"
+          srcSet="/icons/logo-r-28.v2.png 1x, /icons/logo-r-56.v2.png 2x"
+          width="28" height="28" alt="" decoding="async" draggable={false}
+        />
         SonoraRev
       </div>
 
@@ -61,9 +66,6 @@ export default function Sidebar({ view, navigate }) {
   );
 }
 
-function MusicIcon() {
-  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>;
-}
 function NewsIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>;
 }
