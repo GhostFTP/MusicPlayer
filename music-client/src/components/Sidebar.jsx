@@ -39,8 +39,8 @@ export default function Sidebar({ view, navigate }) {
       <div className="sidebar-logo">
         {/* El ícono de la app (tornamesa con la R), recortado a su forma. alt="" porque el nombre va escrito al lado. */}
         <img
-          src="/icons/logo-28.v3.png"
-          srcSet="/icons/logo-28.v3.png 1x, /icons/logo-56.v3.png 2x"
+          src="/icons/logo-28.v4.png"
+          srcSet="/icons/logo-28.v4.png 1x, /icons/logo-56.v4.png 2x"
           width="28" height="28" alt="" decoding="async" draggable={false}
         />
         SonoraRev

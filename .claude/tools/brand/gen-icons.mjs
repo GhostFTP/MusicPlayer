@@ -1,6 +1,10 @@
 // gen-icons.mjs — genera TODOS los derivados del logo de la web a partir del ícono de la app.
 //
 //   node .claude/tools/brand/gen-icons.mjs <ruta/al/icon.png> [--out <carpeta>] [--favicon-b <carpeta>]
+//                                          [--radio-alt <0.26> <carpeta>]
+//
+// --radio-alt escribe el logo con OTRO radio de esquina en otra carpeta (mismos nombres), para
+// compararlo en una hoja de contacto. Nunca va a public/.
 //
 // --favicon-b escribe ADEMÁS la opción B del favicon (el ícono completo reducido a 16/32/48) en
 // otra carpeta, para compararla en una hoja de contacto. Nunca va a public/: el favicon puesto
@@ -35,7 +39,10 @@ const outIdx = argv.indexOf('--out');
 const OUT = resolve(outIdx >= 0 ? argv[outIdx + 1] : join(REPO, 'music-client', 'public', 'icons'));
 const bIdx = argv.indexOf('--favicon-b');
 const OUT_B = bIdx >= 0 ? resolve(argv[bIdx + 1]) : null;
-const SRC = argv.find((a, i) => !a.startsWith('--') && (outIdx < 0 || i !== outIdx + 1) && (bIdx < 0 || i !== bIdx + 1));
+const aIdx = argv.indexOf('--radio-alt');
+const ALT = aIdx >= 0 ? { radio: Number(argv[aIdx + 1]), dir: resolve(argv[aIdx + 2]) } : null;
+const SRC = argv.find((a, i) => !a.startsWith('--') && (outIdx < 0 || i !== outIdx + 1) && (bIdx < 0 || i !== bIdx + 1)
+  && (aIdx < 0 || (i !== aIdx + 1 && i !== aIdx + 2)));
 if (!SRC) {
   console.error('uso: node gen-icons.mjs <ruta/al/icon.png> [--out <carpeta>]');
   process.exit(2);
@@ -46,18 +53,22 @@ if (!SRC) {
 // favicons del navegador no siempre respetan eso: nombre nuevo = URL nueva = no hay caché que
 // esquivar. Si el logo vuelve a cambiar, se sube a v3 acá y en index.html / manifest / JSX.
 const V = 'v2';
-// El logo cambió de la R sola al ícono completo en la corrección de 1.34.0: nombre nuevo (v3)
-// para esos tres archivos; favicon / apple-touch / manifest no cambiaron y siguen en v2.
-const V_LOGO = 'v3';
+// El logo cambió de la R sola al ícono completo en la corrección de 1.34.0 (v3), y después de
+// forma: esquinas más redondas (v4). favicon / apple-touch / manifest no cambiaron: siguen en v2.
+const V_LOGO = 'v4';
 
 // ── Recorte del aparato (ícono completo) ───────────────────────────────────────────────
-// Medido sobre el 1024²: el cuerpo redondeado va de x 19–1008 e y 22–1000, con esquinas de
-// radio ≈170 px (la curva calza con un círculo de ese radio a 10, 45 y 100 px del borde). Afuera
-// es negro puro. Se recorta un CUADRADO centrado en el cuerpo y se enmascara con un rectángulo
-// redondeado de ese radio, metido INSET px hacia adentro para no arrastrar el negro del borde
-// en el antialias. Fuera de la máscara: transparente.
-const BODY = { x0: 19, y0: 22, x1: 1008, y1: 1000, r: 170 };
+// Medido sobre el 1024²: el cuerpo redondeado va de x 19–1008 e y 22–1000 (esquinas originales
+// de radio ≈170 px, ≈17 %, que se leían "cuadradas"). Afuera es negro puro. Se recorta el
+// CUADRADO interior del cuerpo (INSET px adentro de su borde, para no arrastrar el negro en el
+// antialias) y se enmascara con un rectángulo redondeado que lo LLENA, de radio RADIO × lado.
+// Así la máscara es exactamente la misma curva que un `border-radius: <RADIO>` en CSS sobre la
+// caja del <img>: el filo de 1 px y la sombra (que van en CSS) calzan con el borde del dibujo.
+// Medido: a 22 % la curva roza la esquina del pad rojo (hasta 10 px de 1024 ≈ 1,2 px en el de
+// 112); a 26 %, hasta 27 px (≈3 px en el de 112). El anillo del brazo no se toca en ninguno.
+const BODY = { x0: 19, y0: 22, x1: 1008, y1: 1000 };
 const INSET = 3;
+const RADIO = 0.22;
 
 // ── Recorte de la R ────────────────────────────────────────────────────────────────────
 // Sobre el 1024²: la R es lo único AZUL dentro de esta caja (las barras del ecualizador y
@@ -120,19 +131,18 @@ async function cutR(src) {
   return buf;
 }
 
-async function cutDevice(src) {
+async function cutDevice(src, radio) {
   const meta = await sharp(src).metadata();
   if (meta.width !== 1024 || meta.height !== 1024) throw new Error(`se esperaba 1024×1024 y llegó ${meta.width}×${meta.height}`);
-  const w = BODY.x1 - BODY.x0 + 1, h = BODY.y1 - BODY.y0 + 1;
-  const side = Math.max(w, h);
-  const left = Math.round(BODY.x0 + w / 2 - side / 2), top = Math.round(BODY.y0 + h / 2 - side / 2);
-  // Máscara en coordenadas del recorte: el cuerpo (menos INSET) con sus esquinas.
-  const mx = BODY.x0 - left + INSET, my = BODY.y0 - top + INSET;
+  // Cuadrado interior: el lado lo pone la dimensión CORTA del cuerpo (el alto), centrado en x.
+  const top = BODY.y0 + INSET, side = BODY.y1 - INSET - top + 1;
+  const left = Math.round((BODY.x0 + BODY.x1) / 2 - side / 2);
+  const rx = Math.round(radio * side);
   const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}">` +
-    `<rect x="${mx}" y="${my}" width="${w - 2 * INSET}" height="${h - 2 * INSET}" rx="${BODY.r - INSET}" ry="${BODY.r - INSET}" fill="#fff"/></svg>`);
+    `<rect width="${side}" height="${side}" rx="${rx}" ry="${rx}" fill="#fff"/></svg>`);
   const buf = await sharp(src).removeAlpha().extract({ left, top, width: side, height: side }).ensureAlpha()
     .composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
-  console.log(`aparato: recorte ${left},${top} ${side}² · máscara r=${BODY.r - INSET}`);
+  console.log(`aparato: recorte ${left},${top} ${side}² · radio ${Math.round(radio * 100)} % (${rx} px)`);
   return buf;
 }
 
@@ -154,9 +164,21 @@ for (const size of [16, 32, 48]) {
 }
 // El logo: el ícono completo recortado a su forma, con alfa. sidebar 28 (1x) / 56 (2x) ·
 // login 56 (1x) / 112 (2x) · encabezado móvil 56 (cubre 26 px hasta 2x).
-const device = await cutDevice(SRC);
+const device = await cutDevice(SRC, RADIO);
 for (const size of [28, 56, 112]) {
   await write(`logo-${size}.${V_LOGO}.png`, sharp(device).resize(size, size, { kernel: 'lanczos3' }).png(PNG));
+}
+
+// Variante de radio para comparar (sólo con --radio-alt <0.26> <carpeta>, fuera de public/).
+// Mismos nombres que los puestos, para poder cambiarlos por ruta en una captura.
+if (ALT) {
+  mkdirSync(ALT.dir, { recursive: true });
+  const alt = await cutDevice(SRC, ALT.radio);
+  for (const size of [28, 56, 112]) {
+    const file = join(ALT.dir, `logo-${size}.${V_LOGO}.png`);
+    await sharp(alt).resize(size, size, { kernel: 'lanczos3' }).png(PNG).toFile(file);
+    results.push([`(alt ${ALT.radio}) logo-${size}`, statSync(file).size]);
+  }
 }
 
 // Opción B del favicon (sólo con --favicon-b, fuera de public/): el ícono completo reducido.
