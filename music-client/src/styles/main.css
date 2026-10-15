@@ -121,7 +121,7 @@ button, input, select, textarea { font-family: inherit; }
   letter-spacing: -0.3px;
 }
 
-/* La R mide 28 px y la línea de texto 22: el margen negativo deja la fila en el alto de
+/* El logo mide 28 px y la línea de texto 22: el margen negativo deja la fila en el alto de
    siempre (el menú de abajo no se corre). */
 .sidebar-logo img { flex-shrink: 0; margin: -3px 0; }
 
@@ -5021,7 +5021,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 
   .section-title { font-size: 20px; }
 
-  /* La "R" de la marca, a la izquierda del título de cada vista RAÍZ (en el teléfono no hay
+  /* El logo (ícono de la app), a la izquierda del título de cada vista RAÍZ (en el teléfono no hay
      sidebar: sin esto la marca no aparece en ninguna parte). Sólo raíces: ahí el
      .section-header es el primer hijo de la vista; en los detalles (género, año) lo
      precede el botón "atrás" y el título puede ser largo, así que no la llevan.
@@ -5034,7 +5034,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     /* Márgenes negativos: la caja en línea mide 20 y no estira el renglón del título. */
     margin: -3px 8px -3px 0;
     vertical-align: -3px;
-    background: url('/icons/logo-r-56.v2.png') center / contain no-repeat;
+    background: url('/icons/logo-56.v3.png') center / contain no-repeat;
   }
 
   .search-box { width: 100%; }

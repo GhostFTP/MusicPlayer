@@ -42,8 +42,8 @@ export default function Login() {
       <div className="login-card">
         <div className="login-logo">
           <img
-            src="/icons/logo-r-56.v2.png"
-            srcSet="/icons/logo-r-56.v2.png 1x, /icons/logo-r-112.v2.png 2x"
+            src="/icons/logo-56.v3.png"
+            srcSet="/icons/logo-56.v3.png 1x, /icons/logo-112.v3.png 2x"
             width="56" height="56" alt="" decoding="async" draggable={false}
           />
           SonoraRev

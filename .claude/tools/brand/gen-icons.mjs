@@ -1,17 +1,23 @@
 // gen-icons.mjs — genera TODOS los derivados del logo de la web a partir del ícono de la app.
 //
-//   node .claude/tools/brand/gen-icons.mjs <ruta/al/icon.png> [--out <carpeta>]
+//   node .claude/tools/brand/gen-icons.mjs <ruta/al/icon.png> [--out <carpeta>] [--favicon-b <carpeta>]
+//
+// --favicon-b escribe ADEMÁS la opción B del favicon (el ícono completo reducido a 16/32/48) en
+// otra carpeta, para compararla en una hoja de contacto. Nunca va a public/: el favicon puesto
+// sigue siendo la R (opción A) hasta que se elija.
 //
 // La fuente es el icon.png 1024×1024 de la app iOS (opaco, sin alfa). NO vive en este repo y
 // la ruta NO se hardcodea: se pasa como argumento. Lo que se commitea son los derivados
 // (music-client/public/icons/) y este script, para poder regenerarlos idénticos.
 //
-// Dos familias de derivados:
-//   · La "R" sola, recortada del tornamesa y con fondo transparente: favicon 16/32/48 y el
-//     logo de la sidebar / login / encabezado móvil. El ícono completo NO sirve ahí: a
-//     16–32 px el tornamesa es una mancha.
-//   · El ícono completo (tornamesa), opaco: apple-touch-icon y los 192/512 del manifest, que
-//     es donde hay píxeles para leerlo y donde conviene calcar el ícono de la app nativa.
+// Tres familias de derivados:
+//   · La "R" sola, recortada del tornamesa y con fondo transparente: SOLO el favicon 16/32/48
+//     (opción A, la puesta).
+//   · El ícono completo RECORTADO a su propia forma (el "aparato" redondeado, sin el margen
+//     negro del original y con fondo transparente afuera): el logo oficial de la sidebar /
+//     login / encabezado móvil (logo-28/56/112.v3).
+//   · El ícono completo, opaco y cuadrado: apple-touch-icon y los 192/512 del manifest, que es
+//     donde conviene calcar el ícono de la app nativa (el sistema le pone su propia máscara).
 //
 // `sharp` se toma de music-server (ya es dependencia ahí): el cliente y este tooling no
 // agregan dependencias. Tooling LOCAL: `.dockerignore` excluye `.claude`, no entra a la imagen.
@@ -27,7 +33,9 @@ const sharp = createRequire(join(REPO, 'music-server', 'package.json'))('sharp')
 const argv = process.argv.slice(2);
 const outIdx = argv.indexOf('--out');
 const OUT = resolve(outIdx >= 0 ? argv[outIdx + 1] : join(REPO, 'music-client', 'public', 'icons'));
-const SRC = argv.find((a, i) => !a.startsWith('--') && (outIdx < 0 || i !== outIdx + 1));
+const bIdx = argv.indexOf('--favicon-b');
+const OUT_B = bIdx >= 0 ? resolve(argv[bIdx + 1]) : null;
+const SRC = argv.find((a, i) => !a.startsWith('--') && (outIdx < 0 || i !== outIdx + 1) && (bIdx < 0 || i !== bIdx + 1));
 if (!SRC) {
   console.error('uso: node gen-icons.mjs <ruta/al/icon.png> [--out <carpeta>]');
   process.exit(2);
@@ -38,6 +46,18 @@ if (!SRC) {
 // favicons del navegador no siempre respetan eso: nombre nuevo = URL nueva = no hay caché que
 // esquivar. Si el logo vuelve a cambiar, se sube a v3 acá y en index.html / manifest / JSX.
 const V = 'v2';
+// El logo cambió de la R sola al ícono completo en la corrección de 1.34.0: nombre nuevo (v3)
+// para esos tres archivos; favicon / apple-touch / manifest no cambiaron y siguen en v2.
+const V_LOGO = 'v3';
+
+// ── Recorte del aparato (ícono completo) ───────────────────────────────────────────────
+// Medido sobre el 1024²: el cuerpo redondeado va de x 19–1008 e y 22–1000, con esquinas de
+// radio ≈170 px (la curva calza con un círculo de ese radio a 10, 45 y 100 px del borde). Afuera
+// es negro puro. Se recorta un CUADRADO centrado en el cuerpo y se enmascara con un rectángulo
+// redondeado de ese radio, metido INSET px hacia adentro para no arrastrar el negro del borde
+// en el antialias. Fuera de la máscara: transparente.
+const BODY = { x0: 19, y0: 22, x1: 1008, y1: 1000, r: 170 };
+const INSET = 3;
 
 // ── Recorte de la R ────────────────────────────────────────────────────────────────────
 // Sobre el 1024²: la R es lo único AZUL dentro de esta caja (las barras del ecualizador y
@@ -100,6 +120,22 @@ async function cutR(src) {
   return buf;
 }
 
+async function cutDevice(src) {
+  const meta = await sharp(src).metadata();
+  if (meta.width !== 1024 || meta.height !== 1024) throw new Error(`se esperaba 1024×1024 y llegó ${meta.width}×${meta.height}`);
+  const w = BODY.x1 - BODY.x0 + 1, h = BODY.y1 - BODY.y0 + 1;
+  const side = Math.max(w, h);
+  const left = Math.round(BODY.x0 + w / 2 - side / 2), top = Math.round(BODY.y0 + h / 2 - side / 2);
+  // Máscara en coordenadas del recorte: el cuerpo (menos INSET) con sus esquinas.
+  const mx = BODY.x0 - left + INSET, my = BODY.y0 - top + INSET;
+  const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}">` +
+    `<rect x="${mx}" y="${my}" width="${w - 2 * INSET}" height="${h - 2 * INSET}" rx="${BODY.r - INSET}" ry="${BODY.r - INSET}" fill="#fff"/></svg>`);
+  const buf = await sharp(src).removeAlpha().extract({ left, top, width: side, height: side }).ensureAlpha()
+    .composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
+  console.log(`aparato: recorte ${left},${top} ${side}² · máscara r=${BODY.r - INSET}`);
+  return buf;
+}
+
 const PNG = { compressionLevel: 9 };
 const results = [];
 async function write(name, pipeline) {
@@ -116,8 +152,21 @@ for (const size of [16, 32, 48]) {
   await write(`favicon-${size}.${V}.png`,
     sharp(r).resize(size, size, { kernel: 'lanczos3' }).sharpen({ sigma: size <= 16 ? 0.6 : 0.5 }).png(PNG));
 }
-for (const size of [28, 56, 112]) {   // sidebar 28 (1x) / 56 (2x) · login 56 (1x) / 112 (2x)
-  await write(`logo-r-${size}.${V}.png`, sharp(r).resize(size, size, { kernel: 'lanczos3' }).png(PNG));
+// El logo: el ícono completo recortado a su forma, con alfa. sidebar 28 (1x) / 56 (2x) ·
+// login 56 (1x) / 112 (2x) · encabezado móvil 56 (cubre 26 px hasta 2x).
+const device = await cutDevice(SRC);
+for (const size of [28, 56, 112]) {
+  await write(`logo-${size}.${V_LOGO}.png`, sharp(device).resize(size, size, { kernel: 'lanczos3' }).png(PNG));
+}
+
+// Opción B del favicon (sólo con --favicon-b, fuera de public/): el ícono completo reducido.
+if (OUT_B) {
+  mkdirSync(OUT_B, { recursive: true });
+  for (const size of [16, 32, 48]) {
+    const file = join(OUT_B, `favicon-b-${size}.png`);
+    await sharp(device).resize(size, size, { kernel: 'lanczos3' }).sharpen({ sigma: size <= 16 ? 0.6 : 0.5 }).png(PNG).toFile(file);
+    results.push([`(B) favicon-b-${size}.png`, statSync(file).size]);
+  }
 }
 
 // El ícono completo, OPACO (iOS pinta negro lo transparente del apple-touch-icon). Paleta de
