@@ -28,6 +28,18 @@
   --sidebar-w:     220px;
   --queue-w:       320px;                 /* ancho de la columna de cola en desktop (C2, D1) */
   --radius:        8px;
+  /* Logo (ícono de la app) en sidebar / login / encabezado móvil. La FORMA ya viene en el PNG
+     (logo-*.v4: máscara de esquinas al 22 % que llena el cuadrado); acá sólo el ENTORNO, en CSS:
+     el border-radius repite ese 22 % para que el filo y la sombra sigan la misma curva. El cuerpo
+     del aparato es casi negro y la sidebar #0d0d0d: sin el filo de 1 px su borde no se distingue.
+     Todo en box-shadow (un anillo de spread, no un border): no suma un píxel al layout.
+     --brand-r es el azul de la R del ícono (lo pone la marca; promedio medido en el PNG #0a74cf).
+     El resplandor (--logo-glow) existe para comparar variantes y hoy está apagado. */
+  --brand-r: #0081dd;
+  --logo-radius: 22%;
+  --logo-ring: 0 0 0 1px rgba(255, 255, 255, .10);
+  --logo-shadow: 0 2px 8px rgba(0, 0, 0, .5);
+  --logo-glow: 0 0 0 0 transparent;
   /* Capa de los popovers que nacen en la barra del reproductor (menú "+",
      tooltip del shuffle): sobre la Letra (250), bajo Info (300) y toast (400).
      Escala completa: barra (sin z) < campanita 150 < expandido 200 < Letra 250
@@ -117,11 +129,29 @@ button, input, select, textarea { font-family: inherit; }
   padding: 0 20px 24px;
   font-size: 17px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text);
   letter-spacing: -0.3px;
 }
 
-.sidebar-logo svg { flex-shrink: 0; }
+/* El logo mide 28 px y la línea de texto 22: el margen negativo deja la fila en el alto de
+   siempre (el menú de abajo no se corre). */
+.sidebar-logo img { flex-shrink: 0; margin: -3px 0; }
+
+/* Entorno del logo (ver --logo-*): las tres apariciones comparten forma, filo y sombra. El
+   ::before del encabezado móvil tiene su propia regla dentro de su @media. */
+.sidebar-logo img,
+.login-logo img {
+  border-radius: var(--logo-radius);
+  box-shadow: var(--logo-ring), var(--logo-shadow), var(--logo-glow);
+}
+/* Más contraste pedido por el sistema: el filo se vuelve claramente visible y el resplandor se
+   apaga (es decorativo). */
+@media (prefers-contrast: more) {
+  :root {
+    --logo-ring: 0 0 0 1px rgba(255, 255, 255, .45);
+    --logo-glow: 0 0 0 0 transparent;
+  }
+}
 
 .sidebar-section-title {
   font-size: 10px;
@@ -3467,7 +3497,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   gap: 10px;
   font-size: 20px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text);
   margin-bottom: 32px;
 }
 
@@ -5018,6 +5048,24 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   }
 
   .section-title { font-size: 20px; }
+
+  /* El logo (ícono de la app), a la izquierda del título de cada vista RAÍZ (en el teléfono no hay
+     sidebar: sin esto la marca no aparece en ninguna parte). Sólo raíces: ahí el
+     .section-header es el primer hijo de la vista; en los detalles (género, año) lo
+     precede el botón "atrás" y el título puede ser largo, así que no la llevan.
+     Va como ::before —decorativa, no entra al texto del <h1>— y en línea con el título:
+     no mueve los chips ni el buscador de abajo, y queda lejos del engrane y la campanita. */
+  .section-header:first-child .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 26px; height: 26px;
+    /* Márgenes negativos: la caja en línea mide 20 y no estira el renglón del título. */
+    margin: -3px 8px -3px 0;
+    vertical-align: -3px;
+    background: url('/icons/logo-56.v4.png') center / contain no-repeat;
+    border-radius: var(--logo-radius);
+    box-shadow: var(--logo-ring), var(--logo-shadow), var(--logo-glow);
+  }
 
   .search-box { width: 100%; }
 
