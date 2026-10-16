@@ -56,6 +56,12 @@
      nunca hospedan un picker. Es un peldaño NUEVO por encima de los popovers — no mueve ninguno
      de los que ya existían. */
   --z-emoji-grid: 270;
+  /* Cabecera del expandido (desktop): escala LOCAL, dentro del contexto de apilamiento de
+     .player-expanded (200). El cuerpo (.exp-body) lleva transform inline (el lift de E2d) y eso lo
+     pinta en la capa de los posicionados, encima de una cabecera static: con el cajón abierto sube
+     sobre la franja del botón «Ahora reproduciendo» y se come el clic. Orden local:
+     cuerpo (auto) < cabecera 1 < cajón 2 (.exp-drawer). */
+  --z-exp-header: 1;
 
   /* Safe-areas LEGIBLES DESDE JS (C2c). El CSS puede usar env() donde quiera; el JS no tiene
      forma de preguntarle al navegador cuánto mide el notch, y el menú contextual necesita el
@@ -3700,6 +3706,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    Letra (250) e Info (300). "Hoja sólida" (D1): SIN backdrop-filter (no revive el buffeo). Sube por
    transform: translateY (no anima height ni grid). Desktop-only (base display:none). ── */
 .exp-drawer { display: none; }
+@media (min-width: 701px) {
+  /* Ver --z-exp-header: la cabecera queda sobre el cuerpo levantado y bajo el cajón. Sólo z, sin
+     pointer-events: en el teléfono la cabecera es el asa de arrastrar-para-cerrar. */
+  .exp-header { position: relative; z-index: var(--z-exp-header); }
+}
 @media (min-width: 701px) {
   .exp-drawer {
     display: flex; flex-direction: column;

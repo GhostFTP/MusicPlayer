@@ -3,6 +3,14 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.34.1] - 2026-10-15
+
+### Corregido
+- **«Ahora reproduciendo» vuelve a responder con la letra o la cola abiertas.** En la vista
+  completa del reproductor, con la letra o la cola abiertas abajo, el botón de arriba a la
+  izquierda que la cierra solo funcionaba si apuntabas a su borde izquierdo. Ahora responde
+  en todo el botón, en la computadora y en la tableta.
+
 ## [1.34.0] - 2026-10-14
 
 ### Cambiado

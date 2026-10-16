@@ -36,6 +36,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crearFixtures, SinFfmpeg } from './video-fixtures.mjs';
+import { DatabaseSync } from 'node:sqlite';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..', '..');
@@ -282,6 +283,22 @@ try {
     add({ nombre: 'video-fixtures', estado: 'NO CORRIÓ', detalle: e.message });
     header.push(`VIDEO_DIR: ${videoDir} (VACÍA: ${e instanceof SinFfmpeg ? 'sin ffmpeg' : 'falló la generación'})`);
   }
+  // LETRA FIXTURE (sólo en la COPIA): func.mjs mide la línea activa a 15/40/70/100 s, y sin un .lrc
+  // local el backend cae a LRCLIB por red (no determinista) o a "sin letra" → la fila salía NO CORRIÓ.
+  // Un .lrc sintético de 0 a 120 s (lo que dura el WAV de func) en el temporal, apuntado desde TODAS
+  // las pistas de la copia: la fila que func reproduce la decide el orden del CLIENTE (collator por
+  // album_artist → álbum → nº), que no se replica en SQL sin volverse frágil. Ningún script de la
+  // regresión depende de que una pista NO tenga letra (sólo miran si el panel abre/cierra), y de paso
+  // ninguno sale a LRCLIB por red.
+  try {
+    const lrc = join(tmpRun, 'fixture.lrc');
+    writeFileSync(lrc, Array.from({ length: 24 }, (_, i) => `[${String(Math.floor(i * 5 / 60)).padStart(2, '0')}:${String(i * 5 % 60).padStart(2, '0')}.00]Línea fixture ${i + 1}`).join('\n') + '\n');
+    const db = new DatabaseSync(dbCopy);
+    const n = db.prepare('UPDATE tracks SET lrc_path = ?, vocals = NULL').run(lrc).changes;
+    db.close();
+    log(`letra fixture en la copia: ${n} pistas → ${lrc}`);
+    header.push(`letra fixture: ${n} pistas → ${lrc}`);
+  } catch (e) { log(`⚠ no se pudo poner la letra fixture (${e.message}): func va a salir NO CORRIÓ`); }
   const serverEnv = { ...process.env, PORT: String(PORT_API), MUSIC_DB_PATH: dbCopy, VIDEO_DIR: videoDir };
 
   // Segunda cuenta para albview-func, creada EN LA COPIA con el CLI del backend (sin tocar el backend).
