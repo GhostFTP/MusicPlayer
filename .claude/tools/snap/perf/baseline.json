@@ -30,6 +30,7 @@
     { "nombre": "fav-sync-func", "archivo": "fav-sync-func.mjs", "modo": "name-line", "esperado": { "ok": 16, "total": 16 } },
     { "nombre": "back-func", "archivo": "back-func.mjs", "modo": "name-line", "esperado": { "ok": 17, "total": 17 } },
     { "nombre": "albview-func", "archivo": "albview-func.mjs", "modo": "name-line", "esperado": { "ok": 14, "total": 14 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
+    { "nombre": "albums-filter-func", "archivo": "albums-filter-func.mjs", "modo": "name-line", "esperado": { "ok": 21, "total": 21 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
     { "nombre": "routes-unit", "archivo": "routes-unit.mjs", "modo": "name-line", "esperado": { "ok": 33, "total": 33 } },
     { "nombre": "nav-real", "archivo": "nav-real.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 } },
     { "nombre": "videos-v3", "archivo": "videos-v3.mjs", "modo": "name-line", "esperado": { "ok": 21, "total": 21 } },

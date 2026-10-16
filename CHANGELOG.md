@@ -3,6 +3,19 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.35.0] - 2026-10-16
+
+### Nuevo
+- **Filtrar y ordenar en Álbumes.** Junto al selector de vista hay un botón «Filtrar» para ordenar
+  los álbumes por artista (como siempre), por título de la A a la Z, por año (del más viejo al más
+  nuevo o al revés) o por los que tienen más canciones, y para quedarte solo con los de una o varias
+  décadas. Se combina con el buscador, el contador pasa a decir cuántos álbumes ves de cuántos hay
+  («18 de 48 álbumes») y el Mix aleatorio mezcla solo los álbumes que quedan. El botón muestra
+  cuántos filtros tienes activos, y «Limpiar» los quita todos. En el teléfono se abre como una hoja
+  desde abajo.
+- **Tu filtro se recuerda.** Al volver a Álbumes o recargar la página sigue como lo dejaste, y cada
+  cuenta guarda el suyo en ese navegador.
+
 ## [1.34.2] - 2026-10-15
 
 ### Cambiado
