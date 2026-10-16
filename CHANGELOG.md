@@ -3,6 +3,14 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.34.2] - 2026-10-15
+
+### Cambiado
+- **La pestaña del navegador muestra el tocadiscos del logo.** El ícono pequeño de la pestaña (y el
+  de tus marcadores) deja la «R» sola y pasa a ser el mismo tocadiscos con la «R» en el centro que
+  ves junto al nombre en la página. Si tu navegador sigue mostrando el anterior, puede tardar un
+  poco en actualizarse.
+
 ## [1.34.1] - 2026-10-15
 
 ### Corregido
