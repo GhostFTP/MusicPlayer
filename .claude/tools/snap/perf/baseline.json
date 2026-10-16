@@ -11,6 +11,7 @@
         "letra_lineas_activas": { "algunaActiva": true }
       }
     },
+    { "nombre": "expandido-hit-func", "archivo": "expandido-hit-func.mjs", "modo": "name-line", "esperado": { "ok": 16, "total": 16 } },
     { "nombre": "func2", "archivo": "func2.mjs", "modo": "json", "esperado": { "ok": 17, "total": 18 }, "tolerados": ["drag_album_a_cola"] },
     { "nombre": "func-search", "archivo": "func-search.mjs", "modo": "json", "esperado": { "ok": 13, "total": 13 } },
     { "nombre": "mix-func", "archivo": "mix-func.mjs", "modo": "ok-line", "esperado": { "ok": 14, "total": 14 } },
