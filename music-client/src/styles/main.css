@@ -995,7 +995,7 @@ button, input, select, textarea { font-family: inherit; }
    A la derecha de la fila de acciones, junto al Mix. Escritorio/tableta: los cinco modos en línea
    (grupo de radios); teléfono: un botón de 44×44 que abre un menú. Apagado en reposo, el elegido en
    morado (--accent-dim), como los activos de la casa. */
-.view-actions .avs { margin-left: auto; }
+.view-actions .view-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .avs-seg {
   display: inline-flex;
   gap: 2px;
@@ -1067,6 +1067,117 @@ button, input, select, textarea { font-family: inherit; }
 }
 @media (prefers-reduced-motion: reduce) {
   .avs-menu { animation: none; }
+}
+
+/* ── ÁLBUMES: filtro (orden + década) ──
+   El botón comparte el vidrio de .avs-seg y su alto de 44px (la fila de acciones no crece). Apagado
+   en reposo; con filtros activos se tiñe de --accent-dim y lleva el número en un badge. El panel es
+   capa SÓLIDA (como .avs-menu): popover en escritorio/tableta, hoja abajo en el teléfono. */
+.af { position: relative; }
+.af-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 44px; padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .05);
+  color: var(--text-muted);
+  font-size: 14px; font-weight: 600;
+  cursor: pointer;
+  transition: color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.af-btn:hover { color: var(--text); }
+.af-btn[aria-expanded="true"],
+.af-btn--on { background: var(--accent-dim); color: var(--text); }
+.af-badge {
+  min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px; font-weight: 700; line-height: 20px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.af-btn:focus-visible,
+.af-chip:focus-visible,
+.af-clear:focus-visible,
+.af-done:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.af-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(340px, calc(100vw - 32px));
+  padding: 14px;
+  background: #1b1b1f;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .6);
+  transform-origin: top right;
+  animation: ptp-menu-in .16s ease;
+}
+.af-group + .af-group { margin-top: 14px; }
+.af-label {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+}
+.af-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.af-chip {
+  min-height: 34px; padding: 0 12px;
+  border-radius: 17px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .04);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.af-chip:hover { color: var(--text); }
+.af-chip[aria-checked="true"],
+.af-chip[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--text); }
+.af-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.af-clear,
+.af-done {
+  min-height: 36px; padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.af-clear:disabled { opacity: .4; cursor: default; }
+.af-done { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.af-sheet-title { margin-bottom: 14px; font-size: 17px; font-weight: 700; color: var(--text); }
+@media (max-width: 700px) {
+  /* Teléfono: sólo el ícono (44×44, como el botón "Vista"), con el número en la esquina. Así, sin
+     filtro, Mix + contador + filtro + vista siguen entrando en UNA fila a 390px, como antes. El
+     nombre lo da el aria-label del botón. */
+  .af-btn { position: relative; width: 44px; padding: 0; justify-content: center; }
+  .af-btn-text { display: none; }
+  .af-badge { position: absolute; top: -6px; right: -6px; }
+  /* Teléfono: la hoja. Mismo z que el scrim (hermano anterior → queda encima por el orden del DOM). */
+  .af-panel.af-panel--sheet {
+    position: fixed;
+    top: auto; left: 0; right: 0; bottom: 0;
+    z-index: var(--z-context-menu);
+    width: auto;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    transform-origin: bottom center;
+    animation: af-sheet-in .22s cubic-bezier(.2, .8, .2, 1);
+  }
+  .af-chip { min-height: 44px; padding: 0 16px; border-radius: 22px; font-size: 14px; }
+  .af-clear, .af-done { min-height: 44px; flex: 1; }
+}
+/* El scrim reusa .ctx-scrim, cuyas reglas viven en un @media ≤880px: aquí se fijan para la hoja. */
+.af-scrim { position: fixed; inset: 0; z-index: var(--z-context-menu); background: rgba(0, 0, 0, .5); }
+@keyframes af-sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .af-panel, .af-panel.af-panel--sheet, .af-scrim { animation: none; }
 }
 
 /* Kicker de año (solo en la discografía de un artista, vía secondary="year"). Rima con el

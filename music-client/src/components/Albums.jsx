@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useCallback, useRef } from 'react';
+import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api, coverUrl } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
@@ -14,6 +14,11 @@ import { readAlbumView, writeAlbumView } from '../utils/albumsView.js';
 import { currentOwner } from '../utils/playsOutbox.js';
 import SearchBox from './SearchBox.jsx';
 import { useListFilter } from '../utils/useListFilter.js';
+import AlbumsFilter from './AlbumsFilter.jsx';
+import {
+  readAlbumsFilter, writeAlbumsFilter, DEFAULT_ALBUM_FILTER,
+  availableDecades, effectiveFilter, activeCount, applyAlbumsFilter,
+} from '../utils/albumsFilter.js';
 
 // Clave de la caché de vistas (viewCache.js): la lista de álbumes.
 const ALBUMS_CACHE_KEY = 'albums:list';
@@ -58,7 +63,18 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   // Buscador del listado (utils/useListFilter.js). El texto vive ACÁ y no en el campo: el detalle es
   // este mismo componente con otro JSX, así que entrar a un álbum y volver lo conserva; cambiar de
   // vista desmonta Albums y lo borra. `shown` es lo que se ve: tarjetas, contador y Mix salen de ahí.
-  const { query, setQuery, activeQuery, filtered: shown } = useListFilter(albums, SEARCH_FIELDS);
+  const { query, setQuery, activeQuery, filtered: searched } = useListFilter(albums, SEARCH_FIELDS);
+  // Filtro (orden + década, utils/albumsFilter.js): por usuario, se lee al montar como la vista. Va
+  // DESPUÉS del buscador. Las décadas se derivan de la lista entera (no de lo buscado), y las
+  // guardadas que ya no existen se descartan (no filtran ni cuentan en el badge). Sin filtro activo
+  // applyAlbumsFilter devuelve la misma lista → todo igual que antes.
+  const [rawFilter, setRawFilter] = useState(() => readAlbumsFilter(currentOwner()));
+  const decades = useMemo(() => availableDecades(albums), [albums]);
+  const filter = useMemo(() => effectiveFilter(rawFilter, decades), [rawFilter, decades]);
+  const filterOn = activeCount(filter) > 0;
+  const changeFilter = useCallback((f) => { setRawFilter(f); writeAlbumsFilter(currentOwner(), f); }, []);
+  const clearFilter = useCallback(() => changeFilter(DEFAULT_ALBUM_FILTER), [changeFilter]);
+  const shown = useMemo(() => applyAlbumsFilter(searched, filter), [searched, filter]);
   // Mix: mezcla las pistas de la VISTA, como siempre (albumsViewTracks). Con filtro, la vista son los
   // álbumes que quedan → sus pistas; sin filtro es exactamente el pedido de antes.
   const mixTracks = useCallback(async () => {
@@ -196,8 +212,14 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
           contador (los listados no tienen ▶ Reproducir). Con el buscador, los dos son de lo que se ve. */}
       <div className="view-actions">
         <ShuffleButton getTracks={mixTracks} count={loading || error ? undefined : shown.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
-        <span className="section-count">{shown.length} {shown.length === 1 ? 'álbum' : 'álbumes'}</span>
-        <AlbumViewSelector mode={view} onChange={changeView} />
+        <span className="section-count">
+          {filterOn ? `${shown.length} de ${albums.length} álbumes` : `${shown.length} ${shown.length === 1 ? 'álbum' : 'álbumes'}`}
+        </span>
+        {/* Filtro + vista van juntos a la derecha (el margin-left:auto es del grupo). */}
+        <div className="view-tools">
+          <AlbumsFilter filter={filter} decades={decades} onChange={changeFilter} onClear={clearFilter} />
+          <AlbumViewSelector mode={view} onChange={changeView} />
+        </div>
       </div>
 
       {/* d2 es la grilla de siempre (sin modificador): el predeterminado se ve igual que antes. Los
@@ -207,7 +229,15 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
         // Hay álbumes pero ninguno coincide: la cabecera y el buscador siguen arriba para corregir.
         <div className="empty-state">
           <div className="empty-icon">💿</div>
-          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+          <div className="empty-title">
+            {filterOn && !activeQuery ? 'Ningún álbum coincide con el filtro' : `Sin resultados para «${activeQuery}»`}
+          </div>
+          {filterOn && (
+            <>
+              {activeQuery && <div className="empty-sub">También hay un filtro activo.</div>}
+              <button type="button" className="btn-primary" onClick={clearFilter}>Limpiar filtro</button>
+            </>
+          )}
         </div>
       ) : (
       <div className={view === 'd2' ? 'album-grid' : `album-grid album-grid--${view}`}>
