@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/client.js';
 import { fmtTotal } from '../utils/formatTotal.js';
 import { stringHue } from '../utils/emojiHue.js';
@@ -13,6 +13,10 @@ import { useDragQueue } from '../context/DragQueueContext.jsx';
 import BackButton from './BackButton.jsx';
 import SearchBox from './SearchBox.jsx';
 import { useListFilter } from '../utils/useListFilter.js';
+import { usePlayer } from '../context/PlayerContext.jsx';
+import { matchArtist } from '../utils/artistMatch.js';
+import { useVideoList } from '../utils/videoList.js';
+import VideoCard, { byArtistTitle } from './VideoCard.jsx';
 
 // Dónde busca el buscador del listado: el nombre del artista (lo único con texto propio en el retrato).
 const SEARCH_FIELDS = ['artist'];
@@ -77,6 +81,22 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
   // pisa el suyo a bindPress. El item es el objeto entero de la tarjeta — `a.artist` (que acá YA
   // ES album_artist) es lo que necesita artistTracks.
   const { dragProps } = useDragQueue();
+  const { play } = usePlayer();
+
+  // Videos del artista (1.36.0): la lista de GET /api/videos (compartida y cacheada con la vista
+  // Videos, utils/videoList.js) se pide SÓLO con un detalle abierto — el listado de artistas no pide
+  // nada. Un video es de este artista si matchArtist (la misma regla del enlace de la tarjeta de
+  // Videos) lo lleva a su nombre exacto. Sin videos, o si la lista falla, la sección no se pinta.
+  const { videos: allVideos } = useVideoList(!!sel);
+  const artistVideos = useMemo(() => {
+    if (!sel || !allVideos || !artists) return [];
+    return allVideos
+      .filter((v) => matchArtist(v.artist, artists) === sel.artist)
+      .sort(byArtistTitle)
+      .map((v) => ({ ...v, kind: 'video' }));
+  }, [sel, allVideos, artists]);
+  // El mismo menú que la tarjeta de Videos, sin «Ir al artista» (ya estamos en su página).
+  const bindVideoPress = useLongPress((v, ev) => openMenu(ev, { type: 'video', item: v, via: 'longpress' }));
 
   // Buscador del listado (utils/useListFilter.js), igual que en Álbumes: el texto vive acá, así que
   // entrar a un artista y volver lo conserva; cambiar de vista desmonta Artists y lo borra. `shown`
@@ -206,6 +226,26 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
         {albums
           ? <AlbumGrid albums={albums} onOpen={(a) => navigate('albums', { album: a.album, album_artist: a.album_artist })} secondary="year" hue={stringHue(sel.artist)} />
           : <div className="spinner">Cargando…</div>}
+
+        {/* Videos del artista: debajo de la discografía y sólo si tiene alguno. Tocar uno hace lo
+            mismo que en la vista Videos: la cola pasa a ser estos videos, desde el tocado. */}
+        {artistVideos.length > 0 && (
+          <section className="artist-videos" aria-label={`Videos de ${sel.artist}`}>
+            <h2 className="artist-videos-title">Videos · {artistVideos.length}</h2>
+            <div className="video-grid">
+              {artistVideos.map((v, i) => (
+                <VideoCard
+                  key={v.id}
+                  video={v}
+                  press={bindVideoPress(v, {
+                    onClick: () => play(artistVideos, i),
+                    onContextMenu: (e) => openMenu(e, { type: 'video', item: v }),
+                  })}
+                />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     );
   }

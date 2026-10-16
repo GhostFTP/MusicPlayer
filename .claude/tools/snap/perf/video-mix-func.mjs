@@ -130,7 +130,7 @@ try {
   }
   const MIX = '.view-actions .mix-btn', INPUT = '.section-header .sbx input';
   const estado = (p) => p.evaluate(() => window.__estado());
-  const visibles = (p) => p.locator('.video-grid .album-name').allTextContents().then((a) => a.map((s) => s.trim()));
+  const visibles = (p) => p.locator('.video-grid .video-card-title').allTextContents().then((a) => a.map((s) => s.trim()));
   const boton = (p) => p.evaluate((sel) => {
     const b = document.querySelector(sel); if (!b) return null;
     return { texto: b.textContent.trim(), title: b.title, disabled: b.disabled, ariaDisabled: b.getAttribute('aria-disabled'), enFila: !!b.closest('.view-actions')?.querySelector('.section-count'),

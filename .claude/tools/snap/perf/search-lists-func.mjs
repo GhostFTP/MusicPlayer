@@ -136,7 +136,7 @@ const movilBien = (g) => g.bTop >= g.tBottom && g.bW === g.hW && g.fab && g.camp
   const TOTAL = VIDS.length;
   const CARDS = '.video-grid .video-card';
   const snap = (p) => p.evaluate(() => ({
-    titulos: [...document.querySelectorAll('.video-grid .video-card .album-name')].map((e) => e.textContent),
+    titulos: [...document.querySelectorAll('.video-grid .video-card .video-card-title')].map((e) => e.textContent),
     count: document.querySelector('.view-actions .section-count')?.textContent ?? null,
     value: document.querySelector('.section-header .search-box input')?.value ?? null,
     empty: document.querySelector('.empty-state .empty-title')?.textContent ?? null,
