@@ -3,6 +3,28 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.36.0] - 2026-10-16
+
+### Nuevo
+- **Los videos de un artista, en su página.** Si un artista de tu biblioteca tiene videos, su
+  página suma una sección «Videos» debajo de los álbumes, con cuántos son. Tocar uno lo reproduce
+  igual que en la vista Videos, y la cola pasa a ser los videos de ese artista. Un artista sin
+  videos se ve como siempre. Por ahora la sección solo aparece cuando el video está guardado
+  exactamente con el nombre del artista: «Tyler the Creator» no se reconoce como «Tyler, The
+  Creator», y una colaboración («A x B», «A feat. B») no se muestra en la página de ninguno de los
+  dos.
+
+### Cambiado
+- **En las tarjetas de video, el artista va primero.** Como muchos videos se llaman igual (por
+  ejemplo, «NPR Music Tiny Desk Concert»), el nombre del artista pasa a ser la línea principal de
+  la tarjeta y el título queda debajo, más chico, con el año y la duración al final. El buscador de
+  Videos sigue encontrando por título y por artista.
+- **Volver a Videos es instantáneo.** La lista se muestra al momento con lo que ya habías cargado y
+  se actualiza sola en segundo plano: si hay videos nuevos, aparecen al llegar.
+- **Más fácil tocar el nombre del artista en el teléfono.** En la tarjeta de un video, la zona que
+  lleva a la página del artista es más alta, sin que la tarjeta cambie de tamaño. Tocar el resto de
+  la tarjeta sigue reproduciendo el video.
+
 ## [1.35.0] - 2026-10-16
 
 ### Nuevo
