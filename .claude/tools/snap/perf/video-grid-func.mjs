@@ -7,6 +7,7 @@
 // Mide a 390 (teléfono), 1440 y 1920: columnas, ancho de tarjeta, alto de la portada y % del ancho útil
 // que usa la primera fila. Comprueba:
 //   · una sola grilla, sin títulos de grupo, en el orden artista → título, con el artista en cada tarjeta;
+//   · 1440 (1.36.0): el artista es la línea principal (arriba y con letra más grande) y el título la secundaria;
 //   · 390: una columna y portada de al menos 150px de alto; sin scroll horizontal;
 //   · 1440 y 1920: la primera fila usa al menos el 90 % del ancho y la tarjeta es más ancha que la de
 //     Álbumes (170px de mínimo);
@@ -66,8 +67,12 @@ const medir = (p) => p.evaluate(() => {
     usado: Math.round(((right - innerL) / innerW) * 100),
     util: Math.round(innerW),
     scrollX: document.documentElement.scrollWidth > innerWidth || main.scrollWidth > main.clientWidth,
-    titulos: cards.map((c) => c.querySelector('.album-name')?.textContent),
-    artistas: cards.map((c) => c.querySelector('.album-artist')?.textContent),
+    // 1.36.0: el artista es la línea principal (.video-card-artist) y el título la secundaria.
+    titulos: cards.map((c) => c.querySelector('.video-card-title')?.textContent),
+    artistas: cards.map((c) => c.querySelector('.video-card-artist')?.textContent),
+    jerarquia: (() => { const a = card0.querySelector('.video-card-artist'), t = card0.querySelector('.video-card-title');
+      if (!a || !t) return null; const fa = parseFloat(getComputedStyle(a).fontSize), ft = parseFloat(getComputedStyle(t).fontSize);
+      return { artista_arriba: a.getBoundingClientRect().bottom <= t.getBoundingClientRect().top + 0.5, fuente_artista: fa, fuente_titulo: ft, peso_artista: getComputedStyle(a).fontWeight }; })(),
   };
 });
 
@@ -83,6 +88,7 @@ for (const [w, h, mobile] of [[390, 844, true], [1440, 900, false], [1920, 1080,
   ok(`${w}_orden_artista_titulo`, JSON.stringify(m.titulos) === JSON.stringify(ORDEN.map((x) => x.title))
     && JSON.stringify(m.artistas) === JSON.stringify(ORDEN.map((x) => x.artist)), { titulos: m.titulos, artistas: m.artistas });
   ok(`${w}_sin_scroll_horizontal`, !m.scrollX);
+  if (w === 1440) ok('1440_artista_principal_titulo_secundario', !!m.jerarquia && m.jerarquia.artista_arriba && m.jerarquia.fuente_artista > m.jerarquia.fuente_titulo, m.jerarquia ?? { motivo: 'faltan .video-card-artist / .video-card-title' });
   if (w === 390) ok('390_una_columna_portada_grande', m.columnas === 1 && m.portada >= 150, m);
   else ok(`${w}_fila_llena_y_tarjeta_mas_ancha`, m.usado >= 90 && m.tarjeta > 200, m);
   if (SHOTS) await p.screenshot({ path: join(OUT, `videos-${w}.png`) });

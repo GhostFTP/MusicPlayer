@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, videoCoverUrl } from '../api/client.js';
+import { useCallback, useEffect, useMemo } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
@@ -7,6 +6,8 @@ import SearchBox from './SearchBox.jsx';
 import ShuffleButton from './ShuffleButton.jsx';
 import { useListFilter } from '../utils/useListFilter.js';
 import { matchArtist, useLibraryArtists } from '../utils/artistMatch.js';
+import { useVideoList } from '../utils/videoList.js';
+import VideoCard, { byArtistTitle } from './VideoCard.jsx';
 
 // Dónde busca el buscador: lo que dice la tarjeta con texto propio, artista y título.
 const SEARCH_FIELDS = ['artist', 'title'];
@@ -29,6 +30,10 @@ const SEARCH_FIELDS = ['artist', 'title'];
 // Video → artista (1.32.0): si el artista del video (el nombre de su carpeta) es un artista de la
 // biblioteca (utils/artistMatch.js), su nombre en la tarjeta es un enlace a la página del artista y
 // el menú suma «Ir al artista». Sin coincidencia la tarjeta queda como siempre: texto y nada más.
+//
+// La lista sale de useVideoList (1.36.0, utils/videoList.js): compartida con la página del artista y
+// cacheada en memoria. Al volver a la vista se pinta al instante y se revalida en segundo plano. El
+// spinner y el error con «Reintentar» sólo aparecen cuando no hay nada cacheado que mostrar.
 export default function Videos({ target, clearTarget, navigate }) {
   const { play } = usePlayer();
   const { openMenu } = useContextMenu();
@@ -38,25 +43,12 @@ export default function Videos({ target, clearTarget, navigate }) {
   const menuOf = useCallback((v) => ({ type: 'video', item: v, artistLink: matchArtist(v.artist, libArtists) }), [libArtists]);
   const bindPress = useLongPress((item, ev) => openMenu(ev, { ...menuOf(item), via: 'longpress' }));
   const goArtist = useCallback((artist) => navigate('artists', { artist }), [navigate]);
-  const [videos, setVideos]   = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    api.videos()
-      .then((d) => setVideos(Array.isArray(d?.videos) ? d.videos : []))
-      .catch((e) => setError(e))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  const { videos, error, reload } = useVideoList();
 
   // La lista visible, en el orden en que se ve (artista A→Z, después título), como ítems de cola de
   // video: tocar uno reproduce ESTA lista desde ése.
   const items = useMemo(() => [...(videos ?? [])]
-    .sort((a, b) => COLLATOR.compare(a.artist ?? '', b.artist ?? '') || COLLATOR.compare(a.title ?? '', b.title ?? ''))
+    .sort(byArtistTitle)
     .map((v) => ({ ...v, kind: 'video' })), [videos]);
   // Buscador (utils/useListFilter.js). `shown` es lo que se ve, en el mismo orden: la cola se arma
   // desde AHÍ, así que con filtro tocar un video reproduce los filtrados desde ése (y al terminar pasa
@@ -73,15 +65,15 @@ export default function Videos({ target, clearTarget, navigate }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
-  if (loading) return <div className="spinner">Cargando videos…</div>;
+  if (!videos && !error) return <div className="spinner">Cargando videos…</div>;
 
-  if (error) {
+  if (!videos) {
     return (
       <div className="empty-state">
         <div className="empty-icon">⚠️</div>
         <div className="empty-title">No se pudieron cargar los videos</div>
         <div className="empty-sub">Intenta de nuevo en un momento.</div>
-        <button className="btn-primary" onClick={load}>Reintentar</button>
+        <button className="btn-primary" onClick={reload}>Reintentar</button>
       </div>
     );
   }
@@ -134,48 +126,3 @@ export default function Videos({ target, clearTarget, navigate }) {
   );
 }
 
-// Con `artistLink` (el nombre del artista en la biblioteca) el artista es un botón que navega; el
-// stopPropagation evita que el toque llegue a la tarjeta, que reproduciría el video.
-function VideoCard({ video, press, artistLink, onArtist }) {
-  const meta = [video.year, fmtDuration(video.duration)].filter(Boolean).join(' · ');
-  return (
-    <div className="album-card video-card" {...press}>
-      <div className="album-cover-frame video-cover-frame">
-        {video.has_cover
-          ? <img className="album-cover video-cover" src={videoCoverUrl(video.id)} alt="" loading="lazy" draggable={false} />
-          : <div className="album-cover-placeholder video-cover">🎬</div>
-        }
-      </div>
-      <div className="album-name">{video.title}</div>
-      {artistLink
-        ? (
-          <div className="album-artist album-artist--link">
-            <button
-              type="button"
-              className="video-artist-link"
-              title="Ir al artista"
-              onClick={(e) => { e.stopPropagation(); onArtist(artistLink); }}
-            >
-              {video.artist}
-            </button>
-          </div>
-        )
-        : <div className="album-artist">{video.artist}</div>}
-      {meta && <div className="album-count">{meta}</div>}
-    </div>
-  );
-}
-
-// A→Z en español sin distinguir mayúsculas ni tildes ("Ávila" junto a "Avicii"), con los números
-// en orden natural ("Parte 2" antes que "Parte 10").
-const COLLATOR = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
-
-// 1:05:09 / 4:07. Sin duración (el backend manda null si no pudo leerla) → null y no se muestra.
-function fmtDuration(s) {
-  if (!s) return null;
-  const t = Math.round(s);
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  const sec = String(t % 60).padStart(2, '0');
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
-}

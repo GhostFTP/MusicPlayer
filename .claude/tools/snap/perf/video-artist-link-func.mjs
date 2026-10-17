@@ -23,7 +23,7 @@
 // el clic en el enlace navega a la página correcta y NO reproduce; lo mismo con el teclado y desde el
 // menú; el clic en el resto de la tarjeta sigue reproduciendo; y en el expandido, enlace o texto con
 // la misma regla.
-// A 390 y 360 con touch: el enlace mide 32 px de alto o más (el texto solo mide menos: va en
+// A 390 y 360 con touch: el enlace mide 44 px de alto o más (1.36.0; antes 32) (el texto solo mide menos: va en
 // `medidas`), el toque en el título de la tarjeta no cae en el enlace, tocar el enlace navega y no
 // reproduce, tocar la portada reproduce, y la pulsación larga trae el tile «Artista» sólo donde toca.
 // En la tablet (1280 con touch, 1.32.1): el enlace mide 44 px de alto o más y tocarlo navega.
@@ -178,7 +178,7 @@ try {
     ok('lista_de_artistas_un_pedido', tarjetas === FIXTURES.length + MIOS.length && pedidos.artistas === 1, { tarjetas, pedidos_de_artistas: pedidos.artistas });
 
     const info = (titulo) => card(p, titulo).evaluate((c) => {
-      const cont = c.querySelector('.album-artist'), b = c.querySelector('.video-artist-link');
+      const cont = c.querySelector('.video-card-artist'), b = c.querySelector('.video-artist-link');   // 1.36.0: el artista es la línea principal
       const r = (e) => { const x = e.getBoundingClientRect(); return { x: Math.round(x.left * 10) / 10, w: Math.round(x.width * 10) / 10, h: Math.round(x.height * 10) / 10 }; };
       const cs = getComputedStyle(b ?? cont);
       return { texto: cont.textContent.trim(), enlace: !!b, title: b?.getAttribute('title') ?? null, tag: b?.tagName ?? null, cont: r(cont), tarjeta: r(c), fuente: cs.fontSize, color: cs.color, lh: cs.lineHeight };
@@ -251,10 +251,10 @@ try {
       const arriba = document.elementFromPoint(r.left + r.width / 2, r.top + 2), abajo = document.elementFromPoint(r.left + r.width / 2, r.bottom - 2);
       return { alto_tactil: Math.round(r.height * 10) / 10, alto_del_texto: Math.round((r.height - pt - pb) * 10) / 10, ancho: Math.round(r.width * 10) / 10, relleno: [pt, pb],
         toque_centro: !!enCentro?.closest('.video-artist-link'), toque_borde_arriba: !!arriba?.closest('.video-artist-link'), toque_borde_abajo: !!abajo?.closest('.video-artist-link'),
-        titulo: centro('.album-name'), meta: centro('.album-count'), pagina_desborda: document.documentElement.scrollWidth - window.innerWidth };
+        titulo: centro('.video-card-title'), meta: centro('.album-count'), pagina_desborda: document.documentElement.scrollWidth - window.innerWidth };
     }).catch(() => null);
     medidas.enlace_tactil[w] = g;
-    ok(`enlace_tactil_${w}`, g && g.alto_tactil >= 32 && g.toque_centro && g.toque_borde_arriba && g.toque_borde_abajo && g.titulo && !g.titulo.cae_en_el_enlace && g.pagina_desborda <= 0, g ?? { motivo: 'no hay enlace' });
+    ok(`enlace_tactil_${w}`, g && g.alto_tactil >= 44 && g.toque_centro && g.toque_borde_arriba && g.toque_borde_abajo && g.titulo && !g.titulo.cae_en_el_enlace && g.pagina_desborda <= 0, g ?? { motivo: 'no hay enlace' });
 
     const h = await pulsarEnlace(p, T.exacto, true); const s = await suena(p);
     ok(`toque_en_el_enlace_navega_${w}`, h && (await heroe(p)) === A && (await ruta(p)) === decodeURI(rutaArtista(A)) && s.actual === null && s.en_cola === 0, { habia_enlace: h, ruta: await ruta(p), pagina: await heroe(p), suena: s });
@@ -277,7 +277,7 @@ try {
     const g = await card(p, T.exacto).evaluate((c) => {
       const b = c.querySelector('.video-artist-link'); if (!b) return null;
       const r = b.getBoundingClientRect(); const en = (x, y) => !!document.elementFromPoint(x, y)?.closest('.video-artist-link');
-      const t = c.querySelector('.album-name')?.getBoundingClientRect(); const cx = r.left + r.width / 2;
+      const t = c.querySelector('.video-card-title')?.getBoundingClientRect(); const cx = r.left + r.width / 2;
       let arriba = 0, abajo = 0; const cy = r.top + r.height / 2; while (arriba < 40 && en(cx, cy - arriba - 1)) arriba++; while (abajo < 40 && en(cx, cy + abajo + 1)) abajo++;
       return { caja_alto: Math.round(r.height * 10) / 10, alto_de_toque: arriba + abajo + 1, el_titulo_no_cae_en_el_enlace: t ? !en(t.left + Math.min(t.width, 40) / 2, t.top + t.height / 2) : null };
     }).catch(() => null);

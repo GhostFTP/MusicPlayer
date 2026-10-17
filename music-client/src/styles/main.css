@@ -1232,6 +1232,22 @@ button, input, select, textarea { font-family: inherit; }
   .video-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 }
 .video-cover-frame .video-cover { aspect-ratio: 16 / 9; }
+/* Jerarquía de la tarjeta (1.36.0, VideoCard.jsx): el ARTISTA arriba, como línea principal (el
+   estilo de .album-name pero en UNA línea: un nombre de artista no necesita dos), y el título debajo
+   como secundaria (casi todos los videos se llaman igual; lo que distingue es el artista). El alto
+   de línea fijo (22px) es la mitad de los 44px del área táctil del enlace en el teléfono. */
+.video-card .video-card-artist {
+  display: block; min-height: 0; line-height: 22px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Con enlace el … lo pone el botón; el contenedor no recorta para que el área táctil se salga. */
+.video-card .video-card-artist--link { overflow: visible; }
+.video-card .video-card-title { font-size: 13px; margin-top: 4px; }
+
+/* Sección «Videos» de la página del artista (1.36.0, Artists.jsx): debajo de la discografía, con
+   el mismo título que la sección de videos de una playlist (.pl-videos-title). */
+.artist-videos { margin-top: 32px; }
+.artist-videos-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; }
 
 /* El ÚNICO <video> de la app (PlayerContext). Fijo y fuera del flujo: PlayerContext lo coloca cada
    frame sobre el hueco activo (transform + width/height) y nunca lo reparenta. data-slot dice cuál:
@@ -5228,11 +5244,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
     user-select: none;
   }
 
-  /* El enlace de artista de un video mide una línea de texto (~15px): poco para un dedo. Se le
-     suma área táctil arriba y abajo SIN mover nada: el padding la agranda y el margen negativo le
-     devuelve al layout exactamente lo mismo. Encima de sus vecinas (z-index) para que el toque en
-     esa franja sea suyo. */
-  .video-artist-link { position: relative; z-index: 1; padding: 9px 0; margin: -9px 0; }
+  /* El enlace de artista de un video mide una línea (22px): poco para un dedo. Se le suma área
+     táctil hasta 44px SIN mover nada: el padding la agranda y el margen negativo le devuelve al
+     layout exactamente lo mismo. Arriba toma los 12px de aire bajo la portada (no se mete en ella) y
+     abajo 10px, que pisan sólo la franja superior del título (va 4px más abajo): tocar el centro
+     del título sigue reproduciendo. Encima de sus vecinas (z-index) para que esa franja sea suya.
+     Sólo es tan ancho como el nombre: a su derecha la tarjeta también reproduce. */
+  .video-artist-link { position: relative; z-index: 1; padding: 12px 0 10px; margin: -12px 0 -10px; }
 
   /* Slightly smaller art in track rows */
   .track-art, .track-art-placeholder { width: 34px; height: 34px; }
@@ -5922,8 +5940,8 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .player-volume input[type="range"],
   .exp-volume input[type="range"] { box-sizing: content-box; padding: 20px 0; margin: -20px 0; background-clip: content-box; }
 
-  /* El enlace de artista de un video (a 700 px o menos ya tiene 34 px, ver arriba). */
-  .video-artist-link { position: relative; z-index: 1; padding: 14px 0; margin: -14px 0; }
+  /* El enlace de artista de un video: los mismos 44px que a 700 px o menos (ver allá). */
+  .video-artist-link { position: relative; z-index: 1; padding: 12px 0 10px; margin: -12px 0 -10px; }
 
   /* Los dos que crecen de verdad. */
   .avs-seg [role="radio"] { min-width: 44px; min-height: 44px; }

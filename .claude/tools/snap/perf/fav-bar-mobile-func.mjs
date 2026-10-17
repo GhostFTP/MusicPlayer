@@ -103,7 +103,7 @@ async function conVideo(base, w, mobile) {
   const hay = await o.p.waitForSelector('.video-card', { timeout: 6000 }).then(() => true).catch(() => false);
   if (!hay) { await o.ctx.close(); return null; }
   await o.p.evaluate(() => document.fonts.ready);
-  const nombre = (await o.p.locator('.video-card .album-name').first().textContent()).trim();
+  const nombre = (await o.p.locator('.video-card .video-card-title').first().textContent()).trim();
   await o.toca(o.p.locator('.video-card').first());
   await o.p.waitForFunction((t) => document.querySelector('.player-bar .player-title')?.textContent.trim() === t, nombre, { timeout: 8000 });
   await o.p.waitForTimeout(700);

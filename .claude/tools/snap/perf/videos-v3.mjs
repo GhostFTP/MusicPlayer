@@ -96,8 +96,8 @@ for (const w of [360, 390]) {
     grupos: document.querySelectorAll('.video-group-title, .video-group').length,
     grillas: document.querySelectorAll('.video-grid').length,
     tarjetas: [...document.querySelectorAll('.video-card')].map((c) => ({
-      titulo: c.querySelector('.album-name')?.textContent,
-      artista: c.querySelector('.album-artist')?.textContent,
+      titulo: c.querySelector('.video-card-title')?.textContent,   // 1.36.0: el título es la línea secundaria
+      artista: c.querySelector('.video-card-artist')?.textContent,
       meta: c.querySelector('.album-count')?.textContent ?? null,
       img: c.querySelector('img') ? { cargo: c.querySelector('img').complete && c.querySelector('img').naturalWidth > 0 } : null,
       marcador: !!c.querySelector('.album-cover-placeholder'),
