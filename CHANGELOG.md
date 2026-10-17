@@ -3,6 +3,23 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.37.0] - 2026-10-16
+
+### Nuevo
+- **Eliges cómo entrar.** La primera vez que abres SonoraRev en un navegador, la pantalla de inicio
+  te deja elegir entre «Entrar con Google» y «Entrar con usuario y contraseña», y la próxima vez
+  recuerda lo que elegiste. Si quieres cambiar, «Entrar con otra cuenta» te devuelve a las dos
+  opciones. Si ya tenías la sesión abierta, sigues entrando como siempre; si tu sesión había vencido
+  antes de esta versión, verás la elección una vez.
+
+### Corregido
+- **Entrar con usuario y contraseña ya funciona en la web.** Antes, al recargar la página o al vencer
+  la sesión, SonoraRev volvía a entrar solo con tu cuenta de Google aunque hubieras entrado con tu
+  usuario. Ahora, si elegiste usuario y contraseña, se queda en esa cuenta y, cuando haga falta, te
+  vuelve a pedir la contraseña.
+- **Cerrar sesión con Google ya no vuelve a entrar solo.** Al volver, SonoraRev te pregunta si sigues
+  con Google o entras con otra cuenta.
+
 ## [1.36.0] - 2026-10-16
 
 ### Nuevo
