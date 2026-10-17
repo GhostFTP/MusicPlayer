@@ -174,6 +174,6 @@ for (const r of rows) {
 const viol = rows.filter((r) => r.violaRegla);
 console.log(viol.length ? `\n⚠️ REGLA DURA ROTA (/cf donde no debe): ${viol.map((r) => r.id).join(', ')}` : '\n✓ regla dura: con password (y con /config caído), 0 requests a /api/auth/cf');
 const okN = rows.filter((r) => r.ok).length;
-console.log(`login-eleccion: ${okN}/${rows.length}`);
+console.log(`login-eleccion-func: ${okN}/${rows.length}`);
 if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify(rows, null, 2));
 process.exitCode = viol.length || okN !== rows.length ? 1 : 0;
