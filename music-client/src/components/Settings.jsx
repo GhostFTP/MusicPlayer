@@ -16,7 +16,7 @@ const METHOD_CHIP = {
 // armada en TARJETAS (.settings-card) para crecer sin refactor: cada sección
 // futura (tema, movimiento reducido, "acerca de"/versión) entra como otra tarjeta.
 // El cierre usa signOut (NO logout): ramifica por método — en SSO además termina
-// la sesión de Cloudflare Access. Ver AuthContext.
+// la sesión de Cloudflare Access y deja la pausa puesta (no re-entra solo). Ver AuthContext.
 export default function Settings() {
   const { user, loginMethod, signOut } = useAuth();
 
@@ -60,7 +60,9 @@ export default function Settings() {
         {loginMethod === 'sso' && (
           <p className="settings-note">
             <span className="settings-note-dot" aria-hidden="true" />
-            Si tu sesión de Google sigue activa, podrías volver a entrar automáticamente.
+            Al cerrar sesión no vuelves a entrar solo: SonoraRev te preguntará si sigues con
+            Google o entras con otra cuenta. Si tu sesión de Google sigue activa, Google podría
+            no pedirte la contraseña.
           </p>
         )}
       </section>

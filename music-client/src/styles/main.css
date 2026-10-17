@@ -3694,12 +3694,26 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .login-google:hover { background: #f1f3f4; }
 .login-google svg { flex-shrink: 0; }
 
-/* Separador "o": el form usuario/contraseña de abajo es el fallback de red local. */
-.login-or {
-  display: flex; align-items: center; gap: 12px;
-  margin: 18px 0; color: var(--text-muted); font-size: 13px;
+/* Segunda opción del selector (1.37.0): «Entrar con usuario y contraseña». Misma caja que el
+   botón de Google pero en la superficie de la card — secundaria a propósito, no compite con la
+   vía principal ni con el morado de "Entrar". */
+.login-option {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; min-height: 48px; margin-top: 12px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: border-color .15s;
 }
-.login-or::before, .login-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.login-option:hover { border-color: var(--accent); }
+
+/* «Entrar con otra cuenta»: salida discreta bajo la vía recordada. Texto, no botón lleno, pero
+   con 44px de alto para el dedo. */
+.login-switch {
+  display: block; width: 100%; min-height: 44px; margin-top: 12px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); font-size: 13px; text-decoration: underline; text-underline-offset: 3px;
+}
+.login-switch:hover { color: var(--text); }
 
 /* ── EMPTY / SPINNER ─────────────────────── */
 

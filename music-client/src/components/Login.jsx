@@ -3,24 +3,24 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../api/client.js';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, choice, paused, chooseGoogle, choosePassword, forgetChoice } = useAuth();
   // Solo login: no hay registro público y la ruta ya ni existe (ver api/auth.js). Las
   // cuentas las crea un administrador, por /api/admin/users o por el CLI. Los usuarios
-  // reales entran por SSO (Cloudflare Access) o, en red local, con usuario/contraseña.
+  // reales entran por SSO (Cloudflare Access) o con usuario/contraseña.
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
-  // ¿Mostrar "Iniciar sesión con Google"? Solo si el backend dice que el auto-login por
-  // Cloudflare Access está disponible (o sea, estamos detrás de CF). En localhost / acceso
-  // directo de red local viene { sso:false }. Degradación segura: si /config no responde,
-  // queda en false → solo el form (nunca se rompe el login por no poder decidir un botón).
-  const [sso, setSso] = useState(false);
+  // ¿Hay Google (Cloudflare Access) delante? null = todavía no se sabe. En localhost / red
+  // local viene { sso:false }. Degradación segura: si /config falla o no responde (el cliente
+  // corta a los 10 s), queda en false → solo el form, sin /cf: nunca se rompe el login por no
+  // poder decidir un botón.
+  const [sso, setSso] = useState(null);
   useEffect(() => {
     let cancelled = false;
     api.authConfig()
       .then(d => { if (!cancelled) setSso(!!d?.sso); })
-      .catch(() => { /* sin config → sin botón Google, solo el form */ });
+      .catch(() => { if (!cancelled) setSso(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -37,6 +37,32 @@ export default function Login() {
     }
   }
 
+  async function handleGoogle() {
+    setError('');
+    const ok = await chooseGoogle();
+    if (!ok) setError('No se pudo entrar con Google. Prueba de nuevo o entra con otra cuenta.');
+  }
+
+  // Qué se muestra (1.37.0, elección Google / usuario):
+  //   sso pendiente           → solo la cabecera de la tarjeta (sin spinner ni form que luego salte)
+  //   sin Google delante      → el form, como siempre; no se guarda ninguna elección
+  //   Google, sin elección    → las dos opciones
+  //   Google, elección google → «Continuar con Google» (salió a propósito o CF falló) + otra cuenta
+  //   Google, elección password → el form + otra cuenta
+  const mode = sso === null ? 'pending'
+    : !sso ? 'form'
+    : choice === 'google' ? 'google'
+    : choice === 'password' ? 'password'
+    : 'choose';
+
+  const subtitle = {
+    pending:  'Inicia sesión para escuchar tu biblioteca',
+    form:     'Inicia sesión para escuchar tu biblioteca',
+    choose:   '¿Cómo quieres entrar?',
+    google:   paused ? 'Cerraste sesión. Vuelve a entrar cuando quieras.' : 'Entra con tu cuenta de Google',
+    password: 'Entra con tu usuario y contraseña',
+  }[mode];
+
   return (
     <div className="login-page">
       <div className="login-card">
@@ -50,42 +76,52 @@ export default function Login() {
         </div>
 
         <h2 className="login-title">Bienvenido</h2>
-        <p className="login-sub">Inicia sesión para escuchar tu biblioteca</p>
-
-        {sso && (
-          <>
-            {/* Vía PRINCIPAL del equipo (todos SSO). Full-page a '/': como ya estamos detrás
-                de CF Access, la navegación pasa por Cloudflare y re-dispara el login de Google. */}
-            <button type="button" className="login-google" onClick={() => { window.location.href = '/'; }}>
-              <GoogleIcon />
-              Iniciar sesión con Google
-            </button>
-            <div className="login-or">o</div>
-          </>
-        )}
+        <p className="login-sub">{subtitle}</p>
 
         {error && <div className="login-error">{error}</div>}
 
-        <form onSubmit={handleSubmit}>
-          <div className="field">
-            <label>Usuario</label>
-            <input
-              value={username} onChange={e => setUsername(e.target.value)}
-              placeholder="ghost" autoFocus required
-            />
-          </div>
-          <div className="field">
-            <label>Contraseña</label>
-            <input
-              type="password" value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••" required
-            />
-          </div>
-          <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} disabled={loading}>
-            {loading ? 'Cargando…' : 'Entrar'}
+        {(mode === 'choose' || mode === 'google') && (
+          // Vía PRINCIPAL del equipo. Entra por Cloudflare Access en el lugar (chooseGoogle).
+          <button type="button" className="login-google" onClick={handleGoogle}>
+            <GoogleIcon />
+            {mode === 'google' ? 'Continuar con Google' : 'Entrar con Google'}
           </button>
-        </form>
+        )}
+
+        {mode === 'choose' && (
+          <button type="button" className="login-option" onClick={() => { setError(''); choosePassword(); }}>
+            Entrar con usuario y contraseña
+          </button>
+        )}
+
+        {(mode === 'form' || mode === 'password') && (
+          <form onSubmit={handleSubmit}>
+            <div className="field">
+              <label>Usuario</label>
+              <input
+                value={username} onChange={e => setUsername(e.target.value)}
+                placeholder="ghost" autoFocus required
+              />
+            </div>
+            <div className="field">
+              <label>Contraseña</label>
+              <input
+                type="password" value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••" required
+              />
+            </div>
+            <button className="btn-primary" style={{ width: '100%', marginTop: 8 }} disabled={loading}>
+              {loading ? 'Cargando…' : 'Entrar'}
+            </button>
+          </form>
+        )}
+
+        {(mode === 'google' || mode === 'password') && (
+          <button type="button" className="login-switch" onClick={() => { setError(''); forgetChoice(); }}>
+            Entrar con otra cuenta
+          </button>
+        )}
       </div>
     </div>
   );
