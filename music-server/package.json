@@ -13,6 +13,7 @@
     "smoke:account": "node --env-file-if-exists=.env scripts/smoke-account.mjs",
     "smoke:upsert": "node scripts/upsert-identity.mjs",
     "smoke:google": "node scripts/smoke-google.mjs",
+    "smoke:login": "node scripts/smoke-login.mjs",
     "smoke:videos": "node scripts/smoke-videos.mjs",
     "smoke:playlist-videos": "node scripts/smoke-playlist-videos.mjs",
     "smoke:resumen": "node scripts/smoke-resumen.mjs",

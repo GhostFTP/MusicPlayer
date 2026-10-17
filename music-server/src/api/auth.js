@@ -4,7 +4,7 @@ import db from '../db/database.js';
 import { signToken } from '../auth/jwt.js';
 import { verifyCfAccess, cfAccessEnabled } from '../auth/cloudflare.js';
 import { googleEnabled, verifyGoogle } from '../auth/google.js';
-import { limitePorIp } from '../auth/rate-limit.js';
+import { ipDeCloudflare, limiteDeFallos, limitePorIp } from '../auth/rate-limit.js';
 import { CONFLICTO_IDENTIDAD, UserError, findByEmailOrLegacy, hashInservible, leerMe } from '../users/service.js';
 import { handle } from './handle.js';
 
@@ -77,9 +77,65 @@ export async function upsertUserByEmail(email) {
 // mismo: nada impide que el username de alguien sea el email de otro (los dos campos
 // admiten arroba), y con un `OR` cuál de las dos filas vuelve lo decidiría SQLite.
 // **Gana el username**, que es el identificador principal.
+//
+// ---- Límite de FALLOS (1.37.1) ----
+//
+// Dos contadores, y bloquea el que llegue primero:
+//   · POR IP: 10 fallos en 15 min. Diez errores seguidos no los comete una persona, y como
+//     un acierto borra la cuenta, la familia detrás de la misma IP no se suma entre sí.
+//   · POR CUENTA: 20 fallos en 15 min, más alto a propósito. Está para lo que el de IP no
+//     ve: un ataque repartido entre muchas IPs, o alguien con SU cuenta válida que acierta
+//     cada nueve fallos para limpiar su IP y seguir probando la de otro. El acierto de una
+//     cuenta no limpia el contador de otra.
+//
+// SIN CF-Connecting-IP NO HAY CONTADOR POR IP. Detrás del túnel la conexión llega siempre
+// desde cloudflared: contar por el socket sería contar a todo el mundo junto, y diez fallos
+// de cualquiera dejarían afuera a todos los que entran con contraseña. Queda sólo el de la
+// cuenta, y se avisa en el log (ver avisarSinIp).
+//
+// El 429 sale ANTES de buscar la cuenta y de correr bcrypt, igual para una cuenta que
+// existe y para una que no: el contador de una inexistente es su nombre normalizado y se
+// bloquea igual, así que ni el código ni el tiempo dicen quién existe.
+const VENTANA_LOGIN_MS = 15 * 60 * 1000;
+const fallosPorIp     = limiteDeFallos({ max: 10, ventanaMs: VENTANA_LOGIN_MS });
+const fallosPorCuenta = limiteDeFallos({ max: 20, ventanaMs: VENTANA_LOGIN_MS });
+const MENSAJE_BLOQUEO = 'Demasiados intentos fallidos. Espera unos minutos y vuelve a probar.';
+
+// UN HASH DE RELLENO, calculado al cargar el módulo con el MISMO coste que las contraseñas
+// reales (hashInservible usa BCRYPT_ROUNDS). Cuando la cuenta no existe se compara contra
+// éste y se descarta el resultado: sin eso, un usuario inexistente respondía en ~2 ms y uno
+// existente en ~220 ms, y con un intento ya se sabía quién tiene cuenta. Al cargar y no en
+// el primer intento, porque el primero pagaría hash + comparación y volvería a delatarse.
+const relleno = hashInservible();
+
+// Un aviso cada 15 min como mucho, con cuántas veces pasó desde el anterior. Sin usuario ni
+// contraseña: lo único que importa es que el header falta. En desarrollo (sin Cloudflare)
+// aparece una vez por ventana, y es lo esperado.
+let ultimoAvisoSinIp = 0;
+let sinIpDesdeAviso = 0;
+function avisarSinIp() {
+  sinIpDesdeAviso++;
+  const ahora = Date.now();
+  if (ahora - ultimoAvisoSinIp < VENTANA_LOGIN_MS) return;
+  console.warn(`[login] ${sinIpDesdeAviso} login(s) sin CF-Connecting-IP desde el último aviso: `
+    + 'sin límite por IP para esas peticiones, sólo el de la cuenta.');
+  ultimoAvisoSinIp = ahora;
+  sinIpDesdeAviso = 0;
+}
+
+function bloquear(res, segundos) {
+  res.set('Retry-After', String(segundos));
+  return res.status(429).json({ error: MENSAJE_BLOQUEO });
+}
+
 router.post('/login', async (req, res) => {
   const { username, password } = req.body ?? {};
   const ident = String(username ?? '').trim();
+
+  const ip = ipDeCloudflare(req);
+  if (!ip) avisarSinIp();
+  const esperaIp = ip ? fallosPorIp.bloqueado(ip) : 0;
+  if (esperaIp) return bloquear(res, esperaIp);
 
   // Sin uno de los dos no hay nada que comparar, y bcrypt.compare(undefined, hash)
   // RECHAZA: en una ruta async eso es una promesa sin dueño, no un 401.
@@ -90,10 +146,24 @@ router.post('/login', async (req, res) => {
   const user = db.prepare('SELECT id, username, password_hash FROM users WHERE username = ?').get(ident)
     ?? db.prepare('SELECT id, username, password_hash FROM users WHERE email = ?').get(ident.toLowerCase());
 
-  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
+  // Por id si la cuenta existe, así el nombre y el correo suman al MISMO contador.
+  const cuenta = user ? `id:${user.id}` : `nombre:${ident.toLowerCase()}`;
+  const esperaCuenta = fallosPorCuenta.bloqueado(cuenta);
+  if (esperaCuenta) return bloquear(res, esperaCuenta);
 
+  // Se suma ANTES del await, en el mismo tick que los bloqueado(): ver por qué en
+  // limiteDeFallos (auth/rate-limit.js).
+  if (ip) fallosPorIp.intento(ip);
+  fallosPorCuenta.intento(cuenta);
+
+  const ok = user
+    ? await bcrypt.compare(password, user.password_hash)
+    : (await bcrypt.compare(password, await relleno), false);
+
+  if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+
+  if (ip) fallosPorIp.acierto(ip);
+  fallosPorCuenta.acierto(cuenta);
   res.json({ token: signToken({ id: user.id, username: user.username }) });
 });
 
