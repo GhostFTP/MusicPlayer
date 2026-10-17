@@ -65,6 +65,7 @@
         "Detalle sig.": 2, "Detalle pausa": 1
       },
       "informativos": { "Biblioteca play": 1 }
-    }
+    },
+    { "nombre": "login-eleccion-func", "archivo": "login-eleccion-func.mjs", "modo": "name-line", "esperado": { "ok": 18, "total": 18 } }
   ]
 }
