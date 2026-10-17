@@ -3,6 +3,15 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.37.1] - 2026-10-17
+
+### Nuevo
+- **Bloqueo tras varios intentos fallidos.** Si fallas varias veces seguidas al entrar con usuario y
+  contraseña, el acceso se bloquea unos minutos. Entrar con Google no se ve afectado.
+
+### Cambiado
+- **Entrar con usuario y contraseña ahora está mejor protegido.**
+
 ## [1.37.0] - 2026-10-16
 
 ### Nuevo
