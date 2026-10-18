@@ -63,6 +63,13 @@ async function request(path, { raw, ...options } = {}) {
     callerSignal?.removeEventListener('abort', relayAbort);
   }
 
+  // Sólo cfLogin pide `redirect: 'manual'`: si Cloudflare Access no tiene sesión, contesta con una
+  // redirección a su login (otro origen) que un fetch no puede seguir. Con 'manual' llega como
+  // `opaqueredirect` y se distingue de una red caída: `gate` = "Access pide pasar por /sso".
+  if (res.type === 'opaqueredirect') {
+    throw Object.assign(new Error('Cloudflare Access pide iniciar sesión'), { status: 0, gate: true });
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     // Se excluyen los endpoints de auth (cfLogin/login pueden responder 401
@@ -87,8 +94,9 @@ export const api = {
   login:    (username, password) => { clearViewCache(); return request('/api/auth/login',    { method: 'POST', body: JSON.stringify({ username, password }) }); },
   // Auto-login vía Cloudflare Access: si la petición pasa por Cloudflare, el edge
   // inyecta las cabeceras de identidad y el backend devuelve un token. Si no
-  // (red local), responde 401 y caemos al login tradicional.
-  cfLogin:  () => { clearViewCache(); return request('/api/auth/cf', { method: 'POST' }); },
+  // (red local), responde 401 y caemos al login tradicional. Si Access no tiene
+  // sesión, redirige a su login: rechaza con `gate: true` (ver request()).
+  cfLogin:  () => { clearViewCache(); return request('/api/auth/cf', { method: 'POST', redirect: 'manual' }); },
   // Config pública del login: ¿hay auto-login por Cloudflare Access? (para el botón Google).
   authConfig: () => request('/api/auth/config'),
 
