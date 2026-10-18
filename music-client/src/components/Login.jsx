@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../api/client.js';
 
 export default function Login() {
-  const { login, choice, paused, chooseGoogle, choosePassword, forgetChoice } = useAuth();
+  const { login, choice, paused, chooseGoogle, choosePassword, forgetChoice, authError } = useAuth();
   // Solo login: no hay registro público y la ruta ya ni existe (ver api/auth.js). Las
   // cuentas las crea un administrador, por /api/admin/users o por el CLI. Los usuarios
   // reales entran por SSO (Cloudflare Access) o con usuario/contraseña.
@@ -37,11 +37,12 @@ export default function Login() {
     }
   }
 
-  async function handleGoogle() {
+  // Navega a /sso (AuthContext): el error, si lo hay, vuelve por `authError` del contexto.
+  function handleGoogle() {
     setError('');
-    const ok = await chooseGoogle();
-    if (!ok) setError('No se pudo entrar con Google. Prueba de nuevo o entra con otra cuenta.');
+    chooseGoogle();
   }
+  const shownError = error || authError;
 
   // Qué se muestra (1.37.0, elección Google / usuario):
   //   sso pendiente           → solo la cabecera de la tarjeta (sin spinner ni form que luego salte)
@@ -78,10 +79,10 @@ export default function Login() {
         <h2 className="login-title">Bienvenido</h2>
         <p className="login-sub">{subtitle}</p>
 
-        {error && <div className="login-error">{error}</div>}
+        {shownError && <div className="login-error">{shownError}</div>}
 
         {(mode === 'choose' || mode === 'google') && (
-          // Vía PRINCIPAL del equipo. Entra por Cloudflare Access en el lugar (chooseGoogle).
+          // Vía PRINCIPAL del equipo. Navega a /sso, que pasa por Cloudflare Access (chooseGoogle).
           <button type="button" className="login-google" onClick={handleGoogle}>
             <GoogleIcon />
             {mode === 'google' ? 'Continuar con Google' : 'Entrar con Google'}
