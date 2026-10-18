@@ -3,6 +3,15 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.38.0] - 2026-10-17
+
+### Cambiado
+- **Entrar con Google es más fiable.**
+
+### Corregido
+- **Si falla la entrada con Google, ahora te avisa.** Antes la pantalla de inicio volvía sin
+  decir nada; ahora muestra el aviso y puedes volver a intentarlo o entrar con otra cuenta.
+
 ## [1.37.1] - 2026-10-17
 
 ### Nuevo
