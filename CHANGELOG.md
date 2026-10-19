@@ -3,11 +3,10 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.39.0] - Sin desplegar
+## [1.39.0] - 2026-10-19
 
-> Todavía **sin desplegar**: el locutor viene apagado. El servidor responde «apagado» hasta que se
-> configure `OLLAMA_URL` en el compose, y la app aún no lo muestra. Cuando se despliegue, esta
-> línea y la fecha de arriba se sustituyen por la del día del release.
+> El locutor viene **apagado**: el servidor responde «apagado» hasta que se defina `OLLAMA_URL` en
+> producción, y la app todavía no lo muestra.
 
 ### Nuevo
 - **El locutor: una frase de radio nocturna para cada canción (todavía apagado).** Cuando se active,
