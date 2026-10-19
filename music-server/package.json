@@ -22,6 +22,7 @@
     "test:reasignar": "node scripts/test-reasignar.mjs",
     "test:locutor-hechos": "node scripts/test-locutor-hechos.mjs",
     "test:locutor-frase": "node scripts/test-locutor-frase.mjs",
+    "test:locutor-ollama": "node scripts/test-locutor-ollama.mjs",
     "smoke:rescan": "node scripts/smoke-rescan.mjs",
     "test:radio": "node scripts/test-radio.mjs",
     "smoke:radio": "node scripts/smoke-radio.mjs",
