@@ -7,6 +7,7 @@ import cors from 'cors';
 
 import authRoutes      from './src/api/auth.js';
 import tracksRoutes    from './src/api/tracks.js';
+import locutorRoutes, { iniciarLocutor } from './src/api/locutor.js';
 import albumsRoutes    from './src/api/albums.js';
 import browseRoutes    from './src/api/browse.js';
 import playlistRoutes  from './src/api/playlists.js';
@@ -37,6 +38,8 @@ app.use(express.json());
 // API routes
 app.use('/api/auth',      authRoutes);
 app.use('/api/tracks',    tracksRoutes);
+// Después de tracks.js a propósito: /api/tracks/:id/locutor es de otro router y no pisa nada.
+app.use('/api/tracks',    locutorRoutes);
 app.use('/api/albums',    albumsRoutes);
 app.use('/api/browse',    browseRoutes);
 app.use('/api/playlists', playlistRoutes);
@@ -67,4 +70,5 @@ if (existsSync(DIST)) {
 
 app.listen(PORT, () => {
   console.log(`Music server running on http://localhost:${PORT}`);
+  iniciarLocutor();
 });
