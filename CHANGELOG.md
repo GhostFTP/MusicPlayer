@@ -3,6 +3,44 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.39.0] - Sin desplegar
+
+> Todavía **sin desplegar**: el locutor viene apagado. El servidor responde «apagado» hasta que se
+> configure `OLLAMA_URL` en el compose, y la app aún no lo muestra. Cuando se despliegue, esta
+> línea y la fecha de arriba se sustituyen por la del día del release.
+
+### Nuevo
+- **El locutor: una frase de radio nocturna para cada canción (todavía apagado).** Cuando se active,
+  SonoraRev podrá presentar la canción que va a sonar con una frase corta y cálida, escrita por una
+  IA que corre en tu propio servidor (Ollama: gratis y de código abierto, sin ninguna API de pago).
+  Solo habla de lo que tu biblioteca ya sabe de la canción —título, artista, álbum, año y género—;
+  no inventa historia, premios ni datos, y una frase que mencione algo que no está en esos datos se
+  descarta. Junto a la frase, la app podrá decir cuántas veces has escuchado esa canción, con un
+  texto fijo, sin IA. **La música nunca espera a la IA**: si la frase todavía no está lista se genera
+  en segundo plano y llega la siguiente vez que suene esa canción.
+
+### Técnico
+- Endpoint nuevo `GET /api/tracks/:id/locutor` → `{ estado, frase, escuchas, reintentar_s? }`, con
+  cinco estados: `apagado`, `generando`, `lista`, `sin-frase` y `limite`. Siempre contesta al
+  instante. Contrato en el README.
+- Cadena: `src/locutor/hechos.js` (datos de catálogo, puro) → `src/locutor/frase.js` (mensajes,
+  extracción y validación que falla cerrado, puro) → `src/ia/ollama.js` (cliente con timeout,
+  lectura acotada a 64 KB y cortacircuitos: 3 fallos seguidos abren 60 s) →
+  `src/locutor/servicio.js` (cola de un solo vuelo, caché, cupos) → `src/api/locutor.js`.
+- El conteo de escuchas son las escuchas **previas** del usuario y sale de una plantilla fija; el
+  modelo nunca lo ve. La app registra una escucha a la mitad de la pista, así que hay que pedir la
+  frase al empezar la pista.
+- Cola de un solo vuelo (Ollama corre con una petición a la vez) con tope de 20 pendientes;
+  caché por pista con huella de los datos, del modelo y del prompt (LRU, 2000 entradas, no expira
+  por tiempo); cupos de 60 por usuario y hora y 1500 al día; el modelo se calienta solo cuando hace
+  falta, no al arrancar.
+- Variables nuevas: `OLLAMA_URL` (vacía = apagado) y `LOCUTOR_*`. **No llegan al contenedor hasta
+  que se agreguen a `environment:` del `docker-compose.yml`**; en producción el endpoint responde
+  `apagado`.
+- Pruebas nuevas: `test:locutor-hechos`, `test:locutor-frase`, `test:locutor-ollama`,
+  `test:locutor-servicio` (reloj inyectado, sin Ollama) y `smoke:locutor` (servidores reales y un
+  Ollama falso).
+
 ## [1.38.0] - 2026-10-17
 
 ### Cambiado
