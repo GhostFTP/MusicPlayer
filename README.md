@@ -423,7 +423,7 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 
 ### El locutor
 
-> **Sin desplegar (1.39.0).** Viene apagado: sin `OLLAMA_URL` el endpoint responde `apagado` y no intenta nada.
+> **Versión 1.39.0.** Viene **apagado**: hasta que se defina `OLLAMA_URL` en producción, el endpoint responde `apagado` y no intenta nada.
 
 Una frase corta, de locutor de radio nocturna, para presentar cada canción: «Suena Daft Punk con Discovery, una noche tranquila para dejarse llevar.» La escribe un modelo local con [Ollama](https://ollama.com) (gratis y de código abierto; no se usa ninguna API de pago).
 

@@ -406,13 +406,15 @@ el handler: lo que se audite en una zona vale para la otra, porque es el mismo h
   Resolver con `@vitejs/plugin-legacy` + bajar el target; decisión aparte. (Pendiente del usuario:
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
-## Locutor — IA local en el backend (rama `feat/locutor`, SIN DESPLEGAR)
+## Locutor — IA local en el backend (1.39.0, presente pero APAGADO)
 
 **Excepción acordada a la regla 5**: este frente SÍ es backend. Todo gratis y de código abierto,
-cero APIs de pago. Versión prevista **1.39.0** (solo en el CHANGELOG: `package.json` sigue en un
-desfase conocido, 1.36.0 contra 1.38.0 del CHANGELOG, y no se arregla en este frente). En producción
-responde `apagado` mientras `OLLAMA_URL` no llegue al contenedor. Un commit por sub-paso; el push,
-el merge y los tags los hace el usuario. Contrato del endpoint y variables: README.
+cero APIs de pago. Versión **1.39.0** (CHANGELOG y `music-server/package.json`; los
+`package-lock.json` siguen en 1.0.0, igual que en `main`). El backend del locutor está presente
+pero **APAGADO**: en producción responde `apagado` mientras `OLLAMA_URL` no llegue al contenedor,
+y el encendido sigue pendiente del cambio del compose (el «merge 2») y de definir `OLLAMA_URL`.
+Un commit por sub-paso; el push, el merge y los tags los hace el usuario. Contrato del endpoint
+y variables: README.
 
 **Arquitectura** (cada pieza solo conoce a la anterior):
 `src/locutor/hechos.js` (puro: fila de `tracks` → hechos y `permitidos()`) →
@@ -457,8 +459,6 @@ Antes de commitear: `npm run build` y las cinco.
   default** para `cloudflared`.
 - Verificar desde el contenedor `http://<host-ollama>:11434/api/version`.
 - Sonda con el modelo real.
-- Al desplegar: cambiar «Sin desplegar» del CHANGELOG por la fecha (el parser de Novedades toma el
-  primer `## [x.y.z]` como «última versión» y prende el puntito de la campana).
 
 **NO MEDIDO (sigue abierto):** `num_predict: 1` en `calentar()` evita realmente generar texto, y
 `think: false` y `format` con esquema en gemma4 / Ollama 0.40.3; que `gemma4:12b` exista en ese
