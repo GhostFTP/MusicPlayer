@@ -61,7 +61,7 @@ check(h({ album_artist: 'Beyoncé' }).artista === 'Beyoncé', 'acento');
 check(permitidos(h({ album_artist: 'Beyoncé' })).nombres.has('beyonce'), 'permitidos plegado: beyonce');
 check(h({ title: '千と千尋 🎵' }).titulo === '千と千尋 🎵', 'CJK + emoji');
 check(h({ title: '“Quote” — it’s' }).titulo === '“Quote” — it’s', 'comillas tipográficas');
-check(h({ title: 'a​b‮c\u0007d' }).titulo === 'abcd', 'zero-width, bidi y control fuera');
+check(h({ title: 'a\u200Bb\u202Ec\u0007d' }).titulo === 'abcd', 'zero-width, bidi y control fuera');
 check(h({ title: 'ＡＢＣ' }).titulo === 'ABC', 'NFKC (ancho completo)');
 check(normalizar(null) === '' && normalizar(undefined) === '', 'normalizar(null/undefined) → vacío');
 
