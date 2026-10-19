@@ -406,5 +406,68 @@ el handler: lo que se audite en una zona vale para la otra, porque es el mismo h
   Resolver con `@vitejs/plugin-legacy` + bajar el target; decisión aparte. (Pendiente del usuario:
   abrir SonoraRev en el R4 — si carga, Chrome ≥87 y el tema muere; si sale en blanco, se reabre.)
 
+## Locutor — IA local en el backend (1.39.0, presente pero APAGADO)
+
+**Excepción acordada a la regla 5**: este frente SÍ es backend. Todo gratis y de código abierto,
+cero APIs de pago. Versión **1.39.0** (CHANGELOG y `music-server/package.json`; los
+`package-lock.json` siguen en 1.0.0, igual que en `main`). El backend del locutor está presente
+pero **APAGADO**: en producción responde `apagado` mientras `OLLAMA_URL` no llegue al contenedor,
+y el encendido sigue pendiente del cambio del compose (el «merge 2») y de definir `OLLAMA_URL`.
+Un commit por sub-paso; el push, el merge y los tags los hace el usuario. Contrato del endpoint
+y variables: README.
+
+**Arquitectura** (cada pieza solo conoce a la anterior):
+`src/locutor/hechos.js` (puro: fila de `tracks` → hechos y `permitidos()`) →
+`src/locutor/frase.js` (puro: `construirMensajes`, `ESQUEMA_RESPUESTA`, `extraerFrase`,
+`validarFrase`, `plantillaEscuchas`) → `src/ia/ollama.js` (cliente: timeout, lectura de 64 KB,
+cortacircuitos 3 fallos / 60 s, `calentar()` de un solo vuelo) → `src/locutor/servicio.js` (cola de
+un solo vuelo, caché LRU por pista con huella, cupos, calentamiento perezoso; sin base ni Express,
+con reloj inyectable) → `src/api/locutor.js` (router `GET /:id/locutor`, montado en `server.js`
+DESPUÉS de `tracks.js`; ahí vive el único cableado a la base).
+
+**Reglas duras (NO romper):**
+1. **El modelo solo habla de datos de catálogo** de la base (título, artista, álbum, año, género).
+   `pista` y `escuchas` NO se le pasan; si algún día se cambia lo que ve, cambia su huella.
+2. **El conteo de escuchas va por `plantillaEscuchas`, nunca por el modelo.** `n` son escuchas
+   PREVIAS: la app registra una escucha a la mitad de la pista, no al empezar.
+3. **La validación falla cerrado**: si `validarFrase` dice que no, la frase no existe. Rechaza de
+   más a propósito (nombres propios, primera palabra, números con letra, ordinales, inglés); sus
+   listas están hechas para crecer con frases reales, no para ser exhaustivas. Solo el **año** vale
+   como cifra (la pista no se le da al modelo).
+4. **Nunca loguear frases ni mensajes** (hay una prueba que lo exige). El cliente solo escribe dos
+   líneas por caída (abrir y cerrar el circuito) y una si `OLLAMA_URL` es inválida; el servicio,
+   ninguna.
+5. **La música nunca espera a la IA**: `consultar()` es síncrono y contesta al instante; la
+   generación es segundo plano. El endpoint nunca `await`ea al cliente.
+6. **`OLLAMA_URL` vacío = apagado**: ninguna petición, ninguna cola. Una URL inválida también.
+7. Cupo: se consulta al encolar y al despachar, y se cobra SOLO si la llamada llegó a Ollama; paga
+   quien dispara. La caché positiva no expira por tiempo (solo LRU o cambio de huella) y se pierde
+   en cada deploy: aceptado.
+8. Una variable nueva va también a `environment:` del compose (ver "Env vars" arriba). Las
+   `LOCUTOR_*` y `OLLAMA_URL` todavía NO están ahí.
+
+**Pruebas** (todas desde `music-server/`; al cierre del sub-paso 5: hechos 72, frase 87, ollama 115,
+servicio 88, smoke 58): `npm run test:locutor-hechos`, `test:locutor-frase`, `test:locutor-ollama`
+(Ollama falso en `node:http`), `test:locutor-servicio` (reloj inyectado, sin dormir) y
+`npm run smoke:locutor` (3 servidores reales en 3511-3513, base temporal, Ollama falso con cerrojo).
+Antes de commitear: `npm run build` y las cinco.
+
+**Infra pendiente (NO empezada; cada paso con OK del usuario):**
+- Red Docker compartida con Ollama: **red compartida a decidir con el dueño** (no hay nombre de red
+  decidido; no inventar uno).
+- `OLLAMA_URL` y las `LOCUTOR_*` en `environment:` del `docker-compose.yml`, **conservando la red
+  default** para `cloudflared`.
+- Verificar desde el contenedor `http://<host-ollama>:11434/api/version`.
+- Sonda con el modelo real.
+
+**NO MEDIDO (sigue abierto):** `num_predict: 1` en `calentar()` evita realmente generar texto, y
+`think: false` y `format` con esquema en gemma4 / Ollama 0.40.3; que `gemma4:12b` exista en ese
+Ollama; la carga en frío real (¿150 s sobran?) y la latencia bajo carga de CLASSIFY (¿8 s alcanzan?);
+que 25 min sea el umbral correcto de «modelo frío» con `keep_alive: 30m`; cuántas frases reales
+pasan el validador; los defaults (60/h, 1500/día, caché 2000, cola 20) y el tamaño en memoria de
+la caché; que el cliente web pida la frase al empezar la pista (hoy no existe); cuántas escuchas
+offline sin sincronizar hay; concurrencia real contra `NUM_PARALLEL=1`; y todo lo que ocurre dentro
+de Docker.
+
 ---
 _Última actualización: 2026-07-31 (v1.12.1 DESPLEGADO y tagueado el 2026-07-31 — la barra del reproductor como segundo destino del drag-to-enqueue, así encolar arrastrando ya no obliga a abrir la cola. Con eso cierra el ecosistema de la cola: menú contextual → reordenar dentro → arrastrar hacia adentro, con o sin la cola abierta. CLAUDE.md al día: producción = v1.12.1, nada sin mergear)._

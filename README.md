@@ -40,6 +40,8 @@ MusicPlayer/
 │   │   ├── auth/              # JWT middleware + gateo por rol
 │   │   ├── users/             # reglas de usuarios (las comparten la API y el CLI)
 │   │   ├── radio/             # modo radio: reglas y estado EN MEMORIA (sin tabla)
+│   │   ├── locutor/           # locutor: hechos, frase y servicio (puros; sin base ni Express)
+│   │   ├── ia/                # cliente de Ollama (timeout, lectura acotada, cortacircuitos)
 │   │   └── admin/             # CLI de usuarios
 │   ├── scripts/               # smoke tests (usuarios, cuenta, login con Google)
 │   ├── music/                 # ← pon aquí tus archivos de audio
@@ -372,6 +374,7 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 | GET | `/api/tracks` | Listar canciones (`?search=`, `?artist=`, `?album=`) |
 | GET | `/api/tracks/:id` | Detalle de una canción |
 | GET | `/api/tracks/:id/cover` | Carátula |
+| GET | `/api/tracks/:id/locutor` | La frase de locutor de la canción y sus escuchas previas: `{ estado, frase, escuchas, reintentar_s? }`. Contesta siempre al instante; ver [El locutor](#el-locutor) |
 | GET | `/api/albums` | Listar álbumes |
 | GET | `/api/albums/:album/tracks` | Canciones de un álbum |
 | GET | `/api/playlists` | Listar playlists del usuario. Desde 1.21.1, cada una trae además `video_count` (al final; `track_count` sigue contando solo canciones) |
@@ -418,6 +421,44 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 - ⚠️ **Todo vive en memoria** (`src/radio/almacen.js`): un reinicio o un redeploy borra las radios abiertas. Las constantes están en `src/radio/reglas.js`.
 - Pruebas: `npm run test:radio` (reglas y almacén, con el reloj inyectado) y `npm run smoke:radio` (por HTTP, con base temporal).
 
+### El locutor
+
+> **Versión 1.39.0.** Viene **apagado**: hasta que se defina `OLLAMA_URL` en producción, el endpoint responde `apagado` y no intenta nada.
+
+Una frase corta, de locutor de radio nocturna, para presentar cada canción: «Suena Daft Punk con Discovery, una noche tranquila para dejarse llevar.» La escribe un modelo local con [Ollama](https://ollama.com) (gratis y de código abierto; no se usa ninguna API de pago).
+
+- **La música nunca espera a la IA.** `GET /api/tracks/:id/locutor` contesta siempre al instante. Si la frase no está, devuelve `generando` y la genera en segundo plano (una a la vez: Ollama corre con una petición a la vez); la siguiente consulta la encuentra.
+- **El modelo solo habla de datos del catálogo** de la base: título, artista, álbum, año y género. Nunca recibe el número de pista ni las escuchas. Su respuesta se valida y **falla cerrado**: una frase con cifras, nombres propios, números con letra u ordinales que no estén en esos datos, en otro idioma, de más de una línea o que no mencione ni el título ni el artista se descarta (`sin-frase`).
+- **El conteo de escuchas no pasa por el modelo.** Sale de una plantilla fija con las escuchas **previas** de quien pregunta: «Primera vez que la escuchas.», «Ya la habías escuchado una vez.» o «Ya la has escuchado N veces.».
+- La caché es por pista y **compartida entre usuarios** (los datos no llevan nada de nadie); está en memoria y se pierde en cada deploy.
+
+```
+GET /api/tracks/:id/locutor        (Bearer, como el resto)
+→ 200 { "estado": "lista", "frase": "Suena Daft Punk con Discovery, …", "escuchas": "Ya la has escuchado 3 veces." }
+→ 200 { "estado": "generando", "frase": null, "escuchas": "Primera vez que la escuchas.", "reintentar_s": 10 }
+→ 400 id inválido (solo dígitos) · 404 la pista no existe · 401 sin sesión
+```
+
+| `estado` | Cuándo | `frase` | `escuchas` |
+|----------|--------|---------|------------|
+| `lista` | hay una frase válida en caché | el texto | plantilla |
+| `generando` | está en cola o en curso (incluye consultas repetidas); trae `reintentar_s` | `null` | plantilla |
+| `sin-frase` | faltan título o artista, el modelo falló o su frase no validó, o el cortacircuitos está abierto | `null` | plantilla |
+| `limite` | se agotó el cupo del usuario (por hora) o el tope del día | `null` | plantilla |
+| `apagado` | `OLLAMA_URL` vacío o inválido | `null` | `null` |
+
+La respuesta lleva `Cache-Control: no-store`. Una frase que no validó se recuerda 10 min (30 s si fue un fallo de red o un timeout), para no pedirle al modelo lo mismo en cada consulta.
+
+**Contrato para el cliente:**
+- Pedir la frase **AL INICIAR la pista** (o antes, para la siguiente). La app registra una escucha a la mitad de la pista (o a los 4 min): si se pide pasada la mitad, el conteo **incluye la actual** (uno de más).
+- Las escuchas **offline sin sincronizar** todavía no están en el servidor, así que el conteo sale **uno de menos**.
+- Con `generando`, **reintentar según `reintentar_s`**. Con `sin-frase`, `limite` o `apagado`, no insistir.
+- La primera petición tras 25 min sin uso (o tras un reinicio) devuelve `generando` y puede tardar hasta 150 s (el tope de `LOCUTOR_TIMEOUT_FRIO_MS`): el modelo se carga en la GPU. Esa frase queda lista para la **siguiente** vez que suene la canción.
+
+**Límites:** una generación a la vez, 20 pendientes como máximo (si se llena, se descarta la más vieja), 60 generaciones por usuario y hora y 1500 al día en total. El cupo se cobra solo cuando la llamada llegó a Ollama, y lo paga quien dispara la generación aunque la frase sirva para todos. Con el cortacircuitos abierto (3 fallos seguidos, 60 s) no se encola nada.
+
+Pruebas: `npm run test:locutor-hechos`, `test:locutor-frase`, `test:locutor-ollama`, `test:locutor-servicio` (puras o con un servidor falso, sin Ollama) y `npm run smoke:locutor` (servidores reales y un Ollama falso, con base temporal).
+
 ## Variables de entorno
 
 | Variable | Default | Descripción |
@@ -428,7 +469,19 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 | `JWT_SECRET` | `change-me-in-production` | Clave secreta para firmar tokens |
 | `GOOGLE_IOS_CLIENT_ID` | *(vacía)* | ID del cliente OAuth de **iOS** con el que la app pide el token de Google: es la audiencia que se exige. Vacía = `POST /api/auth/google` responde `503` |
 | `GOOGLE_FAKE` | *(vacía)* | **Solo pruebas locales.** Con `1`, un verificador falso acepta `fake:<correo>`. Con `NODE_ENV=production` el servidor **no arranca** |
+| `OLLAMA_URL` | *(vacía)* | Dirección de Ollama (`http://host:11434`, solo `http`/`https`). **Vacía o inválida = locutor apagado**: el endpoint responde `apagado` y no hace ninguna petición |
+| `LOCUTOR_MODELO` | `gemma4:12b` | Modelo de Ollama que escribe la frase |
+| `LOCUTOR_KEEP_ALIVE` | `30m` | Cuánto deja Ollama el modelo cargado sin uso (`30m`, `2h`, `90s` o `-1` para siempre) |
+| `LOCUTOR_TIMEOUT_MS` | `8000` | Tiempo máximo de una generación, en milisegundos |
+| `LOCUTOR_TIMEOUT_FRIO_MS` | `150000` | Tiempo máximo de la carga del modelo en frío (`calentar`), en milisegundos |
+| `LOCUTOR_LIMITE_USUARIO_HORA` | `60` | Generaciones que puede disparar cada usuario por hora |
+| `LOCUTOR_LIMITE_DIA` | `1500` | Tope global de generaciones por día (ventana de 24 h) |
+| `LOCUTOR_CACHE_MAX` | `2000` | Pistas con frase (o con intento fallido) en la caché; al llenarse sale la menos usada |
+| `LOCUTOR_COLA_MAX` | `20` | Generaciones pendientes; si se llena, se descarta la más vieja |
+| `LOCUTOR_CALENTAR_AL_ARRANCAR` | *(vacía)* | Solo `1` enciende el calentamiento al arrancar el servidor; cualquier otro valor lo deja apagado (el modelo se calienta con el primer encargo) |
 
 ```bash
 JWT_SECRET=mi-clave-segura PORT=8080 node server.js
 ```
+
+> ⚠️ Un valor numérico inválido de `LOCUTOR_*` (texto, cero, negativo o decimal) cae al default sin avisar. Estas variables **no llegan al contenedor** mientras no estén en la lista `environment:` del `docker-compose.yml` (definirlas en Dokploy no alcanza).
