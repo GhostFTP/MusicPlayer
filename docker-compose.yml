@@ -5,6 +5,10 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true                                  # PID 1 con manejo de señales/zombies
+    networks:
+      - default                # por aquí cloudflared llega a musicplayer:3000: NO se puede quitar
+      - dokploy-network
+      - classify-ai_inference  # red interna de CLASSIFY donde vive Ollama
     environment:
       NODE_ENV: production
       PORT: "3000"
@@ -27,6 +31,16 @@ services:
       # Ver la contraseña desde el panel (opcional, 1.23.0): la llave base64 de 32 bytes.
       # Vacía = "ver contraseña" no está disponible y el servidor arranca igual.
       PASSWORD_VIEW_KEY: ${PASSWORD_VIEW_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+      LOCUTOR_MODELO: ${LOCUTOR_MODELO:-}
+      LOCUTOR_KEEP_ALIVE: ${LOCUTOR_KEEP_ALIVE:-}
+      LOCUTOR_TIMEOUT_MS: ${LOCUTOR_TIMEOUT_MS:-}
+      LOCUTOR_TIMEOUT_FRIO_MS: ${LOCUTOR_TIMEOUT_FRIO_MS:-}
+      LOCUTOR_LIMITE_USUARIO_HORA: ${LOCUTOR_LIMITE_USUARIO_HORA:-}
+      LOCUTOR_LIMITE_DIA: ${LOCUTOR_LIMITE_DIA:-}
+      LOCUTOR_CACHE_MAX: ${LOCUTOR_CACHE_MAX:-}
+      LOCUTOR_COLA_MAX: ${LOCUTOR_COLA_MAX:-}
+      LOCUTOR_CALENTAR_AL_ARRANCAR: ${LOCUTOR_CALENTAR_AL_ARRANCAR:-}
     volumes:
       # 🎵 Biblioteca de música: host /mnt/storage/Musica → contenedor /music/Musica, SOLO LECTURA.
       #    El ":ro" lo impone el kernel: nada del contenedor puede escribir tu música.
@@ -57,6 +71,13 @@ services:
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?define CLOUDFLARE_TUNNEL_TOKEN en Dokploy}
     depends_on:
       - musicplayer
+
+networks:
+  dokploy-network:
+    external: true
+  classify-ai_inference:
+    external: true
+    name: classify-ai_inference
 
 volumes:
   musicplayer-data:                             # volumen nombrado gestionado por Docker
