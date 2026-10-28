@@ -3,6 +3,15 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.40.0] - 2026-10-27
+
+### Nuevo
+- **Buscar en toda tu música.** El menú tiene un botón «Buscar» nuevo (en el teléfono, un botón
+  flotante junto al de Ajustes): escribes un título, un artista, un álbum, una playlist o un video y
+  ves todo lo que coincide, agrupado por tipo. Puedes reproducir, abrir el menú de cada resultado o
+  arrastrarlo a la cola igual que en el resto de la app. Si abres un resultado y vuelves atrás, tu
+  búsqueda sigue ahí, y la música no se corta mientras buscas.
+
 ## [1.39.0] - 2026-10-19
 
 > El locutor viene **apagado**: el servidor responde «apagado» hasta que se defina `OLLAMA_URL` en
