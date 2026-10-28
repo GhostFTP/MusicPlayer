@@ -197,13 +197,14 @@ favs = await favLists();
 ok('vuelo_unico', creates.length === 1 && favs.length === 1 && (await favTrackIds(favs[0].id)).length === 2, { creates: creates.length, favs: favs.length });
 delayCreate = 0;
 
-// El corazón de la BARRA va desde 900px; debajo (barra de escritorio angosta y barra mini), oculto.
+// El corazón de la BARRA va desde 701px (al costado del «+» desde 900 y apilado debajo de él entre 701 y 899);
+// en la barra mini (700px y menos) el de escritorio no se ve: ahí vive .fav-mini.
 // (Hasta la 1.28.0 era sólo desde 1280px: la geometría la cubre fav-bar-desktop-func.mjs.)
 {
   const vis = {};
-  for (const w of [1440, 1280, 1279, 1024, 900, 899, 700]) { await page.setViewportSize({ width: w, height: 900 }); await wait(250); vis[w] = await heart().isVisible(); }
+  for (const w of [1440, 1280, 1279, 1024, 900, 899, 701, 700]) { await page.setViewportSize({ width: w, height: 900 }); await wait(250); vis[w] = await heart().isVisible(); }
   await page.setViewportSize({ width: 1440, height: 900 }); await wait(250);
-  ok('barra_desde_900', vis[1440] && vis[1280] && vis[1279] && vis[1024] && vis[900] && !vis[899] && !vis[700], vis);
+  ok('barra_desde_701', vis[1440] && vis[1280] && vis[1279] && vis[1024] && vis[900] && vis[899] && vis[701] && !vis[700], vis);
 }
 
 // Capturas: barra 1440/1280/1024 con el corazón lleno y vacío; expandido.

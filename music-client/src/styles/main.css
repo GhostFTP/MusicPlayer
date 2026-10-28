@@ -2407,14 +2407,49 @@ button, input, select, textarea { font-family: inherit; }
 .fav-player:active { transform: scale(.9); }
 .fav-player.fav-on,
 .exp-icon-btn.fav-on { color: var(--accent); }
-/* En la barra de escritorio va desde 900px. Le quita 42px al título (corazón + margen): a 900 pasa
-   de 128 a 86px, a 1024 de 163 a 121px y a 1279 de 227 a 185px (fav-bar-desktop-func.mjs). El corte
-   está en 900 porque ahí un título mediano (80px) todavía entra entero; a 701 quedaban 31px. Antes
-   se ocultaba debajo de 1280. Entre 701 y 899 (barra de escritorio angosta) ESTE corazón no se
-   muestra: ahí vive en el expandido y en el menú contextual. La barra mini (≤700px) tiene el suyo,
-   .fav-mini, más abajo en su bloque. */
-@media (max-width: 899px) {
+/* En la barra de escritorio va al lado del «+» desde 900px. Ahí le quita 42px al título (corazón +
+   margen): a 900 pasa de 128 a 86px, a 1024 de 163 a 121px y a 1279 de 227 a 185px
+   (fav-bar-desktop-func.mjs). El corte está en 900 porque ahí un título mediano (80px) todavía
+   entra entero; a 701 quedaban 31px. Entre 701 y 899 (barra de escritorio angosta) esos 42px no
+   existen, así que el corazón se APILA debajo del «+», los dos en una columna de 30px: el título no
+   pierde ancho (gana unos px) y las dos acciones caben en los 80px de la barra. Hasta la 1.40.0 ahí
+   no se mostraba (vivía en el expandido y en el menú contextual). La barra mini (≤700px) tiene el
+   suyo, .fav-mini, más abajo en su bloque; el de escritorio no existe ahí. */
+@media (max-width: 700px) {
   .player-bar .fav-tip { display: none; }
+}
+@media (min-width: 701px) and (max-width: 899px) {
+  /* Cuatro hijos directos: portada · texto · «+» · corazón. Grid de 3 columnas (portada, texto que
+     cede, acciones) y 2 filas: la portada y el texto ocupan las dos; el «+» va arriba y el corazón
+     abajo, en la tercera. Las separaciones van como margen y no como gap de columna: con un video
+     (sin «+» ni corazón) la tercera columna queda vacía y no gasta ancho. */
+  .player-bar .player-track {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    column-gap: 0;
+    row-gap: 2px;
+  }
+  .player-bar .player-track > .player-art,
+  .player-bar .player-track > .player-art-placeholder { grid-column: 1; grid-row: 1 / 3; margin-right: 12px; }
+  .player-bar .player-track > .player-meta { grid-column: 2; grid-row: 1 / 3; }
+  .player-bar .player-track > .bar-tip-wrap { grid-column: 3; margin-left: 10px; }
+  .player-bar .player-track > .bar-tip-wrap:not(.fav-tip) { grid-row: 1; }
+  .player-bar .player-track > .fav-tip { grid-row: 2; }
+  .player-bar .ptp-player { margin-left: 0; }
+  /* Tooltip del corazón: no puede salir hacia arriba como los demás, taparía el «+» que tiene encima.
+     Sale a su derecha, centrado en altura. */
+  .player-bar .fav-tip > .bar-tip {
+    bottom: auto;
+    top: 50%;
+    left: calc(100% + 9px);
+    transform: translate(-3px, -50%) scale(.98);
+  }
+  .player-bar .fav-tip:hover > .bar-tip { transform: translateY(-50%); }
+  .player-bar .fav-tip:has(:focus-visible) > .bar-tip { transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) and (min-width: 701px) and (max-width: 899px) {
+  .player-bar .fav-tip > .bar-tip { transform: translateY(-50%); }   /* solo fade, como los demás tips */
 }
 
 /* Player expandido (móvil): "+" alineado a la derecha del header. En desktop el
@@ -5962,6 +5997,16 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   /* Los dos que crecen de verdad. */
   .avs-seg [role="radio"] { min-width: 44px; min-height: 44px; }
   .pl-sort-seg { min-height: 44px; }
+}
+/* «+» y corazón de la barra APILADOS (701–899, ver el corazón de la barra): quedan a 32px de centro a
+   centro y la barra mide 80, así que no hay forma de darles 44 de alto a los dos sin que se pisen
+   (a lo sumo 40 cada uno). Cada área llega hasta la mitad del hueco de 2px entre ellos y, hacia el
+   otro lado, hasta el borde de la barra; de ancho SÍ tienen sus 44 (7px a cada lado caben en el aire
+   con el texto, 10px, y con la columna del medio, 12px). Reemplaza las dos reglas de lado a lado de
+   arriba, que a 32px de distancia se solapaban 12px. */
+@media (pointer: coarse) and (min-width: 701px) and (max-width: 899px) {
+  .player-bar .ptp-btn::after    { top: -9px; bottom: -1px; left: -7px; right: -7px; }
+  .player-bar .fav-player::after { top: -1px; bottom: -8px; left: -7px; right: -7px; }
 }
 
 /* ── BUSCAR (vista /search) ────────────────────────────────────────────────────
