@@ -5418,9 +5418,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 /* ── FABs flotantes de utilidad (solo móvil; en desktop están en el sidebar) ──────
    Clúster top-right: Ajustes (⚙, a la izquierda) + Novedades (🔔, en la esquina). El
    top-left lo ocupan el título de sección y el "atrás" de los detalles → van a la derecha. */
-.changelog-bell, .settings-fab { display: none; }
+.changelog-bell, .settings-fab, .search-fab { display: none; }
 @media (max-width: 700px) {
-  .changelog-bell, .settings-fab {
+  .changelog-bell, .settings-fab, .search-fab {
     position: fixed;
     top: calc(env(safe-area-inset-top, 0px) + 14px);
     z-index: 150;                         /* sobre el contenido; con overlays no se renderizan */
@@ -5440,8 +5440,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .changelog-bell { right: calc(env(safe-area-inset-right, 0px) + 14px); }
   /* Ajustes a la izquierda de la campanita: base (14) + ancho del FAB (44) + gap (10) = 68. */
   .settings-fab   { right: calc(env(safe-area-inset-right, 0px) + 68px); }
-  .changelog-bell:hover, .settings-fab:hover   { color: var(--text); background: rgba(36, 36, 36, .78); }
-  .changelog-bell:active, .settings-fab:active { transform: scale(.92); }
+  /* Buscar a la izquierda de Ajustes: 68 + ancho del FAB (44) + gap (10) = 122. El BottomNav no se toca. */
+  .search-fab     { right: calc(env(safe-area-inset-right, 0px) + 122px); }
+  .changelog-bell:hover, .settings-fab:hover, .search-fab:hover   { color: var(--text); background: rgba(36, 36, 36, .78); }
+  .changelog-bell:active, .settings-fab:active, .search-fab:active { transform: scale(.92); }
 }
 /* Puntito de "hay novedad" (color de acento), anclado al botón fijo. */
 .changelog-bell-dot {
@@ -5455,7 +5457,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 @keyframes bell-dot-in { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .changelog-bell:active, .settings-fab:active { transform: none; }
+  .changelog-bell:active, .settings-fab:active, .search-fab:active { transform: none; }
   .changelog-bell-dot { animation: none; }
 }
 
@@ -5960,4 +5962,63 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   /* Los dos que crecen de verdad. */
   .avs-seg [role="radio"] { min-width: 44px; min-height: 44px; }
   .pl-sort-seg { min-height: 44px; }
+}
+
+/* ── BUSCAR (vista /search) ────────────────────────────────────────────────────
+   Cinco grupos (Canciones, Álbumes, Artistas, Playlists, Videos), cada uno con su cabecera: título,
+   conteo y «Ver todo». El contenido de cada grupo es el de su vista (TrackTable, .album-grid,
+   .artist-grid, .playlist-list, .video-grid): acá sólo se pone el marco. Sin animación propia → nada
+   que apagar en prefers-reduced-motion. */
+.search-group { margin-top: 28px; }
+.search-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.search-group-title { font-size: 16px; font-weight: 700; letter-spacing: -0.2px; }
+.search-group-count { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.search-group-more,
+.search-status button {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  padding: 5px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.search-group-more { margin-left: auto; align-self: center; }
+.search-group-more:hover,
+.search-status button:hover { color: var(--text); background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .2); }
+.search-group-more:focus-visible,
+.search-status button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.search-group-note { margin-top: 12px; color: var(--text-muted); font-size: 12.5px; }
+
+/* Una fuente cargando / caída: una línea discreta debajo de lo que sí hay. */
+.search-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+.search-status--error { color: var(--amber); }
+
+/* Los álbumes entran escalonados al MONTAR una grilla (.album-grid-anim); acá la lista cambia con cada
+   tecla y cada tarjeta que aparece se animaría. Misma idea que .artist-grid--still y .playlist-list--still. */
+.search-view .album-grid-anim .album-card { animation: none; }
+
+/* Teléfono: los botones flotantes ocupan la franja de arriba (3 × 44px, hasta y=58); la cabecera ya baja
+   la caja a su propia fila, así que no se pisan. Las filas de canciones reflowean solas a modo lista. */
+@media (max-width: 700px) {
+  .search-group { margin-top: 22px; }
+  /* Con el botón Buscar el clúster llega hasta x=224 y los chips de la Biblioteca (que empiezan en y≈49 y
+     llegan hasta x≈281) pasaban por debajo: «44 h 22 min» quedaba tapado 44×9px. Bajarlos 13px los deja
+     libres (antes Ajustes ya los rozaba por 3px). Sólo la Biblioteca tiene esta fila de chips en la cabecera. */
+  .lib-stats { margin-top: 13px; }
 }

@@ -7,6 +7,7 @@ import FavButton from './FavButton.jsx';
 import ShareButton from './ShareButton.jsx';
 import ChangelogBell from './ChangelogBell.jsx';
 import SettingsFab from './SettingsFab.jsx';
+import SearchFab from './SearchFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
@@ -1147,6 +1148,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
       {/* ── Campanita de Novedades (solo móvil; oculta con overlays abiertos) ── */}
       <ChangelogBell navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
       <SettingsFab   navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
+      <SearchFab     navigate={navigate} view={view} hidden={expanded || showLyrics || showInfo || showQueue} />
 
       {/* ── Panel de letra (overlay z-250): SOLO barra/móvil (showLyrics). En el expandido DESKTOP
           la letra vive en el drawer (expPanel==='lyrics'), NO acá (E2b: el render inmersivo se

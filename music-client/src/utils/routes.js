@@ -29,10 +29,11 @@ function decodeSeg(s) {
 // "Volver" (history.back) se iba a la entrada ANTERIOR a la lista — o fuera de la app.
 export const NO_ALBUM_ARTIST = '@';
 
-// Vistas conocidas. Las 7 del contrato nav-lab + `settings` y `videos` (que se sumaron a la
+// Vistas conocidas. Las 7 del contrato nav-lab + `settings`, `videos` y `search` (que se sumaron a la
 // app DESPUÉS de escribir el contrato: son vistas reales y necesitan ruta). Un primer segmento
-// fuera de este set = ruta desconocida → library.
-const KNOWN_VIEWS = new Set(['albums', 'artists', 'genres', 'years', 'playlists', 'changelog', 'settings', 'videos']);
+// fuera de este set = ruta desconocida → library. `search` es una vista simple (sin detalle ni
+// parámetros): la consulta NO viaja en la URL, vive en memoria (utils/searchAll.js).
+const KNOWN_VIEWS = new Set(['albums', 'artists', 'genres', 'years', 'playlists', 'changelog', 'settings', 'videos', 'search']);
 
 // Vistas con detalle de UN segmento y el nombre de su parámetro. `albums` va aparte: su
 // detalle son DOS segmentos (album_artist/album) para desambiguar homónimos.

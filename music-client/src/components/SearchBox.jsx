@@ -8,8 +8,10 @@ import { useRef } from 'react';
 // (stopPropagation): el Esc global de Player (la escalera de overlays) escucha en window y, si le
 // llegara, el mismo Esc además cerraría la cola o el expandido — un Esc, dos cosas. Durante una
 // composición de IME el Esc es del IME (cancela la composición): tampoco sigue viaje, y no limpia.
-export default function SearchBox({ value, onChange, placeholder, label }) {
-  const inputRef = useRef(null);
+// `inputRef` (opcional): quien necesite enfocar la caja desde afuera (la vista Buscar) pasa el suyo.
+export default function SearchBox({ value, onChange, placeholder, label, inputRef: external }) {
+  const own = useRef(null);
+  const inputRef = external ?? own;
 
   const onKeyDown = (e) => {
     if (e.key !== 'Escape') return;

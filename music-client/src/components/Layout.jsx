@@ -9,11 +9,13 @@ import Playlists from './Playlists.jsx';
 import Changelog from './Changelog.jsx';
 import Settings  from './Settings.jsx';
 import Videos    from './Videos.jsx';
+import Search    from './Search.jsx';
 import Player    from './Player.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import { DragQueueProvider } from '../context/DragQueueContext.jsx';
 import { pathToState, stateToPath } from '../utils/routes.js';
 import { clearViewCache } from '../api/viewCache.js';
+import { clearSavedSearch } from '../utils/searchAll.js';
 import { useMixShortcut } from '../utils/useMixShortcut.js';
 import { useVideoFullscreenShortcut } from '../utils/useVideoFullscreenShortcut.js';
 import { PlayLogger } from '../utils/usePlayLogger.js';
@@ -72,8 +74,9 @@ export default function Layout() {
   const [showQueue, setShowQueue] = useState(false);
 
   // Layout sólo está montado con sesión (App.jsx muestra Login sin ella): al desmontarse — cerrar
-  // sesión, o el reauth que lo oculta mientras comprueba — la caché de vistas se vacía.
-  useEffect(() => () => clearViewCache(), []);
+  // sesión, o el reauth que lo oculta mientras comprueba — la caché de vistas se vacía, y con ella la
+  // consulta que la vista Buscar guarda para el atrás (otra cuenta nunca la hereda).
+  useEffect(() => () => { clearViewCache(); clearSavedSearch(); }, []);
 
   // Atajo global M (Frente 2, M3): mezcla TODA la biblioteca. Vive acá porque Layout sólo existe con
   // sesión iniciada; el hook escucha su propio keydown y no toca PlayerContext.
@@ -147,6 +150,7 @@ export default function Layout() {
     changelog: <Changelog {...viewProps} />,
     settings:  <Settings  {...viewProps} />,
     videos:    <Videos    {...viewProps} />,
+    search:    <Search    {...viewProps} />,
   };
 
   // ── Gesto "atrás" (móvil): ver banner de comentario arriba del archivo ──

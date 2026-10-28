@@ -9,7 +9,11 @@ import { useDragQueue } from '../context/DragQueueContext.jsx';
 // Tabla de pistas reutilizable — mismo diseño de fila que la Biblioteca
 // (carátula, jerarquía título/artista, QualityChip y botón "⋯" del menú contextual).
 // `showAlbum`: oculta la columna Álbum cuando el contexto ya es un álbum.
-export default function TrackTable({ tracks, showAlbum = true }) {
+// `flat`: la lista mezcla pistas de VARIOS álbumes (los resultados de /search), no es un álbum ni un
+// género abierto: sin separadores "Disco N" (el disco de un álbum no ordena una lista mezclada), la
+// numeración es la posición en la lista (no el número de pista del álbum) y NO salta a la pista que
+// suena — esa lista cambia con cada tecla y el salto sacaría de la pantalla la caja donde se escribe.
+export default function TrackTable({ tracks, showAlbum = true, flat = false }) {
   const { play, currentTrack, isPlaying } = usePlayer();
   const { openMenu } = useContextMenu();   // clic derecho sobre la fila (desktop; el gate lo pone el menú)
   // C1 · long-press = el mismo menú en móvil. El hook envuelve onClick/onContextMenu de la fila:
@@ -27,14 +31,15 @@ export default function TrackTable({ tracks, showAlbum = true }) {
 
   // Al abrir una lista (álbum/género), desplaza la pista que suena a la vista.
   useEffect(() => {
+    if (flat) return;
     activeRowRef.current?.scrollIntoView({ block: 'center' });
-  }, [tracks]);
+  }, [tracks, flat]);
 
   // Separador "Disco N" solo si hay más de un disco distinto entre las pistas
   // (un álbum de un solo disco no debe mostrar "Disco 1"). disc_number NULL
   // se trata como disco 1, igual que el backend (COALESCE).
   const discOf = (t) => t.disc_number ?? 1;
-  const showDiscHeaders = new Set(tracks.map(discOf)).size > 1;
+  const showDiscHeaders = !flat && new Set(tracks.map(discOf)).size > 1;
 
   // `track-table--no-album`: refleja un hecho estructural real (esta tabla NO tiene columna Álbum,
   // porque el contexto YA es un álbum). Lo usa la compactación con la cola abierta para sacrificar
@@ -70,6 +75,7 @@ export default function TrackTable({ tracks, showAlbum = true }) {
                 active={active}
                 playing={active && isPlaying}
                 showAlbum={showAlbum}
+                flat={flat}
                 rowRef={active ? activeRowRef : undefined}
                 bindPress={bindPress}
                 dragProps={dragProps}
@@ -87,7 +93,7 @@ export default function TrackTable({ tracks, showAlbum = true }) {
 // Fila memoizada (misma idea que LibraryRow; copias separadas a propósito, ver actions-lab §11).
 // `active`/`playing` llegan calculados → al cambiar de canción sólo cambian 2 filas, en play/pausa 1.
 // `rowRef` sólo lo recibe la fila activa (el auto-scroll a la pista que suena).
-const TrackRow = memo(function TrackRow({ track, index, active, playing, showAlbum, rowRef, bindPress, dragProps, onPlay, onCtx }) {
+const TrackRow = memo(function TrackRow({ track, index, active, playing, showAlbum, flat, rowRef, bindPress, dragProps, onPlay, onCtx }) {
   return (
     <tr
       ref={rowRef}
@@ -100,7 +106,7 @@ const TrackRow = memo(function TrackRow({ track, index, active, playing, showAlb
     >
       <td className="col-num">
         <span className={`track-num${active ? ' active' : ''}`}>
-          {playing ? '▶' : (track.track_number ?? index + 1)}
+          {playing ? '▶' : (flat ? index + 1 : (track.track_number ?? index + 1))}
         </span>
         <span className="track-play-icon">▶</span>
       </td>
