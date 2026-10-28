@@ -3,6 +3,12 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.40.1] - 2026-10-28
+
+### Corregido
+- **El corazón de favoritos ya no desaparece con la ventana a medio ancho**: en un ancho intermedio (como el
+  de una tablet) la barra del reproductor no lo mostraba; ahora se queda a la vista, debajo del botón «+».
+
 ## [1.40.0] - 2026-10-27
 
 ### Nuevo

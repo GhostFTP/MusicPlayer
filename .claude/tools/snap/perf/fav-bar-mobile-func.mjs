@@ -14,25 +14,25 @@
 //     el panel — ninguno de los tres abre el expandido — y cola abre la cola, que en el teléfono ES
 //     el expandido con su hoja (así funciona desde la 1.9.0: no es una regresión);
 //   · con un video: sin corazón, sin letra, tres botones de 48×48.
-// En 701 y 899 (sin touch): la barra es la de escritorio y NO hay corazón a la vista (ni el de la
-// mini ni el de escritorio, que va desde 900); y el slider de volumen entra en la pantalla (hasta la
-// 1.31.0 se salía 17 px a 701).
+// En 701 y 899 (sin touch): la barra es la de escritorio: se ve el corazón de ESCRITORIO (apilado bajo el
+// «+» desde la 1.40.1; antes no había ninguno a la vista) y NO el de la mini; y el slider de volumen entra
+// en la pantalla (hasta la 1.31.0 se salía 17 px a 701).
 // Con SNAP_REF (el build de referencia servido en otro puerto) compara además contra él: con una
 // canción el título pierde exactamente 8 px, la barra, la portada, el borde derecho de siguiente y
-// todo lo de fuera de la barra (contenido y navegación de abajo) no cambian; con un video y en
-// 701/899 la geometría es idéntica. Sin SNAP_REF esas comprobaciones NO se cuentan y se avisa.
+// todo lo de fuera de la barra (contenido y navegación de abajo) no cambian; con un video la geometría es
+// idéntica. Sin SNAP_REF esas comprobaciones NO se cuentan y se avisa.
 // LA REFERENCIA ES FIJA: 9f8bfca, el último commit de main ANTES de la 1.30.0 (v1.29.0). No es "el
 // main de hoy": main ya trae este cambio y contra él estas filas fallan a propósito. Las claves
-// conservan «main» en el nombre (fuera_de_la_barra_igual_a_main_*, video_igual_a_main_*, barra_igual_a_main_*) para no mover el historial de resultados.
+// conservan «main» en el nombre (fuera_de_la_barra_igual_a_main_*, video_igual_a_main_*) para no mover el historial de resultados.
 // Para armarla y servirla en 4174 (con el backend de la copia de la base en 3100), desde el repo:
 //   mkdir -p /tmp/ref-9f8bfca && git archive 9f8bfca music-client | tar -x -C /tmp/ref-9f8bfca
 //   cd /tmp/ref-9f8bfca/music-client && npm ci && npm run build
 //   echo "export default { preview: { proxy: { '/api': 'http://localhost:3100', '/stream': 'http://localhost:3100' } } };" > ref.config.mjs
 //   node node_modules/vite/bin/vite.js preview --config ref.config.mjs --port 4174 --strictPort
-// Esperado: sin SNAP_REF 45/45 · con SNAP_REF=http://localhost:4174 (9f8bfca) 59/59.
-// Desde la 1.31.1, entre 701 y 759 el slider de volumen mide lo que entra: contra la referencia, en
-// 701 se compara todo lo demás igual y el volumen aparte (mismo lugar, más angosto, y que en la
-// referencia sí se salía).
+// Esperado: sin SNAP_REF 45/45 · con SNAP_REF=http://localhost:4174 (9f8bfca) 57/57.
+// Desde la 1.40.1 las barras de 701 y 899 YA NO se comparan contra 9f8bfca: el corazón apilado cambia la
+// columna izquierda a propósito (lo cubre fav-bar-apilado-func.mjs, contra main 8754c1e). Que el slider de
+// volumen entre en la pantalla se sigue comprobando sin referencia (volumen_entra_*).
 // Necesita VIDEO_DIR con los fixtures (como lo arma regresion.mjs).
 // ⚠️ ESCRIBE (crea/borra "Mis favoritos" de la cuenta de prueba): correr contra la COPIA de la base.
 // Uso: SNAP_BASE=http://localhost:4173 [SNAP_REF=http://localhost:4174] node fav-bar-mobile-func.mjs
@@ -236,31 +236,21 @@ for (const w of MOVILES) {
   }
 }
 
-// ── 701 y 899: barra de escritorio, sin corazón a la vista ──
+// ── 701 y 899: barra de escritorio: corazón de ESCRITORIO apilado, sin el de la mini ──
 for (const w of ESCRITORIO) {
   const o = await conCancion(BASE, w, false); const m = await medir(o.p); await o.ctx.close();
-  ok(`sin_corazon_${w}`, m.mini === null && !(m.corazonMini?.visible) && !m.corazonEscritorioVisible && !m.controles.some((k) => k.k.includes('fav')), { mini: m.mini, corazonMini: m.corazonMini?.visible ?? null, corazonEscritorio: m.corazonEscritorioVisible });
+  ok(`corazon_de_escritorio_sin_mini_${w}`, m.mini === null && !(m.corazonMini?.visible) && !!m.corazonEscritorioVisible && m.controles.some((k) => k.k.includes('fav-player')) && !m.controles.some((k) => k.k.includes('fav-mini')), { mini: m.mini, corazonMini: m.corazonMini?.visible ?? null, corazonEscritorio: m.corazonEscritorioVisible, controles_fav: m.controles.filter((k) => k.k.includes('fav')).map((k) => k.k) });
   // El volumen es el último slider de la barra (el primero es el de posición).
   const iVol = (cs) => cs.map((k) => k.k).lastIndexOf('range');
   const vol = m.controles[iVol(m.controles)];
   ok(`volumen_entra_${w}`, !!vol && vol.w > 0 && vol.r <= w && m.bar.scrollW === m.bar.clientW && m.pageScrollW === m.innerW, { slider: vol && [vol.x, vol.r, vol.w], barra_scrollW: m.bar.scrollW, pagina_scrollW: m.pageScrollW });
-  if (REF) {
-    const Rf = await conCancion(REF, w, false); const ref = await medir(Rf.p); await Rf.ctx.close();
-    const angosto = w >= 701 && w <= 759;   // 1.31.1: en este rango el volumen ya no mide lo mismo que en la referencia
-    const sinVol = (cs) => cs.filter((_, i) => i !== iVol(cs));
-    const vr = ref.controles[iVol(ref.controles)];
-    const controlesOk = !angosto ? igual(m.controles, ref.controles)
-      : igual(sinVol(m.controles), sinVol(ref.controles)) && !!vol && !!vr && vol.x === vr.x && vol.y === vr.y && vol.h === vr.h && vol.w < vr.w && vr.r > w;
-    const barOk = !angosto ? igual(m.bar, ref.bar) : igual({ ...m.bar, scrollW: 0 }, { ...ref.bar, scrollW: 0 }) && ref.bar.scrollW > ref.bar.clientW;
-    ok(`barra_igual_a_main_${w}`, controlesOk && igual(m.titulo, ref.titulo) && barOk, { nuevo: m.controles.length, main: ref.controles.length, titulo: [m.titulo.clientW, ref.titulo.clientW], ...(angosto ? { volumen: { nuevo: vol, referencia: vr }, barra_scrollW: [m.bar.scrollW, ref.bar.scrollW] } : {}) });
-  }
 }
 await wipeFavs();
 
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
 console.log(JSON.stringify(R, null, 1));
 console.log('medidas: ' + JSON.stringify(medidas));
-console.log(REF ? `referencia (debe ser el build de 9f8bfca, previo a la 1.30.0): ${REF}` : 'SIN SNAP_REF: las comprobaciones contra la referencia 9f8bfca (titulo_pierde_8_*, fuera_de_la_barra_*, video_igual_a_main_*, barra_igual_a_main_*) NO se corrieron ni se cuentan.');
+console.log(REF ? `referencia (debe ser el build de 9f8bfca, previo a la 1.30.0): ${REF}` : 'SIN SNAP_REF: las comprobaciones contra la referencia 9f8bfca (titulo_pierde_8_*, fuera_de_la_barra_*, video_igual_a_main_*) NO se corrieron ni se cuentan.');
 console.log(`\nfav-bar-mobile-func: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
 await browser.close();
 process.exit(fails.length ? 1 : 0);
