@@ -3,6 +3,11 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.40.2] - 2026-10-29
+
+### Técnico
+- **Preparación para abrir links de álbumes en la app de iPhone.** El servidor publica el archivo que iOS necesita para reconocer los links de sonorarev.revolution505.com. Todavía no cambia nada para ti; funcionará cuando salga la siguiente versión de la app.
+
 ## [1.40.1] - 2026-10-28
 
 ### Corregido

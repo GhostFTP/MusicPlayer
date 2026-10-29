@@ -1,6 +1,6 @@
 {
   "name": "music-server",
-  "version": "1.39.0",
+  "version": "1.40.2",
   "description": "Personal music streaming server",
   "main": "server.js",
   "type": "module",
@@ -25,6 +25,7 @@
     "test:locutor-ollama": "node scripts/test-locutor-ollama.mjs",
     "test:locutor-servicio": "node scripts/test-locutor-servicio.mjs",
     "smoke:locutor": "node scripts/smoke-locutor.mjs",
+    "smoke:wellknown": "node scripts/smoke-wellknown.mjs",
     "smoke:rescan": "node scripts/smoke-rescan.mjs",
     "test:radio": "node scripts/test-radio.mjs",
     "smoke:radio": "node scripts/smoke-radio.mjs",

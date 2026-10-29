@@ -57,6 +57,19 @@ app.use('/stream/video',  videosStream);
 app.use('/stream',        streamRoutes);
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
+// Universal links de iOS: Apple baja /.well-known/apple-app-site-association SIN sesión y
+// necesita el JSON, no el index.html con 200 que daría el fallback SPA de abajo. Va ANTES del
+// static y del `*`. Se sirve a mano desde DIST, como JSON y sin redirecciones; si el archivo o
+// DIST no existen (desarrollo), 404. Cualquier otra ruta bajo /.well-known/ también es 404.
+app.get('/.well-known/apple-app-site-association', (_req, res) => {
+  res.sendFile('.well-known/apple-app-site-association', {
+    root: DIST,
+    dotfiles: 'allow',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+  }, (err) => { if (err && !res.headersSent) res.status(404).end(); });
+});
+app.use('/.well-known', (_req, res) => res.status(404).end());
+
 // Frontend estático (producción)
 if (existsSync(DIST)) {
   app.use(express.static(DIST));
