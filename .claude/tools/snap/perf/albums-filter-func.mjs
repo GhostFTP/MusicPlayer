@@ -219,9 +219,9 @@ const kicker = (p) => p.evaluate(() => Number((document.querySelector('.queue-pa
   await p.goto(BASE + '/'); await clearKeys(p);
   await gotoAlbums(p);
   const bb = await p.locator('.af-btn').boundingBox();
-  // Sin filtro, Mix + contador + filtro + vista entran en UNA fila (como antes de existir el filtro).
-  const rows = await p.evaluate(() => new Set([...document.querySelectorAll('.view-actions > *')].map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2))).size);
-  ok('movil_una_fila_sin_filtro', rows === 1 && Math.round(bb.width) === 44, { filas: rows, ancho: bb.width });
+  // Sin filtro, con el chip «Recién añadidas» (1.41.0) la fila son DOS: Mix + contador arriba; chip + filtro + vista abajo (empuje aceptado: ~60 px).
+  const rows = await p.evaluate(() => { const c = (e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2); const k = [...document.querySelectorAll('.view-actions > *')]; const ys = [...new Set(k.map(c))].sort((a, b) => a - b); const de = (y) => k.filter((e) => c(e) === y).map((e) => e.className.toString().split(' ')[0]); return { n: ys.length, fila1: de(ys[0]), fila2: de(ys[1]), alto: Math.round(document.querySelector('.view-actions').getBoundingClientRect().height) }; });
+  ok('movil_dos_filas_con_chip_sin_filtro', rows.n === 2 && rows.fila1.join() === 'mix-btn,section-count' && rows.fila2.join() === 'recientes-chip,view-tools' && rows.alto >= 100 && rows.alto <= 108 && Math.round(bb.width) === 44, { filas: rows, ancho: bb.width });
   await p.click('.af-btn'); await p.waitForSelector('.af-panel--sheet'); await p.waitForTimeout(400);   // que termine de subir
   const sheet = await p.evaluate(() => {
     const s = document.querySelector('.af-panel--sheet'); const r = s.getBoundingClientRect();
