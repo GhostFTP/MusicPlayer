@@ -10,11 +10,17 @@ import { foldForSearch } from '../utils/searchText.js';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useLongPress } from '../utils/useLongPress.js';
 import { useDragQueue } from '../context/DragQueueContext.jsx';
+import RecientesChip from './RecientesChip.jsx';
+import { useRecientes } from '../utils/useRecientes.js';
 
 export default function Years({ target, clearTarget, setDetailOpen, navigate }) {
   const [years,    setYears]    = useState(null);
   const [sel,      setSel]      = useState(null);   // año seleccionado
   const [albums,   setAlbums]   = useState(null);
+  // «Recién añadidas» (utils/useRecientes.js): los años con AL MENOS UNA pista reciente, cada uno con su
+  // «N nuevas»; en AND con el buscador. El detalle del año NO cambia (el año completo). La biblioteca se
+  // pide al PRIMER TOQUE del chip (no al montar; el chip nace habilitado).
+  const rec = useRecientes();
 
   useEffect(() => { api.years().then(setYears); }, []);
 
@@ -32,7 +38,7 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
   useEffect(() => {
     // Con `tab` (tocar la pestaña activa, ver Layout.navigate) además se borra el buscador; sin él es
     // el atrás desde el detalle de un año, que lo conserva.
-    if (target?.reset) { setSel(null); setAlbums(null); if (target.tab) setQuery(''); clearTarget(); return; }
+    if (target?.reset) { setSel(null); setAlbums(null); if (target.tab) { setQuery(''); rec.apagar(); } clearTarget(); return; }
     if (target?.year == null || !years) return;
     const y = years.find(x => x.year === target.year);
     if (y) open(y);
@@ -85,13 +91,24 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
   const libFold = Array.isArray(lib) ? foldedYearTracks(lib) : null;
   // Las pistas que coinciden con el texto: de ahí salen los años que se ven Y lo que mezcla el Mix.
   const matchTracks = useMemo(() => (porTexto && libFold ? libFold.filter(([, h]) => h.includes(q)).map(([t]) => t) : null), [porTexto, libFold, q]);
-  const shown = useMemo(() => {
+  const buscados = useMemo(() => {
     if (!years || q === '') return years ?? [];
     if (porAnio) return years.filter((y) => String(y.year).startsWith(q));
     if (!matchTracks) return [];
     const con = new Set(matchTracks.map((t) => t.year));
     return years.filter((y) => con.has(y.year));
   }, [years, q, porAnio, matchTracks]);
+  // El chip, sobre lo buscado. Apagado, `shown` ES `buscados` (misma identidad).
+  const shown = useMemo(
+    () => (rec.on ? buscados.filter((y) => rec.idx.years.has(y.year)) : buscados),
+    [rec.on, rec.idx, buscados],
+  );
+  // Con texto, el Mix mezcla SÓLO las pistas que coinciden: con el chip, las de los años que se ven.
+  const mixCoincide = useMemo(() => {
+    if (!matchTracks || !rec.on) return matchTracks;
+    const ys = new Set(shown.map((y) => y.year));
+    return matchTracks.filter((t) => ys.has(t.year));
+  }, [matchTracks, rec.on, shown]);
   // Mix sin texto: toda la vista, como siempre. Por año: las pistas de los años que se ven.
   const mixDeLosVisibles = async () => { const ys = new Set(shown.map((y) => y.year)); return (await yearsViewTracks()).filter((t) => ys.has(t.year)); };
 
@@ -142,11 +159,14 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
           Mix mezcla SÓLO las pistas que coinciden (no todo lo de esos años). */}
       <div className="view-actions">
         <ShuffleButton
-          tracks={matchTracks ?? undefined}
-          getTracks={matchTracks ? undefined : (q === '' ? yearsViewTracks : mixDeLosVisibles)}
+          tracks={mixCoincide ?? undefined}
+          getTracks={mixCoincide ? undefined : (q === '' && !rec.on ? yearsViewTracks : mixDeLosVisibles)}
           count={shown.reduce((s, y) => s + (y.track_count ?? 0), 0)}
         />
-        <span className="section-count">{shown.length} {shown.length === 1 ? 'año' : 'años'}</span>
+        <span className="section-count">
+          {rec.on ? `${shown.length} de ${years.length} años` : `${shown.length} ${shown.length === 1 ? 'año' : 'años'}`}
+        </span>
+        <RecientesChip on={rec.pulsado} busy={rec.cargando} onToggle={rec.toggle} onWarm={rec.precargar} />
       </div>
       {porTexto && lib === null ? (
         <div className="spinner">Buscando…</div>
@@ -160,7 +180,10 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
         // Hay años pero ninguno coincide: la cabecera y el buscador siguen arriba para corregir.
         <div className="empty-state">
           <div className="empty-icon">📅</div>
-          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+          <div className="empty-title">
+            {rec.on ? (activeQuery ? `Sin resultados para «${activeQuery}» entre las recién añadidas` : 'Nada reciente') : `Sin resultados para «${activeQuery}»`}
+          </div>
+          {rec.on && <div className="empty-sub">Apaga «Recién añadidas» para ver todos los años.</div>}
         </div>
       ) : (
       <ul className="browse-list">
@@ -175,7 +198,9 @@ export default function Years({ target, clearTarget, setDetailOpen, navigate }) 
             {...dragProps(y, 'year')}
           >
             <span className="browse-item-name">{y.year}</span>
-            <span className="browse-item-meta">{y.album_count} álbumes · {y.track_count} pistas</span>
+            <span className="browse-item-meta">
+              {y.album_count} álbumes · {y.track_count} pistas{rec.on ? ` · ${rec.idx.years.get(y.year)} ${rec.idx.years.get(y.year) === 1 ? 'nueva' : 'nuevas'}` : ''}
+            </span>
           </li>
         ))}
       </ul>

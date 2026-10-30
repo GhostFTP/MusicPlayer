@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useCallback, useRef } from 'react';
+import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import TrackTable from './TrackTable.jsx';
@@ -13,6 +13,8 @@ import { emojiHue } from '../utils/emojiHue.js';
 import BackButton from './BackButton.jsx';
 import SearchBox from './SearchBox.jsx';
 import { useListFilter } from '../utils/useListFilter.js';
+import RecientesChip from './RecientesChip.jsx';
+import { useRecientes } from '../utils/useRecientes.js';
 
 // Dónde busca el buscador del listado: el nombre del género.
 const SEARCH_FIELDS = ['genre'];
@@ -44,7 +46,15 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   // Buscador del listado (utils/useListFilter.js), igual que en Álbumes: el texto vive acá, así que
   // entrar a un género y volver lo conserva; cambiar de vista desmonta Genres y lo borra. `shown` es
   // lo que se ve: tarjetas, contador y Mix salen de ahí.
-  const { query, setQuery, activeQuery, filtered: shown, touched } = useListFilter(genres, SEARCH_FIELDS);
+  const { query, setQuery, activeQuery, filtered: searched, touched } = useListFilter(genres, SEARCH_FIELDS);
+  // «Recién añadidas» (utils/useRecientes.js): los géneros con AL MENOS UNA pista reciente, en AND con el
+  // buscador; cada tarjeta lleva su «N nuevas». El detalle al abrirla NO cambia (el género completo).
+  // Apagado, `shown` ES `searched` (misma identidad: el Mix la compara).
+  const rec = useRecientes();
+  const shown = useMemo(
+    () => (rec.on ? searched.filter((g) => rec.idx.genres.has(g.genre)) : searched),
+    [rec.on, rec.idx, searched],
+  );
   // Mix: mezcla las pistas de la VISTA, como siempre (genresViewTracks). Con filtro, la vista son los
   // géneros que quedan → sus pistas; sin filtro es exactamente el pedido de antes.
   const mixTracks = useCallback(async () => {
@@ -86,7 +96,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
   useEffect(() => {
     // Con `tab` (tocar la pestaña activa, ver Layout.navigate) además se borra el buscador; sin él es
     // el atrás desde un detalle, que lo conserva.
-    if (target?.reset) { setSel(null); setTracks(null); if (target.tab) setQuery(''); clearTarget(); return; }
+    if (target?.reset) { setSel(null); setTracks(null); if (target.tab) { setQuery(''); rec.apagar(); } clearTarget(); return; }
     if (!target?.genre || !genres) return;
     const g = genres.find(x => x.genre === target.genre);
     if (g) open(g);
@@ -148,22 +158,29 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
           contador (los listados no tienen ▶ Reproducir). */}
       <div className="view-actions">
         <ShuffleButton getTracks={mixTracks} count={shown.reduce((s, g) => s + (g.track_count ?? 0), 0)} />
-        <span className="section-count">{shown.length} {shown.length === 1 ? 'género' : 'géneros'}</span>
+        <span className="section-count">
+          {rec.on ? `${shown.length} de ${genres.length} géneros` : `${shown.length} ${shown.length === 1 ? 'género' : 'géneros'}`}
+        </span>
+        <RecientesChip on={rec.pulsado} busy={rec.cargando} onToggle={rec.toggle} onWarm={rec.precargar} />
       </div>
       {shown.length === 0 ? (
         // Hay géneros pero ninguno coincide: la cabecera y el buscador siguen arriba para corregir.
         <div className="empty-state">
           <div className="empty-icon">🏷️</div>
-          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+          <div className="empty-title">
+            {rec.on ? (activeQuery ? `Sin resultados para «${activeQuery}» entre las recién añadidas` : 'Nada reciente') : `Sin resultados para «${activeQuery}»`}
+          </div>
+          {rec.on && <div className="empty-sub">Apaga «Recién añadidas» para ver todos los géneros.</div>}
         </div>
       ) : (
-      // --still: ya se usó el buscador → sin entrada escalonada (ver `touched` en useListFilter).
-      <ul className={touched ? 'browse-list browse-list--still' : 'browse-list'}>
+      // --still: ya se usó el buscador o el chip → sin entrada escalonada (ver `touched` en useListFilter).
+      <ul className={touched || rec.tocado ? 'browse-list browse-list--still' : 'browse-list'}>
         {shown.map((g, idx) => (
           <GenreItem
             key={g.genre}
             g={g}
             index={idx}
+            nuevas={rec.on ? rec.idx.genres.get(g.genre) : undefined}
             bindPress={bindPress}
             dragProps={dragProps}
             onOpen={onOpen}
@@ -178,7 +195,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
 
 // Tarjeta memoizada: Genres consume PlayerContext (por `play`) y se re-renderiza al cambiar de canción;
 // con props estables las tarjetas no. El style (hue + escalonado) se arma adentro.
-const GenreItem = memo(function GenreItem({ g, index, bindPress, dragProps, onOpen, onCtx }) {
+const GenreItem = memo(function GenreItem({ g, index, nuevas, bindPress, dragProps, onOpen, onCtx }) {
   return (
     <li
       className="browse-item genre-item"
@@ -193,7 +210,9 @@ const GenreItem = memo(function GenreItem({ g, index, bindPress, dragProps, onOp
         <span className="genre-tile" aria-hidden="true">{genreEmoji(g.genre)}</span>
         <span className="browse-item-name">{g.genre}</span>
       </span>
-      <span className="browse-item-meta">{g.track_count} pistas · {g.album_count} álbumes</span>
+      <span className="browse-item-meta">
+        {g.track_count} pistas · {g.album_count} álbumes{nuevas ? ` · ${nuevas} ${nuevas === 1 ? 'nueva' : 'nuevas'}` : ''}
+      </span>
     </li>
   );
 });

@@ -68,6 +68,10 @@ export function refreshLibraryIfStale() {
   refresh().catch(() => {});
 }
 
+// Lo que YA hay en memoria de la biblioteca (o null), sin pedir nada ni revalidar: para pintar al
+// instante en el primer render sin esperar a nadie (utils/useRecientes.js).
+export const cachedLibrary = () => readCache(LIBRARY_KEY)?.data ?? null;
+
 // Biblioteca completa del usuario actual. [] si la cuenta cambió mientras se pedía (fetchFresh
 // descarta el resultado): el Mix no reproduce nada en vez de mezclar la lista de otra cuenta.
 // Los errores de red se propagan (igual que el getTracks de antes).

@@ -3,6 +3,12 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.41.0] - 2026-10-29
+
+### Nuevo
+- **Filtro «Recién añadidas».** En Biblioteca, Álbumes, Artistas, Géneros y Años, un botón deja a la
+  vista solo lo último que sumaste a tu música; tócalo otra vez para volver a verlo todo.
+
 ## [1.40.2] - 2026-10-29
 
 ### Técnico

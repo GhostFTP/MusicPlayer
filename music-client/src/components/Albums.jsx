@@ -15,6 +15,9 @@ import { currentOwner } from '../utils/playsOutbox.js';
 import SearchBox from './SearchBox.jsx';
 import { useListFilter } from '../utils/useListFilter.js';
 import AlbumsFilter from './AlbumsFilter.jsx';
+import RecientesChip from './RecientesChip.jsx';
+import { useRecientes } from '../utils/useRecientes.js';
+import { albumKeyDe } from '../utils/recientes.js';
 import {
   readAlbumsFilter, writeAlbumsFilter, DEFAULT_ALBUM_FILTER,
   availableDecades, effectiveFilter, activeCount, applyAlbumsFilter,
@@ -25,9 +28,9 @@ const ALBUMS_CACHE_KEY = 'albums:list';
 
 // Dónde busca el buscador del listado: nombre del álbum y artista del álbum (lo que dice la tarjeta).
 const SEARCH_FIELDS = ['album', 'album_artist'];
-// Identidad de un álbum para cruzarlo con las pistas (el Mix filtrado): álbum + artista del álbum,
-// la misma pareja por la que agrupa el backend. Sin artista, null y '' son el mismo caso.
-const albumKey = (x) => `${x.album}\n${x.album_artist ?? ''}`;
+// Identidad de un álbum para cruzarlo con las pistas (el Mix filtrado y «Recién añadidas»): álbum +
+// artista del álbum, la misma pareja por la que agrupa el backend. Sin artista, null y '' son el mismo caso.
+const albumKey = albumKeyDe;
 
 export default function Albums({ target, clearTarget, setDetailOpen, navigate }) {
   // Stale-while-revalidate (Frente 1, sub-paso 5): con la lista ya cacheada en esta sesión, el
@@ -64,6 +67,15 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   // este mismo componente con otro JSX, así que entrar a un álbum y volver lo conserva; cambiar de
   // vista desmonta Albums y lo borra. `shown` es lo que se ve: tarjetas, contador y Mix salen de ahí.
   const { query, setQuery, activeQuery, filtered: searched } = useListFilter(albums, SEARCH_FIELDS);
+  // «Recién añadidas» (utils/useRecientes.js): los álbumes con AL MENOS UNA pista reciente. Va en AND con el
+  // buscador (acá, sobre lo buscado) y con el filtro (después), y es independiente de éste: no suma a su
+  // badge ni se guarda con él. La biblioteca se pide al PRIMER TOQUE del chip (no al montar; el chip nace habilitado).
+  // Apagado, `conChip` ES `searched` (misma identidad): lo de abajo corre como siempre.
+  const rec = useRecientes();
+  const conChip = useMemo(
+    () => (rec.on ? searched.filter((a) => rec.idx.albums.has(albumKey(a))) : searched),
+    [rec.on, rec.idx, searched],
+  );
   // Filtro (orden + década, utils/albumsFilter.js): por usuario, se lee al montar como la vista. Va
   // DESPUÉS del buscador. Las décadas se derivan de la lista entera (no de lo buscado), y las
   // guardadas que ya no existen se descartan (no filtran ni cuentan en el badge). Sin filtro activo
@@ -74,7 +86,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   const filterOn = activeCount(filter) > 0;
   const changeFilter = useCallback((f) => { setRawFilter(f); writeAlbumsFilter(currentOwner(), f); }, []);
   const clearFilter = useCallback(() => changeFilter(DEFAULT_ALBUM_FILTER), [changeFilter]);
-  const shown = useMemo(() => applyAlbumsFilter(searched, filter), [searched, filter]);
+  const shown = useMemo(() => applyAlbumsFilter(conChip, filter), [conChip, filter]);
   // Mix: mezcla las pistas de la VISTA, como siempre (albumsViewTracks). Con filtro, la vista son los
   // álbumes que quedan → sus pistas; sin filtro es exactamente el pedido de antes.
   const mixTracks = useCallback(async () => {
@@ -132,7 +144,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
   useEffect(() => {
     // reset = volver a la lista. Con `tab` (tocar la pestaña activa, ver Layout.navigate) además se
     // borra el buscador; sin él es el atrás desde un detalle, que lo conserva.
-    if (target?.reset) { setSelected(null); if (target.tab) setQuery(''); clearTarget(); return; }
+    if (target?.reset) { setSelected(null); if (target.tab) { setQuery(''); rec.apagar(); } clearTarget(); return; }
     if (!target?.album || loading) return;
     // album_artist null (ruta /albums/@/…, o una pista sin album_artist) = el álbum SIN artista de ese
     // nombre; si no hubiera ninguno, el primero con ese nombre (lo que hacía antes).
@@ -213,8 +225,9 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
       <div className="view-actions">
         <ShuffleButton getTracks={mixTracks} count={loading || error ? undefined : shown.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
         <span className="section-count">
-          {filterOn ? `${shown.length} de ${albums.length} álbumes` : `${shown.length} ${shown.length === 1 ? 'álbum' : 'álbumes'}`}
+          {filterOn || rec.on ? `${shown.length} de ${albums.length} álbumes` : `${shown.length} ${shown.length === 1 ? 'álbum' : 'álbumes'}`}
         </span>
+        <RecientesChip on={rec.pulsado} busy={rec.cargando} onToggle={rec.toggle} onWarm={rec.precargar} />
         {/* Filtro + vista van juntos a la derecha (el margin-left:auto es del grupo). */}
         <div className="view-tools">
           <AlbumsFilter filter={filter} decades={decades} onChange={changeFilter} onClear={clearFilter} />
@@ -230,8 +243,12 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
         <div className="empty-state">
           <div className="empty-icon">💿</div>
           <div className="empty-title">
-            {filterOn && !activeQuery ? 'Ningún álbum coincide con el filtro' : `Sin resultados para «${activeQuery}»`}
+            {rec.on
+              ? (activeQuery ? `Sin resultados para «${activeQuery}» entre las recién añadidas`
+                  : filterOn ? 'Ningún álbum reciente coincide con el filtro' : 'Nada reciente')
+              : (filterOn && !activeQuery ? 'Ningún álbum coincide con el filtro' : `Sin resultados para «${activeQuery}»`)}
           </div>
+          {rec.on && <div className="empty-sub">Apaga «Recién añadidas» para ver todos los álbumes.</div>}
           {filterOn && (
             <>
               {activeQuery && <div className="empty-sub">También hay un filtro activo.</div>}

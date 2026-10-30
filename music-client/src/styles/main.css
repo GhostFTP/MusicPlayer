@@ -360,7 +360,10 @@ button, input, select, textarea { font-family: inherit; }
 /* ── BIBLIOTECA: banner Mix aleatorio + contador ─────────── */
 /* Fila de acciones B (Frente 2, M2d): la de Biblioteca (.library-actions) es el molde; .view-actions
    es la misma fila en los listados y detalles sin hero (Mix + contador, o ▶ + Mix). Con wrap para
-   que a 390 px no desborde. */
+   que a 390 px no desborde. La de Biblioteca también lleva wrap desde que suma el chip «Recién añadidas»:
+   a 390 px Mix + conteo + chip no caben en una línea (el chip se salía de la pantalla) y el chip pasa a la
+   segunda. En 700 px o más caben los tres y el wrap no hace nada. */
+.library-actions,
 .view-actions { flex-wrap: wrap; }
 .library-actions,
 .view-actions {
@@ -488,6 +491,74 @@ button, input, select, textarea { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .library-count { animation: none; }
   .library-count .lc-tick { animation: none; }
+}
+
+/* Chip «Recién añadidas» (RecientesChip): toggle en la fila de acciones de la Biblioteca, a la derecha del
+   conteo. Sin movimiento propio salvo el apretón al tocar; todo lo demás son colores.
+   Sale de la familia del Mix (mismos tintes, bordes y halo con --h, que cae al 265 morado) y de los
+   activos de la casa (--accent / --accent-dim, el segmento activo del riel .pl-sort-seg); no hay color nuevo.
+     · reposo:    el tinte ghost del Mix + texto pleno + ícono en --accent (que no parezca deshabilitado).
+     · hover:     (sólo con puntero que pasa) letra blanca como en reposo, borde y fondo al acento y un halo
+                  sutil en el texto.
+     · foco:      aro claro de 2px (el del Mix).
+     · encendido: el relleno del segmento activo del riel, más intenso, con halo (el del hover del Mix).
+     · :active:   respuesta inmediata (sin fundido) para el dedo, que no tiene hover.
+     · disabled:  atenuado pero legible (para una vista que no pueda usarlo; hoy ninguna). */
+.recientes-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 40px; padding: 0 16px 0 13px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--h, 265) 55% 55% / .35);
+  background: hsl(var(--h, 265) 40% 30% / .22);
+  color: var(--text);
+  font-size: 13px; font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+  transition: color .15s, background .15s, border-color .15s, box-shadow .15s, text-shadow .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.recientes-chip-ico { display: inline-flex; flex-shrink: 0; color: var(--accent); }
+@media (hover: hover) {
+  .recientes-chip:hover:not(:disabled) {
+    color: var(--text);
+    background: hsl(var(--h, 265) 55% 55% / .24);
+    border-color: var(--accent);
+    text-shadow: 0 0 8px hsl(var(--h, 265) 70% 70% / .7);
+  }
+}
+.recientes-chip:focus-visible { outline: 2px solid hsl(var(--h, 265) 70% 70%); outline-offset: 2px; }
+.recientes-chip[aria-pressed="true"] {
+  color: var(--text);
+  background: hsl(var(--h, 265) 55% 55% / .3);
+  border-color: var(--accent);
+  box-shadow: 0 0 14px hsl(var(--h, 265) 55% 40% / .45);
+}
+@media (hover: hover) {
+  .recientes-chip[aria-pressed="true"]:hover:not(:disabled) {
+    color: var(--text);
+    background: hsl(var(--h, 265) 55% 55% / .38);
+    border-color: var(--accent);
+  }
+}
+.recientes-chip:active:not(:disabled) {
+  color: var(--accent);
+  background: hsl(var(--h, 265) 55% 55% / .4);
+  border-color: var(--accent);
+  transform: scale(.97);
+  transition: none;
+}
+.recientes-chip[aria-pressed="true"]:active:not(:disabled) { color: var(--text); }
+.recientes-chip:disabled { opacity: .6; cursor: default; box-shadow: none; }
+/* Pidiendo la biblioteca tras el primer toque: sigue encendido pero ocupado (el clic sigue vivo: otro toque cancela). */
+.recientes-chip[aria-busy="true"] { opacity: .8; cursor: progress; }
+.recientes-chip[aria-busy="true"] .recientes-chip-ico { animation: recientes-carga 1s ease-in-out infinite; }
+@keyframes recientes-carga { 50% { opacity: .3; } }
+@media (pointer: coarse), (max-width: 700px) { .recientes-chip { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) {
+  .recientes-chip { transition: none; }
+  .recientes-chip:active:not(:disabled) { transform: none; }
+  .recientes-chip[aria-busy="true"] .recientes-chip-ico { animation: none; }
 }
 
 /* ── SEARCH ─────────────────────────────── */
