@@ -12,6 +12,8 @@ import { readCache, fetchFresh } from '../api/viewCache.js';
 import { loadAllTracks } from '../utils/libraryLoader.js';
 import { useWindowedRows } from '../utils/useWindowedRows.js';
 import SearchBox from './SearchBox.jsx';
+import RecientesChip from './RecientesChip.jsx';
+import { umbralDe, filtrarRecientes } from '../utils/recientes.js';
 
 // Clave de la caché de vistas (viewCache.js): la biblioteca completa.
 const LIB_CACHE_KEY = 'tracks:all';
@@ -55,6 +57,9 @@ export default function Library({ target, clearTarget }) {
   const [libStats, setLibStats] = useState(() => (cached ? computeLibStats(cached.data) : null));    // stats de la biblioteca COMPLETA (se congelan; ver fetch)
   const [sortMode, setSortMode] = useState('artist'); // 'title'|'artist'|'album'|'year'|'duration'
   const [sortDir,  setSortDir]  = useState('asc');    // 'asc' | 'desc'
+  // «Recién añadidas» (utils/recientes.js): sólo estado de ESTA visita. No se guarda ni va en la URL: la
+  // vista se desmonta al salir y arranca apagado.
+  const [recientes, setRecientes] = useState(false);
   const { play, currentTrack, isPlaying } = usePlayer();
   const { openMenu } = useContextMenu();   // clic derecho sobre la fila (desktop; el gate lo pone el menú)
   // C1 · long-press = el mismo menú en móvil (ver TrackTable, misma fila y mismo hook).
@@ -113,6 +118,7 @@ export default function Library({ target, clearTarget }) {
   useEffect(() => {
     if (!target?.reset) return;
     setSearch('');
+    setRecientes(false);   // volver a la lista completa también apaga «Recién añadidas»
     clearTarget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
@@ -132,9 +138,15 @@ export default function Library({ target, clearTarget }) {
   // Orden visible derivado UNA vez: lo usan el .map(), el índice de play(), el
   // ShuffleButton y el contador → la fila que suena coincide con la vista.
   // sortTracks copia con [...tracks] → el array del fetch NUNCA se muta.
+  // «Recién añadidas»: el umbral sale de la biblioteca COMPLETA (no de lo que se ve) y se filtra ANTES de
+  // ordenar. Con el chip APAGADO `base` ES `tracks` (misma identidad): lo de abajo —orden, búsqueda, Mix y
+  // cola— corre exactamente igual que antes. RIESGO CONOCIDO (detalle en utils/recientes.js): el id nace con
+  // la fila, así que reorganizar carpetas regenera ids y puede marcar pistas viejas como «recientes».
+  const umbral = useMemo(() => umbralDe(tracks), [tracks]);
+  const base = useMemo(() => (recientes ? filtrarRecientes(tracks, umbral) : tracks), [tracks, umbral, recientes]);
   const displayTracks = useMemo(
-    () => sortTracks(tracks, sortMode, sortDir),
-    [tracks, sortMode, sortDir]
+    () => sortTracks(base, sortMode, sortDir),
+    [base, sortMode, sortDir]
   );
 
   // Texto normalizado de cada pista, calculado UNA vez por carga (no por tecla).
@@ -235,7 +247,7 @@ export default function Library({ target, clearTarget }) {
   // (hasLoaded) para que el snap+tick se vea (no parpadea al re-buscar).
   const total = visibleTracks.length;
   const { shown, seq } = useCountUp(total, !loading, !!cached);
-  const noun = countWord(total, !!activeSearch);
+  const noun = countWord(total, !!activeSearch, recientes);
   const finalLabel = `${total} ${noun}`;   // texto FINAL (aria) — número real
 
   // Stats del header: identidad ESTABLE de la biblioteca completa (no repite el
@@ -290,6 +302,9 @@ export default function Library({ target, clearTarget }) {
             <span className="lc-word" aria-hidden="true">{noun}</span>
           </span>
         )}
+        {hasLoaded && !error && tracks.length > 0 && (
+          <RecientesChip on={recientes} onToggle={() => setRecientes((v) => !v)} />
+        )}
       </div>
 
       {loading ? (
@@ -307,7 +322,15 @@ export default function Library({ target, clearTarget }) {
         <div className="empty-state">
           <div className="empty-icon">🎵</div>
           {activeSearch && tracks.length > 0 ? (
-            <div className="empty-title">Sin resultados para «{activeSearch}»</div>
+            <>
+              <div className="empty-title">Sin resultados para «{activeSearch}»{recientes ? ' entre las recién añadidas' : ''}</div>
+              {recientes && <div className="empty-sub">Apaga «Recién añadidas» para buscar en toda la biblioteca.</div>}
+            </>
+          ) : recientes && tracks.length > 0 ? (
+            <>
+              <div className="empty-title">Nada reciente</div>
+              <div className="empty-sub">Apaga «Recién añadidas» para ver toda la biblioteca.</div>
+            </>
           ) : (
             <>
               <div className="empty-title">Biblioteca vacía</div>
@@ -559,9 +582,10 @@ function useCountUp(target, active, fromCache = false) {
   return { shown, seq };
 }
 
-// Palabra del contador, pluralizada por el número FINAL: canciones / resultados.
-function countWord(n, searching) {
+// Palabra del contador, pluralizada por el número FINAL: canciones / resultados / recientes.
+function countWord(n, searching, recientes = false) {
   if (searching) return n === 1 ? 'resultado' : 'resultados';
+  if (recientes) return n === 1 ? 'reciente' : 'recientes';
   return n === 1 ? 'canción' : 'canciones';
 }
 

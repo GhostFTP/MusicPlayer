@@ -13,6 +13,8 @@ import { useDragQueue } from '../context/DragQueueContext.jsx';
 import BackButton from './BackButton.jsx';
 import SearchBox from './SearchBox.jsx';
 import { useListFilter } from '../utils/useListFilter.js';
+import RecientesChip from './RecientesChip.jsx';
+import { useRecientes } from '../utils/useRecientes.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { matchArtist } from '../utils/artistMatch.js';
 import { useVideoList } from '../utils/videoList.js';
@@ -101,7 +103,15 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
   // Buscador del listado (utils/useListFilter.js), igual que en Álbumes: el texto vive acá, así que
   // entrar a un artista y volver lo conserva; cambiar de vista desmonta Artists y lo borra. `shown`
   // es lo que se ve: retratos, contador y Mix salen de ahí.
-  const { query, setQuery, activeQuery, filtered: shown, touched } = useListFilter(artists, SEARCH_FIELDS);
+  const { query, setQuery, activeQuery, filtered: searched, touched } = useListFilter(artists, SEARCH_FIELDS);
+  // «Recién añadidas» (utils/useRecientes.js): los artistas con AL MENOS UNA pista reciente (por album_artist,
+  // que acá es `artist`), en AND con el buscador. Apagado, `shown` ES `searched` (misma identidad: el Mix la
+  // compara). La biblioteca se pide al PRIMER TOQUE del chip (no al montar; el chip nace habilitado).
+  const rec = useRecientes();
+  const shown = useMemo(
+    () => (rec.on ? searched.filter((a) => rec.idx.artists.has(a.artist)) : searched),
+    [rec.on, rec.idx, searched],
+  );
   // Mix: mezcla las pistas de la VISTA, como siempre (artistsViewTracks). Con filtro, la vista son
   // los artistas que quedan → sus pistas (por album_artist, que acá es `artist`); sin filtro es
   // exactamente el pedido de antes.
@@ -169,7 +179,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
   useEffect(() => {
     // Con `tab` (tocar la pestaña activa, ver Layout.navigate) además se borra el buscador; sin él es
     // el atrás desde un detalle, que lo conserva.
-    if (target?.reset) { setSel(null); setAlbums(null); if (target.tab) setQuery(''); clearTarget(); return; }
+    if (target?.reset) { setSel(null); setAlbums(null); if (target.tab) { setQuery(''); rec.apagar(); } clearTarget(); return; }
     if (!target?.artist || !artists) return;
     const a = artists.find(x => x.artist === target.artist);
     if (a) open(a);
@@ -283,7 +293,10 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
           contador (los listados no tienen ▶ Reproducir). */}
       <div className="view-actions">
         <ShuffleButton getTracks={mixTracks} count={shown.reduce((s, a) => s + (a.track_count ?? 0), 0)} />
-        <span className="section-count">{shown.length} {shown.length === 1 ? 'artista' : 'artistas'}</span>
+        <span className="section-count">
+          {rec.on ? `${shown.length} de ${artists.length} artistas` : `${shown.length} ${shown.length === 1 ? 'artista' : 'artistas'}`}
+        </span>
+        <RecientesChip on={rec.pulsado} busy={rec.cargando} onToggle={rec.toggle} onWarm={rec.precargar} />
       </div>
       {/* Grilla propia, NO `.album-grid`: la tarjeta ES la foto (retrato 3:4 a sangre, texto
           encima). Antes esto era literalmente la tarjeta de Álbumes con la miniatura
@@ -293,11 +306,14 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
         // Hay artistas pero ninguno coincide: la cabecera y el buscador siguen arriba para corregir.
         <div className="empty-state">
           <div className="empty-icon">🎤</div>
-          <div className="empty-title">Sin resultados para «{activeQuery}»</div>
+          <div className="empty-title">
+            {rec.on ? (activeQuery ? `Sin resultados para «${activeQuery}» entre las recién añadidas` : 'Nada reciente') : `Sin resultados para «${activeQuery}»`}
+          </div>
+          {rec.on && <div className="empty-sub">Apaga «Recién añadidas» para ver todos los artistas.</div>}
         </div>
       ) : (
-      // --still: ya se usó el buscador → sin entrada escalonada (ver `touched` en useListFilter).
-      <div className={touched ? 'artist-grid artist-grid--still' : 'artist-grid'}>
+      // --still: ya se usó el buscador o el chip → sin entrada escalonada (ver `touched` en useListFilter).
+      <div className={touched || rec.tocado ? 'artist-grid artist-grid--still' : 'artist-grid'}>
         {shown.map((a, i) => (
           <div
             key={a.artist}
