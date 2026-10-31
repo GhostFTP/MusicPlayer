@@ -20,6 +20,11 @@ const MEDIA_ACTIONS = [
   'seekto', 'seekbackward', 'seekforward', 'stop',
 ];
 
+// Donde se escribe o se elige, las teclas son del campo y no del atajo global de play/pausa y
+// ±10 s. `input` de cualquier tipo (incluye los sliders, como siempre). Lo editable
+// (contenteditable) se mira aparte con isContentEditable.
+const KEY_FIELDS = 'input, textarea, select, [role="textbox"], [role="combobox"], [role="searchbox"]';
+
 // El elemento en pantalla completa, con o sin prefijo (Safari viejo/iPad usa el webkit).
 function fullscreenElement() {
   return document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
@@ -247,10 +252,19 @@ export function PlayerProvider({ children }) {
     };
   }, [playNext]);
 
-  // Keyboard: space = play/pause, ←/→ = seek 10s (sobre el elemento activo)
+  // Keyboard: space = play/pause, ←/→ = seek 10s (sobre el elemento activo).
+  // El atajo no actúa si alguien ya manejó la tecla, si es una repetición por mantenerla, si se
+  // está componiendo texto (IME), si lleva Ctrl/Alt/Meta/Shift (son del navegador o del sistema:
+  // Alt+← es "atrás"), o si el foco está donde se escribe o se elige: ahí la tecla es del campo.
+  // Botones y enlaces siguen capturados a propósito (se decide aparte).
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target.tagName === 'INPUT') return;
+      if (e.defaultPrevented) return;
+      if (e.repeat) return;
+      if (e.isComposing) return;
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      const t = e.target;
+      if (t?.closest?.(KEY_FIELDS) || t?.isContentEditable) return;
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
       if (e.code === 'ArrowRight') seek(getActive().currentTime + 10);
       if (e.code === 'ArrowLeft')  seek(getActive().currentTime - 10);
