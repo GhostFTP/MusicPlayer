@@ -72,6 +72,7 @@
     },
     { "nombre": "login-eleccion-func", "archivo": "login-eleccion-func.mjs", "modo": "name-line", "esperado": { "ok": 18, "total": 18 } },
     { "nombre": "login-sso-func", "archivo": "login-sso-func.mjs", "modo": "name-line", "esperado": { "ok": 24, "total": 24 } },
-    { "nombre": "buscar-func", "archivo": "buscar-func.mjs", "modo": "name-line", "esperado": { "ok": 34, "total": 34 } }
+    { "nombre": "buscar-func", "archivo": "buscar-func.mjs", "modo": "name-line", "esperado": { "ok": 34, "total": 34 } },
+    { "nombre": "teclado-func", "archivo": "teclado-func.mjs", "modo": "name-line", "esperado": { "ok": 23, "total": 23 } }
   ]
 }
