@@ -24,6 +24,15 @@ const MEDIA_ACTIONS = [
 // ±10 s. `input` de cualquier tipo (incluye los sliders, como siempre). Lo editable
 // (contenteditable) se mira aparte con isContentEditable.
 const KEY_FIELDS = 'input, textarea, select, [role="textbox"], [role="combobox"], [role="searchbox"]';
+// Espacio sobre un control al que se llegó con Tab es del control (lo activa). Los enlaces no
+// están: en un enlace Espacio desplaza la página, no lo abre.
+const SPACE_CONTROLS = 'button, summary, [role="button"], [role="radio"], [role="menuitem"], '
+  + '[role="menuitemradio"], [role="menuitemcheckbox"], [role="tab"], [role="option"], [role="switch"], [role="checkbox"]';
+// Dentro del reproductor Espacio sigue siendo play/pausa aunque se haya llegado con Tab, salvo en el
+// menú «+» ya abierto, que es un menú como cualquier otro. (Los controles del video en pantalla
+// completa manejan Espacio por su cuenta y no llegan acá.)
+const PLAYER_AREAS = '.player-bar, .player-expanded, .queue-panel, .lyrics-panel';
+const PLAYER_MENUS = '.ptp-menu';
 
 // El elemento en pantalla completa, con o sin prefijo (Safari viejo/iPad usa el webkit).
 function fullscreenElement() {
@@ -256,8 +265,18 @@ export function PlayerProvider({ children }) {
   // El atajo no actúa si alguien ya manejó la tecla, si es una repetición por mantenerla, si se
   // está componiendo texto (IME), si lleva Ctrl/Alt/Meta/Shift (son del navegador o del sistema:
   // Alt+← es "atrás"), o si el foco está donde se escribe o se elige: ahí la tecla es del campo.
-  // Botones y enlaces siguen capturados a propósito (se decide aparte).
+  // Botones y controles: Espacio es del control enfocado si se llegó a él con Tab. Sigue siendo
+  // play/pausa si el último movimiento fue un clic o un toque, o si el control está dentro del
+  // reproductor (salvo el menú «+» abierto). En los enlaces Espacio sigue siendo play/pausa siempre.
   useEffect(() => {
+    // Cómo se llegó al foco por última vez: 'teclado' sólo con Tab (con o sin Shift); cualquier
+    // pointerdown (mouse, dedo o lápiz) lo vuelve 'puntero'. Las flechas no cambian el modo.
+    let modo = 'puntero';
+    const onPointer = () => { modo = 'puntero'; };
+    const onTab = (e) => { if (e.key === 'Tab') modo = 'teclado'; };
+    const spaceIsTheControls = (t) =>
+      modo === 'teclado' && !!t?.closest?.(SPACE_CONTROLS)
+      && (!t.closest(PLAYER_AREAS) || !!t.closest(PLAYER_MENUS));
     const onKey = (e) => {
       if (e.defaultPrevented) return;
       if (e.repeat) return;
@@ -265,12 +284,21 @@ export function PlayerProvider({ children }) {
       if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
       const t = e.target;
       if (t?.closest?.(KEY_FIELDS) || t?.isContentEditable) return;
-      if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+      if (e.code === 'Space') {
+        if (spaceIsTheControls(t)) return;   // sin preventDefault: ocurre la acción nativa del control
+        e.preventDefault(); togglePlay();
+      }
       if (e.code === 'ArrowRight') seek(getActive().currentTime + 10);
       if (e.code === 'ArrowLeft')  seek(getActive().currentTime - 10);
     };
+    window.addEventListener('pointerdown', onPointer, true);
+    window.addEventListener('keydown', onTab, true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onPointer, true);
+      window.removeEventListener('keydown', onTab, true);
+      window.removeEventListener('keydown', onKey);
+    };
   }, []);
 
   // Metadata enriquecida de la pista actual (badge de calidad + `album` para MediaSession).
