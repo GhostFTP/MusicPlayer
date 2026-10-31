@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.41.2] - 2026-10-30
+## [1.41.2] - 2026-10-31
 
 ### Corregido
 - **Teclado en botones.** Si llegas a un botón con Tab, la barra espaciadora lo activa en vez de pausar
