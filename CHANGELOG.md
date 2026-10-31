@@ -3,6 +3,13 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.41.2] - 2026-10-30
+
+### Corregido
+- **Teclado en botones.** Si llegas a un botón con Tab, la barra espaciadora lo activa en vez de pausar
+  la música. Después de un clic o un toque, Espacio sigue pausando como siempre, y dentro del reproductor
+  también.
+
 ## [1.41.1] - 2026-10-30
 
 ### Corregido
