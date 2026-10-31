@@ -5,7 +5,7 @@
 //   3. Doble clic y clic repetido mientras pide la lista: 1 petición y 1 reproducción.
 //   4. Tab + Enter activa el botón.
 //   5. Árbol de accesibilidad (CDP): nombre, descripción, deshabilitado y aria-busy durante el pedido.
-//   6. Espacio con el botón enfocado: se DOCUMENTA lo que pasa (es de M4, no se arregla acá).
+//   6. Espacio con el botón enfocado por Tab: activa el Mix y no pausa (Paso 2 del teclado).
 //   M2c: el foco se conserva mientras pide la lista (aria-busy en vez de disabled); fallo de red →
 //   UN toast ámbar (y uno solo con 3 clics seguidos); 401 → sin toast; la capa de toasts es anunciable.
 // Uso: SNAP_BASE=http://localhost:4173 node mix-a11y.mjs
@@ -226,16 +226,20 @@ const tabTo = async (p, sel) => {
     { normal, deshab, ocupado });
 }
 
-// 6) Espacio con el botón enfocado y música sonando (se documenta, no se arregla: M4)
+// 6) Espacio con el botón enfocado POR TAB y música sonando: activa el Mix y no pausa (Paso 2 del teclado)
 {
   const { ctx, p } = await newPage();
   await p.goto(BASE + '/'); await p.waitForSelector('.library-tracks .track-row'); await p.waitForTimeout(1200);
   await p.locator('.library-tracks .track-row').nth(1).click(); await p.waitForTimeout(1000);
   const antes = await p.evaluate(() => ({ paused: window.__audio.paused, srcSets: window.__srcSets }));
-  await tabTo(p, '.library-actions .mix-btn');
+  // Al Mix con Tab desde el título (desde la fila, Tab sigue hacia abajo por la lista y nunca llega).
+  const titulo = await p.locator('.main-content .section-title, .main-content h1').first().boundingBox();
+  await p.mouse.click(titulo.x + 5, titulo.y + titulo.height / 2); await p.waitForTimeout(150);
+  const llego = await tabTo(p, '.library-actions .mix-btn');
   await p.keyboard.press('Space'); await p.waitForTimeout(1200);
   const despues = await p.evaluate(() => ({ paused: window.__audio.paused, srcSets: window.__srcSets }));
-  ok('espacio_con_foco_DOCUMENTA', true, { sonabaAntes: !antes.paused, pausadoDespues: despues.paused, mixSeActivo: despues.srcSets > antes.srcSets, nota: 'la guarda de teclado de PlayerContext.jsx sólo excluye INPUT → Espacio hace play/pausa y no activa el botón (M4)' });
+  ok('espacio_tras_tab_activa_el_mix', llego && !antes.paused && despues.srcSets > antes.srcSets && !despues.paused,
+    { llego, sonabaAntes: !antes.paused, pausadoDespues: despues.paused, mixSeActivo: despues.srcSets > antes.srcSets });
   await ctx.close();
 }
 

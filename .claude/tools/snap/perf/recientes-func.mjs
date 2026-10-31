@@ -185,7 +185,7 @@ await seccion(['mix_respeta_el_set_de_recientes', 'mix_apagado_usa_toda_la_bibli
   await o.ctx.close();
 });
 
-await seccion(['se_reinicia_al_salir_y_volver', 'tocar_la_pestana_activa_lo_apaga', 'no_persiste_ni_va_en_la_url', 'teclado_enter_alterna_y_conserva_el_foco'], async () => {
+await seccion(['se_reinicia_al_salir_y_volver', 'tocar_la_pestana_activa_lo_apaga', 'no_persiste_ni_va_en_la_url', 'teclado_enter_alterna_y_conserva_el_foco', 'teclado_tab_espacio_alterna_el_chip'], async () => {
   const o = await open();
   const nav = (t) => o.p.locator('.sidebar-nav button', { hasText: t });
   const snap = () => o.p.evaluate(() => JSON.stringify([Object.entries(localStorage).filter(([k]) => k !== 'token').sort(), Object.entries(sessionStorage).sort(), location.href]));
@@ -202,17 +202,23 @@ await seccion(['se_reinicia_al_salir_y_volver', 'tocar_la_pestana_activa_lo_apag
   await nav('Biblioteca').click(); await sleep(700);
   const e2 = await estado(o.p);
   ok('tocar_la_pestana_activa_lo_apaga', e2.pressed === 'false' && e2.label === `${TOTAL} canciones`, { estado: e2 });
-  const chip = o.p.locator(chipSel);
-  await chip.focus(); await o.p.keyboard.press('Enter'); await sleep(500);
+  // Al chip con Tab desde un clic en el título (no con focus()): Espacio activa un botón sólo si se llegó a él con Tab.
+  const titulo = await o.p.locator('.main-content .section-title, .main-content h1').first().boundingBox();
+  await o.p.mouse.click(titulo.x + 5, titulo.y + titulo.height / 2); await sleep(150);
+  let tabs = -1;
+  for (let i = 0; i < 40 && tabs < 0; i++) { await o.p.keyboard.press('Tab'); if (await o.p.evaluate((s) => document.activeElement?.matches(s), chipSel)) tabs = i + 1; }
+  await o.p.keyboard.press('Enter'); await sleep(500);
   const k1 = (await estado(o.p)).pressed; const f1 = await o.p.evaluate(() => document.activeElement?.classList.contains('recientes-chip'));
   await o.p.keyboard.press('Enter'); await sleep(500);
   const k2 = (await estado(o.p)).pressed; const f2 = await o.p.evaluate(() => document.activeElement?.classList.contains('recientes-chip'));
-  // Espacio: INFORMATIVO, no cuenta. El atajo global de play/pausa (PlayerContext.jsx:253) lo consume en cualquier
-  // foco que no sea un <input> (preventDefault), así que Espacio no activa NINGÚN botón de la app, tampoco éste.
+  // Espacio, con el chip alcanzado por Tab: es del chip (lo alterna) y no toca la reproducción.
   const sonaba = () => o.p.evaluate(() => !!window.__player()?.isPlaying);
-  const antesEsp = await sonaba(); await o.p.keyboard.press('Space'); await sleep(500);
-  const espacio = { chip_tras_espacio: (await estado(o.p)).pressed, reproduccion: [antesEsp, await sonaba()] };
-  ok('teclado_enter_alterna_y_conserva_el_foco', k1 === 'true' && k2 === 'false' && f1 && f2, { tras_enter_1: k1, tras_enter_2: k2, foco: [f1, f2], informativo_espacio: espacio });
+  const antesEsp = await sonaba(); const c0 = (await estado(o.p)).pressed;
+  await o.p.keyboard.press('Space'); await sleep(500);
+  const c1 = (await estado(o.p)).pressed; const despEsp = await sonaba();
+  const f3 = await o.p.evaluate(() => document.activeElement?.classList.contains('recientes-chip'));
+  ok('teclado_enter_alterna_y_conserva_el_foco', tabs > 0 && k1 === 'true' && k2 === 'false' && f1 && f2, { tabs, tras_enter_1: k1, tras_enter_2: k2, foco: [f1, f2] });
+  ok('teclado_tab_espacio_alterna_el_chip', tabs > 0 && c0 !== c1 && antesEsp === despEsp && f3, { chip: [c0, c1], reproduccion: [antesEsp, despEsp], foco_sigue_en_el_chip: f3 });
   await o.ctx.close();
 });
 
