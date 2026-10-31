@@ -3,6 +3,13 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.41.1] - 2026-10-30
+
+### Corregido
+- **Las teclas ya no pausan ni mueven la música cuando no corresponde.** Mientras escribes o eliges
+  algo, la barra espaciadora y las flechas hacen lo de ese campo y no tocan la canción; tampoco reaccionan
+  si las usas con Ctrl, Alt, Shift o Cmd, ni se repiten cuando dejas la tecla apretada.
+
 ## [1.41.0] - 2026-10-29
 
 ### Nuevo
