@@ -605,3 +605,43 @@ export function textoDeFin(rol, razon) {
     default: return 'La radio terminó.';
   }
 }
+
+// ---- Qué decirle a la persona (vista.ts) ----
+//
+// accion: 'iniciar' | 'unirse' | 'terminar'. `fallo` es un valor de falloDeStatus o el
+// { error: 'sin-respuesta' } de client.js. Los textos son los de iOS, palabra por palabra. Una
+// sola diferencia, de forma y no de texto: si no llega un fallo (null), no se rompe y cae al
+// mensaje genérico de la acción (en iOS el tipo no lo permite).
+
+const SIN_CONEXION = 'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.';
+
+/** Un error de la radio → qué decirle a la persona. */
+export function textoDeFallo(accion, fallo) {
+  switch (fallo?.error) {
+    case 'sin-respuesta': return SIN_CONEXION;
+    case 'sesion': return 'Tu sesión expiró. Cierra sesión y vuelve a entrar.';
+    case 'no-existe':
+      return accion === 'unirse'
+        ? 'No hay ninguna radio con ese código. Revísalo e intenta de nuevo.'
+        : 'Esa radio ya no existe.';
+    case 'terminada': return 'Esa radio ya terminó.';
+    case 'llena': return 'Esa radio está llena. Intenta más tarde.';
+    case 'demasiadas': return 'Hay demasiadas radios en vivo ahora. Intenta más tarde.';
+    case 'frecuencia': return 'Demasiados intentos. Espera unos segundos e intenta de nuevo.';
+    case 'no-es-tuya': return 'Esa radio no es tuya.';
+    case 'sin-servicio': return 'El servidor todavía no tiene la radio. Intenta más tarde.';
+    default:
+      // Un 5xx (o el 530 del túnel caído) es el servidor que no atiende: lo mismo que no haber
+      // tenido respuesta, y "intenta de nuevo" a secas no diría qué revisar.
+      if (fallo?.error === 'servidor' && fallo.status >= 500) return SIN_CONEXION;
+      return accion === 'iniciar' ? 'No se pudo iniciar la radio. Intenta de nuevo.'
+        : accion === 'unirse' ? 'No se pudo entrar a la radio. Intenta de nuevo.'
+        : 'No se pudo terminar la radio. Intenta de nuevo.';
+  }
+}
+
+/** "3 oyentes", "1 oyente", "Nadie escuchando todavía" (igual que iOS). */
+export function cuentaDeOyentes(n) {
+  if (!(n > 0)) return 'Nadie escuchando todavía';
+  return n === 1 ? '1 oyente' : `${n} oyentes`;
+}
