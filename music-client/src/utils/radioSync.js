@@ -12,6 +12,8 @@
 //     publicación (una sola en vuelo, Retry-After, reintento, canción rechazada), que allá son
 //     variables sueltas del puente y acá funciones puras.
 //   · sonorarev-ios components/radio/puente-oyente.tsx (2a3bc86) — la espera entre sondeos.
+//   · sonorarev-ios lib/radio/vista.ts (18d7790) — qué publica el anfitrión según su reproductor
+//     (estadoDelAnfitrion) y el texto de por qué terminó la radio (textoDeFin).
 // Si se cambia una regla acá, hay que cambiarla allá (o decidir a propósito que divergen).
 //
 // El backend es music-server/src/api/radio.js (1.29.0): POST /api/radio,
@@ -492,6 +494,50 @@ export function cuerpoDePublicacion(actual) {
   };
 }
 
+// ---- Qué tiene el anfitrión en su reproductor (vista.ts) ----
+//
+// UNA DIFERENCIA CON iOS, a propósito: allá un video se marca `tipo: "video"` y el puente pasa
+// además el `motor` activo; acá el reproductor marca el video con `kind: 'video'`
+// (PlayerContext) y no expone el motor. Por eso se mira `kind`, y `motor` queda como parámetro
+// opcional (si viene 'video', manda igual que en iOS).
+
+/** ¿Es un video? (`kind: 'video'` de PlayerContext). */
+const esVideoWeb = (item) => objeto(item)?.kind === 'video';
+
+/** El id de una CANCIÓN (entero seguro ≥ 1), o null: un video, nada, o un id raro. Acepta el id
+ *  como número o como texto de solo dígitos, igual que `idDeCancion` de iOS. */
+export function idDeCancion(item) {
+  const o = objeto(item);
+  if (!o || esVideoWeb(o)) return null;
+  let n;
+  if (typeof o.id === 'number') n = o.id;
+  else if (typeof o.id === 'string' && /^[0-9]+$/.test(o.id)) n = Number(o.id);
+  else return null;
+  return Number.isSafeInteger(n) && n >= 1 ? n : null;
+}
+
+/** Lo que el anfitrión tiene en su reproductor, listo para `debePublicar`.
+ *  p: { current, queue, queueIndex, playing, posicionSeg, motor? ('audio' | 'video') }.
+ *  Con un VIDEO no hay canción que seguir: `enPausaPorVideo`. La siguiente es la que está
+ *  después en la cola, si es una canción (con aleatorio puede no ser la que de verdad suena
+ *  después: solo sirve para precargar, como en iOS). */
+export function estadoDelAnfitrion(p) {
+  if (p.motor === 'video' || esVideoWeb(p.current)) {
+    return { trackId: null, positionMs: 0, playing: false, nextTrackId: null, enPausaPorVideo: true };
+  }
+  const trackId = idDeCancion(p.current);
+  const pos = finito(p.posicionSeg) ? Math.max(0, Math.round(p.posicionSeg * 1000)) : 0;
+  const cola = Array.isArray(p.queue) ? p.queue : [];
+  const sig = trackId != null && p.queueIndex >= 0 ? idDeCancion(cola[p.queueIndex + 1]) : null;
+  return {
+    trackId,
+    positionMs: trackId == null ? 0 : pos,
+    playing: trackId != null && p.playing === true,
+    nextTrackId: sig,
+    enPausaPorVideo: false,
+  };
+}
+
 // ---- La puerta de publicación (puente-anfitrion.tsx, como funciones puras) ----
 //
 // Puerta: { enVuelo, noAntesDe, rechazada }. Nunca dos publicaciones en vuelo; después de un 429
@@ -530,5 +576,32 @@ export function alResponder(puerta, resultado, actual, salidaMs, ahoraMs) {
     case 'cancion': return { puerta: { ...p, rechazada: actual.trackId }, publicado: null, expulsar: null };
     case 'frecuencia': return { puerta: { ...p, noAntesDe: ahoraMs + resultado.esperaMs }, publicado: null, expulsar: null };
     default: return { puerta: { ...p, noAntesDe: ahoraMs + RADIO.REINTENTO_MS }, publicado: null, expulsar: null };
+  }
+}
+
+// ---- Por qué terminó la radio (vista.ts) ----
+//
+// rol: 'anfitrion' | 'oyente'. razon: las del servidor ('anfitrion', 'admin', 'reemplazada',
+// 'sin-anfitrion', 'pausa'; 'otro' si no la conoce, ver leerRazon) o las locales ('no-existe',
+// 'llena', 'sesion', 'no-es-tuya'). Los textos son los de iOS, con UNA divergencia a propósito:
+// 'reemplazada' para el anfitrión dice "desde otra pestaña o dispositivo" (iOS: "desde otro
+// dispositivo"), porque en la web el reemplazo suele venir de otra pestaña del mismo equipo.
+
+/** Por qué se acabó la radio, para quien estaba adentro. */
+export function textoDeFin(rol, razon) {
+  const mia = rol === 'anfitrion';
+  switch (razon) {
+    case 'anfitrion': return mia ? 'Terminaste la radio.' : 'El anfitrión terminó la radio.';
+    case 'admin': return 'Un administrador terminó la radio.';
+    case 'reemplazada': return mia ? 'Empezaste otra radio desde otra pestaña o dispositivo.' : 'El anfitrión empezó otra radio.';
+    case 'sin-anfitrion':
+      return mia ? 'La radio se cerró porque dejó de recibir lo que escuchas.'
+        : 'La radio se cerró porque el anfitrión dejó de transmitir.';
+    case 'pausa': return 'La radio se cerró por estar mucho tiempo en pausa.';
+    case 'no-existe': return 'La radio ya no existe.';
+    case 'llena': return 'La radio está llena.';
+    case 'sesion': return 'Tu sesión expiró. Cierra sesión y vuelve a entrar.';
+    case 'no-es-tuya': return 'Esta radio ya no es tuya.';
+    default: return 'La radio terminó.';
   }
 }
