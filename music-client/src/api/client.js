@@ -1,4 +1,5 @@
 import { clearViewCache } from './viewCache.js';
+import { RADIO, cuerpoDePublicacion, falloDeStatus, leerCreada, leerPublicada, leerRadio, leerTerminada, normalizarCodigo } from '../utils/radioSync.js';
 
 const BASE = '';
 
@@ -25,12 +26,13 @@ const REQUEST_TIMEOUT_MS = 10_000;
 // de sólo el cuerpo, para poder exigir el código EXACTO como iOS ("un 200 no es éxito",
 // sonorarev-ios/lib/playlists/videos-datos.ts:111-113). Los errores siguen lanzando igual (con
 // .status). Sin `raw`, todo exactamente como antes.
-async function request(path, { raw, ...options } = {}) {
+// `timeoutMs` (radio): un techo más corto que el de siempre; sin él, REQUEST_TIMEOUT_MS.
+async function request(path, { raw, timeoutMs = REQUEST_TIMEOUT_MS, ...options } = {}) {
   const token = getToken();
 
   const ctrl = new AbortController();
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
   // El signal del llamador NO se pisa (LyricsPanel manda el suyo, ver api.lyrics): se reenvía
   // al nuestro. Así conviven los dos y `timedOut` distingue "lo canceló el panel" de "se
   // acabó el tiempo", que dan mensajes distintos.
@@ -53,7 +55,7 @@ async function request(path, { raw, ...options } = {}) {
   } catch (err) {
     if (timedOut) {
       throw Object.assign(
-        new Error(`La petición a ${path} superó los ${REQUEST_TIMEOUT_MS / 1000} segundos`),
+        new Error(`La petición a ${path} superó los ${timeoutMs / 1000} segundos`),
         { timeout: true },
       );
     }
@@ -79,7 +81,9 @@ async function request(path, { raw, ...options } = {}) {
       clearViewCache();   // sesión inválida: nada cacheado de esta cuenta sobrevive al reauth
       onUnauthorized?.();
     }
-    throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status });
+    // `retryAfter` (la cabecera, texto o null) y `body` (el cuerpo de error) los usa la radio: el 429
+    // trae cuánto esperar y el 410 por qué terminó. Para el resto de los llamadores es aditivo.
+    throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status, retryAfter: res.headers.get('retry-after'), body });
   }
   // `etag`: el que manda el servidor para esta respuesta (o null). utils/libraryLoader.js arma con
   // él la firma de la biblioteca, sin recorrerla.
@@ -87,6 +91,32 @@ async function request(path, { raw, ...options } = {}) {
   if (res.status === 204) return null;
   return res.json();
 }
+
+// Radio (music-server/src/api/radio.js, 1.29.0), como iOS (sonorarev-ios lib/radio/api.ts): las
+// cuatro NUNCA LANZAN. Devuelven { ok: true, status, ..., muestra } o { ok: false, status?, error,
+// ... } con los errores de falloDeStatus (utils/radioSync.js); sin respuesta (red, timeout) es
+// { ok: false, error: 'sin-respuesta' }, sin status. Se exige el código EXACTO (201 al crear, 200
+// en las demás) Y la forma del cuerpo: Cloudflare Access puede contestar 200 con su página de login.
+// `muestra` = { enviadoMs, recibidoMs, serverNow }, para mejorReloj. Un 401 pasa por request()
+// como cualquier otro (onUnauthorized): no seguir pidiendo después de 'sesion' es de la capa de arriba.
+async function radioPedir(ruta, method, path, exito, leer, cuerpo) {
+  const enviadoMs = Date.now();
+  let r;
+  try {
+    r = await request(path, { method, raw: true, timeoutMs: RADIO.TIMEOUT_MS, ...(cuerpo !== undefined ? { body: JSON.stringify(cuerpo) } : {}) });
+  } catch (err) {
+    if (!err?.status) return { ok: false, error: 'sin-respuesta' };
+    const retryAfterS = err.retryAfter == null ? null : Number(err.retryAfter);
+    return { ok: false, status: err.status, ...falloDeStatus(ruta, err.status, err.body, retryAfterS) };
+  }
+  const recibidoMs = Date.now();
+  if (r.status !== exito) return { ok: false, status: r.status, ...falloDeStatus(ruta, r.status, r.data, null) };
+  const leido = leer(r.data);
+  if (!leido) return { ok: false, status: r.status, error: 'servidor' };
+  return { ok: true, status: r.status, ...leido, muestra: { enviadoMs, recibidoMs, serverNow: leido.serverNow } };
+}
+const rutaRadio = (codigo) => `/api/radio/${encodeURIComponent(codigo)}`;
+const NO_ES_CODIGO = Object.freeze({ ok: false, error: 'no-existe' });
 
 export const api = {
   // Auth
@@ -145,6 +175,22 @@ export const api = {
   // Videos (music-server/src/videos/routes.js) → { videos: [{ id, title, artist, year, ext, size,
   // mime, duration, has_cover }] }. Ya vienen ordenados: artista A→Z, año del más nuevo al más viejo.
   videos:          ()           => request('/api/videos'),
+
+  // Radio (ver radioPedir arriba). `estado` = EstadoAnfitrion de utils/radioSync.js.
+  // crear → { code, serverNow } · publicar → { serverNow, state } · leer → { radio, serverNow } · terminar → { serverNow, endedReason }
+  radioCrear:    ()               => radioPedir('crear', 'POST', '/api/radio', 201, leerCreada),
+  radioPublicar: (codigo, estado) => {
+    const c = normalizarCodigo(codigo);
+    return c ? radioPedir('publicar', 'PUT', `${rutaRadio(c)}/state`, 200, leerPublicada, cuerpoDePublicacion(estado)) : Promise.resolve(NO_ES_CODIGO);
+  },
+  radioLeer:     (codigo)         => {
+    const c = normalizarCodigo(codigo);
+    return c ? radioPedir('leer', 'GET', rutaRadio(c), 200, (d) => { const radio = leerRadio(d); return radio && { radio, serverNow: radio.serverNow }; }) : Promise.resolve(NO_ES_CODIGO);
+  },
+  radioTerminar: (codigo)         => {
+    const c = normalizarCodigo(codigo);
+    return c ? radioPedir('terminar', 'DELETE', rutaRadio(c), 200, leerTerminada) : Promise.resolve(NO_ES_CODIGO);
+  },
 };
 
 // URL helpers for src attributes (need token in query param)
