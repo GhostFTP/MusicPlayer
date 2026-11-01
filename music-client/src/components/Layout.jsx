@@ -89,14 +89,18 @@ export default function Layout() {
   // replaceState(lista) + pushState(detalle). Así "cerrar = history.back()" (F1.3b) cae en la
   // lista y no sale de la app. Ruta sin target (lista/vista simple) → solo canoniza. replaceState
   // no crea entrada; pushState sí (la del detalle). Ninguno dispara popstate → sin ciclo.
+  // Si el detalle se ESCRIBE igual que su lista (hoy: /radio/<código inválido> → /radio), no hay
+  // detalle que sintetizar: sólo se reescribe la entrada, con la lista. Sin esto quedarían dos
+  // entradas iguales y el primer "atrás" no haría nada visible. El target leído al montar (el aviso
+  // de código inválido) ya está en el estado de arriba y no depende de esta entrada.
   useEffect(() => {
     const s = pathToState(window.location.pathname);
-    if (s.target) {
-      const list = { view: s.view, target: null };
+    const list = { view: s.view, target: null };
+    if (s.target && stateToPath(s) !== stateToPath(list)) {
       window.history.replaceState(list, '', stateToPath(list));
       window.history.pushState(s, '', stateToPath(s));
     } else {
-      window.history.replaceState(s, '', stateToPath(s));
+      window.history.replaceState(list, '', stateToPath(list));   // sin target, s ya ES la lista
     }
   }, []);
 
