@@ -99,11 +99,17 @@ async function request(path, { raw, timeoutMs = REQUEST_TIMEOUT_MS, ...options }
 // en las demás) Y la forma del cuerpo: Cloudflare Access puede contestar 200 con su página de login.
 // `muestra` = { enviadoMs, recibidoMs, serverNow }, para mejorReloj. Un 401 pasa por request()
 // como cualquier otro (onUnauthorized): no seguir pidiendo después de 'sesion' es de la capa de arriba.
-async function radioPedir(ruta, method, path, exito, leer, cuerpo) {
+// `opciones.keepalive`: la ÚNICA opción que se deja pasar al fetch (la usa radioTerminar al cerrar la
+// pestaña). Sin ella, el fetch recibe exactamente lo mismo que antes: ni siquiera la clave.
+async function radioPedir(ruta, method, path, exito, leer, cuerpo, opciones = {}) {
   const enviadoMs = Date.now();
   let r;
   try {
-    r = await request(path, { method, raw: true, timeoutMs: RADIO.TIMEOUT_MS, ...(cuerpo !== undefined ? { body: JSON.stringify(cuerpo) } : {}) });
+    r = await request(path, {
+      method, raw: true, timeoutMs: RADIO.TIMEOUT_MS,
+      ...(cuerpo !== undefined ? { body: JSON.stringify(cuerpo) } : {}),
+      ...(opciones.keepalive === true ? { keepalive: true } : {}),
+    });
   } catch (err) {
     if (!err?.status) return { ok: false, error: 'sin-respuesta' };
     const retryAfterS = err.retryAfter == null ? null : Number(err.retryAfter);
@@ -187,9 +193,14 @@ export const api = {
     const c = normalizarCodigo(codigo);
     return c ? radioPedir('leer', 'GET', rutaRadio(c), 200, (d) => { const radio = leerRadio(d); return radio && { radio, serverNow: radio.serverNow }; }) : Promise.resolve(NO_ES_CODIGO);
   },
-  radioTerminar: (codigo)         => {
+  // `{ keepalive: true }`: para terminar al cerrar la pestaña (pagehide). El fetch sigue vivo aunque la
+  // página se descargue, y lleva el Bearer (sendBeacon no manda headers). Sin cuerpo: keepalive tiene
+  // tope de cuerpo y DELETE no lo necesita. El timeout de 6 s de request() se queda. Lo esperado (SIN
+  // MEDIR todavía, lo mide radio-func): si la página se descarga, el temporizador muere con ella y no
+  // aborta; si sigue viva, 6 s es lo de siempre. Sin opciones, igual que antes.
+  radioTerminar: (codigo, { keepalive = false } = {}) => {
     const c = normalizarCodigo(codigo);
-    return c ? radioPedir('terminar', 'DELETE', rutaRadio(c), 200, leerTerminada) : Promise.resolve(NO_ES_CODIGO);
+    return c ? radioPedir('terminar', 'DELETE', rutaRadio(c), 200, leerTerminada, undefined, { keepalive }) : Promise.resolve(NO_ES_CODIGO);
   },
 };
 
