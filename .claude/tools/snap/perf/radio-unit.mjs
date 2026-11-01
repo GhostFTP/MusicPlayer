@@ -20,6 +20,7 @@
 //   (e) web.*   lo que diverge de iOS a propósito, los bordes y el texto exacto de cada caso.
 //   (f) red.*   radioTerminar con { keepalive } (cerrar la pestaña): qué recibe fetch, y que sin opciones
 //               siga idéntico a antes.
+//   (g) web.*   sin pista con la radio abierta: debePublicar no publica (nunca un trackId null al servidor).
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -798,6 +799,34 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   for (const o of crudos) otras.push([o.method, 'keepalive' in o]);
   K(otras, [['POST', false], ['PUT', false], ['GET', false]], 'crear, publicar y leer: sin la clave keepalive');
   K(respuestas.length, 0, 'keepalive: no sobró ninguna respuesta preparada');
+}
+
+// ============================ (g) web: sin pista con la radio abierta ============================
+// El anfitrión ya publicó y después no hay canción ni video (trackId null, enPausaPorVideo false):
+// debePublicar NO publica nada, sea lo que sea lo último publicado y pase el tiempo que pase. Si
+// publicara, el cuerpo sería { trackId: null, … } y el servidor contestaría 400 en cada reintento.
+// La sala, sin latido, la cierra el servidor (stale a los 30 s, cerrada a los 5 min, 'sin-anfitrion').
+{
+  const G = (a, b, nombre) => igual('web', a, b, nombre);
+  const NADA = { trackId: null, positionMs: 0, playing: false, nextTrackId: null, enPausaPorVideo: false };
+  const SONANDO = { trackId: 501, positionMs: 30_000, playing: true, nextTrackId: 502, enPausaPorVideo: false, enMs: 100_000 };
+  const PAUSA = { ...SONANDO, playing: false };
+  const VIDEO = { trackId: null, positionMs: 0, playing: false, nextTrackId: null, enPausaPorVideo: true, enMs: 100_000 };
+  const momentos = [100_000, 100_050, 101_000, 110_000, 200_000, 10_000_000];   // al instante, salto, latido y mucho después
+
+  G(momentos.map((t) => S.debePublicar(SONANDO, NADA, t)), Array(momentos.length).fill(null), 'sin pista tras publicar SONANDO: nada, en ningún momento');
+  G(momentos.map((t) => S.debePublicar(PAUSA, NADA, t)), Array(momentos.length).fill(null), 'sin pista tras publicar EN PAUSA: nada, en ningún momento');
+  G(momentos.map((t) => S.debePublicar(VIDEO, NADA, t)), Array(momentos.length).fill(null), 'sin pista tras publicar un VIDEO: nada, en ningún momento');
+  G([S.debePublicar(SONANDO, { ...NADA, trackId: undefined }, 110_000), S.debePublicar(SONANDO, { ...NADA, playing: true, positionMs: 99_000 }, 110_000)],
+    [null, null], 'trackId undefined, o "sonando" sin pista: tampoco');
+  // De punta a punta: lo que arma estadoDelAnfitrion con el reproductor vacío (o con una pista de id 0).
+  const vacio = S.estadoDelAnfitrion({ current: null, queue: [], queueIndex: -1, playing: true, posicionSeg: 42 });
+  const id0 = S.estadoDelAnfitrion({ current: { id: 0 }, queue: [{ id: 0 }], queueIndex: 0, playing: true, posicionSeg: 42 });
+  G([S.debePublicar(SONANDO, vacio, 110_000), S.debePublicar(PAUSA, id0, 110_000), S.debePublicar(null, vacio, 0)], [null, null, null],
+    'estadoDelAnfitrion sin pista (vacío o id 0) → debePublicar: nada, con o sin publicación previa');
+  // Y lo que SÍ sigue publicándose: volver a tener canción o pasar a video.
+  G([S.debePublicar(SONANDO, { ...NADA, trackId: 503 }, 100_050), S.debePublicar(SONANDO, { ...NADA, enPausaPorVideo: true }, 100_050)],
+    ['cancion', 'video'], 'al volver una canción o pasar a un video, sí publica');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
