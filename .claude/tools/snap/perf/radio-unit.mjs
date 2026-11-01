@@ -13,6 +13,11 @@
 //               las del servidor (music-server/src/radio/reglas.js, mismo repo).
 //   (c) red.*   client.js con fetch falso: códigos, cuerpo exacto, 401 sin bucle, Retry-After,
 //               timeout de 6 s de la radio contra los 10 s del resto (esos dos casos tardan ~16 s).
+//   (d) ios.*   LOS VECTORES DE iOS de lo que publica el anfitrión y de los textos (estadoDelAnfitrion,
+//               idDeCancion, textoDeFallo, textoDeFin, cuentaDeOyentes): sonorarev-ios
+//               scripts/test-radio-vista.mts @ 18d7790, también como datos. Van AL FINAL para no
+//               renumerar los casos de (a)-(c).
+//   (e) web.*   lo que diverge de iOS a propósito, los bordes y el texto exacto de cada caso.
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -526,6 +531,201 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   const msResto = Date.now() - t0;
   N([e?.timeout, e?.message, msResto >= 9900 && msResto < 11_500], [true, 'La petición a /api/tracks/1 superó los 10 segundos', true], `el resto de la app sigue en 10 s (midió ${msResto} ms)`);
   N(respuestas.length, 0, 'no sobró ninguna respuesta preparada (cada caso pidió lo suyo)');
+}
+
+// ============================ (d) iOS: test-radio-vista.mts @ 18d7790 ============================
+// Vectores de sonorarev-ios scripts/test-radio-vista.mts, commit 18d7790 (repo en 55580e2), COPIADOS
+// COMO DATOS, en el mismo orden y con el mismo nombre. Si iOS cambia sus reglas, este bloque no se
+// entera. Dos ajustes a propósito, nada más:
+//   · el video de prueba va marcado como lo marca la WEB (kind: 'video'); allá es tipo: "video".
+//   · "reemplazada, al anfitrión: otro dispositivo" NO se copia: la web dice "otra pestaña o
+//     dispositivo" a propósito (ver radioSync.js) y su caso vive en (e).
+// No se copian los de duracionMs, colaDelOyente, compartir ni guarda: esas funciones no están portadas.
+{
+  const I = (a, b, nombre) => igual('ios', a, b, nombre);
+  const cierto = (v, nombre) => I(v === true, true, nombre);
+  const c = (id, extra = {}) => ({ id, title: `T${id}`, artist: 'A', duration: 200, ...extra });
+  const video = { kind: 'video', id: '12', title: 'V', artist: 'A', duration: 300 };
+
+  // idDeCancion
+  I(S.idDeCancion(c(5)), 5, 'un número');
+  I(S.idDeCancion(c('42')), 42, 'un texto de dígitos');
+  I(S.idDeCancion(video), null, 'un video nunca es una canción, aunque su id sean dígitos');
+  I(S.idDeCancion(c(0)), null, '0 no es un id');
+  I(S.idDeCancion(c(-3)), null, 'negativo');
+  I(S.idDeCancion(c(1.5)), null, 'decimal');
+  I(S.idDeCancion(c('9007199254740993')), null, 'un texto que Number redondea');
+  I(S.idDeCancion(c('5a')), null, 'texto con letras');
+  I(S.idDeCancion(null), null, 'null');
+  I(S.idDeCancion('5'), null, 'algo que no es un objeto');
+
+  // estadoDelAnfitrion
+  const cola = [c(1), c(2), c(3)];
+  I(S.estadoDelAnfitrion({ current: cola[0], queue: cola, queueIndex: 0, playing: true, motor: 'audio', posicionSeg: 12.3456 }),
+    { trackId: 1, positionMs: 12346, playing: true, nextTrackId: 2, enPausaPorVideo: false }, 'una canción sonando, con la siguiente');
+  I(S.estadoDelAnfitrion({ current: cola[2], queue: cola, queueIndex: 2, playing: false, motor: 'audio', posicionSeg: 5 }),
+    { trackId: 3, positionMs: 5000, playing: false, nextTrackId: null, enPausaPorVideo: false }, 'la última de la cola, en pausa: sin siguiente');
+  I(S.estadoDelAnfitrion({ current: video, queue: [video], queueIndex: 0, playing: true, motor: 'video', posicionSeg: 40 }),
+    { trackId: null, positionMs: 0, playing: false, nextTrackId: null, enPausaPorVideo: true }, 'un video: enPausaPorVideo, sin canción y sin sonar');
+  I(S.estadoDelAnfitrion({ current: video, queue: [video], queueIndex: 0, playing: true, motor: 'audio', posicionSeg: 40 }).enPausaPorVideo,
+    true, 'la entrada es un video aunque el motor todavía diga audio');
+  I(S.estadoDelAnfitrion({ current: cola[0], queue: cola, queueIndex: 0, playing: true, motor: 'video', posicionSeg: 1 }).enPausaPorVideo,
+    true, 'el motor de video manda aunque `current` sea una canción');
+  I(S.estadoDelAnfitrion({ current: null, queue: [], queueIndex: -1, playing: true, motor: 'audio', posicionSeg: 9 }),
+    { trackId: null, positionMs: 0, playing: false, nextTrackId: null, enPausaPorVideo: false }, 'nada cargado: ni canción, ni posición, ni sonando');
+  I(S.estadoDelAnfitrion({ current: cola[0], queue: [cola[0], video], queueIndex: 0, playing: true, motor: 'audio', posicionSeg: 0 }).nextTrackId,
+    null, 'si lo que sigue es un video, no hay siguiente');
+  I(S.estadoDelAnfitrion({ current: cola[0], queue: cola, queueIndex: 0, playing: true, motor: 'audio', posicionSeg: NaN }).positionMs,
+    0, 'una posición que no es número es 0');
+  I(S.estadoDelAnfitrion({ current: cola[0], queue: cola, queueIndex: 0, playing: true, motor: 'audio', posicionSeg: -4 }).positionMs,
+    0, 'una posición negativa es 0');
+
+  // textoDeFallo
+  const errores = [
+    { error: 'sin-respuesta' }, { error: 'sesion' }, { error: 'invalido' }, { error: 'no-es-tuya' }, { error: 'no-existe' },
+    { error: 'demasiadas' }, { error: 'llena' }, { error: 'terminada', razon: 'anfitrion' }, { error: 'cuerpo' },
+    { error: 'cancion' }, { error: 'frecuencia', esperaMs: 5000 }, { error: 'servidor', status: 500 },
+    { error: 'sin-servicio' }, { error: 'servidor', status: 403 }, { error: 'servidor', status: 530 },
+  ];
+  for (const accion of ['iniciar', 'unirse', 'terminar']) {
+    for (const f of errores) {
+      const t = S.textoDeFallo(accion, f);
+      cierto(typeof t === 'string' && t.length > 10 && !/undefined|null|\d{3}/.test(t), `${accion} · ${f.error}: un texto, sin códigos`);
+    }
+  }
+  cierto(/código/.test(S.textoDeFallo('unirse', { error: 'no-existe' })), 'unirse a una que no existe habla del código');
+  I(/código/.test(S.textoDeFallo('terminar', { error: 'no-existe' })), false, 'terminar una que no existe NO habla del código');
+  cierto(/conexión/.test(S.textoDeFallo('unirse', { error: 'sin-respuesta' })), 'sin respuesta habla de la conexión');
+  cierto(/llena/.test(S.textoDeFallo('unirse', { error: 'llena' })), 'llena dice llena');
+  cierto(/terminó/.test(S.textoDeFallo('unirse', { error: 'terminada', razon: 'pausa' })), 'terminada dice que terminó');
+  cierto(/demasiadas radios/.test(S.textoDeFallo('iniciar', { error: 'demasiadas' })), 'demasiadas radios');
+  cierto(S.textoDeFallo('iniciar', { error: 'servidor', status: 200 }) !== S.textoDeFallo('unirse', { error: 'servidor', status: 200 }), 'el genérico depende de la acción');
+  I(S.textoDeFallo('iniciar', { error: 'sin-servicio' }), 'El servidor todavía no tiene la radio. Intenta más tarde.', 'crear contra un servidor sin radio');
+  I(/ya no existe/.test(S.textoDeFallo('iniciar', { error: 'sin-servicio' })), false, 'y NO dice que la radio ya no existe');
+  I(S.textoDeFallo('terminar', { error: 'no-existe' }), 'Esa radio ya no existe.', 'terminar una que no existe: ya no existe');
+  I(S.textoDeFallo('iniciar', { error: 'servidor', status: 403 }), 'No se pudo iniciar la radio. Intenta de nuevo.', '403 al crear: el genérico de iniciar');
+  I(S.textoDeFallo('unirse', { error: 'servidor', status: 403 }), 'No se pudo entrar a la radio. Intenta de nuevo.', '403 al unirse: el genérico de entrar');
+  I(/no es tuya/.test(S.textoDeFallo('terminar', { error: 'no-es-tuya' })), true, 'no es tuya sigue para terminar');
+  for (const s of [500, 502, 503, 530]) {
+    I(S.textoDeFallo('iniciar', { error: 'servidor', status: s }), S.textoDeFallo('iniciar', { error: 'sin-respuesta' }), `${s}: el texto de la conexión`);
+  }
+  I(/conexión/.test(S.textoDeFallo('iniciar', { error: 'servidor', status: 409 })), false, 'un 4xx raro no habla de la conexión');
+
+  // textoDeFin
+  const razones = ['anfitrion', 'admin', 'reemplazada', 'sin-anfitrion', 'pausa', 'otro', 'no-existe', 'llena', 'sesion', 'no-es-tuya'];
+  for (const rol of ['anfitrion', 'oyente']) {
+    for (const r of razones) {
+      const t = S.textoDeFin(rol, r);
+      cierto(typeof t === 'string' && t.length > 10 && !/undefined|null/.test(t), `fin · ${rol} · ${r}`);
+    }
+  }
+  cierto(S.textoDeFin('oyente', 'anfitrion') !== S.textoDeFin('anfitrion', 'anfitrion'), 'que la termine el anfitrión se dice distinto a cada uno');
+  cierto(/sesión/.test(S.textoDeFin('oyente', 'sesion')), 'la sesión vencida dice qué hacer');
+
+  // cuentaDeOyentes
+  I(S.cuentaDeOyentes(0), 'Nadie escuchando todavía', '0 oyentes');
+  I(S.cuentaDeOyentes(1), '1 oyente', '1 oyente');
+  I(S.cuentaDeOyentes(4), '4 oyentes', '4 oyentes');
+}
+
+// ============================ (e) web: lo que diverge a propósito, bordes y textos exactos ============================
+{
+  const V = (a, b, nombre) => igual('web', a, b, nombre);
+  const c = (id, extra = {}) => ({ id, title: `T${id}`, artist: 'A', duration: 200, ...extra });
+  const vHex = { kind: 'video', id: 'a3f9c2', title: 'V', artist: 'A', duration: 300 };
+  const est = (p) => S.estadoDelAnfitrion({ queue: [c(1), c(2), c(3)], queueIndex: 0, playing: true, posicionSeg: 1, ...p });
+  const NADA = { trackId: null, positionMs: 0, playing: false, nextTrackId: null, enPausaPorVideo: false };
+  const VIDEO = { trackId: null, positionMs: 0, playing: false, nextTrackId: null, enPausaPorVideo: true };
+
+  // Divergencias a propósito
+  V(est({ current: vHex, queue: [vHex] }), VIDEO, 'video por kind:"video", SIN motor: enPausaPorVideo');
+  V(S.idDeCancion(vHex), null, 'un video con id hexadecimal no es canción');
+  V(S.idDeCancion({ id: 'a3f9c2' }), null, 'un id hexadecimal (sin kind) tampoco vale como trackId');
+  V(S.idDeCancion({ tipo: 'video', id: 5 }), 5, 'la marca de iOS (tipo:"video") NO es la de la web: ahí es una canción');
+  V(est({ current: c(1) }), { trackId: 1, positionMs: 1000, playing: true, nextTrackId: 2, enPausaPorVideo: false }, 'sin motor (la web no lo expone): manda current');
+  V(est({ current: c(1), motor: 'video' }), VIDEO, 'motor:"video" opcional: si viene, manda como en iOS');
+  V(est({ current: c(1), motor: 'audio' }).trackId, 1, 'motor:"audio" no cambia nada');
+  V([undefined, null, 'x', { 0: c(2) }].map((q) => est({ current: c(1), queue: q }).nextTrackId), [null, null, null, null], 'queue que no es array: sin siguiente y sin romperse');
+  V(S.textoDeFin('anfitrion', 'reemplazada'), 'Empezaste otra radio desde otra pestaña o dispositivo.', 'reemplazada, al anfitrión: la frase de la web');
+  V(S.textoDeFin('oyente', 'reemplazada'), 'El anfitrión empezó otra radio.', 'reemplazada, al oyente: igual que iOS');
+  V(['iniciar', 'unirse', 'terminar'].map((a) => S.textoDeFallo(a, null)),
+    ['No se pudo iniciar la radio. Intenta de nuevo.', 'No se pudo entrar a la radio. Intenta de nuevo.', 'No se pudo terminar la radio. Intenta de nuevo.'],
+    'textoDeFallo con null: el genérico de cada acción, sin romperse');
+  V(S.textoDeFallo('iniciar', undefined), 'No se pudo iniciar la radio. Intenta de nuevo.', 'textoDeFallo con undefined');
+  V([-1, NaN, undefined, null, '3'].map(S.cuentaDeOyentes), ['Nadie escuchando todavía', 'Nadie escuchando todavía', 'Nadie escuchando todavía', 'Nadie escuchando todavía', '3 oyentes'],
+    'cuentaDeOyentes con -1, NaN, undefined, null y "3"');
+  V([2, 20].map(S.cuentaDeOyentes), ['2 oyentes', '20 oyentes'], 'cuentaDeOyentes: 2 y 20 en plural');
+
+  // Bordes de estadoDelAnfitrion
+  V(est({ current: c(3), queueIndex: 2 }).nextTrackId, null, 'queueIndex en la última: sin siguiente');
+  V(est({ current: c(2), queueIndex: 1 }).nextTrackId, 3, 'queueIndex en la del medio: la siguiente es la de +1 (no +2)');
+  V(est({ current: c(1), queueIndex: -1 }), { trackId: 1, positionMs: 1000, playing: true, nextTrackId: null, enPausaPorVideo: false }, 'queueIndex -1: canción sí, siguiente no');
+  V(est({ current: c(1), queueIndex: undefined }).nextTrackId, null, 'queueIndex undefined: sin siguiente');
+  V([-0.0004, -4, NaN, Infinity, -Infinity, '12', null].map((s) => est({ current: c(1), posicionSeg: s }).positionMs), [0, 0, 0, 0, 0, 0, 0],
+    'posicionSeg negativa, NaN, ±Infinity, texto o null: 0');
+  V([0.0004, 0.0006, 59.9994, 3600].map((s) => est({ current: c(1), posicionSeg: s }).positionMs), [0, 1, 59999, 3_600_000], 'posicionSeg a ms, redondeado');
+  V([1, 'true', null, undefined].map((p) => est({ current: c(1), playing: p }).playing), [false, false, false, false], 'playing solo con true (1 o "true" no cuentan)');
+  V(est({ current: null, playing: true }), NADA, 'sin canción: playing false aunque el reproductor diga true');
+  V(est({ current: c(0) }), NADA, 'una canción con id 0 es como nada cargado');
+  V(est({ current: vHex, queue: [vHex, c(2)], queueIndex: 0 }).nextTrackId, null, 'con un video sonando no se anuncia la siguiente');
+
+  // Bordes de idDeCancion
+  V([7, '7', 0, '0', '4.2', 4.2, '12abc', '', ' 7', '-3', 2 ** 53, Number.MAX_SAFE_INTEGER].map((id) => S.idDeCancion(c(id))),
+    [7, 7, null, null, null, null, null, null, null, null, null, Number.MAX_SAFE_INTEGER],
+    'ids: número, texto de dígitos, 0, "0", "4.2", 4.2, "12abc", "", " 7", "-3", 2^53 y el máximo seguro');
+  V([undefined, [], { id: [7] }, { id: { n: 7 } }].map(S.idDeCancion), [null, null, null, null], 'lo que no es una canción con id');
+
+  // textoDeFin: el texto EXACTO de cada caso
+  const FIN = {
+    anfitrion: ['Terminaste la radio.', 'El anfitrión terminó la radio.'],
+    admin: ['Un administrador terminó la radio.', 'Un administrador terminó la radio.'],
+    reemplazada: ['Empezaste otra radio desde otra pestaña o dispositivo.', 'El anfitrión empezó otra radio.'],
+    'sin-anfitrion': ['La radio se cerró porque dejó de recibir lo que escuchas.', 'La radio se cerró porque el anfitrión dejó de transmitir.'],
+    pausa: ['La radio se cerró por estar mucho tiempo en pausa.', 'La radio se cerró por estar mucho tiempo en pausa.'],
+    'no-existe': ['La radio ya no existe.', 'La radio ya no existe.'],
+    llena: ['La radio está llena.', 'La radio está llena.'],
+    sesion: ['Tu sesión expiró. Cierra sesión y vuelve a entrar.', 'Tu sesión expiró. Cierra sesión y vuelve a entrar.'],
+    'no-es-tuya': ['Esta radio ya no es tuya.', 'Esta radio ya no es tuya.'],
+    otro: ['La radio terminó.', 'La radio terminó.'],
+  };
+  for (const [razon, [anf, oy]] of Object.entries(FIN)) {
+    V([S.textoDeFin('anfitrion', razon), S.textoDeFin('oyente', razon)], [anf, oy], `textoDeFin exacto · ${razon}`);
+  }
+  V([S.textoDeFin('anfitrion', undefined), S.textoDeFin(undefined, 'anfitrion')], ['La radio terminó.', 'El anfitrión terminó la radio.'], 'textoDeFin sin razón o sin rol');
+
+  // textoDeFallo: el texto EXACTO de cada error
+  const CONEXION = 'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.';
+  const FALLO = [
+    ['unirse', { error: 'sin-respuesta' }, CONEXION],
+    ['unirse', { error: 'sesion' }, 'Tu sesión expiró. Cierra sesión y vuelve a entrar.'],
+    ['unirse', { error: 'no-existe' }, 'No hay ninguna radio con ese código. Revísalo e intenta de nuevo.'],
+    ['iniciar', { error: 'no-existe' }, 'Esa radio ya no existe.'],
+    ['unirse', { error: 'terminada', razon: 'pausa' }, 'Esa radio ya terminó.'],
+    ['unirse', { error: 'llena' }, 'Esa radio está llena. Intenta más tarde.'],
+    ['iniciar', { error: 'demasiadas' }, 'Hay demasiadas radios en vivo ahora. Intenta más tarde.'],
+    ['iniciar', { error: 'frecuencia', esperaMs: 5000 }, 'Demasiados intentos. Espera unos segundos e intenta de nuevo.'],
+    ['terminar', { error: 'no-es-tuya' }, 'Esa radio no es tuya.'],
+    ['iniciar', { error: 'sin-servicio' }, 'El servidor todavía no tiene la radio. Intenta más tarde.'],
+    ['iniciar', { error: 'invalido' }, 'No se pudo iniciar la radio. Intenta de nuevo.'],
+    ['unirse', { error: 'cuerpo' }, 'No se pudo entrar a la radio. Intenta de nuevo.'],
+    ['terminar', { error: 'cancion' }, 'No se pudo terminar la radio. Intenta de nuevo.'],
+  ];
+  for (const [accion, f, texto] of FALLO) V(S.textoDeFallo(accion, f), texto, `textoDeFallo exacto · ${accion} · ${f.error}`);
+
+  // Cada salida de falloDeStatus que textoDeFallo consume: un texto para cada una.
+  const ACCION = { crear: 'iniciar', leer: 'unirse', terminar: 'terminar', publicar: 'iniciar' };
+  for (const ruta of ['crear', 'publicar', 'leer', 'terminar']) {
+    const textos = [400, 401, 403, 404, 409, 410, 413, 422, 429, 500, 530, 418].map((st) => {
+      const t = S.textoDeFallo(ACCION[ruta], S.falloDeStatus(ruta, st, { endedReason: 'pausa' }, 3));
+      return typeof t === 'string' && t.length > 10 && !/undefined|null|\d{3}/.test(t);
+    });
+    V(textos, Array(12).fill(true), `falloDeStatus(${ruta}, 400…530 y 418) → textoDeFallo: un texto para cada status`);
+  }
+  V([500, 530].map((st) => S.textoDeFallo('iniciar', S.falloDeStatus('crear', st, null, null))), [CONEXION, CONEXION], 'servidor 500 y 530: el texto de la conexión');
+  V(['iniciar', 'unirse', 'terminar'].map((a) => S.textoDeFallo(a, S.falloDeStatus('crear', 418, null, null))),
+    ['No se pudo iniciar la radio. Intenta de nuevo.', 'No se pudo entrar a la radio. Intenta de nuevo.', 'No se pudo terminar la radio. Intenta de nuevo.'],
+    'servidor 418: el genérico de cada acción, sin hablar de conexión');
+  V(S.textoDeFallo('iniciar', { error: 'servidor', status: 499 }), 'No se pudo iniciar la radio. Intenta de nuevo.', 'servidor 499: todavía no es de conexión (el borde es 500)');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
