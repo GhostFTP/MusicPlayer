@@ -11,9 +11,11 @@
 //   · sonorarev-ios components/radio/puente-anfitrion.tsx (2a3bc86) — la "puerta" de
 //     publicación (una sola en vuelo, Retry-After, reintento, canción rechazada), que allá son
 //     variables sueltas del puente y acá funciones puras.
-//   · sonorarev-ios components/radio/puente-oyente.tsx (2a3bc86) — la espera entre sondeos.
+//   · sonorarev-ios components/radio/puente-oyente.tsx (2a3bc86) — la espera entre sondeos y
+//     DESAJUSTE_MS.
 //   · sonorarev-ios lib/radio/vista.ts (18d7790) — qué publica el anfitrión según su reproductor
-//     (estadoDelAnfitrion) y el texto de por qué terminó la radio (textoDeFin).
+//     (estadoDelAnfitrion), el texto de por qué terminó la radio (textoDeFin) y lo del oyente:
+//     con qué cola arranca, la foto para devolverle lo suyo al salir y cuándo pausó él.
 // Si se cambia una regla acá, hay que cambiarla allá (o decidir a propósito que divergen).
 //
 // El backend es music-server/src/api/radio.js (1.29.0): POST /api/radio,
@@ -644,4 +646,109 @@ export function textoDeFallo(accion, fallo) {
 export function cuentaDeOyentes(n) {
   if (!(n > 0)) return 'Nadie escuchando todavía';
   return n === 1 ? '1 oyente' : `${n} oyentes`;
+}
+
+// ---- El oyente: con qué cola arranca, qué se le devuelve al salir y cuándo pausó él (vista.ts) ----
+//
+// Port de sonorarev-ios lib/radio/vista.ts (18d7790): colaDelOyente, fotoDeLaCola,
+// planDeRestauracion, pausaDelOyente, GRACIA_ORDEN_MS y CERCA_DEL_FINAL_MS, con los mismos números.
+// DIFERENCIAS CON iOS, a propósito:
+//   · La cola. Allá `colaDelOyente` recibe `porId`, que busca la canción en la biblioteca que el
+//     teléfono ya tiene en memoria (síncrono; null = "no está" → `falta-cancion`). La web no tiene
+//     la biblioteca en memoria: `colaDelOyente` queda igual (con `porId` síncrono, para probarla
+//     con los vectores de iOS) y se suma `resolverColaDelOyente`, que trae las dos pistas con un
+//     `traer(id)` asíncrono (en la app, api.track) y distingue "no está" (404, o vino otra pista)
+//     de "no se pudo" (red, timeout, 5xx). Ninguno de los dos saca al oyente: se reintenta en el
+//     siguiente sondeo y se avisa "No se pudo cargar la canción" (decisión de Oscar).
+//   · Las marcas. El motor de la web le pone a cada entrada sólo `_qid` (PlayerContext); el de
+//     iOS, también `_local`. `limpia` quita las dos, como allá.
+//   · Video. Acá es `kind: 'video'` (esVideoWeb), no `tipo: "video"`. La regla de la restauración
+//     es la de iOS: si lo de la foto era un video, sólo se pausa (allá no se puede pausar un video
+//     desde afuera; acá sí, pero arrancarlo para pausarlo sonaría un instante).
+//   · DESAJUSTE_MS no está en vista.ts: es una constante suelta de
+//     components/radio/puente-oyente.tsx (2a3bc86). Acá vive junto a las otras del oyente.
+
+/** Cuánto se espera después de una orden propia (arrancar, pausar, un seek) antes de leer un
+ *  silencio como del oyente. SUPOSICIÓN, no medición (igual que iOS). */
+export const GRACIA_ORDEN_MS = 3000;
+/** A menos que esto del final, una canción parada es una canción que TERMINÓ. */
+export const CERCA_DEL_FINAL_MS = 2500;
+/** Si lo que suena no es lo de la radio por más que esto, se vuelve a poner lo de la radio. Cubre
+ *  también la pista local que termina antes de que el anfitrión publique la siguiente. */
+export const DESAJUSTE_MS = 6000;
+
+/** Sin las marcas que el motor le pone a cada entrada de la cola. */
+function limpia(item) {
+  if (item == null || typeof item !== 'object') return item;
+  const { _qid, _local, ...resto } = item;
+  return resto;
+}
+
+/** La cola con la que el oyente arranca una canción de la radio: ella y, de pista, la que sigue
+ *  (así el paso a la siguiente no espera al próximo sondeo). `null` si la canción no está: no se
+ *  inventa nada. Una siguiente que falta simplemente no va.
+ *  porId(id) → la pista (un objeto de /api/tracks/:id), o null/undefined. */
+export function colaDelOyente(porId, trackId, nextTrackId) {
+  const t = porId(trackId);
+  if (t == null || idDeCancion(t) !== trackId) return null;
+  const cola = [limpia(t)];
+  if (nextTrackId != null && nextTrackId !== trackId) {
+    const n = porId(nextTrackId);
+    if (n != null && idDeCancion(n) === nextTrackId) cola.push(limpia(n));
+  }
+  return cola;
+}
+
+/** Lo mismo, trayendo las pistas (SOLO WEB). `traer(id)` devuelve una promesa con la pista (en la
+ *  app, api.track): las dos se piden A LA VEZ, así hay una sola espera entre la lectura de la
+ *  sala y el play(). Devuelve { cola, motivo }:
+ *    · { cola: [pista, siguiente?], motivo: null }
+ *    · { cola: null, motivo: 'no-esta' }  el servidor no la tiene (404) o mandó otra pista
+ *    · { cola: null, motivo: 'fallo' }    no se pudo (red, timeout, 5xx, 401)
+ *  Si sólo falla la siguiente, la cola va sin ella (como en iOS). Nunca rechaza. */
+export async function resolverColaDelOyente(traer, trackId, nextTrackId) {
+  const conSiguiente = nextTrackId != null && nextTrackId !== trackId;
+  const pedir = (id) => Promise.resolve().then(() => traer(id));
+  const [a, b] = await Promise.allSettled([pedir(trackId), conSiguiente ? pedir(nextTrackId) : null]);
+  if (a.status === 'rejected') return { cola: null, motivo: a.reason?.status === 404 ? 'no-esta' : 'fallo' };
+  const porId = (id) => (id === trackId ? a.value : b.status === 'fulfilled' ? b.value : null);
+  const cola = colaDelOyente(porId, trackId, conSiguiente ? nextTrackId : null);
+  return cola ? { cola, motivo: null } : { cola: null, motivo: 'no-esta' };
+}
+
+/** La foto de la cola al entrar a una radio, o null si no había nada cargado.
+ *  p: { queue, queueIndex, posicionSeg } — en la app, queue/queueIndex/currentTime de PlayerContext. */
+export function fotoDeLaCola(p) {
+  if (!Array.isArray(p.queue) || p.queue.length === 0) return null;
+  if (!Number.isInteger(p.queueIndex) || p.queueIndex < 0 || p.queueIndex >= p.queue.length) return null;
+  return {
+    lista: p.queue.map(limpia),
+    indice: p.queueIndex,
+    posicionSeg: Number.isFinite(p.posicionSeg) && p.posicionSeg > 0 ? p.posicionSeg : 0,
+  };
+}
+
+/** Qué se hace al salir de la radio, con la foto de la entrada. Es APROXIMADA, con funciones
+ *  públicas del motor:
+ *    · { tipo: 'pausar' }  no había nada, o lo que sonaba era un video: sólo se pausa lo de la radio;
+ *    · { tipo: 'cola', lista, indice, posicionSeg }  volver a poner la lista en esa canción, en
+ *      pausa, y llevarla a donde iba. Con aleatorio, el motor vuelve a barajar lo que va detrás. */
+export function planDeRestauracion(foto) {
+  if (!foto) return { tipo: 'pausar' };
+  const actual = foto.lista[foto.indice];
+  if (actual == null || esVideoWeb(actual) || idDeCancion(actual) == null) return { tipo: 'pausar' };
+  return { tipo: 'cola', lista: foto.lista, indice: foto.indice, posicionSeg: foto.posicionSeg };
+}
+
+/** ¿El oyente pausó por su cuenta? ("en pausa para ti"). La radio quiere sonar, el reproductor
+ *  está en pausa de verdad (`pausado`: no es una carga) y no fue por una orden nuestra reciente ni
+ *  porque la canción terminó.
+ *  p: { quiereSonar, pausado, sonando, posicionMs, duracionMs (o null), msDesdeOrden }.
+ *  En la web `pausado` = !isPlaying y `sonando` = isPlaying con el tiempo avanzando (PlayerContext
+ *  no expone la espera de carga del <audio>): lo arma el puente. */
+export function pausaDelOyente(p) {
+  if (!p.quiereSonar || !p.pausado || p.sonando) return false;
+  if (p.msDesdeOrden < GRACIA_ORDEN_MS) return false;
+  if (p.duracionMs != null && p.posicionMs >= p.duracionMs - CERCA_DEL_FINAL_MS) return false;
+  return true;
 }
