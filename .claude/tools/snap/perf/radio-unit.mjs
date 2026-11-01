@@ -18,6 +18,8 @@
 //               scripts/test-radio-vista.mts @ 18d7790, también como datos. Van AL FINAL para no
 //               renumerar los casos de (a)-(c).
 //   (e) web.*   lo que diverge de iOS a propósito, los bordes y el texto exacto de cada caso.
+//   (f) red.*   radioTerminar con { keepalive } (cerrar la pestaña): qué recibe fetch, y que sin opciones
+//               siga idéntico a antes.
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -30,8 +32,10 @@ const importar = (rel) => import(pathToFileURL(join(ROOT, rel)).href);
 globalThis.localStorage = { getItem: (k) => (k === 'token' ? 'tok-prueba' : null), setItem() {}, removeItem() {} };
 let respuestas = [];
 const pedidos = [];
+const crudos = [];   // las opciones TAL CUAL las recibe fetch (las usa el bloque keepalive)
 globalThis.fetch = async (url, opts) => {
   pedidos.push({ url, method: opts?.method, body: opts?.body ?? null, auth: opts?.headers?.Authorization ?? null });
+  crudos.push(opts);
   const f = respuestas.shift();
   if (!f) throw new Error('fetch inesperado: ' + url);
   return f(url, opts);
@@ -726,6 +730,74 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     ['No se pudo iniciar la radio. Intenta de nuevo.', 'No se pudo entrar a la radio. Intenta de nuevo.', 'No se pudo terminar la radio. Intenta de nuevo.'],
     'servidor 418: el genérico de cada acción, sin hablar de conexión');
   V(S.textoDeFallo('iniciar', { error: 'servidor', status: 499 }), 'No se pudo iniciar la radio. Intenta de nuevo.', 'servidor 499: todavía no es de conexión (el borde es 500)');
+}
+
+// ============================ (f) red: radioTerminar con keepalive (client.js) ============================
+// Lo que recibe fetch, con las opciones CRUDAS (`crudos`, arriba): radioTerminar(codigo, { keepalive })
+// para cerrar la pestaña. Sin opciones tiene que quedar idéntico a antes de 3a96b2c: las claves
+// headers, method y signal, y nada más.
+{
+  const K = (a, b, nombre) => igual('red', a, b, nombre);
+  const FIN = { serverNow: 30, status: 'ended', endedReason: 'anfitrion' };
+  const CLAVES_ANTES = ['headers', 'method', 'signal'];
+  // Una llamada → lo que vio fetch (o null si no hubo fetch).
+  const terminar = async (codigo, ...args) => {
+    crudos.length = 0;
+    respuestas.push(resp(200, FIN));
+    const r = await C.api.radioTerminar(codigo, ...args);
+    const o = crudos[0] ?? null;
+    if (!o) respuestas.length = 0;   // no hubo fetch: la respuesta preparada sobra
+    return { r, o, n: crudos.length };
+  };
+  const ver = (o) => o && ({
+    claves: Object.keys(o).sort(), method: o.method, keepalive: o.keepalive, tieneBody: 'body' in o,
+    auth: o.headers?.Authorization ?? null, tipo: o.headers?.['Content-Type'] ?? null,
+  });
+
+  // (1) con keepalive: keepalive:true, DELETE, Bearer y SIN cuerpo
+  const k = await terminar('K7M2QX', { keepalive: true });
+  K(ver(k.o), { claves: ['headers', 'keepalive', 'method', 'signal'], method: 'DELETE', keepalive: true, tieneBody: false, auth: 'Bearer tok-prueba', tipo: 'application/json' },
+    'radioTerminar keepalive: keepalive:true, DELETE, Bearer y sin body');
+  K([k.r.ok, k.n], [true, 1], 'radioTerminar keepalive: un solo fetch y la respuesta se lee igual (ok)');
+
+  // (2) sin opciones y con {}: las MISMAS claves de antes, sin la clave keepalive
+  const s0 = await terminar('K7M2QX');
+  const s1 = await terminar('K7M2QX', {});
+  K([ver(s0.o).claves, ver(s1.o).claves], [CLAVES_ANTES, CLAVES_ANTES], 'radioTerminar sin opciones y con {}: headers, method y signal (sin keepalive)');
+  K([ver(s0.o), s0.r.ok], [{ claves: CLAVES_ANTES, method: 'DELETE', keepalive: undefined, tieneBody: false, auth: 'Bearer tok-prueba', tipo: 'application/json' }, true],
+    'radioTerminar sin opciones: DELETE con Bearer, sin body, como antes');
+
+  // (3) keepalive que no es exactamente true: no pone la clave
+  const malos = [];
+  for (const v of [false, 'true', 1, null, undefined, {}]) malos.push(ver((await terminar('K7M2QX', { keepalive: v })).o).claves);
+  K(malos, Array(6).fill(CLAVES_ANTES), 'keepalive false, "true", 1, null, undefined u objeto: no ponen la clave');
+
+  // (4) una opción ajena no llega al fetch
+  const ctrl = new AbortController();
+  const aj = await terminar('K7M2QX', { signal: ctrl.signal, body: '{"x":1}', method: 'GET', headers: { 'X-Otra': '1' } });
+  K([ver(aj.o).claves, aj.o.method, 'body' in aj.o, aj.o.signal === ctrl.signal, aj.o.headers?.['X-Otra'] ?? null],
+    [CLAVES_ANTES, 'DELETE', false, false, null], 'opciones ajenas (signal, body, method, headers): no llegan al fetch');
+  const aj2 = await terminar('K7M2QX', { keepalive: true, body: '{"x":1}' });
+  K([ver(aj2.o).claves, 'body' in aj2.o], [['headers', 'keepalive', 'method', 'signal'], false], 'keepalive con un body ajeno: keepalive sí, body no');
+
+  // (5) código inválido con keepalive: sin fetch y no-existe
+  const inv = [];
+  for (const c of ['xx', '', null, 'K7M2Q0', 'K7M2QXA']) inv.push(await terminar(c, { keepalive: true }));
+  K([inv.map((x) => x.n), inv.map((x) => x.r)], [[0, 0, 0, 0, 0], Array(5).fill({ ok: false, error: 'no-existe' })],
+    'código inválido con keepalive: ningún fetch y { ok:false, error:"no-existe" }');
+
+  // (6) crear, publicar y leer siguen sin keepalive
+  const otras = [];
+  crudos.length = 0;
+  respuestas.push(resp(201, { code: 'ABC234', serverNow: 5, status: 'live' }));
+  await C.api.radioCrear();
+  respuestas.push(resp(200, { serverNow: 9, status: 'live', state: { seq: 1, trackId: 7, positionMs: 1000, playing: true, nextTrackId: null, enPausaPorVideo: false, publishedAtServerMs: 9 } }));
+  await C.api.radioPublicar('ABC234', { trackId: 7, positionMs: 1000, playing: true, nextTrackId: null, enPausaPorVideo: false });
+  respuestas.push(resp(200, { serverNow: 20, code: 'ABC234', status: 'live', state: null, host: { id: 1, name: 'h' }, listeners: [] }));
+  await C.api.radioLeer('ABC234');
+  for (const o of crudos) otras.push([o.method, 'keepalive' in o]);
+  K(otras, [['POST', false], ['PUT', false], ['GET', false]], 'crear, publicar y leer: sin la clave keepalive');
+  K(respuestas.length, 0, 'keepalive: no sobró ninguna respuesta preparada');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
