@@ -331,6 +331,21 @@ button, input, select, textarea { font-family: inherit; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 32px; font-weight: 700; letter-spacing: .25em; color: var(--text);
 }
+/* Anfitrión: estado de la sala, acciones, oyentes y "Terminar" con su confirmación. El estado (por
+   qué terminó / qué falló) va siempre montado, vacío sin texto; el error en ámbar, el fin neutro. */
+.radio-estado { margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: var(--text); }
+.radio-estado:empty { margin: 0; }
+.radio-estado--error { color: var(--amber); }
+.radio-acciones { margin-top: 16px; }
+.radio-oyentes { margin-top: 14px; font-size: 14px; color: var(--text-muted); }
+.radio-terminar { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.radio-confirmar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.radio-confirmar-pregunta { font-size: 14px; font-weight: 600; color: var(--text); margin-right: 4px; }
+.radio-btn--terminar { color: var(--amber); border-color: var(--amber-dim); }
+.radio-btn--terminar:hover:not(:disabled) { background: var(--amber-dim); border-color: var(--amber-dim); }
+@media (max-width: 700px) {
+  .radio-acciones .radio-btn { flex: 1 1 140px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .radio-btn { transition: none; }
 }
