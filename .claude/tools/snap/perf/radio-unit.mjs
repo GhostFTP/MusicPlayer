@@ -545,7 +545,8 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
 //   · el video de prueba va marcado como lo marca la WEB (kind: 'video'); allá es tipo: "video".
 //   · "reemplazada, al anfitrión: otro dispositivo" NO se copia: la web dice "otra pestaña o
 //     dispositivo" a propósito (ver radioSync.js) y su caso vive en (e).
-// No se copian los de duracionMs, colaDelOyente, compartir ni guarda: esas funciones no están portadas.
+// No se copian los de duracionMs, compartir ni guarda: esas funciones no están portadas. Los del
+// oyente (colaDelOyente, foto, restauración, pausa) están en (h).
 {
   const I = (a, b, nombre) => igual('ios', a, b, nombre);
   const cierto = (v, nombre) => I(v === true, true, nombre);
@@ -827,6 +828,150 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   // Y lo que SÍ sigue publicándose: volver a tener canción o pasar a video.
   G([S.debePublicar(SONANDO, { ...NADA, trackId: 503 }, 100_050), S.debePublicar(SONANDO, { ...NADA, enPausaPorVideo: true }, 100_050)],
     ['cancion', 'video'], 'al volver una canción o pasar a un video, sí publica');
+}
+
+// ============================ (h) iOS: test-radio-vista.mts @ 18d7790, el oyente ============================
+// Los vectores de colaDelOyente, fotoDeLaCola/planDeRestauracion y pausaDelOyente de sonorarev-ios
+// scripts/test-radio-vista.mts, commit 18d7790 (repo en 84c18b6; el archivo no cambió desde 18d7790),
+// COPIADOS COMO DATOS, en el mismo orden y con el mismo nombre. Un solo ajuste a propósito: el video
+// de prueba va marcado como lo marca la WEB (kind: 'video'); allá es tipo: "video".
+{
+  const I = (a, b, nombre) => igual('ios', a, b, nombre);
+  const cierto = (v, nombre) => I(v === true, true, nombre);
+  const c = (id, extra = {}) => ({ id, title: `T${id}`, artist: 'A', duration: 200, ...extra });
+  const video = { kind: 'video', id: '12', title: 'V', artist: 'A', duration: 300 };
+
+  // colaDelOyente
+  const biblio = new Map([[1, c(1, { _qid: 'q1', _local: true })], [2, c(2)], [7, c('7')]]);
+  const porId = (id) => biblio.get(id);
+  I(S.colaDelOyente(porId, 1, 2), [c(1), c(2)], 'la canción y la siguiente, sin las marcas del motor');
+  I(S.colaDelOyente(porId, 1, null), [c(1)], 'sin siguiente');
+  I(S.colaDelOyente(porId, 1, 99), [c(1)], 'una siguiente que no está simplemente no va');
+  I(S.colaDelOyente(porId, 1, 1), [c(1)], 'la siguiente no es la misma dos veces');
+  I(S.colaDelOyente(porId, 99, 2), null, 'la canción no está en la biblioteca: null, no se inventa');
+  I(S.colaDelOyente(porId, 7, null), [c('7')], 'un id guardado como texto también se encuentra');
+  I(S.colaDelOyente(() => c(3), 1, null), null, 'si la biblioteca devuelve OTRA canción, no vale');
+
+  // fotoDeLaCola y planDeRestauracion
+  const cq = [c(1, { _qid: 'a' }), c(2, { _qid: 'b', _local: true })];
+  I(S.fotoDeLaCola({ queue: cq, queueIndex: 1, posicionSeg: 33.5 }), { lista: [c(1), c(2)], indice: 1, posicionSeg: 33.5 }, 'la lista limpia, el índice y la posición');
+  I(S.fotoDeLaCola({ queue: [], queueIndex: -1, posicionSeg: 0 }), null, 'sin cola no hay foto');
+  I(S.fotoDeLaCola({ queue: cq, queueIndex: 2, posicionSeg: 0 }), null, 'un índice fuera de la cola no es una foto');
+  I(S.fotoDeLaCola({ queue: cq, queueIndex: 0, posicionSeg: NaN })?.posicionSeg, 0, 'una posición rara es 0');
+  I(S.planDeRestauracion(null), { tipo: 'pausar' }, 'sin foto: solo pausar');
+  I(S.planDeRestauracion({ lista: [c(1), c(2)], indice: 1, posicionSeg: 33.5 }),
+    { tipo: 'cola', lista: [c(1), c(2)], indice: 1, posicionSeg: 33.5 }, 'con foto: la misma lista, la misma canción, su posición');
+  I(S.planDeRestauracion({ lista: [c(1), video], indice: 1, posicionSeg: 5 }), { tipo: 'pausar' }, 'lo que había era un video: solo pausar');
+  I(S.planDeRestauracion({ lista: [c(1), video], indice: 0, posicionSeg: 5 }).tipo, 'cola', 'un video en la lista no impide volver a la canción');
+
+  // pausaDelOyente
+  const base = { quiereSonar: true, pausado: true, sonando: false, posicionMs: 60_000, duracionMs: 200_000, msDesdeOrden: 10_000 };
+  cierto(S.pausaDelOyente(base), 'en pausa de verdad, a mitad de canción, sin orden reciente: es suya');
+  I(S.pausaDelOyente({ ...base, quiereSonar: false }), false, 'si el anfitrión está en pausa, no es suya');
+  I(S.pausaDelOyente({ ...base, pausado: false }), false, 'cargando o con un corte (no pausado): no es suya');
+  I(S.pausaDelOyente({ ...base, sonando: true }), false, 'sonando: no hay pausa');
+  I(S.pausaDelOyente({ ...base, msDesdeOrden: S.GRACIA_ORDEN_MS - 1 }), false, 'justo después de una orden nuestra: no es suya');
+  cierto(S.pausaDelOyente({ ...base, msDesdeOrden: S.GRACIA_ORDEN_MS }), 'pasada la gracia: sí');
+  I(S.pausaDelOyente({ ...base, posicionMs: 200_000 - S.CERCA_DEL_FINAL_MS }), false, 'al final de la canción: terminó, no la pausó');
+  cierto(S.pausaDelOyente({ ...base, posicionMs: 200_000 - S.CERCA_DEL_FINAL_MS - 1 }), 'un pelo antes del margen del final: sí');
+  cierto(S.pausaDelOyente({ ...base, duracionMs: null, posicionMs: 999_999 }), 'sin duración conocida no se puede decir que terminó');
+}
+
+// ============================ (i) web: resolverColaDelOyente y bordes del oyente ============================
+// resolverColaDelOyente es SOLO WEB (la web no tiene la biblioteca en memoria: trae las pistas con
+// api.track). `traer` es falso: registra a quién se pidió y contesta lo que dice cada caso.
+{
+  const W = (a, b, nombre) => igual('web', a, b, nombre);
+  const c = (id, extra = {}) => ({ id, title: `T${id}`, artist: 'A', duration: 200, ...extra });
+  const err = (status, extra = {}) => Object.assign(new Error('x'), status == null ? {} : { status }, extra);
+  // Una "biblioteca del servidor": id → pista, o una función que decide (lanzar, rechazar, otra…).
+  const traerDe = (tabla) => {
+    const pedidos = [];
+    const traer = (id) => {
+      pedidos.push(id);
+      const v = tabla[id];
+      if (typeof v === 'function') return v(id);
+      return Promise.resolve(v === undefined ? null : v);
+    };
+    return { traer, pedidos };
+  };
+  const rechaza = (e) => () => Promise.reject(e);
+  // Si resolverColaDelOyente rechazara (o lanzara), el caso FALLA con su nombre en vez de tumbar el script.
+  const R1 = async (tabla, t, n) => {
+    const x = traerDe(tabla);
+    try { const r = await S.resolverColaDelOyente(x.traer, t, n); return { ...r, pedidos: x.pedidos }; }
+    catch (e) { return { RECHAZO: String(e?.message ?? e), pedidos: x.pedidos }; }
+  };
+
+  W(await R1({ 1: c(1, { _qid: 4 }) }, 1, null), { cola: [c(1)], motivo: null, pedidos: [1] }, 'cola: sin siguiente, una pista y un solo pedido (sin _qid)');
+  W(await R1({ 1: c(1), 2: c(2, { _qid: 9 }) }, 1, 2), { cola: [c(1), c(2)], motivo: null, pedidos: [1, 2] }, 'cola: con siguiente, las dos limpias');
+  W(await R1({ 1: rechaza(err(404)), 2: c(2) }, 1, 2), { cola: null, motivo: 'no-esta', pedidos: [1, 2] }, 'cola: 404 en la primera → no-esta');
+  W(await R1({ 1: rechaza(new TypeError('Failed to fetch')), 2: c(2) }, 1, 2), { cola: null, motivo: 'fallo', pedidos: [1, 2] }, 'cola: red caída en la primera (sin status) → fallo');
+  W((await Promise.all([err(500), err(503), err(401), err(0, { gate: true }), err(undefined, { timeout: true })]
+    .map((e) => R1({ 1: rechaza(e) }, 1, null)))).map((r) => r.motivo),
+    ['fallo', 'fallo', 'fallo', 'fallo', 'fallo'], 'cola: 500, 503, 401, gate y timeout en la primera → fallo (solo el 404 es no-esta)');
+  W(await R1({ 1: c(1), 2: rechaza(err(404)) }, 1, 2), { cola: [c(1)], motivo: null, pedidos: [1, 2] }, 'cola: falla SOLO la siguiente (404) → cola de 1');
+  W(await R1({ 1: c(1), 2: rechaza(new TypeError('red')) }, 1, 2), { cola: [c(1)], motivo: null, pedidos: [1, 2] }, 'cola: la siguiente con la red caída → cola de 1');
+  W(await R1({ 1: c(3) }, 1, null), { cola: null, motivo: 'no-esta', pedidos: [1] }, 'cola: traer devuelve OTRA pista → no-esta');
+  W(await R1({ 1: c(1), 2: c(8) }, 1, 2), { cola: [c(1)], motivo: null, pedidos: [1, 2] }, 'cola: la siguiente vino cambiada → no va');
+  W(await R1({ 1: null }, 1, null), { cola: null, motivo: 'no-esta', pedidos: [1] }, 'cola: traer devuelve null → no-esta');
+  W(await R1({ 1: c(1), 2: null }, 1, 2), { cola: [c(1)], motivo: null, pedidos: [1, 2] }, 'cola: la siguiente null → cola de 1');
+  W(await R1({ 1: () => { throw err(404); } }, 1, null), { cola: null, motivo: 'no-esta', pedidos: [1] }, 'cola: traer lanza SÍNCRONO un 404 → no-esta, sin rechazar');
+  W(await R1({ 1: () => { throw new Error('boom'); } }, 1, null), { cola: null, motivo: 'fallo', pedidos: [1] }, 'cola: traer lanza SÍNCRONO otra cosa → fallo, sin rechazar');
+  W(await R1({ 1: c(1), 2: () => { throw new Error('boom'); } }, 1, 2), { cola: [c(1)], motivo: null, pedidos: [1, 2] }, 'cola: la siguiente lanza síncrono → cola de 1');
+  W(await R1({ 1: c(1) }, 1, 1), { cola: [c(1)], motivo: null, pedidos: [1] }, 'cola: nextTrackId igual a trackId → una pista y UN pedido');
+  W(await R1({ 7: c('7') }, 7, null), { cola: [c('7')], motivo: null, pedidos: [7] }, 'cola: id como texto de dígitos también vale');
+
+  // Las dos se piden A LA VEZ: la segunda sale antes de que conteste la primera.
+  {
+    let suelta; const pedidos = [];
+    const traer = (id) => { pedidos.push(id); return id === 1 ? new Promise((r) => { suelta = () => r(c(1)); }) : Promise.resolve(c(2)); };
+    const p = S.resolverColaDelOyente(traer, 1, 2);
+    await new Promise((r) => setTimeout(r, 0));
+    const antes = [...pedidos];
+    suelta();
+    W({ antes, r: await p }, { antes: [1, 2], r: { cola: [c(1), c(2)], motivo: null } }, 'cola: las dos pistas se piden a la vez (una sola espera)');
+  }
+  // NUNCA rechaza, pase lo que pase con traer.
+  {
+    const raros = [
+      () => { throw null; }, () => Promise.reject(undefined), () => Promise.reject('texto'), () => undefined,
+      () => 42, () => ({}), () => [c(1)], () => ({ id: 1, kind: 'video' }), () => new Promise((r) => r(Promise.reject(err(404)))),
+    ];
+    const res = [];
+    for (const f of raros) {
+      try { const r = await S.resolverColaDelOyente((id) => f(id), 1, 2); res.push(r.cola === null ? r.motivo : 'cola'); }
+      catch { res.push('RECHAZÓ'); }
+    }
+    W(res, ['fallo', 'fallo', 'fallo', 'no-esta', 'no-esta', 'no-esta', 'no-esta', 'no-esta', 'no-esta'],
+      'cola: nunca rechaza (throw null, reject sin valor, valores raros, un video con ese id, 404 anidado)');
+  }
+
+  // fotoDeLaCola: bordes.
+  const q = [c(1, { _qid: 1 }), c(2, { _qid: 2 })];
+  const foto = (queueIndex, posicionSeg, queue = q) => S.fotoDeLaCola({ queue, queueIndex, posicionSeg });
+  W([foto(0, 5, []), foto(-1, 5), foto(2, 5), foto(99, 5), foto(0.5, 5), foto(NaN, 5), foto(undefined, 5), foto('0', 5)],
+    [null, null, null, null, null, null, null, null], 'foto: cola vacía, índice -1, == largo, muy fuera, no entero, NaN, undefined o texto → null');
+  W([null, undefined, { 0: c(1), length: 1 }].map((queue) => S.fotoDeLaCola({ queue, queueIndex: 0, posicionSeg: 5 })), [null, null, null], 'foto: queue que no es un array → null');
+  W([NaN, -1, -0.001, Infinity, -Infinity, 0, undefined, null, '12'].map((s) => foto(1, s)?.posicionSeg), [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    'foto: posición NaN, negativa, infinita, 0, faltante o texto → 0');
+  W([foto(1, 0.001).posicionSeg, foto(0, 3600.25).posicionSeg], [0.001, 3600.25], 'foto: una posición positiva se guarda tal cual');
+  W(foto(1, 10), { lista: [c(1), c(2)], indice: 1, posicionSeg: 10 }, 'foto: el último índice vale, la lista sin _qid');
+  W(q.map((t) => t._qid), [1, 2], 'foto: NO toca la cola del reproductor (los _qid siguen ahí)');
+  W(S.planDeRestauracion({ lista: [c(1), c(0)], indice: 1, posicionSeg: 3 }), { tipo: 'pausar' }, 'plan: una entrada sin id de canción → pausar');
+  W(S.planDeRestauracion({ lista: [c(1)], indice: 5, posicionSeg: 3 }), { tipo: 'pausar' }, 'plan: índice que no apunta a nada → pausar');
+
+  // pausaDelOyente: los límites exactos y la duración desconocida.
+  const base = { quiereSonar: true, pausado: true, sonando: false, posicionMs: 60_000, duracionMs: 200_000, msDesdeOrden: 10_000 };
+  W([S.GRACIA_ORDEN_MS, S.CERCA_DEL_FINAL_MS, S.DESAJUSTE_MS], [3000, 2500, 6000], 'pausa: las perillas valen lo que en iOS (3000, 2500, 6000)');
+  W([2999, 3000, 3001, 0, -5].map((ms) => S.pausaDelOyente({ ...base, msDesdeOrden: ms })), [false, true, true, false, false],
+    'pausa: gracia de la orden — 2999 no, 3000 sí, 3001 sí; 0 y negativo no');
+  W([197_499, 197_500, 197_501, 200_000, 250_000].map((pos) => S.pausaDelOyente({ ...base, posicionMs: pos })), [true, false, false, false, false],
+    'pausa: cerca del final (200 s) — 197,499 s sí, 197,5 s en adelante no');
+  W([0, 60_000, 10_000_000].map((pos) => S.pausaDelOyente({ ...base, duracionMs: null, posicionMs: pos })), [true, true, true],
+    'pausa: duracionMs null → nunca "terminó", en cualquier posición');
+  W(S.pausaDelOyente({ ...base, duracionMs: 2000, posicionMs: 0 }), false, 'pausa: canción más corta que el margen del final → no es suya');
+  W(S.pausaDelOyente({ ...base, msDesdeOrden: 2999, duracionMs: null }), false, 'pausa: la gracia manda también sin duración');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
