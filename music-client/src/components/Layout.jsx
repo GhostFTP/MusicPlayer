@@ -10,6 +10,7 @@ import Changelog from './Changelog.jsx';
 import Settings  from './Settings.jsx';
 import Videos    from './Videos.jsx';
 import Search    from './Search.jsx';
+import Radio     from './Radio.jsx';
 import Player    from './Player.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import { DragQueueProvider } from '../context/DragQueueContext.jsx';
@@ -155,6 +156,7 @@ export default function Layout() {
     settings:  <Settings  {...viewProps} />,
     videos:    <Videos    {...viewProps} />,
     search:    <Search    {...viewProps} />,
+    radio:     <Radio     {...viewProps} />,
   };
 
   // ── Gesto "atrás" (móvil): ver banner de comentario arriba del archivo ──
