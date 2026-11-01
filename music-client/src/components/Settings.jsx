@@ -17,7 +17,8 @@ const METHOD_CHIP = {
 // futura (tema, movimiento reducido, "acerca de"/versión) entra como otra tarjeta.
 // El cierre usa signOut (NO logout): ramifica por método — en SSO además termina
 // la sesión de Cloudflare Access y deja la pausa puesta (no re-entra solo). Ver AuthContext.
-export default function Settings() {
+// `navigate` llega de Layout (viewProps, como a todas las vistas): sólo lo usa la sección Radio.
+export default function Settings({ navigate }) {
   const { user, loginMethod, signOut } = useAuth();
 
   return (
@@ -67,11 +68,41 @@ export default function Settings() {
         )}
       </section>
 
+      {/* Radio: la entrada del TELÉFONO (la barra de abajo ya tiene 7 botones; en escritorio también
+          está en el menú). Mismas piezas que Cuenta: tarjeta + botón neutro de ≥44px. */}
+      <section className="settings-section">
+        <h2 className="settings-section-title">Radio</h2>
+        <dl className="settings-card">
+          <div className="settings-row">
+            <dt>Radio en vivo</dt>
+            <dd>Inicia una o únete con un código</dd>
+          </div>
+        </dl>
+        <button className="settings-logout" onClick={() => navigate('radio')}>
+          <RadioIcon />
+          Abrir Radio
+        </button>
+      </section>
+
       {/* Hueco extensible: la próxima sección (Tema, Movimiento reducido,
           "Acerca de"/versión) entra como otra <section className="settings-section">
           con su <h2 className="settings-section-title"> + <dl className="settings-card">,
           sin tocar nada de lo de arriba. */}
     </div>
+  );
+}
+
+// Ícono de Radio: el mismo dibujo que el del menú del escritorio (Sidebar.jsx).
+function RadioIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="2" />
+      <path d="M16.24 7.76a6 6 0 0 1 0 8.49" />
+      <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+      <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
+    </svg>
   );
 }
 
