@@ -518,6 +518,14 @@ export function PlayerProvider({ children }) {
     });
   }, []);
 
+  // Pone un modo concreto (la radio lo apaga al unirse y lo devuelve al salir). Un valor que no
+  // sea 'off' | 'all' | 'one' no hace nada.
+  const setRepeatMode = useCallback((m) => {
+    if (m !== 'off' && m !== 'all' && m !== 'one') return;
+    repeatRef.current = m;
+    setRepeat(m);
+  }, []);
+
   // ── MediaSession ────────────────────────────────────────────────────────────
   // Proyecta el estado de reproducción al SO. Es lo ÚNICO que se ve en la pantalla del
   // carro (CarPlay en la Maverick; AVRCP por Bluetooth en Kangoo/RAV4) y lo que pinta el
@@ -732,11 +740,11 @@ export function PlayerProvider({ children }) {
     currentTrack, trackMeta, isPlaying, volume, queueIndex,
     shuffle, repeat,
     queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   }), [
     currentTrack, trackMeta, isPlaying, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   ]);
 
