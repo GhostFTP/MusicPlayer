@@ -190,9 +190,10 @@ const sinDesborde = (o) => o.doc <= 0 && o.main <= 0;
   const { ctx, p } = await open({ viewport: { width: 1440, height: 900 } });
   await fresh(p, '/');
 
-  await chk('D01_menu_buscar_despues_de_videos', async () => {
+  // Radio entra entre Videos y Buscar (fd67123); Buscar sigue al final, con su ícono.
+  await chk('D01_menu_buscar_al_final', async () => {
     const t = await p.evaluate(() => [...document.querySelectorAll('.sidebar > nav')[0].querySelectorAll('button')].map((b) => ({ txt: b.textContent.trim(), svg: !!b.querySelector('svg') })));
-    return [JSON.stringify(t.map((x) => x.txt)) === JSON.stringify(['Biblioteca', 'Álbumes', 'Playlists', 'Videos', 'Buscar']) && t.at(-1).svg, { menu: t.map((x) => x.txt) }];
+    return [JSON.stringify(t.map((x) => x.txt)) === JSON.stringify(['Biblioteca', 'Álbumes', 'Playlists', 'Videos', 'Radio', 'Buscar']) && t.at(-1).svg, { menu: t.map((x) => x.txt) }];
   });
 
   await chk('D02_navega_a_search_y_queda_activo', async () => {
