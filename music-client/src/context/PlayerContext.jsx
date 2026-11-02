@@ -108,7 +108,9 @@ export function PlayerProvider({ children }) {
     el.load();
   }
 
-  const playIndex = useCallback((idx) => {
+  // sonar = false (sólo lo pide play(…, { sonar: false })): deja la pista cargada y en pausa, sin
+  // llamar a el.play(). Por defecto suena, como siempre.
+  const playIndex = useCallback((idx, sonar = true) => {
     const track = queueRef.current[idx];
     if (!track) return;
     const isVideo = track.kind === 'video';
@@ -143,7 +145,8 @@ export function PlayerProvider({ children }) {
     // nueva, la UI (letra sincronizada, tiempos) veía el tiempo de la ANTERIOR.
     setCurrentTime(0);
     setDuration(0);
-    el.play().catch(() => {});
+    if (sonar) el.play().catch(() => {});
+    else setIsPlaying(false);   // cambiar el src deja el elemento en pausa sin garantizar un 'pause'
   }, []);
 
   // Decide y reproduce la siguiente pista respetando shuffle + repeat.
@@ -326,7 +329,7 @@ export function PlayerProvider({ children }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
-  const play = useCallback((tracks, startIndex = 0) => {
+  const play = useCallback((tracks, startIndex = 0, { sonar = true } = {}) => {
     // Cada entrada recibe un _qid estable (identidad interna de la cola; NO viaja a la API ni a
     // MediaSession). play() REEMPLAZA la cola entera, como antes.
     const items = tracks.map((t) => ({ ...t, _qid: ++uidRef.current }));
@@ -336,7 +339,7 @@ export function PlayerProvider({ children }) {
     historyRef.current = [];
     forcedNextRef.current = [];            // reemplazar la cola entera también limpia lo "a continuación"
     setUpNextIds([]);                      // espejo reactivo
-    playIndex(startIndex);
+    playIndex(startIndex, sonar);          // sonar: false → cargada y en pausa (la radio al devolver la cola)
   }, [playIndex]);
 
   // Encola pistas AL FINAL sin resetear. Acepta una o muchas. Si nada suena (sin pista actual),
