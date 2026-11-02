@@ -6,6 +6,8 @@
 //          Y seek(Infinity) / seek(NaN) no hacen nada (antes lanzaban TypeError al asignar).
 //   · P-b  play(lista, i, { sonar: false }) deja la pista cargada y EN PAUSA (no llama a el.play() e
 //          isPlaying queda en false aunque antes sonara). Sin tercer argumento, o con {}, suena como siempre.
+//   · P-e  setRepeatMode(m) pone 'off' | 'all' | 'one' (la radio lo apaga al unirse y lo devuelve al salir);
+//          un valor que no sea uno de esos no hace nada. Se mide en lo que hace playNext al TERMINAR la pista.
 //
 // El audio es el WAV sintético de tablet-util (120 s). Para que el seek caiga ANTES de los metadatos
 // de forma segura, el stream contesta con DEMORA_MS de retraso: la pista arranca (play), se llama
@@ -17,7 +19,8 @@
 // duración conocida pasan igual. Sin la guarda de `Number.isFinite(time)` tiene que FALLAR pa_11.
 // Si playIndex ignora `sonar` (siempre suena) tienen que FALLAR pb_1, pb_1b, pb_2, pb_2b y pb_4; sin el
 // setIsPlaying(false) de sonar:false, isPlaying queda en true (el src nuevo pausa sin evento 'pause') y
-// fallan pb_1, pb_1b, pb_2 y pb_4.
+// fallan pb_1, pb_1b, pb_2 y pb_4. Si setRepeatMode no actualiza repeatRef.current (sólo el estado), el
+// estado dice el modo pero playNext no: fallan pe_1, pe_3 y pe_4.
 // Uso: SNAP_BASE=http://localhost:4173 node motor-func.mjs
 import { BASE } from '../session.mjs';
 import { preparar, sleep } from './tablet-util.mjs';
@@ -171,6 +174,46 @@ try {
     }, { pistas, arg }));
   }
   ok('pb_3_por_defecto_suena_como_siempre', e3.every((x) => x.isPlaying && !x.paused && x.plays === 1 && x.avanza), { e3 });
+
+  // ── P-e: setRepeatMode(m) cambia lo que hace playNext cuando la pista TERMINA SOLA ──
+  // Arranca la pista `i`, ya sonando le aplica los modos `modos` en orden, salta a 119,3 s (de 120) y
+  // espera el 'ended' y la carga siguiente. Lo que decide es repeatRef (lo lee playNext), no el estado.
+  const alTerminar = (i, modos) => p.evaluate(async ({ pistas, i, modos }) => {
+    const espera = async (cond, ms) => { const t0 = performance.now(); while (!cond() && performance.now() - t0 < ms) await new Promise((r) => setTimeout(r, 50)); return cond(); };
+    window.__player().play(pistas, i);
+    const el = window.__audio;
+    await espera(() => el.currentTime > 0.1, 4000);
+    for (const m of modos) window.__player().setRepeatMode(m);
+    await new Promise((r) => setTimeout(r, 150));
+    const repeat = window.__player().repeat;
+    let termino = false, cargas = 0;
+    el.addEventListener('ended', () => { termino = true; }, { once: true });
+    const alCargar = () => { cargas++; }; el.addEventListener('loadstart', alCargar);
+    window.__player().seek(119.3);
+    await espera(() => termino, 4000);
+    // Lo que venga (la misma o la siguiente) vuelve a cargar y arranca desde el principio.
+    await espera(() => cargas > 0 && el.currentTime > 0.1 && el.currentTime < 5, 4000);
+    el.removeEventListener('loadstart', alCargar);
+    const v = window.__player();
+    return { modos: modos.map(String), repeat, termino, cargas, queueIndex: v.queueIndex, actual: v.currentTrack?.id, isPlaying: v.isPlaying, ct: Math.round(el.currentTime * 100) / 100 };
+  }, { pistas, i, modos });
+
+  const r1 = await alTerminar(0, ['one']);
+  ok('pe_1_one_al_terminar_repite_la_misma', r1.repeat === 'one' && r1.termino && r1.cargas > 0 && r1.queueIndex === 0 && r1.actual === pistas[0].id && r1.isPlaying && r1.ct < 5, r1);
+  const r2 = await alTerminar(0, ['off']);                       // viene de 'one': el cambio también tiene que llegar al ref
+  ok('pe_2_off_al_terminar_avanza', r2.repeat === 'off' && r2.termino && r2.queueIndex === 1 && r2.actual === pistas[1].id && r2.isPlaying, r2);
+  const r3 = await alTerminar(2, ['all']);                       // última de la cola: con 'all' vuelve a la primera
+  ok('pe_3_all_en_la_ultima_vuelve_a_la_primera', r3.repeat === 'all' && r3.termino && r3.queueIndex === 0 && r3.actual === pistas[0].id && r3.isPlaying, r3);
+  // Inválidos después de 'one': no cambian ni el estado ni lo que pasa al terminar (repite).
+  const r4 = await alTerminar(0, ['one', 'loop', 'ONE', '', null, undefined, 1, true, {}]);
+  ok('pe_4_invalido_no_cambia_nada', r4.repeat === 'one' && r4.termino && r4.queueIndex === 0 && r4.actual === pistas[0].id && r4.isPlaying, r4);
+  // cycleRepeat sigue el ciclo desde el modo puesto a mano (all → one), y se deja en 'off' para lo que sigue.
+  const r5 = await p.evaluate(async () => {
+    const paso = async (f) => { f(window.__player()); await new Promise((r) => setTimeout(r, 100)); return window.__player().repeat; };
+    const a = await paso((v) => v.setRepeatMode('all')); const b = await paso((v) => v.cycleRepeat()); const c = await paso((v) => v.setRepeatMode('off'));
+    return { a, b, c };
+  });
+  ok('pe_5_cycleRepeat_sigue_desde_el_modo_puesto', r5.a === 'all' && r5.b === 'one' && r5.c === 'off', r5);
 
   // (4) sonar: false con un VIDEO (si hay videos): se registra qué pasa, sin exigir nada más que "no suena".
   const vids = await p.evaluate(async () => { const r = await fetch('/api/videos', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }); return ((await r.json()).videos ?? []).slice(0, 1).map((v) => ({ ...v, kind: 'video' })); });
