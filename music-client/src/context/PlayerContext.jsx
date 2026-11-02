@@ -478,8 +478,12 @@ export function PlayerProvider({ children }) {
   }, []);
 
   const seek = useCallback((time) => {
+    if (!Number.isFinite(time)) return;   // seek(Infinity) o seek(NaN) lanzaría TypeError al asignar
     const el = getActive();
-    el.currentTime = Math.max(0, Math.min(time, el.duration || 0));
+    // Sin duración todavía (NaN antes de los metadatos) no se recorta: el navegador guarda el
+    // punto pedido y lo aplica al cargar, recortado a lo posible. Antes eso iba a 0.
+    const d = el.duration;
+    el.currentTime = Math.max(0, Number.isFinite(d) ? Math.min(time, d) : time);
   }, []);
 
   // El volumen va a los DOS elementos: así al pasar de canción a video (o al revés) no salta.
