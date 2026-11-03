@@ -153,7 +153,13 @@ export function PlayerProvider({ children }) {
     // nueva, la UI (letra sincronizada, tiempos) veía el tiempo de la ANTERIOR.
     setCurrentTime(0);
     setDuration(0);
-    if (sonar) el.play().catch((err) => { if (esBloqueoDeAutoplay(err)) setPlayBlocked(true); });
+    if (sonar) el.play().catch((err) => {
+      if (!esBloqueoDeAutoplay(err)) return;   // AbortError: otro src pisó a éste; no se toca nada
+      setPlayBlocked(true);
+      // El src nuevo pausó el elemento sin 'pause' y el play() rechazado no trae ninguno: si venía
+      // sonando otra pista, isPlaying seguía en true con el elemento callado.
+      if (el === getActive() && el.paused) setIsPlaying(false);
+    });
     else setIsPlaying(false);   // cambiar el src deja el elemento en pausa sin garantizar un 'pause'
   }, []);
 
