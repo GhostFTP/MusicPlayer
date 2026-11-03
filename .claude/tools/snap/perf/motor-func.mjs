@@ -8,6 +8,9 @@
 //          isPlaying queda en false aunque antes sonara). Sin tercer argumento, o con {}, suena como siempre.
 //   · P-e  setRepeatMode(m) pone 'off' | 'all' | 'one' (la radio lo apaga al unirse y lo devuelve al salir);
 //          un valor que no sea uno de esos no hace nada. Se mide en lo que hace playNext al TERMINAR la pista.
+//   · P-c  playBlocked: true cuando el navegador rechaza play() con NotAllowedError (en playIndex y en
+//          togglePlay); AbortError no lo prende. Vuelve a false con 'playing' o al llamar play/togglePlay.
+//          El rechazo se simula con un stub de HTMLMediaElement.play en la página (window.__rechazar).
 //
 // El audio es el WAV sintético de tablet-util (120 s). Para que el seek caiga ANTES de los metadatos
 // de forma segura, el stream contesta con DEMORA_MS de retraso: la pista arranca (play), se llama
@@ -21,6 +24,8 @@
 // setIsPlaying(false) de sonar:false, isPlaying queda en true (el src nuevo pausa sin evento 'pause') y
 // fallan pb_1, pb_1b, pb_2 y pb_4. Si setRepeatMode no actualiza repeatRef.current (sólo el estado), el
 // estado dice el modo pero playNext no: fallan pe_1, pe_3 y pe_4.
+// Si cualquier error prende playBlocked (sin mirar el nombre), fallan pc_3 y pc_6; si 'playing' no lo
+// apaga, falla pc_5.
 // Uso: SNAP_BASE=http://localhost:4173 node motor-func.mjs
 import { BASE } from '../session.mjs';
 import { preparar, sleep } from './tablet-util.mjs';
@@ -214,6 +219,65 @@ try {
     return { a, b, c };
   });
   ok('pe_5_cycleRepeat_sigue_desde_el_modo_puesto', r5.a === 'all' && r5.b === 'one' && r5.c === 'off', r5);
+
+  // ── P-c: playBlocked = el navegador rechazó play() con NotAllowedError ──
+  // Stub en la página: con window.__rechazar = 'NotAllowedError' | 'AbortError', el PRÓXIMO play() de
+  // cualquier elemento rechaza con ese DOMException sin llegar al play real (el elemento queda en pausa).
+  await p.evaluate(() => {
+    const M = HTMLMediaElement.prototype; const play0 = M.play; window.__rechazar = null;
+    M.play = function (...a) {
+      if (window.__rechazar) { const n = window.__rechazar; window.__rechazar = null; return Promise.reject(new DOMException('stub de motor-func', n)); }
+      return play0.apply(this, a);
+    };
+  });
+  // Con el próximo play() rechazado con `error` (o null: sin stub), llama `que` ('toggle' o play(pistas, i)),
+  // espera `ms` y devuelve playBlocked/isPlaying/paused.
+  const tras = (error, que, ms = 300) => p.evaluate(async ({ error, que, ms, pistas }) => {
+    window.__rechazar = error;
+    if (que === 'toggle') window.__player().togglePlay(); else window.__player().play(pistas, que);
+    await new Promise((r) => setTimeout(r, ms));
+    const v = window.__player(); return { playBlocked: v.playBlocked, isPlaying: v.isPlaying, paused: window.__audio.paused };
+  }, { error, que, ms, pistas });
+  const hastaQueSuene = () => p.evaluate(async () => {
+    const t0 = performance.now(); while (window.__audio.paused || window.__audio.currentTime < 0.1) { if (performance.now() - t0 > 4000) break; await new Promise((r) => setTimeout(r, 50)); }
+    await new Promise((r) => setTimeout(r, 150));
+    const v = window.__player(); return { playBlocked: v.playBlocked, isPlaying: v.isPlaying, paused: window.__audio.paused };
+  });
+  const pausar = () => p.evaluate(async () => { window.__audio.pause(); await new Promise((r) => setTimeout(r, 150)); });
+
+  // (1) play() de la cola rechazado con NotAllowedError (el sitio de playIndex) → true. Se arranca EN PAUSA (el
+  //     caso de la radio al abrir el link en frío). Desde una pista SONANDO, isPlaying queda en true: el src
+  //     nuevo pausa sin evento 'pause' y el play() rechazado no trae ninguno (pasa igual sin P-c; reportado).
+  await pausar();
+  const c1 = await tras('NotAllowedError', 0, 400);
+  ok('pc_1_notallowed_en_play_lo_activa', c1.playBlocked === true && !c1.isPlaying && c1.paused, c1);
+  // (2) Un togglePlay que sí arranca → vuelve a false.
+  await p.evaluate(() => window.__player().togglePlay());
+  const c2 = await hastaQueSuene();
+  ok('pc_2_togglePlay_que_arranca_lo_apaga', c2.playBlocked === false && c2.isPlaying && !c2.paused, c2);
+  // (3) AbortError NO lo activa, en ninguno de los dos sitios (togglePlay y play/playIndex).
+  await pausar();
+  const c3a = await tras('AbortError', 'toggle', 400);
+  const c3b = await tras('AbortError', 1, 400);
+  ok('pc_3_aborterror_no_lo_activa', c3a.playBlocked === false && c3a.paused && c3b.playBlocked === false && c3b.paused, { togglePlay: c3a, play: c3b });
+  // (4) togglePlay rechazado con NotAllowedError (el otro sitio) → true.
+  const c4 = await tras('NotAllowedError', 'toggle', 400);
+  ok('pc_4_notallowed_en_togglePlay_lo_activa', c4.playBlocked === true && c4.paused, c4);
+  // (5) Sólo el evento 'playing' (un play() directo al elemento, sin pasar por play/togglePlay; como el
+  //     'play' de MediaSession) → false.
+  const c5antes = await p.evaluate(() => window.__player().playBlocked);
+  await p.evaluate(() => { window.__audio.play().catch(() => {}); });
+  const c5 = await hastaQueSuene();
+  ok('pc_5_evento_playing_lo_apaga', c5antes === true && c5.playBlocked === false && !c5.paused, { antes: c5antes, ...c5 });
+  // (6) Llamar play/togglePlay otra vez lo apaga aunque no llegue a sonar (el nuevo intento falla con AbortError).
+  await pausar();
+  const c6a0 = await tras('NotAllowedError', 'toggle', 300);
+  const c6a = await tras('AbortError', 'toggle', 300);
+  const c6b0 = await tras('NotAllowedError', 'toggle', 300);
+  const c6b = await tras('AbortError', 2, 300);
+  ok('pc_6_llamar_otra_vez_lo_apaga', c6a0.playBlocked && c6a.playBlocked === false && c6a.paused && c6b0.playBlocked && c6b.playBlocked === false && c6b.paused,
+    { togglePlay: [c6a0, c6a], play: [c6b0, c6b] });
+  await p.evaluate(() => { window.__rechazar = null; });
 
   // (4) sonar: false con un VIDEO (si hay videos): se registra qué pasa, sin exigir nada más que "no suena".
   const vids = await p.evaluate(async () => { const r = await fetch('/api/videos', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }); return ((await r.json()).videos ?? []).slice(0, 1).map((v) => ({ ...v, kind: 'video' })); });
