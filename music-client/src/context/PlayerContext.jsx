@@ -7,6 +7,11 @@ import { useAuth } from './AuthContext.jsx';
 import VideoFullscreenControls from '../components/VideoFullscreenControls.jsx';
 
 const PlayerContext = createContext(null);
+
+// El navegador rechaza play() con NotAllowedError cuando no hubo un gesto que lo permita (Safari al
+// abrir un link en frío). Sólo ése cuenta como bloqueo: AbortError (otro src pisó al anterior) no.
+const esBloqueoDeAutoplay = (err) => err?.name === 'NotAllowedError';
+
 // El tiempo va en un contexto APARTE: currentTime cambia en cada 'timeupdate' (~4 Hz) y, si
 // viajara en PlayerContext, re-renderizaría a TODO consumidor del player (las 680 filas de la
 // Biblioteca, la grilla de Álbumes…) aunque no muestre el tiempo. Sólo se suscriben acá los que
@@ -60,6 +65,9 @@ export function PlayerProvider({ children }) {
   const [currentTrack, setCurrentTrack] = useState(null);
   const [trackMeta,    setTrackMeta]    = useState(null);  // currentTrack enriquecido (badge + MediaSession)
   const [isPlaying,    setIsPlaying]    = useState(false);
+  // true si el último play() lo rechazó el navegador por falta de gesto (ver esBloqueoDeAutoplay).
+  // Vuelve a false cuando algo arranca ('playing') o al llamar play/togglePlay otra vez.
+  const [playBlocked,  setPlayBlocked]  = useState(false);
   const [currentTime,  setCurrentTime]  = useState(0);
   const [duration,     setDuration]     = useState(0);
   const [volume,       setVolumeState]  = useState(1);
@@ -145,7 +153,7 @@ export function PlayerProvider({ children }) {
     // nueva, la UI (letra sincronizada, tiempos) veía el tiempo de la ANTERIOR.
     setCurrentTime(0);
     setDuration(0);
-    if (sonar) el.play().catch(() => {});
+    if (sonar) el.play().catch((err) => { if (esBloqueoDeAutoplay(err)) setPlayBlocked(true); });
     else setIsPlaying(false);   // cambiar el src deja el elemento en pausa sin garantizar un 'pause'
   }, []);
 
@@ -217,6 +225,7 @@ export function PlayerProvider({ children }) {
     const live = (e) => e.target === getActive();
     const onPlay      = (e) => { if (live(e)) setIsPlaying(true); };
     const onPause     = (e) => { if (live(e)) setIsPlaying(false); };
+    const onPlaying   = (e) => { if (live(e)) setPlayBlocked(false); };   // arrancó de verdad
     const onTimeUpdate= (e) => {
       if (!live(e)) return;
       const el = e.target;
@@ -242,6 +251,7 @@ export function PlayerProvider({ children }) {
     for (const el of els) {
       el.addEventListener('play',       onPlay);
       el.addEventListener('pause',      onPause);
+      el.addEventListener('playing',    onPlaying);
       el.addEventListener('timeupdate', onTimeUpdate);
       el.addEventListener('ended',      onEnded);
     }
@@ -254,6 +264,7 @@ export function PlayerProvider({ children }) {
       for (const el of els) {
         el.removeEventListener('play',       onPlay);
         el.removeEventListener('pause',      onPause);
+        el.removeEventListener('playing',    onPlaying);
         el.removeEventListener('timeupdate', onTimeUpdate);
         el.removeEventListener('ended',      onEnded);
       }
@@ -332,6 +343,7 @@ export function PlayerProvider({ children }) {
   const play = useCallback((tracks, startIndex = 0, { sonar = true } = {}) => {
     // Cada entrada recibe un _qid estable (identidad interna de la cola; NO viaja a la API ni a
     // MediaSession). play() REEMPLAZA la cola entera, como antes.
+    setPlayBlocked(false);                 // un intento nuevo: si lo vuelven a bloquear, el catch lo pone otra vez
     const items = tracks.map((t) => ({ ...t, _qid: ++uidRef.current }));
     queueRef.current = items;              // espejo síncrono para los callbacks
     setQueue(items);                       // estado reactivo para la UI
@@ -380,7 +392,8 @@ export function PlayerProvider({ children }) {
 
   const togglePlay = useCallback(() => {
     const el = getActive();
-    if (el.paused) el.play().catch(() => {});
+    setPlayBlocked(false);
+    if (el.paused) el.play().catch((err) => { if (esBloqueoDeAutoplay(err)) setPlayBlocked(true); });
     else el.pause();
   }, []);
 
@@ -737,13 +750,13 @@ export function PlayerProvider({ children }) {
   // 'timeupdate' re-renderiza el provider pero NO cambia esta identidad → los consumidores que
   // no pintan el tiempo no se enteran. Todas las funciones ya son useCallback estables.
   const value = useMemo(() => ({
-    currentTrack, trackMeta, isPlaying, volume, queueIndex,
+    currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex,
     shuffle, repeat,
     queue, upNext, notice,
     play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   }), [
-    currentTrack, trackMeta, isPlaying, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
+    currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
     play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   ]);
