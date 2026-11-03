@@ -11,6 +11,8 @@
 //   · P-c  playBlocked: true cuando el navegador rechaza play() con NotAllowedError (en playIndex y en
 //          togglePlay); AbortError no lo prende. Vuelve a false con 'playing' o al llamar play/togglePlay.
 //          El rechazo se simula con un stub de HTMLMediaElement.play en la página (window.__rechazar).
+//   · P-f  Desde una pista SONANDO, play(lista) rechazado con NotAllowedError deja isPlaying en false (el
+//          src nuevo pausa sin 'pause'). Con AbortError isPlaying no se toca.
 //
 // El audio es el WAV sintético de tablet-util (120 s). Para que el seek caiga ANTES de los metadatos
 // de forma segura, el stream contesta con DEMORA_MS de retraso: la pista arranca (play), se llama
@@ -25,7 +27,7 @@
 // fallan pb_1, pb_1b, pb_2 y pb_4. Si setRepeatMode no actualiza repeatRef.current (sólo el estado), el
 // estado dice el modo pero playNext no: fallan pe_1, pe_3 y pe_4.
 // Si cualquier error prende playBlocked (sin mirar el nombre), fallan pc_3 y pc_6; si 'playing' no lo
-// apaga, falla pc_5.
+// apaga, falla pc_5. Sin el setIsPlaying(false) del catch de playIndex, falla pf_1.
 // Uso: SNAP_BASE=http://localhost:4173 node motor-func.mjs
 import { BASE } from '../session.mjs';
 import { preparar, sleep } from './tablet-util.mjs';
@@ -246,8 +248,7 @@ try {
   const pausar = () => p.evaluate(async () => { window.__audio.pause(); await new Promise((r) => setTimeout(r, 150)); });
 
   // (1) play() de la cola rechazado con NotAllowedError (el sitio de playIndex) → true. Se arranca EN PAUSA (el
-  //     caso de la radio al abrir el link en frío). Desde una pista SONANDO, isPlaying queda en true: el src
-  //     nuevo pausa sin evento 'pause' y el play() rechazado no trae ninguno (pasa igual sin P-c; reportado).
+  //     caso de la radio al abrir el link en frío). El caso desde una pista SONANDO es pf_1 (P-f).
   await pausar();
   const c1 = await tras('NotAllowedError', 0, 400);
   ok('pc_1_notallowed_en_play_lo_activa', c1.playBlocked === true && !c1.isPlaying && c1.paused, c1);
@@ -277,6 +278,21 @@ try {
   const c6b = await tras('AbortError', 2, 300);
   ok('pc_6_llamar_otra_vez_lo_apaga', c6a0.playBlocked && c6a.playBlocked === false && c6a.paused && c6b0.playBlocked && c6b.playBlocked === false && c6b.paused,
     { togglePlay: [c6a0, c6a], play: [c6b0, c6b] });
+
+  // ── P-f: desde una pista SONANDO, play(lista) rechazado ──
+  // (1) NotAllowedError → playBlocked true, isPlaying false, elemento en pausa.
+  await p.evaluate(({ pistas }) => { window.__rechazar = null; window.__player().play(pistas, 0); }, { pistas });
+  const f1antes = await hastaQueSuene();
+  const f1 = await tras('NotAllowedError', 1, 400);
+  ok('pf_1_notallowed_desde_sonando_apaga_isPlaying', f1antes.isPlaying && !f1antes.paused
+    && f1.playBlocked === true && f1.isPlaying === false && f1.paused, { antes: f1antes, despues: f1 });
+  // (2) AbortError → isPlaying queda como estaba (true, sin tocar), playBlocked false.
+  await p.evaluate(({ pistas }) => window.__player().play(pistas, 0), { pistas });
+  const f2antes = await hastaQueSuene();
+  const f2 = await tras('AbortError', 1, 400);
+  ok('pf_2_aborterror_no_toca_isPlaying', f2antes.isPlaying && !f2antes.paused
+    && f2.playBlocked === false && f2.isPlaying === f2antes.isPlaying && f2.paused, { antes: f2antes, despues: f2 });
+  await pausar();
   await p.evaluate(() => { window.__rechazar = null; });
 
   // (4) sonar: false con un VIDEO (si hay videos): se registra qué pasa, sin exigir nada más que "no suena".
