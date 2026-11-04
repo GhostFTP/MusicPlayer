@@ -221,3 +221,9 @@ export function artistImageUrl(artist) {
 // no la tiene (has_cover === false); el stream usa el mismo manejo de Range que el audio.
 export function videoCoverUrl(videoId) { return `/api/videos/${videoId}/cover?token=${getToken()}`; }
 export function videoStreamUrl(videoId) { return `/stream/video/${videoId}?token=${getToken()}`; }
+// Avatar de una persona de la radio: la `url` que ya validó leerAvatar (radioSync.js), que es
+// /api/users/N/avatar con su `?v=` opcional. Sin url (emoji o sin avatar) → null.
+export function avatarUrl(url) {
+  if (typeof url !== 'string' || url === '') return null;
+  return `${url}${url.includes('?') ? '&' : '?'}token=${getToken()}`;
+}
