@@ -14,7 +14,8 @@ import {
 // (sonorarev-ios components/radio/puente-anfitrion.tsx y puente-oyente.tsx, 2a3bc86) sobre la lógica
 // pura de utils/radioSync.js. Tres piezas:
 //
-//  · RadioProvider — el estado de la SALA: fase, código, oyentes, anfitrión, aviso, por qué terminó,
+//  · RadioProvider — el estado de la SALA: fase, código, oyentes, anfitrión, aviso, si la radio
+//    quiere sonar (quiereSonar: el anfitrión suena una canción), por qué terminó,
 //    el último error, e iniciar()/terminar() (anfitrión) y unirse()/salir()/tocarParaEscuchar()
 //    (oyente). Va en App.jsx alrededor de <Layout/>: queda POR ENCIMA de las vistas (navegar no corta
 //    la radio) y DEBAJO de Auth/Player/Toast. Con logout o el reauth de SSO, App deja de pintar Layout
@@ -67,6 +68,7 @@ export function RadioProvider({ children }) {
   const [anfitrion, setAnfitrion] = useState(null);   // { id, name, avatar } de quien transmite
   const [aviso, setAviso] = useState(null);           // null | 'sin-senal' | 'sin-respuesta' | 'esperando-anfitrion' | 'video' | 'falta-cancion' | 'no-se-pudo-cargar'
   const [silenciada, setSilenciada] = useState(false);   // el oyente pausó por su cuenta ("en pausa para ti")
+  const [quiereSonar, setQuiereSonar] = useState(false);  // el anfitrión suena una canción (no en pausa ni en video)
 
   // Espejos síncronos: un segundo clic llega antes del re-render, y pagehide lee la fase en el acto.
   const faseRef = useRef('sin-radio');
@@ -142,6 +144,7 @@ export function RadioProvider({ children }) {
     setAnfitrion(null);
     setAviso(null);
     setSilenciada(false);
+    setQuiereSonar(false);
     if (razon) setFin({ razon, texto: textoDeFin('oyente', razon) });
   }, []);
 
@@ -153,6 +156,11 @@ export function RadioProvider({ children }) {
   const alAviso = useCallback((gen, a) => {
     if (gen !== genRef.current || !montadoRef.current) return;
     setAviso(a);
+  }, []);
+
+  const alQuiereSonar = useCallback((gen, q) => {
+    if (gen !== genRef.current || !montadoRef.current) return;
+    setQuiereSonar(q);
   }, []);
 
   const alSilenciada = useCallback((gen, s) => {
@@ -279,10 +287,10 @@ export function RadioProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada,
+      fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar,
       iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
     }),
-    [fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar],
+    [fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar, iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar],
   );
 
   return (
@@ -296,6 +304,7 @@ export function RadioProvider({ children }) {
           key={codigo} codigo={codigo} gen={genSala} genRef={genRef}
           primeraRef={primeraRef} fotoRef={fotoRef} motorRef={motorRef} tocarRef={tocarRef}
           salir={finOyente} alOyentes={alOyentes} alAviso={alAviso} alSilenciada={alSilenciada}
+          alQuiereSonar={alQuiereSonar}
         />
       )}
     </RadioContext.Provider>
@@ -388,7 +397,7 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
 // Cada orden propia anota cuándo fue (la gracia de pausaDelOyente) y reinicia la sincro.
 // Si no se pudo cargar la canción (api.track), se pausa lo que sonaba, se avisa y `seguido` vuelve
 // a lo de antes: el próximo sondeo da 'arrancar' otra vez y reintenta, sin sacar al oyente.
-function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada }) {
+function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar }) {
   const { currentTrack, isPlaying, playBlocked, queue, queueIndex, repeat, play, seek, pause, resume, setRepeatMode } = usePlayer();
   const { currentTime, duration } = usePlayerTime();
 
@@ -526,6 +535,9 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
       await revisar();
       if (!vigente()) return;
       const s = seguidoRef.current;
+      // Lo que quiere la radio (para "Toca para escuchar"): sólo cambia cuando el anfitrión pausa,
+      // reanuda o pone un video; con el mismo valor React no re-renderiza.
+      alQuiereSonar(gen, !!s && s.playing && !s.enPausaPorVideo);
       alAviso(gen, paso.aviso ?? cargaFallidaRef.current
         ?? (s?.enPausaPorVideo ? 'video' : !s && lectura.ok ? 'esperando-anfitrion' : null));
       timer = setTimeout(vuelta, esperaDelSondeo(lectura.ok ? null : lectura));
@@ -549,7 +561,7 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
     };
     vuelta();
     return () => { vivo = false; clearTimeout(timer); };
-  }, [codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, play, seek, pause, resume, setRepeatMode]);
+  }, [codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar, play, seek, pause, resume, setRepeatMode]);
 
   // El oyente le dio play estando "en pausa para ti": salta al vivo y la radio vuelve a moverlo.
   useEffect(() => {
