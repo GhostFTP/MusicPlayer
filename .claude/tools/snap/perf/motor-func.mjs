@@ -13,6 +13,11 @@
 //          El rechazo se simula con un stub de HTMLMediaElement.play en la página (window.__rechazar).
 //   · P-f  Desde una pista SONANDO, play(lista) rechazado con NotAllowedError deja isPlaying en false (el
 //          src nuevo pausa sin 'pause'). Con AbortError isPlaying no se toca.
+//   · P-g  pause() y resume() idempotentes sobre el elemento activo: pause() en pausa no llama al
+//          pause() nativo; resume() sonando no llama al play() nativo ni recarga. resume() rechazado con
+//          NotAllowedError prende playBlocked y deja isPlaying en false (pg_5b lo prueba desde isPlaying
+//          desfasado en true, el estado que deja pf_2). Con un video sólo se REGISTRA
+//          qué pasa (va en "registro", fuera del conteo).
 //
 // El audio es el WAV sintético de tablet-util (120 s). Para que el seek caiga ANTES de los metadatos
 // de forma segura, el stream contesta con DEMORA_MS de retraso: la pista arranca (play), se llama
@@ -27,12 +32,15 @@
 // fallan pb_1, pb_1b, pb_2 y pb_4. Si setRepeatMode no actualiza repeatRef.current (sólo el estado), el
 // estado dice el modo pero playNext no: fallan pe_1, pe_3 y pe_4.
 // Si cualquier error prende playBlocked (sin mirar el nombre), fallan pc_3 y pc_6; si 'playing' no lo
-// apaga, falla pc_5. Sin el setIsPlaying(false) del catch de playIndex, falla pf_1.
+// apaga, falla pc_5. Sin el setIsPlaying(false) del catch de playIndex, falla pf_1. Con resume() hecho
+// como togglePlay, falla pg_4; con pause() sin la guarda de `paused`, falla pg_2; sin el setIsPlaying(false)
+// del catch de resume(), falla pg_5b.
 // Uso: SNAP_BASE=http://localhost:4173 node motor-func.mjs
 import { BASE } from '../session.mjs';
 import { preparar, sleep } from './tablet-util.mjs';
 
 const R = {};
+const REG = {};   // lo que sólo se registra (no cuenta en el n/m)
 const ok = (k, v, extra) => { R[k] = extra === undefined ? !!v : { ok: !!v, ...extra }; };
 const DEMORA_MS = 1200;
 
@@ -292,6 +300,67 @@ try {
   const f2 = await tras('AbortError', 1, 400);
   ok('pf_2_aborterror_no_toca_isPlaying', f2antes.isPlaying && !f2antes.paused
     && f2.playBlocked === false && f2.isPlaying === f2antes.isPlaying && f2.paused, { antes: f2antes, despues: f2 });
+  // (P-g, 5b) Con el estado DESFASADO que deja pf_2 (isPlaying true, elemento en pausa), un resume() rechazado
+  //     con NotAllowedError tiene que apagar isPlaying: es el único caso donde el setIsPlaying(false) de
+  //     resume() se ve (en pg_5 isPlaying ya venía en false de pause()).
+  const g5b = await p.evaluate(async () => {
+    window.__rechazar = 'NotAllowedError'; window.__player().resume();
+    await new Promise((r) => setTimeout(r, 400));
+    const v = window.__player(); return { playBlocked: v.playBlocked, isPlaying: v.isPlaying, paused: window.__audio.paused };
+  });
+  ok('pg_5b_resume_bloqueado_con_isPlaying_desfasado_lo_apaga', f2.isPlaying === true && f2.paused
+    && g5b.playBlocked === true && g5b.isPlaying === false && g5b.paused, { antes: f2, despues: g5b });
+  await pausar();
+
+  // ── P-g: pause() y resume() explícitos e idempotentes ──
+  // Se cuentan las llamadas al pause()/play() NATIVOS y los eventos del <audio>: pausar algo ya pausado
+  // no tiene efecto visible en el elemento, así que la idempotencia se mide en que no se llame.
+  await p.evaluate(() => {
+    const M = HTMLMediaElement.prototype; const pa0 = M.pause; const pl0 = M.play;
+    window.__nPausa = 0; window.__nPlay = 0; window.__eventos = [];
+    M.pause = function (...a) { window.__nPausa++; return pa0.apply(this, a); };
+    M.play = function (...a) { window.__nPlay++; return pl0.apply(this, a); };
+    for (const t of ['pause', 'play', 'loadstart', 'emptied']) window.__audio.addEventListener(t, () => window.__eventos.push(t));
+  });
+  const leer = () => p.evaluate(() => { const v = window.__player(); const el = window.__audio;
+    return { playBlocked: v.playBlocked, isPlaying: v.isPlaying, paused: el.paused, ct: Math.round(el.currentTime * 100) / 100, nPausa: window.__nPausa, nPlay: window.__nPlay, eventos: [...window.__eventos] }; });
+  const llamar = (que, veces = 1, ms = 300) => p.evaluate(async ({ que, veces, ms }) => {
+    window.__nPausa = 0; window.__nPlay = 0; window.__eventos = []; let lanzo = null;
+    try { for (let i = 0; i < veces; i++) window.__player()[que](); } catch (e) { lanzo = String(e?.message ?? e); }
+    await new Promise((r) => setTimeout(r, ms)); return lanzo;
+  }, { que, veces, ms });
+  // (1) pause() con una pista sonando → en pausa, isPlaying false.
+  await p.evaluate(({ pistas }) => window.__player().play(pistas, 0), { pistas });
+  const g1antes = await hastaQueSuene();
+  const g1lanzo = await llamar('pause');
+  const g1 = await leer();
+  ok('pg_1_pause_sonando_pausa', g1antes.isPlaying && !g1antes.paused && !g1lanzo && g1.paused && g1.isPlaying === false && g1.nPausa === 1,
+    { antes: g1antes, lanzo: g1lanzo, despues: g1 });
+  // (2) pause() dos veces más, ya en pausa → no llama al pause nativo, ningún evento, sin errores.
+  const g2lanzo = await llamar('pause', 2);
+  const g2 = await leer();
+  ok('pg_2_pause_en_pausa_no_hace_nada', !g2lanzo && g2.nPausa === 0 && g2.eventos.length === 0 && g2.paused && g2.isPlaying === false && g2.ct === g1.ct,
+    { lanzo: g2lanzo, ...g2, ctAntes: g1.ct });
+  // (3) resume() en pausa → suena, isPlaying true.
+  await llamar('resume', 1, 0);
+  const g3 = await hastaQueSuene();
+  ok('pg_3_resume_en_pausa_suena', g3.isPlaying && !g3.paused && g3.playBlocked === false, g3);
+  // (4) resume() dos veces sonando → no llama al play nativo, no recarga, no pausa; el tiempo sigue avanzando.
+  const g4ct0 = (await leer()).ct;
+  const g4lanzo = await llamar('resume', 2, 700);
+  const g4 = await leer();
+  ok('pg_4_resume_sonando_no_reinicia', !g4lanzo && g4.nPlay === 0 && g4.eventos.length === 0 && !g4.paused && g4.isPlaying && g4.ct > g4ct0 + 0.3,
+    { lanzo: g4lanzo, ctAntes: g4ct0, ...g4 });
+  // (5) resume() rechazado con NotAllowedError → playBlocked true, isPlaying false, sigue en pausa.
+  await llamar('pause');
+  await p.evaluate(() => { window.__rechazar = 'NotAllowedError'; });
+  await llamar('resume', 1, 400);
+  const g5 = await leer();
+  ok('pg_5_resume_bloqueado_prende_playBlocked', g5.playBlocked === true && g5.isPlaying === false && g5.paused, g5);
+  // (6) Un resume() que sí arranca, después del bloqueo → playBlocked vuelve a false.
+  await llamar('resume', 1, 0);
+  const g6 = await hastaQueSuene();
+  ok('pg_6_resume_tras_bloqueo_lo_apaga', g6.playBlocked === false && g6.isPlaying && !g6.paused, g6);
   await pausar();
   await p.evaluate(() => { window.__rechazar = null; });
 
@@ -311,6 +380,23 @@ try {
   const medios = await p.evaluate(() => window.__medios.size);
   ok('pa_9_un_solo_elemento_de_media', medios === 1, { medios });
   ok('pa_10_sin_errores_de_pagina', errores.length === 0, { errores });
+
+  // ── P-g con un VIDEO: sólo se registra. Va al final porque hace sonar el <video> (pa_9 cuenta elementos). ──
+  if (vids.length) {
+    REG.pg_video = await p.evaluate(async ({ vids }) => {
+      const v = () => window.__player(); const vd = document.querySelector('video.player-video');
+      const foto = () => ({ isPlaying: v().isPlaying, playBlocked: v().playBlocked, paused: vd?.paused ?? null, ct: vd ? Math.round(vd.currentTime * 100) / 100 : null });
+      const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+      v().play(vids, 0); await espera(1500); const sonando = foto();
+      window.__nPausa = 0; v().pause(); await espera(300); const trasPause = { ...foto(), nPausa: window.__nPausa };
+      window.__nPausa = 0; v().pause(); await espera(200); const trasPause2 = { ...foto(), nPausa: window.__nPausa };
+      window.__nPlay = 0; v().resume(); await espera(800); const trasResume = { ...foto(), nPlay: window.__nPlay };
+      window.__nPlay = 0; v().resume(); await espera(500); const trasResume2 = { ...foto(), nPlay: window.__nPlay };
+      v().pause();
+      return { sonando, trasPause, trasPause2, trasResume, trasResume2 };
+    }, { vids });
+    REG.pg_video_errores_de_pagina = errores.slice();
+  } else REG.pg_video = 'no hay videos en el catálogo (¿VIDEO_DIR?)';
 } catch (e) {
   ok('excepcion', false, { error: String(e.message).split('\n')[0].slice(0, 200) });
 }
@@ -318,7 +404,8 @@ try {
 await ctx.close();
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
 console.log(JSON.stringify(R, null, 1));
-if (process.env.MOTOR_DUMP) (await import('node:fs')).writeFileSync(process.env.MOTOR_DUMP, JSON.stringify(R, null, 1));
+console.log('registro (fuera del conteo):', JSON.stringify(REG, null, 1));
+if (process.env.MOTOR_DUMP) (await import('node:fs')).writeFileSync(process.env.MOTOR_DUMP, JSON.stringify({ ...R, _registro: REG }, null, 1));
 console.log(`\nmotor-func: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
 await browser.close();
 process.exit(fails.length ? 1 : 0);
