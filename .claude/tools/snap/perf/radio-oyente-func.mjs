@@ -31,6 +31,8 @@
 //   H   higiene: tras salir, 0 lecturas en 5 s y ningún temporizador del sondeo pendiente; un solo
 //       elemento de media; sin errores de página.
 //   12  la sala propia se rechaza con "Esta radio es tuya." y no deja al oyente anotado.
+//   14  quiereSonar (lo que lee "Toca para escuchar"): true con el anfitrión sonando, false en pausa y
+//       con video, true otra vez al reanudar y al volver de un video.
 //   13  logout siendo oyente: el reproductor queda EN PAUSA (no restaura la cola), con el repeat de la foto,
 //       y la radio sin lecturas ni sondeo.
 // Fuera del conteo ("registro"): cómo queda un oyente que venía de un VIDEO al salir.
@@ -38,7 +40,7 @@
 // CONTROL NEGATIVO: sin la restauración de finOyente, falla el 9 (y el 10); sin la guarda de sala propia,
 // falla el 12; sin el desajuste, falla el 7; sin aplicar la corrección, falla el 8; sin marcar
 // silenciada, falla el 6; sin la guarda enLaDeLaRadio en pausar/reanudar/saltar, falla el 7b; sin la pausa
-// del desmontaje del provider, falla el 13.
+// del desmontaje del provider, falla el 13; con quiereSonar fijo en true, falla el 14.
 // Uso: SNAP_BASE=http://localhost:4173 SNAP2_USER=… SNAP2_PASS=… node radio-oyente-func.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 
@@ -137,7 +139,7 @@ const foto = () => p.evaluate(() => {
   const v = window.__player(); const r = window.__radio(); const el = window.__audio;
   return {
     fase: r?.fase ?? null, codigo: r?.codigo ?? null, error: r?.error ?? null, fin: r?.fin?.texto ?? null, aviso: r?.aviso ?? null,
-    silenciada: r?.silenciada ?? null,
+    silenciada: r?.silenciada ?? null, quiereSonar: r?.quiereSonar ?? null,
     actual: v.currentTrack?.id ?? null, kind: v.currentTrack?.kind ?? 'track', cola: v.queue.map((t) => t.id), indice: v.queueIndex,
     isPlaying: v.isPlaying, repeat: v.repeat, paused: el ? el.paused : null,
     ct: el ? Math.round(el.currentTime * 100) / 100 : null, nPlay: window.__nPlay,
@@ -201,6 +203,9 @@ try {
   ok('02_arranca_en_la_posicion_proyectada', !!sonando.v && m2.actual === A.id && m2.isPlaying && !m2.paused
     && mismo(m2.cola, [A.id, B.id]) && Math.abs(m2.desfase) < TOLERANCIA_S && m2.repeat === 'off',
     { ms: sonando.ms, actual: m2.actual, cola: m2.cola, isPlaying: m2.isPlaying, repeat: m2.repeat, ct: m2.ct, esperado: m2.esperado, desfase: m2.desfase });
+  // quiereSonar (caso 14): se lee en cada momento del anfitrión — sonando, en pausa, reanudado, video y vuelta.
+  const quiere = (v) => esperar(async () => ((await foto()).quiereSonar === v ? true : null), 3000, 100).then((x) => x.v === true);
+  const Q = { sonando: await quiere(true) };
 
   // ── L. lecturas en 10 s e identidad de las funciones del motor ──
   await p.evaluate(() => { const v = window.__player(); window.__fns = { play: v.play, seek: v.seek, pause: v.pause, resume: v.resume, setRepeatMode: v.setRepeatMode }; });
@@ -213,10 +218,12 @@ try {
   // ── 3. el anfitrión pausa y reanuda ──
   await publicar(s1.code, { trackId: A.id, positionMs: 60_000, playing: false, nextTrackId: B.id });
   const p3 = await esperar(async () => { const f = await foto(); return f.paused && f.isPlaying === false ? f : null; }, 5000);
+  Q.enPausa = await quiere(false);
   await sleep(300);
   const m3a = await medir();
   await publicar(s1.code, { trackId: A.id, positionMs: 60_000, playing: true, nextTrackId: B.id });
   const r3 = await esperar(async () => { const f = await foto(); return !f.paused && f.isPlaying ? f : null; }, 5000);
+  Q.reanudado = await quiere(true);
   await sleep(600);
   const m3b = await medir();
   ok('03_pausa_y_reanuda_en_vivo', !!p3.v && Math.abs(m3a.ct - 60) < 0.5 && m3a.actual === A.id
@@ -308,12 +315,17 @@ try {
   // ── 11. video del anfitrión → pausa con aviso; vuelve una canción → arranca ──
   await publicar(s1.code, { enPausaPorVideo: true });
   const v11 = await esperar(async () => { const f = await foto(); return f.paused && f.aviso === 'video' ? f : null; }, 5000);
+  Q.video = await quiere(false);
   await publicar(s1.code, { trackId: C.id, positionMs: 10_000, playing: true, nextTrackId: A.id });
   const c11 = await esperar(async () => { const f = await foto(); return f.actual === C.id && !f.paused && f.ct > 0 ? f : null; }, 6000);
+  Q.vuelta = await quiere(true);
   await sleep(600);
   const m11 = await medir();
   ok('11_video_pausa_con_aviso_y_vuelve', !!v11.v && v11.v.actual === B.id && !!c11.v && mismo(m11.cola, [C.id, A.id]) && m11.aviso === null && Math.abs(m11.desfase) < TOLERANCIA_S,
     { video: v11.v && { ms: v11.ms, actual: v11.v.actual, paused: v11.v.paused, aviso: v11.v.aviso }, vuelta: { ms: c11.ms, cola: m11.cola, aviso: m11.aviso, desfase: m11.desfase } });
+
+  // ── 14. quiereSonar sigue al anfitrión: true sonando, false en pausa, true al reanudar, false con video ──
+  ok('14_quiereSonar_sigue_al_anfitrion', Object.values(Q).every(Boolean) && Object.keys(Q).length === 5, Q);
 
   // ── L (cierre): lecturas e identidad ──
   const fnsIguales = await p.evaluate(() => { const v = window.__player(); return Object.fromEntries(Object.entries(window.__fns).map(([k, f]) => [k, f === v[k]])); });
