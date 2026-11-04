@@ -974,6 +974,16 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   W(S.pausaDelOyente({ ...base, msDesdeOrden: 2999, duracionMs: null }), false, 'pausa: la gracia manda también sin duración');
 }
 
+// ============================ avatarUrl (client.js): el token por query, como coverUrl/streamUrl ============================
+{
+  const A = (a, b, nombre) => igual('avatar', a, b, nombre);
+  A(C.avatarUrl('/api/users/7/avatar?v=1700000000'), '/api/users/7/avatar?v=1700000000&token=tok-prueba', 'con ?v= → &token=');
+  A(C.avatarUrl('/api/users/7/avatar'), '/api/users/7/avatar?token=tok-prueba', 'sin ?v= → ?token=');
+  A([null, undefined, '', 42].map((u) => C.avatarUrl(u)), [null, null, null, null], 'sin url (null, undefined, vacía, no texto) → null');
+  A(C.avatarUrl(S.leerAvatar({ kind: 'photo', url: '/api/users/12/avatar?v=3', updatedAt: 'x' }).url), '/api/users/12/avatar?v=3&token=tok-prueba',
+    'lo que deja pasar leerAvatar sale con su token');
+}
+
 const fails = Object.entries(R).filter(([, v]) => v !== true);
 console.log(JSON.stringify(R, null, 1));
 for (const [k, v] of fails) console.log('FALLA', k, JSON.stringify(v));
