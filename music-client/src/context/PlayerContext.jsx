@@ -403,6 +403,25 @@ export function PlayerProvider({ children }) {
     else el.pause();
   }, []);
 
+  // Pausar y reanudar EXPLÍCITOS (la radio): a diferencia de togglePlay no dependen de cómo esté el
+  // elemento. pause() sobre algo en pausa no hace nada; resume() sobre algo que suena tampoco (no
+  // reinicia ni recarga). El rechazo de resume() se maneja como en playIndex (P-c y P-f).
+  const pause = useCallback(() => {
+    const el = getActive();
+    if (!el.paused) el.pause();
+  }, []);
+
+  const resume = useCallback(() => {
+    const el = getActive();
+    if (!el.paused) return;
+    setPlayBlocked(false);
+    el.play().catch((err) => {
+      if (!esBloqueoDeAutoplay(err)) return;
+      setPlayBlocked(true);
+      if (el === getActive() && el.paused) setIsPlaying(false);
+    });
+  }, []);
+
   // "Siguiente" manual: avanza respetando shuffle/repeat, pero ignora "repetir una"
   // (pulsar siguiente debe pasar de canción, no repetir la misma).
   const next = useCallback(() => playNext(false, true), [playNext]);
@@ -759,11 +778,11 @@ export function PlayerProvider({ children }) {
     currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex,
     shuffle, repeat,
     queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
+    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   }), [
     currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
+    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   ]);
 
