@@ -68,6 +68,9 @@ const pista = (id, duration) =>
 pista(501, 200.5);      // 200 500 ms
 pista(502, 31);
 pista(503, null);       // sin duración en la base
+// Un video EN tracks no debería existir nunca (el escáner solo mira audio); está para probar
+// que una orden lo rechaza por su mime_type (1.43.0).
+db.prepare('INSERT INTO tracks (id, title, duration, file_path, mime_type) VALUES (?, ?, ?, ?, ?)').run(504, 'Video 504', 60, '/music/smoke-504.mp4', 'video/mp4');
 const FANTASMA = 777777; // no es ninguna pista
 
 const env = { ...process.env };
@@ -353,6 +356,21 @@ try {
     const cr = [];
     for (let i = 0; i < REGLAS.MAX_CREACIONES - 1; i++) cr.push((await pedir(normal, 'POST', '/api/radio', { tok: extras[1] })).status);
     check(igual(cr, [...Array(REGLAS.MAX_CREACIONES - 2).fill(201), 429]), `la creación ${REGLAS.MAX_CREACIONES + 1} de la misma cuenta en un minuto: 429`, cr.join(','));
+  }
+
+  // ---- [13] Órdenes con un video (1.43.0) ----
+  // Antes de mirar quién manda: un video no entra ni como pista de la base ni como id de video.
+  // En el servidor "corto" (el normal quedó con el tope de radios lleno).
+  console.log('[13] órdenes con un video');
+  {
+    const c = (await pedir(corto, 'POST', '/api/radio', { body: { capabilities: { orders: true } } })).data.code;
+    const enTracks = await pedir(corto, 'POST', `/api/radio/${c}/ordenes`, { body: { type: 'ahora', trackId: 504, clientId: 'smoke-video-1' } });
+    check(enTracks.status === 422 && enTracks.data?.reason === 'video', 'una pista de tracks con mime_type de video: 422 video', `${enTracks.status} ${enTracks.text}`);
+    const deIndice = await pedir(corto, 'POST', `/api/radio/${c}/ordenes`, { body: { type: 'a-continuacion', trackId: '0123456789abcdef', clientId: 'smoke-video-2' } });
+    check(deIndice.status === 422 && deIndice.data?.reason === 'video', 'el id de un video (16 hex): 422 video', `${deIndice.status} ${deIndice.text}`);
+    const audio = await pedir(corto, 'POST', `/api/radio/${c}/ordenes`, { body: { type: 'ahora', trackId: 501, clientId: 'smoke-video-3' } });
+    check(audio.status === 403 && audio.data?.reason === 'sin-permiso', 'la misma orden con una canción sí pasa de ahí (y la frena el permiso)', `${audio.status} ${audio.text}`);
+    await pedir(corto, 'DELETE', `/api/radio/${c}`);
   }
 } catch (e) {
   if (e.message !== 'sin servidor') { fail++; console.error('[SMOKE-RADIO] se cortó:', e); }

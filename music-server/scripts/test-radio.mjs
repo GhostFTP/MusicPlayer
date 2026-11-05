@@ -681,5 +681,21 @@ console.log('publicar sin confirmación: como en 1.42.0 (1.43.0)');
     'aplicadas que no es una lista de hasta 10 ids: no');
 }
 
+console.log('lo que se olvida de las órdenes (1.43.0)');
+{
+  const { a, codigo, pasar } = salaModerada();
+  a.ordenar(codigo, 2, ORD('pausa'));
+  check(igual(a.memoria(codigo), { ordenes: 1, idsCliente: 1, cubetasOrden: 1, eventos: 1 }), 'una orden guarda la orden, su idCliente y la cubeta de quien la mandó');
+  pasar(REGLAS.ORDEN_TTL_MS);
+  a.expirar();
+  check(a.memoria(codigo).ordenes === 0 && a.memoria(codigo).idsCliente === 0, 'pasado ORDEN_TTL_MS, expirar() olvida la orden y su idCliente');
+  a.leer(codigo, 2, MOD);
+  a.ordenar(codigo, 2, ORD('reanudar'));
+  check(a.memoria(codigo).idsCliente === 1, 'una orden nueva vuelve a guardar su idCliente');
+  a.terminar(codigo, 1);
+  check(igual(a.memoria(codigo), { ordenes: 0, idsCliente: 0, cubetasOrden: 0, eventos: 0 }), 'al terminar, cerrar() borra órdenes, idCliente, cubetas y eventos');
+  check(a.memoria('ZZZZZZ') === null, 'de una radio que no existe: null');
+}
+
 console.log(`\n${pass} de ${pass + fail} en verde`);
 process.exit(fail ? 1 : 0);
