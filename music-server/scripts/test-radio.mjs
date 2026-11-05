@@ -7,7 +7,7 @@
 // Sale con código 1 si algo falla.
 import { crearAlmacen } from '../src/radio/almacen.js';
 import {
-  ALFABETO, REGLAS, acotarPosicion, contar, leerCodigo, leerPublicacion, nombrePublico, nuevoCodigo, vidaDe,
+  ALFABETO, REGLAS, TIPOS_ORDEN, acotarPosicion, contar, leerCodigo, leerOrden, leerPublicacion, nombrePublico, nuevoCodigo, vidaDe,
 } from '../src/radio/reglas.js';
 
 let pass = 0;
@@ -67,6 +67,52 @@ console.log('leer lo que publica el anfitrión');
   const conReloj = L({ trackId: 7, positionMs: 5, playing: true, clientNow: 1, publishedAtServerMs: 1, seq: 99, serverNow: 5 }).pedido;
   check(!('clientNow' in conReloj) && !('publishedAtServerMs' in conReloj) && !('seq' in conReloj), 'un reloj o una secuencia del cliente se ignoran');
 }
+
+console.log('leer una orden de un moderador (1.43.0)');
+{
+  const O = (b) => leerOrden(b);
+  const ID = 'k3J9x2';
+  check(igual(O({ tipo: 'siguiente', seqBase: 41, idCliente: ID }).orden, { tipo: 'siguiente', trackId: null, seqBase: 41, idCliente: ID }), 'siguiente');
+  check(igual(O({ tipo: 'pausa', seqBase: 41, idCliente: ID }).orden, { tipo: 'pausa', trackId: null, seqBase: 41, idCliente: ID }), 'pausa');
+  check(igual(O({ tipo: 'reanudar', seqBase: 41, idCliente: ID }).orden, { tipo: 'reanudar', trackId: null, seqBase: 41, idCliente: ID }), 'reanudar');
+  check(igual(O({ tipo: 'a-continuacion', trackId: 7, idCliente: ID }).orden, { tipo: 'a-continuacion', trackId: 7, seqBase: null, idCliente: ID }), 'a continuación');
+  check(igual(O({ tipo: 'ahora', trackId: 7, seqBase: 41, idCliente: ID }).orden, { tipo: 'ahora', trackId: 7, seqBase: 41, idCliente: ID }), 'ahora');
+  check(igual(Object.keys(TIPOS_ORDEN), ['siguiente', 'pausa', 'reanudar', 'a-continuacion', 'ahora']) && Object.isFrozen(TIPOS_ORDEN), 'los cinco tipos, congelados');
+
+  check(!O(null).ok && !O([]).ok && !O('siguiente').ok && !O(undefined).ok, 'sin cuerpo, un arreglo o un texto: no');
+  check(!O({ seqBase: 1, idCliente: ID }).ok && !O({ tipo: 'saltar', seqBase: 1, idCliente: ID }).ok && !O({ tipo: 7, seqBase: 1, idCliente: ID }).ok
+    && !O({ tipo: 'SIGUIENTE', seqBase: 1, idCliente: ID }).ok, 'sin tipo, uno que no existe, un número o en mayúsculas: no');
+  check(['__proto__', 'constructor', 'toString', 'hasOwnProperty'].every((t) => !O({ tipo: t, seqBase: 1, trackId: 7, idCliente: ID }).ok),
+    'un nombre del prototipo como tipo: no');
+
+  check(!O({ tipo: 'a-continuacion', idCliente: ID }).ok && !O({ tipo: 'ahora', seqBase: 1, idCliente: ID }).ok, 'a continuación o ahora sin trackId: no');
+  check(['7', 7.5, 0, -3, null, NaN, 2 ** 53].every((t) => !O({ tipo: 'ahora', trackId: t, seqBase: 1, idCliente: ID }).ok),
+    'trackId como texto, con decimales, cero, negativo, null, NaN o fuera de rango: no');
+
+  check(['siguiente', 'pausa', 'reanudar'].every((t) => !O({ tipo: t, idCliente: ID }).ok) && !O({ tipo: 'ahora', trackId: 7, idCliente: ID }).ok,
+    'siguiente, pausa, reanudar y ahora sin seqBase: no');
+  check(['1', 1.5, -1, null, Infinity, 2 ** 53].every((b) => !O({ tipo: 'siguiente', seqBase: b, idCliente: ID }).ok),
+    'seqBase como texto, con decimales, negativo, null, infinito o fuera de rango: no');
+  check(O({ tipo: 'siguiente', seqBase: 0, idCliente: ID }).ok, 'seqBase 0 (el anfitrión todavía no publicó): sí');
+
+  check(O({ tipo: 'siguiente', seqBase: 1, trackId: 'basura', idCliente: ID }).orden?.trackId === null, 'un trackId en una orden que no lo lleva se ignora');
+  check(O({ tipo: 'a-continuacion', trackId: 7, seqBase: 'basura', idCliente: ID }).orden?.seqBase === null, 'un seqBase en una orden que no lo lleva se ignora');
+
+  check([undefined, null, 123456, 'abc12', 'x'.repeat(25), 'con espacio', 'k3J9x2"', 'ñandú12', ''].every((i) => !O({ tipo: 'siguiente', seqBase: 1, idCliente: i }).ok),
+    'idCliente que falta, no es texto, es corto o largo, o trae espacios, comillas o acentos: no');
+  check(O({ tipo: 'siguiente', seqBase: 1, idCliente: 'a-b_C9' }).ok && O({ tipo: 'siguiente', seqBase: 1, idCliente: 'Z'.repeat(24) }).ok, 'idCliente de 6 y de 24: sí');
+
+  const conDeMas = O({ tipo: 'ahora', trackId: 7, seqBase: 3, idCliente: ID, trackBase: 99, por: 1, quien: 1, clientNow: 5, serverNow: 5, id: 8 }).orden;
+  check(igual(Object.keys(conDeMas), ['tipo', 'trackId', 'seqBase', 'idCliente']), 'trackBase, quién la manda, un id o un reloj del cliente se ignoran');
+
+  const mayor = JSON.stringify({ tipo: 'a-continuacion', trackId: Number.MAX_SAFE_INTEGER, seqBase: Number.MAX_SAFE_INTEGER, idCliente: 'Z'.repeat(24) });
+  check(Buffer.byteLength(mayor) <= REGLAS.CUERPO_MAX_BYTES, `la orden más grande cabe en ${REGLAS.CUERPO_MAX_BYTES} bytes`, `${Buffer.byteLength(mayor)} bytes`);
+}
+
+console.log('las reglas de la moderación (1.43.0)');
+check(igual([REGLAS.MAX_MODERADORES, REGLAS.MAX_ORDENES, REGLAS.ORDEN_TTL_MS, REGLAS.MAX_ORDENES_PERSONA, REGLAS.VENTANA_ORDENES_MS, REGLAS.MAX_EVENTOS],
+  [3, 10, 30_000, 10, 10_000, 20]), 'los valores por defecto: 3 moderadores, 10 órdenes, 30 s, 10 por persona cada 10 s, 20 eventos');
+check(Object.isFrozen(REGLAS), 'REGLAS sigue congelado');
 
 console.log('acotar la posición');
 {
