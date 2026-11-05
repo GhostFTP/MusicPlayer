@@ -62,6 +62,8 @@ export const REGLAS = Object.freeze({
   VENTANA_ORDENES_MS: ms('RADIO_VENTANA_ORDENES_MS', 10_000),
   /** Eventos ("Sonia pasó a la siguiente") que se guardan por radio para mostrar. */
   MAX_EVENTOS: 20,
+  /** Largo máximo (en caracteres, no en bytes) del título de una canción en un evento. */
+  TITULO_MAX: 100,
 });
 
 // ---- El código ----
@@ -96,6 +98,11 @@ const esId = (v) => Number.isSafeInteger(v) && v > 0;
  *
  * Devuelve `{ ok: true, pedido }` o `{ ok: false, error }` (un texto para un 400).
  * El reloj del cliente NO se lee nunca: si el cuerpo trae uno, se ignora.
+ *
+ * Desde 1.43.0 el anfitrión que ejecuta órdenes puede sumar `ordenHasta` (la última orden que
+ * vio, aplicada o descartada) y `aplicadas` (las que de verdad aplicó): eso vuelve APARTE, en
+ * `confirmacion`, nunca dentro de `pedido`. Sin esos dos campos (la app de iOS, la web de 1.42.0)
+ * la lectura es exactamente la de antes: mismas respuestas, mismos errores, mismo orden.
  */
 export function leerPublicacion(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false, error: 'Falta el estado.' };
@@ -133,7 +140,19 @@ export function leerPublicacion(body) {
     return { ok: false, error: 'nextTrackId tiene que ser un entero.' };
   }
 
-  return { ok: true, pedido: { trackId, positionMs, playing, nextTrackId, enPausaPorVideo: video } };
+  const leida = { ok: true, pedido: { trackId, positionMs, playing, nextTrackId, enPausaPorVideo: video } };
+
+  // La confirmación va DESPUÉS de todo lo anterior, para no cambiar ningún error viejo.
+  if (body.ordenHasta == null && body.aplicadas == null) return leida;
+  if (!esSeq(body.ordenHasta)) return { ok: false, error: 'ordenHasta tiene que ser un entero.' };
+  let aplicadas = [];
+  if (body.aplicadas != null) {
+    if (!Array.isArray(body.aplicadas) || body.aplicadas.length > REGLAS.MAX_ORDENES || !body.aplicadas.every(esId)) {
+      return { ok: false, error: `aplicadas tiene que ser una lista de hasta ${REGLAS.MAX_ORDENES} ids.` };
+    }
+    aplicadas = [...new Set(body.aplicadas)];
+  }
+  return { ...leida, confirmacion: { ordenHasta: body.ordenHasta, aplicadas } };
 }
 
 /**
@@ -153,24 +172,30 @@ export function acotarPosicion(positionMs, duracionS, reglas = REGLAS) {
 // anfitrión ejecuta (y después publica, como siempre). Pausa y reanudar son absolutas, no un
 // interruptor: dos personas que pulsan "pausa" a la vez dan el mismo resultado.
 //
-//   siguiente       { seqBase }            pasar a la siguiente
-//   pausa           { seqBase }            pausar
-//   reanudar        { seqBase }            reanudar
-//   a-continuacion  { trackId }            poner una canción a continuación
-//   ahora           { trackId, seqBase }   reproducir una canción ya
+//   siguiente       { seqBase }    pasar a la siguiente
+//   pausa           {}             pausar
+//   reanudar        {}             reanudar
+//   a-continuacion  { trackId }    poner una canción a continuación
+//   ahora           { trackId }    reproducir una canción ya
 //
-// `seqBase` es el `seq` del estado que veía quien ordena; `idCliente`, un id que elige el cliente
-// para que el servidor reconozca un reenvío de la misma orden. La pista en que estaba la radio al
-// llegar la orden (`trackBase`, para descartar un "siguiente" que ya no aplica) la pone el
-// almacén, nunca el cliente.
+// `idCliente` (todas): un id que elige el cliente, para que el servidor reconozca un reenvío.
+//
+// POR QUÉ SOLO "siguiente" LLEVA seqBase. Las demás son absolutas ("pausa", "pon ESTA"): no
+// dependen de qué sonaba. "siguiente" sí: es "salta LA canción que estoy viendo", y esa canción
+// puede cambiar en dos huecos, uno por campo:
+//   · seqBase (el `seq` del estado que veía quien ordena): entre lo que vio y que la orden LLEGUE.
+//     Si desde ese seq empezó otra pista, el almacén la rechaza como 'obsoleta'.
+//   · trackBase (la pista al llegar; la pone el almacén, nunca el cliente): entre que llega y que
+//     el anfitrión la APLIQUE. Si ya suena otra, el anfitrión la descarta.
+// Sin cualquiera de los dos, dos personas que pulsan "siguiente" a la vez saltan dos canciones.
 
 /** Los tipos de orden y qué lleva cada uno. */
 export const TIPOS_ORDEN = Object.freeze({
   siguiente: { pista: false, base: true },
-  pausa: { pista: false, base: true },
-  reanudar: { pista: false, base: true },
+  pausa: { pista: false, base: false },
+  reanudar: { pista: false, base: false },
   'a-continuacion': { pista: true, base: false },
-  ahora: { pista: true, base: true },
+  ahora: { pista: true, base: false },
 });
 
 const ID_CLIENTE = /^[A-Za-z0-9_-]{6,24}$/;
@@ -245,4 +270,19 @@ export function nombrePublico(username) {
   const u = username.trim();
   const arroba = u.indexOf('@');
   return arroba > 0 ? u.slice(0, arroba) : u;
+}
+
+/** Controles, separadores de línea/párrafo, espacios de ancho cero y marcas de dirección (los
+ *  mismos que limpia `leerNombre` en la web, music-client/src/utils/radioSync.js). */
+function esInvisible(cp) {
+  return cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f) || cp === 0x2028 || cp === 0x2029
+    || (cp >= 0x200b && cp <= 0x200f) || (cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069);
+}
+
+/** El título de una canción para un evento: sin invisibles ni saltos, con los espacios juntados y
+ *  cortado a TITULO_MAX caracteres (por punto de código: un emoji no se parte). '' si no es texto. */
+export function tituloPublico(v, reglas = REGLAS) {
+  if (typeof v !== 'string') return '';
+  const limpio = [...v].map((ch) => (esInvisible(ch.codePointAt(0)) ? ' ' : ch)).join('').replace(/\s+/g, ' ').trim();
+  return [...limpio].slice(0, reglas.TITULO_MAX).join('').trim();
 }
