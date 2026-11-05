@@ -49,6 +49,19 @@ export const REGLAS = Object.freeze({
   CUERPO_MAX_BYTES: 512,
   /** Tope de posición para una pista sin duración en la base (24 h). */
   POSICION_MAX_MS: 24 * 60 * 60_000,
+
+  // ---- Moderación y control remoto (1.43.0) ----
+  /** Moderadores a la vez en una radio. Los nombra el anfitrión entre quienes escuchan. */
+  MAX_MODERADORES: 3,
+  /** Órdenes pendientes (mandadas y todavía sin confirmar por el anfitrión) en una radio. */
+  MAX_ORDENES: 10,
+  /** Una orden que el anfitrión no confirma en este tiempo se descarta. */
+  ORDEN_TTL_MS: ms('RADIO_ORDEN_TTL_MS', 30_000),
+  /** Órdenes que una misma persona puede mandar por ventana. */
+  MAX_ORDENES_PERSONA: 10,
+  VENTANA_ORDENES_MS: ms('RADIO_VENTANA_ORDENES_MS', 10_000),
+  /** Eventos ("Sonia pasó a la siguiente") que se guardan por radio para mostrar. */
+  MAX_EVENTOS: 20,
 });
 
 // ---- El código ----
@@ -132,6 +145,70 @@ export function acotarPosicion(positionMs, duracionS, reglas = REGLAS) {
     ? Math.round(duracionS * 1000)
     : reglas.POSICION_MAX_MS;
   return Math.min(Math.max(0, Math.round(positionMs)), tope);
+}
+
+// ---- Lo que ordena un moderador (1.43.0) ----
+//
+// El control remoto: un moderador no publica el estado, MANDA una orden que el reproductor del
+// anfitrión ejecuta (y después publica, como siempre). Pausa y reanudar son absolutas, no un
+// interruptor: dos personas que pulsan "pausa" a la vez dan el mismo resultado.
+//
+//   siguiente       { seqBase }            pasar a la siguiente
+//   pausa           { seqBase }            pausar
+//   reanudar        { seqBase }            reanudar
+//   a-continuacion  { trackId }            poner una canción a continuación
+//   ahora           { trackId, seqBase }   reproducir una canción ya
+//
+// `seqBase` es el `seq` del estado que veía quien ordena; `idCliente`, un id que elige el cliente
+// para que el servidor reconozca un reenvío de la misma orden. La pista en que estaba la radio al
+// llegar la orden (`trackBase`, para descartar un "siguiente" que ya no aplica) la pone el
+// almacén, nunca el cliente.
+
+/** Los tipos de orden y qué lleva cada uno. */
+export const TIPOS_ORDEN = Object.freeze({
+  siguiente: { pista: false, base: true },
+  pausa: { pista: false, base: true },
+  reanudar: { pista: false, base: true },
+  'a-continuacion': { pista: true, base: false },
+  ahora: { pista: true, base: true },
+});
+
+const ID_CLIENTE = /^[A-Za-z0-9_-]{6,24}$/;
+const esSeq = (v) => Number.isSafeInteger(v) && v >= 0;
+
+/**
+ * Lee el cuerpo de POST /ordenes como dato de AFUERA. No mira la base (¿existe la pista?) ni el
+ * almacén (¿quién manda?, ¿está escuchando?): eso es de la ruta y del almacén.
+ *
+ * Devuelve `{ ok: true, orden: { tipo, trackId, seqBase, idCliente } }` o `{ ok: false, error }`
+ * (un texto para un 400). Lo que el tipo no lleva queda en null; lo que el cuerpo traiga de más
+ * (un reloj, un `trackBase`, quién la manda) se ignora.
+ */
+export function leerOrden(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false, error: 'Falta la orden.' };
+
+  const tipo = body.tipo;
+  const forma = typeof tipo === 'string' && Object.hasOwn(TIPOS_ORDEN, tipo) ? TIPOS_ORDEN[tipo] : null;
+  if (!forma) return { ok: false, error: 'Ese tipo de orden no existe.' };
+
+  let trackId = null;
+  if (forma.pista) {
+    if (!esId(body.trackId)) return { ok: false, error: 'trackId tiene que ser un entero.' };
+    trackId = body.trackId;
+  }
+
+  let seqBase = null;
+  if (forma.base) {
+    if (!esSeq(body.seqBase)) return { ok: false, error: 'seqBase tiene que ser un entero.' };
+    seqBase = body.seqBase;
+  }
+
+  const idCliente = body.idCliente;
+  if (typeof idCliente !== 'string' || !ID_CLIENTE.test(idCliente)) {
+    return { ok: false, error: 'idCliente tiene que tener de 6 a 24 letras, números, - o _.' };
+  }
+
+  return { ok: true, orden: { tipo, trackId, seqBase, idCliente } };
 }
 
 // ---- En qué está una radio ----
