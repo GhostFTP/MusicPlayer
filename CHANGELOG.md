@@ -3,6 +3,24 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.42.0] - 2026-11-04
+
+### Nuevo
+- **Radio en la web.** En la vista Radio puedes iniciar una radio con lo que estás escuchando y te da
+  un código de 6 caracteres. Quien tenga el código, o el enlace /radio/CODIGO, escucha lo mismo que tú,
+  en vivo. Al salir de la radio, vuelve la cola que tenía antes, en pausa.
+- **«Toca para escuchar».** Si el navegador no deja que la radio empiece a sonar sola, aparece un botón:
+  con un toque, suena en vivo.
+
+### Cambiado
+- **El reproductor arranca en el punto exacto** de una canción aunque todavía no haya terminado de
+  cargarla, y se da cuenta cuando el navegador bloquea el audio: el botón de play ya no queda como si
+  estuviera sonando.
+
+### Para tener en cuenta
+- Las radios viven en la memoria del servidor: al desplegar una versión nueva, las que estén abiertas
+  se cierran y hay que abrirlas de nuevo.
+
 ## [1.41.2] - 2026-10-31
 
 ### Corregido

@@ -11,6 +11,8 @@
 // OJO (para F1.2/F1.3): una URL no tiene tipos — todos los segmentos vuelven como STRING.
 // year e id, que en la app pueden venir como número, salen de acá como string.
 
+import { normalizarCodigo } from './radioSync.js';
+
 const enc = encodeURIComponent;
 
 // Decodifica un segmento y lo normaliza a NFC (robustez de matcheo; ver arriba). Un
@@ -32,8 +34,20 @@ export const NO_ALBUM_ARTIST = '@';
 // Vistas conocidas. Las 7 del contrato nav-lab + `settings`, `videos` y `search` (que se sumaron a la
 // app DESPUÉS de escribir el contrato: son vistas reales y necesitan ruta). Un primer segmento
 // fuera de este set = ruta desconocida → library. `search` es una vista simple (sin detalle ni
-// parámetros): la consulta NO viaja en la URL, vive en memoria (utils/searchAll.js).
-const KNOWN_VIEWS = new Set(['albums', 'artists', 'genres', 'years', 'playlists', 'changelog', 'settings', 'videos', 'search']);
+// parámetros): la consulta NO viaja en la URL, vive en memoria (utils/searchAll.js). `radio` tiene
+// detalle propio (/radio/CODIGO, ver abajo).
+const KNOWN_VIEWS = new Set(['albums', 'artists', 'genres', 'years', 'playlists', 'changelog', 'settings', 'videos', 'search', 'radio']);
+
+// Radio: /radio = sin radio; /radio/CODIGO = unirse a esa radio. El código se valida con la MISMA
+// regla que el campo de la vista (normalizarCodigo de radioSync.js): perdona minúsculas, espacios y
+// guiones, y sale en su forma canónica (/radio/k7m-2qx → K7M2QX). Un código que no vale NO se
+// descarta en silencio: vuelve como { invalido: true } para que la vista avise, y su ruta se
+// escribe /radio (no hay código que poner en la URL).
+function radioTarget(seg1) {
+  if (!seg1) return null;
+  const codigo = normalizarCodigo(seg1);
+  return codigo ? { codigo } : { invalido: true };
+}
 
 // Vistas con detalle de UN segmento y el nombre de su parámetro. `albums` va aparte: su
 // detalle son DOS segmentos (album_artist/album) para desambiguar homónimos.
@@ -54,6 +68,11 @@ export function stateToPath(state = {}) {
     return target.album_artist
       ? `/albums/${enc(target.album_artist)}/${enc(target.album)}`
       : `/albums/${NO_ALBUM_ARTIST}/${enc(target.album)}`;   // sin album_artist: centinela crudo
+  }
+
+  if (view === 'radio') {
+    const codigo = normalizarCodigo(target?.codigo);   // null si falta o no vale
+    return codigo ? `/radio/${codigo}` : '/radio';     // el alfabeto del código no necesita encode
   }
 
   const param = DETAIL_PARAM[view];
@@ -79,6 +98,8 @@ export function pathToState(pathname = '/') {
     // seg1 pero su segmento crudo es "%40", así que no se confunde.
     return { view: 'albums', target: { album_artist: raw[1] === NO_ALBUM_ARTIST ? null : seg1, album: seg2 } };
   }
+
+  if (seg0 === 'radio') return { view: 'radio', target: radioTarget(seg1) };
 
   const param = DETAIL_PARAM[seg0];
   if (param && seg1) {

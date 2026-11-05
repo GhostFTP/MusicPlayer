@@ -7,6 +7,11 @@ import { useAuth } from './AuthContext.jsx';
 import VideoFullscreenControls from '../components/VideoFullscreenControls.jsx';
 
 const PlayerContext = createContext(null);
+
+// El navegador rechaza play() con NotAllowedError cuando no hubo un gesto que lo permita (Safari al
+// abrir un link en frío). Sólo ése cuenta como bloqueo: AbortError (otro src pisó al anterior) no.
+const esBloqueoDeAutoplay = (err) => err?.name === 'NotAllowedError';
+
 // El tiempo va en un contexto APARTE: currentTime cambia en cada 'timeupdate' (~4 Hz) y, si
 // viajara en PlayerContext, re-renderizaría a TODO consumidor del player (las 680 filas de la
 // Biblioteca, la grilla de Álbumes…) aunque no muestre el tiempo. Sólo se suscriben acá los que
@@ -60,6 +65,9 @@ export function PlayerProvider({ children }) {
   const [currentTrack, setCurrentTrack] = useState(null);
   const [trackMeta,    setTrackMeta]    = useState(null);  // currentTrack enriquecido (badge + MediaSession)
   const [isPlaying,    setIsPlaying]    = useState(false);
+  // true si el último play() lo rechazó el navegador por falta de gesto (ver esBloqueoDeAutoplay).
+  // Vuelve a false cuando algo arranca ('playing') o al llamar play/togglePlay otra vez.
+  const [playBlocked,  setPlayBlocked]  = useState(false);
   const [currentTime,  setCurrentTime]  = useState(0);
   const [duration,     setDuration]     = useState(0);
   const [volume,       setVolumeState]  = useState(1);
@@ -108,7 +116,9 @@ export function PlayerProvider({ children }) {
     el.load();
   }
 
-  const playIndex = useCallback((idx) => {
+  // sonar = false (sólo lo pide play(…, { sonar: false })): deja la pista cargada y en pausa, sin
+  // llamar a el.play(). Por defecto suena, como siempre.
+  const playIndex = useCallback((idx, sonar = true) => {
     const track = queueRef.current[idx];
     if (!track) return;
     const isVideo = track.kind === 'video';
@@ -143,7 +153,14 @@ export function PlayerProvider({ children }) {
     // nueva, la UI (letra sincronizada, tiempos) veía el tiempo de la ANTERIOR.
     setCurrentTime(0);
     setDuration(0);
-    el.play().catch(() => {});
+    if (sonar) el.play().catch((err) => {
+      if (!esBloqueoDeAutoplay(err)) return;   // AbortError: otro src pisó a éste; no se toca nada
+      setPlayBlocked(true);
+      // El src nuevo pausó el elemento sin 'pause' y el play() rechazado no trae ninguno: si venía
+      // sonando otra pista, isPlaying seguía en true con el elemento callado.
+      if (el === getActive() && el.paused) setIsPlaying(false);
+    });
+    else setIsPlaying(false);   // cambiar el src deja el elemento en pausa sin garantizar un 'pause'
   }, []);
 
   // Decide y reproduce la siguiente pista respetando shuffle + repeat.
@@ -214,6 +231,7 @@ export function PlayerProvider({ children }) {
     const live = (e) => e.target === getActive();
     const onPlay      = (e) => { if (live(e)) setIsPlaying(true); };
     const onPause     = (e) => { if (live(e)) setIsPlaying(false); };
+    const onPlaying   = (e) => { if (live(e)) setPlayBlocked(false); };   // arrancó de verdad
     const onTimeUpdate= (e) => {
       if (!live(e)) return;
       const el = e.target;
@@ -239,6 +257,7 @@ export function PlayerProvider({ children }) {
     for (const el of els) {
       el.addEventListener('play',       onPlay);
       el.addEventListener('pause',      onPause);
+      el.addEventListener('playing',    onPlaying);
       el.addEventListener('timeupdate', onTimeUpdate);
       el.addEventListener('ended',      onEnded);
     }
@@ -251,6 +270,7 @@ export function PlayerProvider({ children }) {
       for (const el of els) {
         el.removeEventListener('play',       onPlay);
         el.removeEventListener('pause',      onPause);
+        el.removeEventListener('playing',    onPlaying);
         el.removeEventListener('timeupdate', onTimeUpdate);
         el.removeEventListener('ended',      onEnded);
       }
@@ -326,9 +346,10 @@ export function PlayerProvider({ children }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
-  const play = useCallback((tracks, startIndex = 0) => {
+  const play = useCallback((tracks, startIndex = 0, { sonar = true } = {}) => {
     // Cada entrada recibe un _qid estable (identidad interna de la cola; NO viaja a la API ni a
     // MediaSession). play() REEMPLAZA la cola entera, como antes.
+    setPlayBlocked(false);                 // un intento nuevo: si lo vuelven a bloquear, el catch lo pone otra vez
     const items = tracks.map((t) => ({ ...t, _qid: ++uidRef.current }));
     queueRef.current = items;              // espejo síncrono para los callbacks
     setQueue(items);                       // estado reactivo para la UI
@@ -336,7 +357,7 @@ export function PlayerProvider({ children }) {
     historyRef.current = [];
     forcedNextRef.current = [];            // reemplazar la cola entera también limpia lo "a continuación"
     setUpNextIds([]);                      // espejo reactivo
-    playIndex(startIndex);
+    playIndex(startIndex, sonar);          // sonar: false → cargada y en pausa (la radio al devolver la cola)
   }, [playIndex]);
 
   // Encola pistas AL FINAL sin resetear. Acepta una o muchas. Si nada suena (sin pista actual),
@@ -377,8 +398,28 @@ export function PlayerProvider({ children }) {
 
   const togglePlay = useCallback(() => {
     const el = getActive();
-    if (el.paused) el.play().catch(() => {});
+    setPlayBlocked(false);
+    if (el.paused) el.play().catch((err) => { if (esBloqueoDeAutoplay(err)) setPlayBlocked(true); });
     else el.pause();
+  }, []);
+
+  // Pausar y reanudar EXPLÍCITOS (la radio): a diferencia de togglePlay no dependen de cómo esté el
+  // elemento. pause() sobre algo en pausa no hace nada; resume() sobre algo que suena tampoco (no
+  // reinicia ni recarga). El rechazo de resume() se maneja como en playIndex (P-c y P-f).
+  const pause = useCallback(() => {
+    const el = getActive();
+    if (!el.paused) el.pause();
+  }, []);
+
+  const resume = useCallback(() => {
+    const el = getActive();
+    if (!el.paused) return;
+    setPlayBlocked(false);
+    el.play().catch((err) => {
+      if (!esBloqueoDeAutoplay(err)) return;
+      setPlayBlocked(true);
+      if (el === getActive() && el.paused) setIsPlaying(false);
+    });
   }, []);
 
   // "Siguiente" manual: avanza respetando shuffle/repeat, pero ignora "repetir una"
@@ -478,8 +519,12 @@ export function PlayerProvider({ children }) {
   }, []);
 
   const seek = useCallback((time) => {
+    if (!Number.isFinite(time)) return;   // seek(Infinity) o seek(NaN) lanzaría TypeError al asignar
     const el = getActive();
-    el.currentTime = Math.max(0, Math.min(time, el.duration || 0));
+    // Sin duración todavía (NaN antes de los metadatos) no se recorta: el navegador guarda el
+    // punto pedido y lo aplica al cargar, recortado a lo posible. Antes eso iba a 0.
+    const d = el.duration;
+    el.currentTime = Math.max(0, Number.isFinite(d) ? Math.min(time, d) : time);
   }, []);
 
   // El volumen va a los DOS elementos: así al pasar de canción a video (o al revés) no salta.
@@ -509,6 +554,14 @@ export function PlayerProvider({ children }) {
       repeatRef.current = nextMode;
       return nextMode;
     });
+  }, []);
+
+  // Pone un modo concreto (la radio lo apaga al unirse y lo devuelve al salir). Un valor que no
+  // sea 'off' | 'all' | 'one' no hace nada.
+  const setRepeatMode = useCallback((m) => {
+    if (m !== 'off' && m !== 'all' && m !== 'one') return;
+    repeatRef.current = m;
+    setRepeat(m);
   }, []);
 
   // ── MediaSession ────────────────────────────────────────────────────────────
@@ -722,14 +775,14 @@ export function PlayerProvider({ children }) {
   // 'timeupdate' re-renderiza el provider pero NO cambia esta identidad → los consumidores que
   // no pintan el tiempo no se enteran. Todas las funciones ya son useCallback estables.
   const value = useMemo(() => ({
-    currentTrack, trackMeta, isPlaying, volume, queueIndex,
+    currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex,
     shuffle, repeat,
     queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   }), [
-    currentTrack, trackMeta, isPlaying, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, next, prev, seek, setVolume, toggleShuffle, cycleRepeat,
+    currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
+    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   ]);
 

@@ -67,6 +67,26 @@ ok('artista_arroba', pathToState('/artists/@').target.artist === '@');
 ok('year_y_playlist', pathToState('/years/2007').target.year === 2007 && pathToState('/playlists/12').target.id === 12);
 ok('biblioteca', stateToPath({ view: 'library' }) === '/' && pathToState('/').view === 'library');
 
+// Radio: /radio = sin radio; /radio/CODIGO con la regla de normalizarCodigo (radioSync.js).
+const radio = (p) => pathToState(asBrowser(p));
+const esCodigo = (s, c) => s.view === 'radio' && s.target?.codigo === c && Object.keys(s.target).length === 1;
+const esInvalido = (s) => s.view === 'radio' && s.target?.invalido === true && !('codigo' in s.target);
+ok('radio_sin_codigo', radio('/radio').view === 'radio' && radio('/radio').target === null && radio('/radio/').target === null && stateToPath({ view: 'radio', target: null }) === '/radio');
+ok('radio_codigo_ida_vuelta', esCodigo(radio('/radio/K7M2QX'), 'K7M2QX') && stateToPath(radio('/radio/K7M2QX')) === '/radio/K7M2QX');
+ok('radio_minusculas', esCodigo(radio('/radio/k7m2qx'), 'K7M2QX'));
+ok('radio_armar_minusculas', stateToPath({ view: 'radio', target: { codigo: 'k7m2qx' } }) === '/radio/K7M2QX');
+ok('radio_guion', esCodigo(radio('/radio/K7M-2QX'), 'K7M2QX'));
+ok('radio_espacio', esCodigo(radio('/radio/k7m%202qx'), 'K7M2QX'));
+for (const ch of ['0', '1', 'I', 'L', 'O']) ok(`radio_invalido_letra_${ch}`, esInvalido(radio(`/radio/K7M2Q${ch}`)));
+ok('radio_invalido_largo_5', esInvalido(radio('/radio/K7M2Q')));
+ok('radio_invalido_largo_7', esInvalido(radio('/radio/K7M2QXA')));
+ok('radio_invalido_porciento', esInvalido(pathToState('/radio/%')));
+ok('radio_invalido_se_escribe_radio', stateToPath({ view: 'radio', target: { invalido: true } }) === '/radio'
+  && stateToPath({ view: 'radio', target: { codigo: 'xyz' } }) === '/radio'
+  && stateToPath({ view: 'radio', target: { codigo: 123 } }) === '/radio');
+ok('radio_segmento_de_mas', esCodigo(radio('/radio/K7M2QX/extra'), 'K7M2QX'));
+for (const p of ['/Radio', '/RADIO', '/radios', '/radio-x', '/api/radio']) ok(`radio_no_choca_${p}`, pathToState(p).view === 'library' && pathToState(p).target === null);
+
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
 console.log(JSON.stringify(R, null, 1));
 console.log(`\nroutes-unit: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);
