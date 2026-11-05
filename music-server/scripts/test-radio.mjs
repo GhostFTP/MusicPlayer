@@ -311,5 +311,124 @@ console.log('límites');
   check(a.publicar(codigo, 1, SUENA).estado?.seq === REGLAS.MAX_PUBLICACIONES + 1, 'al vencer la ventana vuelve a publicar');
 }
 
+console.log('moderadores (1.43.0)');
+const MOD = { capacidades: { moderar: true } };
+/** Una radio de 1 con 2, 3, 4 y 5 escuchando desde un cliente que sabe moderar. */
+function salaConOyentes() {
+  const m = mundo();
+  const { codigo } = m.a.crear(1, { capacidades: { ordenes: true } });
+  for (const u of [2, 3, 4, 5]) m.a.leer(codigo, u, MOD);
+  return { ...m, codigo };
+}
+{
+  const { a, codigo } = salaConOyentes();
+  check(igual(a.leer(codigo, 1).moderadores, []), 'una radio nueva no tiene moderadores');
+  const r = a.otorgar(codigo, 1, 2, { nombre: 'Sonia' });
+  check(r.ok && igual(r.moderadores, [2]) && r.nombre === 'Sonia', 'el anfitrión nombra a quien escucha, y vuelve su nombre');
+  check(igual(a.leer(codigo, 3).moderadores, [2]), 'leer lo muestra');
+  const otra = a.otorgar(codigo, 1, 2, { nombre: 'Otro' });
+  check(otra.ok && igual(otra.moderadores, [2]) && otra.nombre === 'Sonia', 'nombrarlo otra vez no es un error ni cambia nada');
+}
+{
+  const { a, codigo } = salaConOyentes();
+  const r = a.otorgar(codigo, 3, 4);
+  check(igual(r, { ok: false, motivo: 'sin-permiso' }), 'un oyente no puede nombrar: sin-permiso');
+  check(r.motivo !== 'no-es-tuya', 'y no es no-es-tuya (ese es solo de publicar: la app abandona la radio)');
+  a.otorgar(codigo, 1, 2);
+  check(igual(a.otorgar(codigo, 2, 3), { ok: false, motivo: 'sin-permiso' }), 'un moderador no puede nombrar a otro');
+  check(igual(a.otorgar(codigo, 3, 3), { ok: false, motivo: 'sin-permiso' }), 'nadie se nombra a sí mismo');
+  check(igual(a.otorgar(codigo, 99, 4), { ok: false, motivo: 'sin-permiso' }), 'alguien de afuera tampoco');
+  check(igual(a.otorgar(codigo, 1, 1), { ok: false, motivo: 'es-el-anfitrion' }), 'el anfitrión no se nombra a sí mismo');
+  check(igual(a.leer(codigo, 1).moderadores, [2]), 'nada de eso cambió la lista');
+}
+{
+  const { a, codigo, pasar } = salaConOyentes();
+  check(igual(a.otorgar(codigo, 1, 77), { ok: false, motivo: 'no-escucha' }), 'a quien nunca escuchó: no-escucha');
+  pasar(REGLAS.OYENTE_MS);
+  a.leer(codigo, 3, MOD);
+  check(igual(a.otorgar(codigo, 1, 2), { ok: false, motivo: 'no-escucha' }), 'a quien dejó de escuchar hace 10 s: no-escucha');
+  check(a.otorgar(codigo, 1, 3).ok, 'a quien sigue escuchando: sí');
+  a.leer(codigo, 6);
+  check(igual(a.otorgar(codigo, 1, 6), { ok: false, motivo: 'sin-soporte' }), 'a quien escucha desde un cliente que no sabe moderar: sin-soporte');
+  a.leer(codigo, 7, { capacidades: { moderar: 'true' } });
+  check(igual(a.otorgar(codigo, 1, 7), { ok: false, motivo: 'sin-soporte' }), 'un "true" en texto no cuenta como soporte');
+  a.leer(codigo, 6, MOD);
+  check(a.otorgar(codigo, 1, 6).ok, 'si vuelve a leer desde uno que sí, entonces sí');
+}
+{
+  const { a, codigo } = salaConOyentes();
+  for (const u of [2, 3, 4]) a.otorgar(codigo, 1, u);
+  check(igual(a.leer(codigo, 1).moderadores, [2, 3, 4]), `${REGLAS.MAX_MODERADORES} moderadores: sí`);
+  check(igual(a.otorgar(codigo, 1, 5), { ok: false, motivo: 'moderadores-llenos' }), 'uno más: moderadores-llenos');
+  check(a.otorgar(codigo, 1, 3).ok, 'con la lista llena, nombrar otra vez a uno que ya está no es un error');
+  a.quitar(codigo, 1, 3);
+  check(a.otorgar(codigo, 1, 5).ok, 'al quitar uno, entra otro');
+}
+{
+  const { a, codigo } = salaConOyentes();
+  a.otorgar(codigo, 1, 2, { nombre: 'Sonia' });
+  a.otorgar(codigo, 1, 3, { nombre: 'Beto' });
+  check(igual(a.quitar(codigo, 4, 2), { ok: false, motivo: 'sin-permiso' }), 'un oyente no puede quitar: sin-permiso');
+  check(igual(a.quitar(codigo, 3, 2), { ok: false, motivo: 'sin-permiso' }), 'un moderador no puede quitar a otro');
+  check(igual(a.leer(codigo, 1).moderadores, [2, 3]), 'y la lista sigue igual');
+  const q = a.quitar(codigo, 1, 2);
+  check(q.ok && igual(q.moderadores, [3]) && q.nombre === 'Sonia', 'el anfitrión quita, y vuelve el nombre');
+  const otra = a.quitar(codigo, 1, 2);
+  check(otra.ok && igual(otra.moderadores, [3]) && otra.nombre === null, 'quitárselo a quien no lo tiene no es un error');
+}
+{
+  const { a, codigo, pasar } = salaConOyentes();
+  a.otorgar(codigo, 1, 2, { nombre: 'Sonia' });
+  pasar(REGLAS.OYENTE_MS);
+  a.leer(codigo, 3, MOD);
+  const l = a.leer(codigo, 1);
+  check(!l.oyentes.includes(2) && igual(l.moderadores, [2]), 'quien deja de escuchar sale de los oyentes pero conserva el rol');
+  pasar(REGLAS.OYENTE_MS * 5);
+  a.publicar(codigo, 1, SUENA);
+  check(igual(a.leer(codigo, 1).moderadores, [2]), 'aunque pase un buen rato');
+  a.leer(codigo, 2, MOD);
+  const v = a.leer(codigo, 1);
+  check(v.oyentes.includes(2) && igual(v.moderadores, [2]), 'al volver a unirse sigue siendo moderador');
+  pasar(REGLAS.OYENTE_MS);
+  a.leer(codigo, 1);
+  check(a.quitar(codigo, 1, 2).ok && igual(a.leer(codigo, 1).moderadores, []), 'y se le puede quitar estando ausente');
+}
+{
+  const { a, codigo } = salaConOyentes();
+  a.otorgar(codigo, 1, 2);
+  a.terminar(codigo, 1);
+  const l = a.leer(codigo, 2);
+  check(l.status === 'ended' && igual(l.moderadores, []), 'al terminar, los moderadores se van con la radio');
+  check(igual(a.otorgar(codigo, 1, 3), { ok: false, motivo: 'terminada', razon: 'anfitrion' }), 'nombrar en una radio terminada: terminada');
+  check(igual(a.quitar(codigo, 1, 2), { ok: false, motivo: 'terminada', razon: 'anfitrion' }), 'quitar en una radio terminada: terminada');
+}
+{
+  const { a, codigo, pasar } = salaConOyentes();
+  a.otorgar(codigo, 1, 2);
+  pasar(REGLAS.CIERRE_SIN_ANFITRION_MS);
+  const l = a.leer(codigo, 2);
+  check(l.status === 'ended' && l.motivo === 'sin-anfitrion' && igual(l.moderadores, []), 'al cerrarse sola (sin anfitrión), también');
+}
+{
+  const { a, codigo } = salaConOyentes();
+  a.otorgar(codigo, 1, 2);
+  const nueva = a.crear(1, { capacidades: { ordenes: true } }).codigo;
+  check(a.leer(codigo, 2).motivo === 'reemplazada' && igual(a.leer(codigo, 2).moderadores, []), 'si el anfitrión crea otra radio, la vieja se cierra sin moderadores');
+  a.leer(nueva, 2, MOD);
+  check(igual(a.leer(nueva, 1).moderadores, []), 'y la nueva empieza sin ninguno');
+  check(a.otorgar(nueva, 1, 2).ok, 'en la nueva hay que volver a nombrarlo');
+}
+{
+  const { a } = mundo();
+  check(igual(a.otorgar('ZZZZZZ', 1, 2), { ok: false, motivo: 'no-existe' }) && igual(a.quitar('ZZZZZZ', 1, 2), { ok: false, motivo: 'no-existe' }),
+    'en una radio que no existe: no-existe');
+  const sin = a.crear(1).codigo;
+  check(igual(a.leer(sin, 2).capacidades, { ordenes: false }), 'un anfitrión que no declara nada (la app de iOS de hoy): no ejecuta órdenes');
+  const con = a.crear(3, { capacidades: { ordenes: true } }).codigo;
+  check(igual(a.leer(con, 2).capacidades, { ordenes: true }), 'uno que lo declara: sí');
+  const raro = a.crear(4, { capacidades: { ordenes: 'true' } }).codigo;
+  check(igual(a.leer(raro, 2).capacidades, { ordenes: false }), 'un "true" en texto no cuenta');
+}
+
 console.log(`\n${pass} de ${pass + fail} en verde`);
 process.exit(fail ? 1 : 0);
