@@ -37,10 +37,40 @@
 //       y la radio sin lecturas ni sondeo.
 // Fuera del conteo ("registro"): cómo queda un oyente que venía de un VIDEO al salir.
 //
+// Casos, segunda tanda (contra un SERVIDOR FALSO: page.route sobre /api/radio/FK…, /api/tracks/:id y
+// /api/users/:id/avatar; se entra con el botón "Escuchar" de la vista, en /radio/CÓDIGO):
+//   U_*  al unirse con 404, 409 (llena), 410, 200 con ended y la sala propia: el texto de .radio-estado,
+//        fase 'sin-radio', la cola propia intacta (sin play()) y el foco de vuelta en "Escuchar".
+//   D_*  durante: 410, ended y 409 (llena) salen con su texto de fin y la foto restaurada; 403
+//        persistente: aviso sin-respuesta, no sale y sigue sonando; 429 con Retry-After: 6: el hueco
+//        entre lecturas es ≥ 6 s y después vuelve a 2 s; red caída (route.abort): aviso, sigue sonando y
+//        al volver la red se apaga; /api/tracks 404 y 500: falta-cancion / no-se-pudo-cargar, en pausa,
+//        reintento en cada sondeo y, cuando responde bien, arranca.
+//   B_*  autoplay bloqueado (stub: un play() fuera de un clic de verdad rechaza con NotAllowedError):
+//        "Toca para escuchar" está en la vista Radio y no en la barra; el clic suena en vivo (desfase
+//        < 2 s) y el botón se va; con el anfitrión en pausa no aparece aunque playBlocked siga en true.
+//   V_*  la vista: la ficha /radio/CÓDIGO no lee la sala antes del clic (0 lecturas en 3 s); "Uniéndose…"
+//        (ocupado, con Cancelar) mientras la primera lectura tarda, y Cancelar vuelve a la ficha con el
+//        foco en "Escuchar" sin que la respuesta tardía lo meta en la radio; los avisos en la región viva
+//        (el mismo nodo, role=status), el texto de silenciada, "Iniciar radio" y el campo de unirse
+//        bloqueados con sus notas siendo oyente, y "Salir de la radio" → cara "sin radio" con el foco en
+//        el h1.
+//   A    avatares: foto con ?v= → &token=, foto sin ?v= → ?token=, foto que falla → la inicial, emoji.
+//   401  (al final: cierran la sesión) al unirse y durante. Un 401 pasa por onUnauthorized → logout: el
+//        provider se desmonta y aparece el Login, así que el texto de fin no se ve. Al unirse, la cola
+//        propia queda intacta; durante, la foto SÍ vuelve (finOyente('sesion') corre en microtareas,
+//        antes de que React desmonte), con el repeat, y no hay más lecturas.
+//
 // CONTROL NEGATIVO: sin la restauración de finOyente, falla el 9 (y el 10); sin la guarda de sala propia,
 // falla el 12; sin el desajuste, falla el 7; sin aplicar la corrección, falla el 8; sin marcar
 // silenciada, falla el 6; sin la guarda enLaDeLaRadio en pausar/reanudar/saltar, falla el 7b; sin la pausa
 // del desmontaje del provider, falla el 13; con quiereSonar fijo en true, falla el 14.
+// Segunda tanda: sin devolver `seguido` cuando falla api.track, fallan los dos D_track; con el sondeo fijo
+// en 2 s (sin esperaDelSondeo), falla el D_429; con el 403 tratado como salida, falla el D_403; sin el seek
+// de tocarParaEscuchar, falla B_el_clic_suena_en_vivo; con el botón sin la condición quiereSonar, falla
+// B_con_el_anfitrion_en_pausa; con un aviso de red que no se apaga, falla D_red; con la ficha leyendo la
+// sala al montarse, falla V_ficha_sin_leer; con Cancelar sin invalidar el unirse en curso, falla
+// V_uniendose_y_cancelar.
 // Uso: SNAP_BASE=http://localhost:4173 SNAP2_USER=… SNAP2_PASS=… node radio-oyente-func.mjs
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 
@@ -122,7 +152,17 @@ await ctx.addInitScript((t) => {
   window.__medios = new Set();
   Object.defineProperty(M, 'src', { configurable: true, get() { return d.get.call(this); }, set(v) { window.__medios.add(this); if (!(this instanceof HTMLVideoElement)) window.__audio = this; d.set.call(this, v); } });
   const play0 = M.play; window.__nPlay = 0;
-  M.play = function (...a) { window.__nPlay++; return play0.apply(this, a); };
+  // Autoplay bloqueado a pedido (window.__bloquear): un play() que NO corre dentro de un clic de verdad
+  // rechaza con NotAllowedError, como el navegador sin gesto. El clic se marca en captura y se desmarca
+  // al final del burbujeo (los handlers de React corren en el medio, en #root).
+  window.__bloquear = false; window.__enClick = false;
+  addEventListener('click', (e) => { if (e.isTrusted) window.__enClick = true; }, true);
+  addEventListener('click', () => { window.__enClick = false; });
+  M.play = function (...a) {
+    window.__nPlay++;
+    if (window.__bloquear && !window.__enClick) return Promise.reject(new DOMException('bloqueado (prueba)', 'NotAllowedError'));
+    return play0.apply(this, a);
+  };
   // Temporizadores pendientes, por demora: el sondeo del oyente es una cadena de setTimeout de 2000 ms.
   const st = window.setTimeout.bind(window), ct = window.clearTimeout.bind(window);
   window.__pendientes = new Map();
@@ -141,7 +181,7 @@ const foto = () => p.evaluate(() => {
     fase: r?.fase ?? null, codigo: r?.codigo ?? null, error: r?.error ?? null, fin: r?.fin?.texto ?? null, aviso: r?.aviso ?? null,
     silenciada: r?.silenciada ?? null, quiereSonar: r?.quiereSonar ?? null,
     actual: v.currentTrack?.id ?? null, kind: v.currentTrack?.kind ?? 'track', cola: v.queue.map((t) => t.id), indice: v.queueIndex,
-    isPlaying: v.isPlaying, repeat: v.repeat, paused: el ? el.paused : null,
+    isPlaying: v.isPlaying, repeat: v.repeat, paused: el ? el.paused : null, bloqueado: v.playBlocked,
     ct: el ? Math.round(el.currentTime * 100) / 100 : null, nPlay: window.__nPlay,
   };
 });
@@ -176,6 +216,108 @@ async function prepararFoto(repeat = 'all') {
 }
 const restaurada = (f, antes) => mismo(f.cola, antes.cola) && f.indice === antes.indice && f.actual === PROPIAS[1].id
   && Math.abs(f.ct - 30) < 1 && f.paused === true && f.isPlaying === false && f.nPlay === 0 && f.repeat === antes.repeat;
+
+// ── Servidor falso (segunda tanda) ──
+// Las salas FK…: GET /api/radio/FK… lo contesta node con FK[código]. `modo`: 'ok' (200 live), 'ended'
+// (200 con status ended y `razon`), 'abort' (red caída), { status, headers?, body? } (un error), o una
+// función que devuelve uno de ésos en cada lectura; `demora` (ms) retrasa sólo la próxima respuesta. El estado lo escribe estadoFk(), con la hora de node
+// (el mismo equipo: el reloj del "servidor" y el de la página son el mismo).
+const ALFA = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+const FK = {};
+let nFk = 0, seqFk = 0;
+const HOST_FK = { id: 990001, name: 'Anfitriona', avatar: null };
+const YO_FK = { id: idOye, name: 'Yo', avatar: null };
+function salaFalsa(extra = {}) {
+  const code = `FK${ALFA[nFk % 31]}${ALFA[Math.floor(nFk / 31) % 31]}22`; nFk++;
+  FK[code] = { modo: 'ok', estado: null, host: HOST_FK, listeners: null, razon: 'anfitrion', lecturas: [], ...extra };
+  return code;
+}
+function estadoFk(code, e) {
+  FK[code].estado = { seq: ++seqFk, enPausaPorVideo: false, nextTrackId: null, ...e, publishedAtServerMs: Date.now() };
+}
+/** Dónde va el anfitrión falso en el instante `t` (s). */
+const vivoFk = (code, t = Date.now()) => { const e = FK[code].estado; return e.positionMs / 1000 + (e.playing ? (t - e.publishedAtServerMs) / 1000 : 0); };
+const json = (status, body, headers = {}) => ({ status, contentType: 'application/json', headers, body: JSON.stringify(body) });
+await p.route((u) => /^\/api\/radio\/FK[A-Z0-9]{4}$/.test(u.pathname), async (route) => {
+  const code = new URL(route.request().url()).pathname.split('/').pop();
+  const s = FK[code];
+  if (!s || route.request().method() !== 'GET') return route.fulfill(json(404, { error: 'Radio not found' }));
+  s.lecturas.push(Date.now());
+  if (s.demora) { const d = s.demora; s.demora = 0; await sleep(d); }
+  const m = typeof s.modo === 'function' ? s.modo() : s.modo;
+  if (m === 'abort') return route.abort('internetdisconnected');
+  if (m && typeof m === 'object') return route.fulfill(json(m.status, m.body ?? { error: 'falso' }, m.headers));
+  const ended = m === 'ended';
+  return route.fulfill(json(200, {
+    serverNow: Date.now(), code, status: ended ? 'ended' : 'live', endedReason: ended ? s.razon : null,
+    state: s.estado, host: s.host, listeners: s.listeners ?? [s.host, YO_FK],
+  }));
+});
+// /api/tracks/:id: TRK[id] = { fallos, status } → las próximas `fallos` lecturas contestan `status`; el resto, la real.
+const TRK = {};
+const pedidosTrk = {};
+await p.route((u) => /^\/api\/tracks\/\d+$/.test(u.pathname), (route) => {
+  const id = Number(new URL(route.request().url()).pathname.split('/').pop());
+  pedidosTrk[id] = (pedidosTrk[id] ?? 0) + 1;
+  const f = TRK[id];
+  if (f && f.fallos > 0) { f.fallos--; return route.fulfill(json(f.status, { error: 'falso' })); }
+  return route.fallback();
+});
+// Avatares: un PNG de 1×1, salvo AVATAR_ROTO (404, para la caída a la inicial).
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const AVATAR_ROTO = 990078;
+const pedidosAvatar = [];
+await p.route((u) => /^\/api\/users\/\d+\/avatar$/.test(u.pathname), (route) => {
+  const u = new URL(route.request().url());
+  pedidosAvatar.push(u.pathname + u.search);
+  return Number(u.pathname.split('/')[3]) === AVATAR_ROTO ? route.fulfill(json(404, { error: 'Avatar not found' }))
+    : route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+});
+const sinToken = (x) => (typeof x === 'string' ? x.split(tokOye).join('<token>') : x);   // el token no va al reporte
+
+const irA = (ruta) => p.evaluate((r) => { history.pushState({}, '', r); dispatchEvent(new PopStateEvent('popstate')); }, ruta);
+/** La ficha /radio/CÓDIGO y un clic de verdad en "Escuchar". */
+async function escuchar(code) {
+  await irA(`/radio/${code}`);
+  await p.waitForSelector('.radio-btn--escuchar:not([disabled])', { timeout: 5000 });
+  await p.click('.radio-btn--escuchar');
+}
+/** Lo que muestra la vista Radio. `region.mismo`: la región viva es el nodo guardado al entrar (window.__region). */
+const vista = () => p.evaluate(() => {
+  const a = document.activeElement; const r = document.querySelector('.radio-aviso-vivo');
+  return {
+    estado: document.querySelector('.radio-estado')?.textContent ?? null,
+    foco: a ? `${a.tagName.toLowerCase()}${[...a.classList].map((c) => `.${c}`).join('')}` : null,
+    avisoVivo: r ? r.textContent : null,
+    region: r ? { mismo: r === window.__region, role: r.getAttribute('role'), live: r.getAttribute('aria-live') } : null,
+    toca: !!document.querySelector('.radio-btn--toca'),
+    tocaEnBarra: (document.querySelector('.player-bar')?.textContent ?? '').includes('Toca para escuchar'),
+    oyente: !!document.querySelector('.radio-card--oyente'),
+  };
+});
+const sonandoEn = (id, ms = 8000) => esperar(async () => { const f = await foto(); return f.fase === 'oyente' && f.actual === id && !f.paused && f.ct > 0 ? f : null; }, ms);
+const medirFk = async (code) => { const f = await foto(); return { ...f, desfase: r2(f.ct - vivoFk(code)) }; };
+/** La foto propia, una sala falsa con A sonando desde 40 s, "Escuchar" y esperar a que suene. */
+async function entrarFk(extra = {}, repeat = 'all') {
+  const antes = await prepararFoto(repeat);
+  const code = salaFalsa(extra);
+  estadoFk(code, { trackId: A.id, positionMs: 40_000, playing: true, nextTrackId: B.id });
+  await escuchar(code);
+  const s = await sonandoEn(A.id);
+  await p.evaluate(() => { window.__nPlay = 0; window.__region = document.querySelector('.radio-aviso-vivo'); });
+  return { antes, code, sono: !!s.v };
+}
+const salirFk = async () => { await p.evaluate(() => window.__radio().salir()); await sleep(800); };
+const TXT_SIN_RESPUESTA = 'Sin conexión con la radio. Reintentando…';
+const TXT_BLOQUEADO = 'Tu navegador necesita un toque para empezar a sonar.';
+const TXT_SILENCIADA = 'En pausa para ti. Dale play para volver al vivo.';
+/** Tras un 401: la página sin sesión (sin token) → se vuelve a cargar y la init script siembra el token. */
+const sinSesion = () => p.evaluate(() => !!document.querySelector('input[type="password"]') && !window.__radio?.());
+const volverAEntrar = async () => {
+  await p.goto(BASE + '/');
+  await p.waitForSelector('.player-bar', { timeout: 15000 });
+  await p.waitForFunction(() => !!window.__player?.() && !!window.__radio?.());
+};
 
 const salas = [];   // [token, código] para cerrarlas al final pase lo que pase
 try {
@@ -404,6 +546,278 @@ try {
     await api(tokHost, 'DELETE', `/api/radio/${s3.code}`);
   } else REG.video_al_salir = 'no hay videos en el catálogo (¿VIDEO_DIR?)';
 
+  // ════ Segunda tanda: servidor falso ════
+
+  // ── U. al unirse: el fallo deja la ficha como estaba ──
+  const TXT_U = {
+    '404': 'No hay ninguna radio con ese código. Revísalo e intenta de nuevo.',
+    '409_llena': 'Esa radio está llena. Intenta más tarde.',
+    '410': 'Esa radio ya terminó.',
+    ended: TXT_FIN,
+    propia: 'Esta radio es tuya.',
+  };
+  const antesU = await prepararFoto('all');
+  for (const [k, extra] of [
+    ['404', { modo: { status: 404, body: { error: 'Radio not found' } } }],
+    ['409_llena', { modo: { status: 409, body: { error: 'Radio full' } } }],
+    ['410', { modo: { status: 410, body: { error: 'Radio ended', endedReason: 'admin' } } }],
+    ['ended', { modo: 'ended', razon: 'anfitrion' }],
+    ['propia', { host: { id: idOye, name: 'Yo', avatar: null } }],
+  ]) {
+    const code = salaFalsa(extra);
+    estadoFk(code, { trackId: A.id, positionMs: 40_000, playing: true, nextTrackId: B.id });
+    await p.evaluate(() => { window.__nPlay = 0; });
+    await escuchar(code);
+    const listo = await esperar(async () => { const f = await foto(); const v = await vista(); return f.fase === 'sin-radio' && v.estado ? true : null; }, 5000);
+    await sleep(300);
+    const f = await foto(); const v = await vista();
+    ok(`U_${k}_al_unirse`, !!listo.v && f.fase === 'sin-radio' && v.estado === TXT_U[k] && v.foco === 'button.radio-btn.radio-btn--escuchar'
+      && mismo(f.cola, antesU.cola) && f.indice === antesU.indice && f.paused && Math.abs(f.ct - 30) < 1 && f.nPlay === 0 && f.repeat === 'all'
+      && FK[code].lecturas.length === 1,
+      { estado: v.estado, foco: v.foco, fase: f.fase, colaIntacta: mismo(f.cola, antesU.cola), indice: f.indice, ct: f.ct, paused: f.paused, nPlay: f.nPlay, repeat: f.repeat, lecturas: FK[code].lecturas.length });
+  }
+
+  // ── V. la ficha no lee la sala antes del clic; "Uniéndose…" + Cancelar ──
+  {
+    const code = salaFalsa();
+    estadoFk(code, { trackId: A.id, positionMs: 40_000, playing: true, nextTrackId: B.id });
+    await p.evaluate(() => { window.__nPlay = 0; });
+    await irA(`/radio/${code}`);
+    await p.waitForSelector('.radio-btn--escuchar:not([disabled])', { timeout: 5000 });
+    await sleep(3000);
+    const ficha = await p.evaluate(() => ({
+      escuchar: document.querySelector('.radio-btn--escuchar')?.textContent ?? null,
+      nota: document.getElementById('radio-escuchar-nota')?.textContent ?? null,
+      cancelar: [...document.querySelectorAll('.radio-btn')].some((b) => b.textContent.trim() === 'Cancelar'),
+      enPagina: document.body.textContent.includes(location.pathname.split('/').pop()),
+    }));
+    const fF = await foto();
+    ok('V_ficha_sin_leer_la_sala_antes_del_clic', FK[code].lecturas.length === 0 && fF.fase === 'sin-radio' && fF.nPlay === 0
+      && ficha.escuchar === 'Escuchar' && !ficha.cancelar && ficha.enPagina
+      && ficha.nota === 'Vas a escuchar lo mismo que el anfitrión, en vivo. Al salir, vuelve tu cola, en pausa.',
+      { lecturasEn3s: FK[code].lecturas.length, fase: fF.fase, nPlay: fF.nPlay, ficha });
+
+    // La primera lectura tarda 3 s: "Uniéndose…" ocupado + Cancelar; Cancelar vuelve a la ficha y la
+    // respuesta que llega después no lo mete en la radio.
+    FK[code].demora = 3000;
+    await p.click('.radio-btn--escuchar');
+    await sleep(600);
+    const uni = await p.evaluate(() => {
+      const b = document.querySelector('.radio-btn--escuchar');
+      return { texto: b?.textContent ?? null, disabled: b?.disabled ?? null, busy: b?.getAttribute('aria-busy') ?? null,
+        cancelar: [...document.querySelectorAll('.radio-btn')].some((x) => x.textContent.trim() === 'Cancelar') };
+    });
+    const fU = await foto();
+    await p.locator('.radio-btn', { hasText: 'Cancelar' }).click();
+    await sleep(500);
+    const fC = await foto(); const vC = await vista();
+    const cancel = { fase: fC.fase, foco: vC.foco, cancelar: await p.evaluate(() => [...document.querySelectorAll('.radio-btn')].some((x) => x.textContent.trim() === 'Cancelar')) };
+    await sleep(4000);   // llega la respuesta demorada (200 live)
+    const fT = await foto(); const vT = await vista();
+    ok('V_uniendose_y_cancelar', uni.texto === 'Uniéndose…' && uni.disabled === true && uni.busy === 'true' && uni.cancelar && fU.fase === 'uniendose'
+      && cancel.fase === 'sin-radio' && cancel.foco === 'button.radio-btn.radio-btn--escuchar' && !cancel.cancelar
+      && fT.fase === 'sin-radio' && !vT.oyente && FK[code].lecturas.length === 1
+      && mismo(fT.cola, antesU.cola) && fT.indice === antesU.indice && fT.paused && Math.abs(fT.ct - 30) < 1 && fT.nPlay === 0 && fT.repeat === 'all',
+      { uniendose: { ...uni, fase: fU.fase }, alCancelar: cancel, trasLaRespuesta: { fase: fT.fase, oyente: vT.oyente, lecturas: FK[code].lecturas.length, colaIntacta: mismo(fT.cola, antesU.cola), ct: fT.ct, paused: fT.paused, nPlay: fT.nPlay } });
+  }
+
+  // ── D. durante: 410, ended y llena salen con su texto de fin y la foto restaurada ──
+  for (const [k, modo, razon, texto] of [
+    ['410', { status: 410, body: { error: 'Radio ended', endedReason: 'admin' } }, null, 'Un administrador terminó la radio.'],
+    ['ended', 'ended', 'pausa', 'La radio se cerró por estar mucho tiempo en pausa.'],
+    ['409_llena', { status: 409, body: { error: 'Radio full' } }, null, 'La radio está llena.'],
+  ]) {
+    const e = await entrarFk();
+    if (razon) FK[e.code].razon = razon;
+    FK[e.code].modo = modo;
+    const fuera = await esperar(async () => ((await foto()).fase === 'sin-radio' ? true : null), 6000);
+    await sleep(1200);
+    const m = await foto(); const v = await vista();
+    ok(`D_${k}_durante_sale_y_restaura`, e.sono && !!fuera.v && m.fin === texto && v.estado === texto && restaurada(m, e.antes),
+      { sono: e.sono, ms: fuera.ms, fin: m.fin, estado: v.estado, cola: m.cola, indice: m.indice, ct: m.ct, paused: m.paused, nPlay: m.nPlay, repeat: m.repeat });
+  }
+
+  // ── D. 403 persistente: aviso sin-respuesta, no sale, lo que suena sigue sonando ──
+  {
+    const e = await entrarFk();
+    const ct0 = (await foto()).ct; const t0 = Date.now();
+    FK[e.code].modo = { status: 403, body: { error: 'Forbidden' } };
+    const av = await esperar(async () => ((await foto()).aviso === 'sin-respuesta' ? true : null), 5000);
+    const vAv = await vista();
+    await sleep(7000);
+    const m = await foto();
+    const n403 = FK[e.code].lecturas.filter((t) => t > t0).length;
+    ok('D_403_persistente_avisa_y_sigue_sonando', e.sono && !!av.v && vAv.avisoVivo === TXT_SIN_RESPUESTA && m.fase === 'oyente' && m.aviso === 'sin-respuesta'
+      && m.actual === A.id && m.isPlaying && !m.paused && m.ct - ct0 > 7 && n403 >= 4,
+      { avisoEnMs: av.ms, avisoVivo: vAv.avisoVivo, fase: m.fase, aviso: m.aviso, paused: m.paused, avanzoS: r2(m.ct - ct0), lecturas403: n403 });
+    await salirFk();
+  }
+
+  // ── D. 429 con Retry-After: 6 → el hueco es ≥ 6 s y después vuelve a 2 s ──
+  {
+    const e = await entrarFk();
+    await sleep(2500);
+    let n = 0; const t0 = Date.now();
+    FK[e.code].modo = () => (n++ === 0 ? { status: 429, headers: { 'Retry-After': '6' }, body: { error: 'Too many requests' } } : 'ok');
+    await sleep(12_500);
+    const ls = FK[e.code].lecturas.filter((t) => t >= t0);
+    const huecos = ls.slice(1).map((t, i) => t - ls[i]);
+    const m = await foto();
+    ok('D_429_respeta_retry_after_y_vuelve_a_2s', e.sono && huecos.length >= 3 && huecos[0] >= 6000 && huecos[0] < 7500
+      && huecos.slice(1, 3).every((h) => h >= SONDEO_MS - 300 && h <= SONDEO_MS + 700) && m.fase === 'oyente' && !m.paused,
+      { huecosMs: huecos, fase: m.fase, paused: m.paused });
+    await salirFk();
+  }
+
+  // ── D. red caída: aviso, sigue sonando; al volver la red el aviso se apaga ──
+  {
+    const e = await entrarFk();
+    const ct0 = (await foto()).ct;
+    FK[e.code].modo = 'abort';
+    const av = await esperar(async () => ((await foto()).aviso === 'sin-respuesta' ? true : null), 5000);
+    const vAv = await vista();
+    await sleep(4000);
+    const mCaida = await foto();
+    FK[e.code].modo = 'ok';
+    const off = await esperar(async () => ((await foto()).aviso === null ? true : null), 5000);
+    await sleep(200);
+    const vOff = await vista();
+    ok('D_red_caida_avisa_sigue_sonando_y_se_apaga', e.sono && !!av.v && vAv.avisoVivo === TXT_SIN_RESPUESTA && mCaida.fase === 'oyente'
+      && mCaida.aviso === 'sin-respuesta' && !mCaida.paused && mCaida.ct - ct0 > 4 && !!off.v && vOff.avisoVivo === '',
+      { avisoEnMs: av.ms, avisoVivo: vAv.avisoVivo, caida: { fase: mCaida.fase, paused: mCaida.paused, avanzoS: r2(mCaida.ct - ct0) }, apagadoEnMs: off.ms, avisoVivoDespues: vOff.avisoVivo });
+    await salirFk();
+  }
+
+  // ── D. /api/tracks 404 y 500: aviso, en pausa, reintento en cada sondeo y, al responder, arranca ──
+  // (y V: esos avisos entran en la región viva, el mismo nodo de la entrada)
+  {
+    const e = await entrarFk();
+    const region = async () => { const v = await vista(); return { ...v.region, texto: v.avisoVivo }; };
+    const R0 = await region();
+    const caso = async (t, siguiente, status, aviso) => {
+      const p0 = pedidosTrk[t.id] ?? 0;
+      TRK[t.id] = { fallos: 3, status };
+      estadoFk(e.code, { trackId: t.id, positionMs: 20_000, playing: true, nextTrackId: siguiente.id });
+      const falla = await esperar(async () => { const f = await foto(); return f.aviso === aviso && f.paused ? f : null; }, 5000);
+      const Rf = await region();
+      const arranca = await sonandoEn(t.id, 12_000);
+      await sleep(600);
+      const m = await medirFk(e.code);
+      return { falla: !!falla.v, Rf, arrancaEnMs: arranca.ms, pedidos: (pedidosTrk[t.id] ?? 0) - p0, pendientes: TRK[t.id].fallos,
+        m: { actual: m.actual, cola: m.cola, aviso: m.aviso, paused: m.paused, desfase: m.desfase }, okArranca: !!arranca.v && mismo(m.cola, [t.id, siguiente.id]) && m.aviso === null && Math.abs(m.desfase) < TOLERANCIA_S };
+    };
+    const c404 = await caso(B, C, 404, 'falta-cancion');
+    ok('D_track_404_falta_cancion_pausa_y_reintenta', e.sono && c404.falla && c404.pedidos >= 4 && c404.pendientes === 0 && c404.okArranca, c404);
+    const c500 = await caso(C, A, 500, 'no-se-pudo-cargar');
+    ok('D_track_500_no_se_pudo_cargar_pausa_y_reintenta', e.sono && c500.falla && c500.pedidos >= 4 && c500.pendientes === 0 && c500.okArranca, c500);
+    const R1 = await region();
+    const enRegion = (r, texto) => r.mismo === true && r.role === 'status' && r.live === 'polite' && r.texto === texto;
+    ok('V_avisos_entran_en_la_region_viva', enRegion(R0, '') && enRegion(c404.Rf, 'No se encontró la canción que suena en la radio. Reintentando…')
+      && enRegion(c500.Rf, 'No se pudo cargar la canción. Reintentando…') && enRegion(R1, ''),
+      { alEntrar: R0, falta: c404.Rf, noSePudo: c500.Rf, alFinal: R1 });
+    await salirFk();
+  }
+
+  // ── V. silenciada, "Iniciar radio" bloqueado siendo oyente y "Salir de la radio" → foco en el h1 ──
+  {
+    const e = await entrarFk();
+    await p.evaluate(() => window.__player().pause());
+    const s = await esperar(async () => ((await foto()).silenciada === true ? true : null), 9000);
+    const vS = await vista();
+    ok('V_silenciada_en_la_region_viva', e.sono && !!s.v && vS.avisoVivo === TXT_SILENCIADA && vS.region?.mismo === true,
+      { ms: s.ms, avisoVivo: vS.avisoVivo, region: vS.region });
+    const iniciarRadio = () => p.evaluate(() => {
+      const b = [...document.querySelectorAll('.radio-card .radio-btn')].find((x) => x.textContent.trim() === 'Iniciar radio');
+      const nota = b && b.getAttribute('aria-describedby') ? document.getElementById(b.getAttribute('aria-describedby')) : null;
+      const campo = document.getElementById('radio-codigo-campo');
+      return { hay: !!b, disabled: b ? b.disabled : null, nota: nota?.textContent ?? null, campoDisabled: campo ? campo.disabled : null,
+        notaUnirse: document.getElementById('radio-unirse-nota')?.textContent ?? null, oyente: !!document.querySelector('.radio-card--oyente') };
+    });
+    await irA('/radio');
+    await sleep(500);
+    const ini = await iniciarRadio();
+    ok('V_iniciar_bloqueado_con_su_nota_siendo_oyente', ini.hay && ini.disabled === true && ini.nota === 'Sal de la radio para iniciar la tuya.'
+      && ini.oyente && ini.campoDisabled === true && ini.notaUnirse === 'Sal de la radio para unirte a otra.', ini);
+    await p.click('.radio-card--oyente .radio-terminar .radio-btn');
+    await esperar(async () => ((await foto()).fase === 'sin-radio' ? true : null), 3000);
+    await sleep(1200);
+    const fSal = await foto(); const vSal = await vista(); const iniSal = await iniciarRadio();
+    ok('V_salir_deja_sin_radio_con_el_foco_en_el_h1', fSal.fase === 'sin-radio' && vSal.foco === 'h1.section-title' && !vSal.oyente
+      && iniSal.hay && iniSal.disabled === false && iniSal.nota === null && iniSal.campoDisabled === false && restaurada(fSal, e.antes),
+      { fase: fSal.fase, foco: vSal.foco, cara: { oyente: vSal.oyente, iniciar: iniSal }, restaurada: restaurada(fSal, e.antes) });
+  }
+
+  // ── B. autoplay bloqueado: "Toca para escuchar" ──
+  {
+    await prepararFoto('all');
+    const code = salaFalsa();
+    estadoFk(code, { trackId: A.id, positionMs: 40_000, playing: true, nextTrackId: B.id });
+    await p.evaluate(() => { window.__bloquear = true; });
+    await escuchar(code);
+    const ap = await esperar(async () => { const v = await vista(); return v.toca ? v : null; }, 8000);
+    const f1 = await foto();
+    ok('B_toca_para_escuchar_en_la_vista_y_no_en_la_barra', !!ap.v && f1.fase === 'oyente' && f1.actual === A.id && f1.bloqueado === true && f1.quiereSonar === true
+      && f1.paused && !ap.v.tocaEnBarra && ap.v.avisoVivo === TXT_BLOQUEADO,
+      { msHastaElBoton: ap.ms, fase: f1.fase, bloqueado: f1.bloqueado, quiereSonar: f1.quiereSonar, paused: f1.paused, enLaBarra: ap.v?.tocaEnBarra ?? null, avisoVivo: ap.v?.avisoVivo ?? null });
+    // Que el vivo se aleje de donde quedó el elemento; el 'playing' del clic dice dónde arrancó de verdad.
+    await sleep(5000);
+    const ctAntes = (await foto()).ct; const atrasS = r2(vivoFk(code) - ctAntes);
+    await p.evaluate(() => { window.__alSonar = null; window.__audio.addEventListener('playing', (ev) => { window.__alSonar = { t: Date.now(), ct: ev.target.currentTime }; }, { once: true }); });
+    await p.click('.radio-btn--toca');
+    const son = await esperar(() => p.evaluate(() => window.__alSonar), 4000, 50);
+    await sleep(800);
+    const v2 = await vista(); const f2 = await foto();
+    const desfase = son.v ? r2(son.v.ct - vivoFk(code, son.v.t)) : null;
+    ok('B_el_clic_suena_en_vivo_y_el_boton_se_va', !!son.v && atrasS > 4 && Math.abs(desfase) < TOLERANCIA_S && !v2.toca && !f2.paused && f2.bloqueado === false,
+      { atrasAntesDelClicS: atrasS, desfaseAlSonar: desfase, botonDespues: v2.toca, paused: f2.paused, bloqueado: f2.bloqueado });
+    // El anfitrión pausa y reanuda (el resume rechaza: no hay clic → vuelve el botón) y pausa otra vez.
+    const pos = Math.round(vivoFk(code) * 1000);
+    estadoFk(code, { trackId: A.id, positionMs: pos, playing: false, nextTrackId: B.id });
+    await esperar(async () => { const f = await foto(); return f.paused && f.quiereSonar === false ? true : null; }, 5000);
+    estadoFk(code, { trackId: A.id, positionMs: pos, playing: true, nextTrackId: B.id });
+    const vuelve = await esperar(async () => { const v = await vista(); return v.toca ? true : null; }, 5000);
+    estadoFk(code, { trackId: A.id, positionMs: pos, playing: false, nextTrackId: B.id });
+    const pausa = await esperar(async () => { const f = await foto(); return f.quiereSonar === false ? f : null; }, 5000);
+    await sleep(600);
+    const v3 = await vista(); const f3 = await foto();
+    ok('B_con_el_anfitrion_en_pausa_no_aparece', !!vuelve.v && !!pausa.v && f3.bloqueado === true && f3.quiereSonar === false && !v3.toca,
+      { volvioElBotonAlReanudar: !!vuelve.v, bloqueado: f3.bloqueado, quiereSonar: f3.quiereSonar, boton: v3.toca });
+    await p.evaluate(() => { window.__bloquear = false; });
+    await salirFk();
+  }
+
+  // ── A. avatares: foto con y sin ?v= (con el token), foto que falla → la inicial, emoji ──
+  {
+    const host = { id: 990077, name: 'Fotito', avatar: { kind: 'photo', url: '/api/users/990077/avatar?v=123', updatedAt: '2026-11-01' } };
+    const listeners = [host, YO_FK,
+      { id: AVATAR_ROTO, name: 'Bea', avatar: { kind: 'photo', url: `/api/users/${AVATAR_ROTO}/avatar?v=5` } },
+      { id: 990079, name: 'Ciro', avatar: { kind: 'emoji', value: '🎧' } },
+      { id: 990080, name: 'Dani', avatar: { kind: 'photo', url: '/api/users/990080/avatar' } }];
+    const e = await entrarFk({ host, listeners });
+    // [anfitrión, yo, Bea, Ciro, Dani]; se espera a que carguen las dos fotos y caiga la rota.
+    const caras = await esperar(() => p.evaluate(() => {
+      const c = [...document.querySelectorAll('.radio-card--oyente .radio-avatar')].map((el) => {
+        const img = el.querySelector('img');
+        return { src: img ? img.getAttribute('src') : null, cargada: img ? img.complete && img.naturalWidth > 0 : null,
+          emoji: el.querySelector('.radio-avatar-emoji')?.textContent ?? null, texto: el.textContent, grande: el.classList.contains('radio-avatar--grande') };
+      });
+      return c.length === 5 && c[0].cargada && c[4].cargada && c[2].src === null ? c : null;
+    }), 6000);
+    const c = caras.v ?? [];
+    const conTok = (u) => `${u}${u.includes('?') ? '&' : '?'}token=${tokOye}`;
+    const pidio = (u) => pedidosAvatar.includes(conTok(u));
+    ok('A_avatares_foto_con_token_inicial_si_falla_y_emoji', e.sono && c.length === 5
+      && c[0].grande && c[0].src === conTok(host.avatar.url) && c[0].cargada
+      && c[1].src === null && c[1].texto === 'Y'
+      && c[2].src === null && c[2].texto === 'B'
+      && c[3].emoji === '🎧'
+      && c[4].src === conTok('/api/users/990080/avatar') && c[4].cargada
+      && pidio(host.avatar.url) && pidio(`/api/users/${AVATAR_ROTO}/avatar?v=5`) && pidio('/api/users/990080/avatar'),
+      { caras: c.map((x) => ({ ...x, src: sinToken(x.src) })), pedidos: pedidosAvatar.map(sinToken) });
+    await salirFk();
+  }
+  REG.errores_tras_la_segunda_tanda = errores.slice();
+
   // ── 13. logout con la radio de oyente abierta (va al final: deja la página sin sesión) ──
   // El reproductor vive por encima de la sesión: sin la pausa del desmontaje seguiría sonando lo de la
   // radio. Se exige en pausa, el repeat de la foto ('one') devuelto, y la radio sin lecturas ni sondeo.
@@ -427,6 +841,38 @@ try {
     && lDespues.repeat === 'one' && lecturasTrasLogout === 0 && sondeoTrasLogout === sondeoAntes,
     { antes: lAntes, a3s: lDespues, ct6s, lecturasTrasLogout, sondeoPendiente: sondeoTrasLogout });
   await api(tokHost, 'DELETE', `/api/radio/${s4s.code}`);
+
+  // ── 401 al unirse y durante (lo de HOY: onUnauthorized → logout; ver el encabezado) ──
+  const estadoSinSesion = () => p.evaluate(() => {
+    const v = window.__player(); const el = window.__audio;
+    return { radio: !!window.__radio?.(), actual: v.currentTrack?.id ?? null, cola: v.queue.map((t) => t.id), indice: v.queueIndex,
+      isPlaying: v.isPlaying, paused: el ? el.paused : null, ct: el ? Math.round(el.currentTime * 100) / 100 : null, repeat: v.repeat, nPlay: window.__nPlay };
+  });
+  await volverAEntrar();
+  {
+    const antes = await prepararFoto('all');
+    const code = salaFalsa({ modo: { status: 401, body: { error: 'Unauthorized' } } });
+    await p.evaluate(() => { window.__nPlay = 0; });
+    await escuchar(code);
+    const fuera = await esperar(sinSesion, 6000);
+    await sleep(1500);
+    const f = await estadoSinSesion();
+    ok('U_401_al_unirse_cierra_la_sesion', !!fuera.v && !f.radio && mismo(f.cola, antes.cola) && f.indice === antes.indice && f.paused
+      && Math.abs(f.ct - 30) < 1 && f.nPlay === 0 && FK[code].lecturas.length === 1,
+      { login: !!fuera.v, ...f, lecturas: FK[code].lecturas.length });
+  }
+  await volverAEntrar();
+  {
+    const e = await entrarFk({}, 'one');
+    FK[e.code].modo = { status: 401, body: { error: 'Unauthorized' } };
+    const fuera = await esperar(sinSesion, 6000);
+    const t = Date.now();
+    await sleep(3000);
+    const f = await estadoSinSesion();
+    const tras = FK[e.code].lecturas.filter((x) => x > t + 100).length;
+    ok('D_401_durante_cierra_la_sesion_y_restaura', e.sono && !!fuera.v && !f.radio && restaurada(f, e.antes) && tras === 0,
+      { login: !!fuera.v, ...f, lecturasTrasElLogin: tras });
+  }
   REG.errores_de_pagina_al_final = errores.slice();
 } catch (e) {
   ok('excepcion', false, { error: String(e.message).split('\n')[0].slice(0, 200) });
