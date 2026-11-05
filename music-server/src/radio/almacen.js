@@ -355,7 +355,15 @@ export function crearAlmacen({ ahora = Date.now, azar = randomInt, reglas = REGL
     return { ok: true, serverNow: t, id, repetida: false };
   }
 
-  return { crear, publicar, leer, terminar, expirar, otorgar, quitar, ordenar, cuantas: () => radios.size };
+  /** Cuánto guarda una radio de lo de las órdenes, o null si no existe. Para las pruebas: lo que
+   *  cerrar() y expirar() olvidan no siempre se ve desde afuera (una radio cerrada contesta
+   *  'terminada' antes de mirar un idCliente). No llama a expirar(): mira tal como está. */
+  function memoria(codigo) {
+    const r = radios.get(codigo);
+    return r ? { ordenes: r.ordenes.length, idsCliente: r.idsCliente.size, cubetasOrden: r.cubetasOrden.size, eventos: r.eventos.length } : null;
+  }
+
+  return { crear, publicar, leer, terminar, expirar, otorgar, quitar, ordenar, memoria, cuantas: () => radios.size };
 }
 
 /** El almacén del servidor: uno solo por proceso. */
