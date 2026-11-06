@@ -21,6 +21,9 @@
 //   (f) red.*   radioTerminar con { keepalive } (cerrar la pestaña): qué recibe fetch, y que sin opciones
 //               siga idéntico a antes.
 //   (g) web.*   sin pista con la radio abierta: debePublicar no publica (nunca un trackId null al servidor).
+//   (j) mod.*   moderación y control remoto (1.43.0, W1): lecturas a pedido (una respuesta de 1.42.0 se
+//               lee igual), planDeOrden, los textos de los eventos (neutros, "Tú", "Alguien"), quién
+//               modera y quién puede poner o pedir en la radio, y los fallos de moderar y ordenar.
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -982,6 +985,177 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   A([null, undefined, '', 42].map((u) => C.avatarUrl(u)), [null, null, null, null], 'sin url (null, undefined, vacía, no texto) → null');
   A(C.avatarUrl(S.leerAvatar({ kind: 'photo', url: '/api/users/12/avatar?v=3', updatedAt: 'x' }).url), '/api/users/12/avatar?v=3&token=tok-prueba',
     'lo que deja pasar leerAvatar sale con su token');
+}
+
+// ============================ (j) web: moderación y control remoto (1.43.0, W1) ============================
+// Lo nuevo es A PEDIDO, como en el servidor: una respuesta sin `moderators` (la de 1.42.0) se lee
+// EXACTAMENTE igual que antes. Textos de eventos con redacción neutra de género.
+{
+  const M = (a, b, nombre) => igual('mod', a, b, nombre);
+  const st = { seq: 4, trackId: 7, positionMs: 1000, playing: true, nextTrackId: 8, enPausaPorVideo: false, publishedAtServerMs: 1_790_000_000_000 };
+  const V142 = { serverNow: 1_790_000_000_500, code: 'K7M2QX', status: 'live', state: st,
+    host: { id: 1, name: 'Ana', avatar: null }, listeners: [{ id: 2, name: 'Sonia', avatar: null }, { id: 3, name: 'Beto', avatar: null }] };
+  const CLAVES_142 = ['serverNow', 'code', 'status', 'endedReason', 'state', 'host', 'listeners'];
+  const leida142 = { serverNow: V142.serverNow, code: 'K7M2QX', status: 'live', endedReason: null, state: st,
+    host: { id: 1, name: 'Ana', avatar: null }, listeners: [{ id: 2, name: 'Sonia', avatar: null }, { id: 3, name: 'Beto', avatar: null }] };
+
+  // ---- 1.42.0: igual que antes ----
+  M(S.leerRadio(V142), leida142, '1.42.0: una respuesta sin campos nuevos se lee igual que antes (valores)');
+  M(Object.keys(S.leerRadio(V142)), CLAVES_142, '1.42.0: con las mismas claves, ni una más');
+  M(Object.keys(S.leerRadio({ ...V142, status: 'ended', endedReason: 'pausa' })), CLAVES_142, '1.42.0: terminada, las mismas claves');
+  M(Object.keys(S.leerRadio({ ...V142, state: null })), CLAVES_142, '1.42.0: sin estado, las mismas claves');
+  M(Object.keys(S.leerRadio({ ...V142, capabilities: { orders: true }, events: [], orders: [] })), CLAVES_142,
+    'sin `moderators`, lo demás nuevo se ignora (el servidor manda todo junto o nada)');
+  M(S.leerPublicada({ serverNow: 1, state: st }), { serverNow: 1, state: st }, '1.42.0: PUT /state sin orders, igual que antes');
+  M([S.falloDeStatus('publicar', 403, null, null), S.falloDeStatus('leer', 409, null, null), S.falloDeStatus('publicar', 422, null, null), S.falloDeStatus('crear', 409, null, null)],
+    [{ error: 'no-es-tuya' }, { error: 'llena' }, { error: 'cancion' }, { error: 'demasiadas' }], '1.42.0: los fallos de las rutas viejas no cambian');
+  M([S.textoDeFallo('iniciar', { error: 'servidor', status: 418 }), S.textoDeFallo('unirse', null), S.textoDeFallo('terminar', { error: 'x' })],
+    ['No se pudo iniciar la radio. Intenta de nuevo.', 'No se pudo entrar a la radio. Intenta de nuevo.', 'No se pudo terminar la radio. Intenta de nuevo.'],
+    '1.42.0: los textos genéricos de iniciar, unirse y terminar no cambian');
+
+  // ---- leerRadio con lo nuevo ----
+  const mods = [{ id: 2, name: 'Sonia@x.com', avatar: null }, { id: 2, name: 'otra vez', avatar: null }, { id: 'x' }, null,
+    { id: 3, name: 'Beto', avatar: null }, { id: 4, name: 'C', avatar: null }, { id: 5, name: 'D', avatar: null }];
+  const ev = (id, type, extra = {}) => ({ id, type, by: 2, byName: 'Sonia', target: null, targetName: null, trackId: null, title: null, at: 1000 + id, ...extra });
+  const conMod = { ...V142, moderators: mods, capabilities: { orders: true }, events: [ev(9, 'pausa'), ev(7, 'siguiente'), ev(8, 'algo-de-1.44'), { id: 0 }],
+    eventsUntil: 9, eventsLost: false };
+  const lm = S.leerRadio(conMod);
+  M(Object.keys(lm), [...CLAVES_142, 'moderators', 'capabilities', 'events', 'eventsUntil', 'eventsLost'], 'con ?cap=mod: las claves de siempre más las cinco nuevas (sin orders)');
+  M(lm.moderators.map((p) => [p.id, p.name]), [[2, 'Sonia'], [3, 'Beto'], [4, 'C']],
+    `moderators: sin repetidos ni malformados, el nombre cortado en la arroba y con tope de ${S.MODERACION.MODERADORES_MAX}`);
+  M(lm.events.map((e) => [e.id, e.type]), [[7, 'siguiente'], [9, 'pausa']], 'events: ordenados por id, sin los de un tipo desconocido ni los malformados');
+  M([lm.eventsUntil, lm.eventsLost], [9, false], 'eventsUntil y eventsLost');
+  M(['true', 1, null, undefined, {}].map((o) => S.leerRadio({ ...conMod, capabilities: { orders: o } }).capabilities.orders), [false, false, false, false, false],
+    'capabilities.orders: un "true" en texto, un 1 o nada no cuentan');
+  M(S.leerRadio({ ...conMod, capabilities: 'si' }).capabilities, { orders: false }, 'capabilities que no es un objeto: sin órdenes');
+  M([-1, 1.5, '9', null].map((u) => S.leerRadio({ ...conMod, eventsUntil: u }).eventsUntil), [null, null, null, null], 'eventsUntil que no es un entero ≥ 0: null');
+  M(S.leerRadio({ ...conMod, eventsLost: 'true' }).eventsLost, false, 'eventsLost: solo un true de verdad');
+  M([S.leerRadio({ ...conMod, moderators: 'x', events: 5 }).moderators, S.leerRadio({ ...conMod, moderators: 'x', events: 5 }).events], [[], []],
+    'moderators o events que no son listas: vacías');
+  M(S.leerRadio({ ...conMod, events: Array.from({ length: 30 }, (_, i) => ev(i + 1, 'pausa')) }).events.length, S.MODERACION.EVENTOS_MAX,
+    `events: tope de ${S.MODERACION.EVENTOS_MAX}`);
+  const ord = (id, type, extra = {}) => ({ id, type, trackId: null, seqBase: null, trackBase: 7, by: 2, title: null, ...extra });
+  const host = S.leerRadio({ ...conMod, orders: [ord(5, 'a-continuacion', { trackId: 11, title: 'Uno' }), ord(4, 'siguiente', { seqBase: 3 }), ord(6, 'ahora')] });
+  M(host.orders.map((o) => [o.id, o.type]), [[4, 'siguiente'], [5, 'a-continuacion']], 'orders (anfitrión): ordenadas, sin la "ahora" que no trae pista');
+  M(S.leerRadio({ ...V142, status: 'garbage', moderators: [] }), null, 'lo nuevo no salva una respuesta sin la forma de siempre');
+
+  // ---- leerEvento ----
+  M(S.leerEvento(ev(3, 'a-continuacion', { trackId: 11, title: '  Uno\u0000 ​Dos\n ' })),
+    { id: 3, type: 'a-continuacion', by: 2, byName: 'Sonia', target: null, targetName: '', trackId: 11, title: 'Uno Dos', at: 1003 },
+    'leerEvento: el título limpio (controles, ancho cero, saltos) y los nombres leídos');
+  M([S.leerEvento(ev(1, 'pausa', { title: 'x'.repeat(150) })).title.length, S.leerEvento(ev(1, 'pausa', { title: '​ ' })).title, S.leerEvento(ev(1, 'pausa', { title: 9 })).title],
+    [100, null, null], 'leerEvento: título cortado a 100; vacío o no texto, null');
+  M([S.leerEvento({ ...ev(1, 'pausa'), id: 0 }), S.leerEvento({ ...ev(1, 'pausa'), at: 'x' }), S.leerEvento({ ...ev(1, 'pausa'), type: 'pedido' }), S.leerEvento([])],
+    [null, null, null, null], 'leerEvento: sin id, sin hora, tipo desconocido o no objeto → null');
+  M(S.leerEvento({ ...ev(1, 'moderador'), by: 'x', target: -3 }).by, null, 'leerEvento: by o target raros → null en ese campo');
+
+  // ---- leerOrdenRecibida / leerOrdenEnviada / leerPublicada ----
+  M(S.leerOrdenRecibida(ord(4, 'siguiente', { seqBase: 3, trackId: 99 })), { id: 4, type: 'siguiente', trackId: null, seqBase: 3, trackBase: 7, by: 2, title: null },
+    'una "siguiente": sin pista aunque traiga una, con seqBase y trackBase');
+  M([S.leerOrdenRecibida(ord(1, 'ahora')), S.leerOrdenRecibida(ord(1, 'saltar')), S.leerOrdenRecibida({ ...ord(1, 'pausa'), by: null }), S.leerOrdenRecibida(ord(-1, 'pausa'))],
+    [null, null, null, null], 'una orden sin pista (con pista), de tipo desconocido, sin autor o sin id → null');
+  M(S.leerOrdenRecibida(ord(2, 'pausa', { trackBase: 'x' })).trackBase, null, 'trackBase raro → null (planDeOrden decide)');
+  M(S.leerOrdenEnviada({ id: 5, repeated: true, serverNow: 9 }), { id: 5, repeated: true, serverNow: 9 }, 'leerOrdenEnviada: la de un reintento');
+  M([S.leerOrdenEnviada({ id: 5, repeated: 'true', serverNow: 9 }).repeated, S.leerOrdenEnviada({ id: 0, serverNow: 9 }), S.leerOrdenEnviada({ id: 5 })],
+    [false, null, null], 'leerOrdenEnviada: repeated solo con true; sin id o sin hora, null');
+  M(S.leerPublicada({ serverNow: 1, state: st, orders: [ord(3, 'pausa'), 'x'] }), { serverNow: 1, state: st, orders: [{ id: 3, type: 'pausa', trackId: null, seqBase: null, trackBase: 7, by: 2, title: null }] },
+    'PUT /state con confirmación: orders leídas');
+
+  // ---- planDeOrden ----
+  const suena = { trackId: 7, playing: true, enPausaPorVideo: false };
+  const P = (o, a = suena) => S.planDeOrden(o, a);
+  M(P(ord(1, 'siguiente')), { aplicar: true }, 'siguiente sobre la canción que veía: se aplica');
+  M(P(ord(1, 'siguiente', { trackBase: 8 })), { aplicar: false, motivo: 'obsoleta' }, 'siguiente con trackBase de otra canción: obsoleta, se descarta');
+  M(P(ord(1, 'siguiente', { trackBase: null })), { aplicar: false, motivo: 'obsoleta' }, 'siguiente sin trackBase: no se puede comprobar, se descarta');
+  M([P(ord(1, 'pausa')), P(ord(1, 'pausa'), { ...suena, playing: false }), P(ord(1, 'reanudar')), P(ord(1, 'reanudar'), { ...suena, playing: false })],
+    [{ aplicar: true }, { aplicar: true }, { aplicar: true }, { aplicar: true }], 'pausa y reanudar son absolutas: se aplican aunque ya esté así');
+  M([P(ord(1, 'pausa', { trackBase: 99 })), P(ord(1, 'reanudar', { trackBase: 99 }))], [{ aplicar: true }, { aplicar: true }], 'pausa y reanudar no miran la canción');
+  M([P(ord(1, 'a-continuacion', { trackId: 11 })), P(ord(1, 'ahora', { trackId: 11 }))], [{ aplicar: true }, { aplicar: true }], 'a continuación y ahora, con su pista: se aplican');
+  M(P(ord(1, 'ahora')), { aplicar: false, motivo: 'invalida' }, 'ahora sin pista: inválida');
+  const nada = { trackId: null, playing: false, enPausaPorVideo: false };
+  M([P(ord(1, 'a-continuacion', { trackId: 11 }), nada), P(ord(1, 'ahora', { trackId: 11 }), nada)], [{ aplicar: true }, { aplicar: true }],
+    'sin canción sonando, a continuación y ahora SE APLICAN (el anfitrión empieza a reproducir esa pista)');
+  M([P(ord(1, 'a-continuacion', { trackId: 11 }), { ...nada, enPausaPorVideo: true }), P(ord(1, 'ahora', { trackId: 11 }), { ...nada, enPausaPorVideo: true })],
+    [{ aplicar: false, motivo: 'video' }, { aplicar: false, motivo: 'video' }], 'sin canción pero viendo un video: se descartan igual');
+  const finDeCola = { trackId: 957, playing: false, enPausaPorVideo: false };   // medido: la última pista, en pausa, al final
+  M([P(ord(1, 'siguiente', { trackBase: 957 }), finDeCola), P(ord(1, 'reanudar'), finDeCola), P(ord(1, 'ahora', { trackId: 11 }), finDeCola)],
+    [{ aplicar: true }, { aplicar: true }, { aplicar: true }], 'al terminar la cola (la última pista en pausa): todo se aplica; qué hace el motor es de W3');
+  const video = { trackId: null, playing: false, enPausaPorVideo: true };
+  M(['siguiente', 'pausa', 'reanudar'].map((t) => P(ord(1, t), video)).concat([P(ord(1, 'ahora', { trackId: 11 }), video)]),
+    Array(4).fill({ aplicar: false, motivo: 'video' }), 'viendo un video, nada se aplica');
+  M([P(ord(1, 'siguiente'), { trackId: null, playing: false }), P(ord(1, 'pausa'), { trackId: null, playing: false })],
+    [{ aplicar: false, motivo: 'sin-cancion' }, { aplicar: false, motivo: 'sin-cancion' }], 'sin canción: ni siguiente ni pausa');
+  M([S.planDeOrden(null, suena), S.planDeOrden(ord(1, 'saltar'), suena), S.planDeOrden(ord(1, 'pausa'), null)],
+    Array(3).fill({ aplicar: false, motivo: 'invalida' }), 'una orden o un estado sin forma: inválida');
+
+  // ---- textoDeEvento: cada texto, "yo" y "sin nombre" ----
+  const T = (type, extra = {}, yo = 99) => S.textoDeEvento(S.leerEvento(ev(1, type, extra)), yo);
+  const mod = { by: 1, byName: 'Ana', target: 2, targetName: 'Sonia' };
+  M([T('siguiente'), T('pausa'), T('reanudar'), T('a-continuacion', { title: 'Título' }), T('ahora', { title: 'Título' })],
+    ['Sonia pasó a la siguiente canción', 'Sonia pausó', 'Sonia reanudó', 'Sonia puso «Título» a continuación', 'Sonia puso «Título»'],
+    'las órdenes, con el nombre de quien las mandó');
+  M([T('moderador', mod), T('sin-moderador', mod)], ['Ana nombró a Sonia para moderar', 'Ana le quitó el control a Sonia'], 'nombrar y quitar, neutro');
+  M([T('siguiente', {}, 2), T('pausa', {}, 2), T('reanudar', {}, 2), T('a-continuacion', { title: 'Título' }, 2), T('ahora', { title: 'Título' }, 2)],
+    ['Tú pasaste a la siguiente canción', 'Tú pausaste', 'Tú reanudaste', 'Tú pusiste «Título» a continuación', 'Tú pusiste «Título»'],
+    'yo las mandé: "Tú" y el verbo en segunda persona');
+  M([T('moderador', mod, 1), T('sin-moderador', mod, 1)], ['Tú nombraste a Sonia para moderar', 'Tú le quitaste el control a Sonia'], 'yo soy el anfitrión que nombra o quita');
+  M([T('moderador', mod, 2), T('sin-moderador', mod, 2)], ['Ana te nombró para moderar', 'Ana te quitó el control'], 'a mí me nombran o me quitan el control');
+  M([T('pausa', { byName: '' }), T('siguiente', { byName: null }), T('moderador', { ...mod, byName: '' }), T('moderador', { ...mod, targetName: '' })],
+    ['Alguien pausó', 'Alguien pasó a la siguiente canción', 'Alguien nombró a Sonia para moderar', 'Ana nombró a alguien para moderar'], 'sin nombre: "Alguien" / "alguien"');
+  M([T('a-continuacion'), T('ahora'), T('ahora', {}, 2)], ['Sonia puso una canción a continuación', 'Sonia puso una canción', 'Tú pusiste una canción'], 'sin título: "una canción"');
+  M([S.textoDeEvento(null, 1), S.textoDeEvento({ type: 'pedido', by: 2 }, 1), T('pausa', { byName: '' }, null)], [null, null, 'Alguien pausó'],
+    'sin evento o de un tipo desconocido: null; sin mi id, nunca "Tú"');
+  M(['moderador', 'sin-moderador', 'siguiente', 'pausa', 'reanudar', 'a-continuacion', 'ahora'].some((t) => /moderador[a]?\b|moderadora/.test(T(t, mod) ?? '')), false,
+    'ningún texto de evento dice "moderador" ni "moderadora"');
+
+  // ---- esModerador / rolEnLaRadio / INSIGNIA ----
+  M([S.esModerador(lm, 2), S.esModerador(lm, 3), S.esModerador(lm, 9), S.esModerador(lm, 1)], [true, true, false, false], 'esModerador: los nombrados sí; otro oyente y el anfitrión no');
+  M([S.esModerador(S.leerRadio(V142), 2), S.esModerador(null, 2), S.esModerador(lm, '2')], [false, false, false], 'esModerador: sin lo de la moderación (1.42.0), sin radio o con un id raro: no');
+  M([S.rolEnLaRadio(lm, 1), S.rolEnLaRadio(lm, 2), S.rolEnLaRadio(lm, 9), S.rolEnLaRadio(S.leerRadio(V142), 1)], ['anfitrion', 'moderador', null, 'anfitrion'], 'rolEnLaRadio');
+  M([S.INSIGNIA.anfitrion, S.INSIGNIA.moderador], ['Anfitrión', 'Modera'], 'las insignias tienen texto (no solo un color)');
+
+  // ---- puedePonerEnRadio / puedePedir ----
+  const cancion = { id: 11, title: 'Uno' };
+  const vid = { id: 'abc', kind: 'video' };
+  const Q = (extra) => ({ fase: 'oyente', radio: lm, miId: 2, item: cancion, ...extra });
+  M([S.puedePonerEnRadio(Q()), S.puedePonerEnRadio(Q({ miId: 9 })), S.puedePonerEnRadio(Q({ item: vid })), S.puedePonerEnRadio(Q({ fase: 'anfitrion', miId: 1 }))],
+    [true, false, false, false], 'poner en la radio: quien modera y escucha, con una canción; no un oyente sin rol, no un video, no el anfitrión');
+  M([S.puedePonerEnRadio(Q({ fase: 'nada' })), S.puedePonerEnRadio(Q({ radio: { ...lm, status: 'ended' } })), S.puedePonerEnRadio(Q({ radio: { ...lm, capabilities: { orders: false } } })),
+    S.puedePonerEnRadio(Q({ radio: S.leerRadio(V142) })), S.puedePonerEnRadio(null)],
+    [false, false, false, false, false], 'poner en la radio: sin escuchar, terminada, con un anfitrión sin órdenes (iOS), sin lo nuevo, o sin datos: no');
+  M([S.puedePedir(Q({ miId: 9 })), S.puedePedir(Q()), S.puedePedir(Q({ miId: 9, radio: { ...lm, capabilities: { orders: true, requests: true } } }))],
+    [false, false, true], 'pedir (1.43.1): hoy nunca (el servidor no declara requests); con requests, un oyente sin rol sí');
+  M([S.puedePedir(Q({ radio: { ...lm, capabilities: { requests: true } } })), S.puedePedir(Q({ miId: 9, item: vid, radio: { ...lm, capabilities: { requests: true } } })),
+    S.puedePedir(Q({ miId: 1, fase: 'anfitrion', radio: { ...lm, capabilities: { requests: true } } }))],
+    [false, false, false], 'pedir: quien modera no pide (pone directo), un video no, el anfitrión no');
+
+  // ---- falloDeStatus / textoDeFallo de las rutas nuevas ----
+  const F = (ruta, status, reason) => S.falloDeStatus(ruta, status, reason ? { error: 'x', reason } : null, 3);
+  M(['es-el-anfitrion', 'no-escucha', 'sin-soporte', 'moderadores-llenos', 'ordenes-llenas', 'obsoleta'].map((r) => F('ordenar', 409, r).error),
+    ['es-el-anfitrion', 'no-escucha', 'sin-soporte', 'moderadores-llenos', 'ordenes-llenas', 'obsoleta'], 'ordenar 409: el motivo del servidor');
+  M([F('moderar', 403, 'sin-permiso'), F('ordenar', 403), F('ordenar', 409, 'algo-nuevo'), F('ordenar', 422, 'video'), F('ordenar', 422, 'sin-pista'), F('ordenar', 422)],
+    [{ error: 'sin-permiso' }, { error: 'sin-permiso' }, { error: 'servidor', status: 409 }, { error: 'video' }, { error: 'sin-pista' }, { error: 'sin-pista' }],
+    '403 sin-permiso (nunca no-es-tuya: no hay que abandonar la radio), 409 desconocido y 422');
+  M([F('ordenar', 429), F('moderar', 404), F('ordenar', 410), F('ordenar', 400), F('ordenar', 401), F('ordenar', 413)],
+    [{ error: 'frecuencia', esperaMs: 3000 }, { error: 'no-existe' }, { error: 'terminada', razon: 'otro' }, { error: 'invalido' }, { error: 'sesion' }, { error: 'cuerpo' }],
+    '429 (con Retry-After), 404, 410, 400, 401 y 413: como las demás rutas');
+  const TF = (accion, error) => S.textoDeFallo(accion, { error });
+  M([TF('moderar', 'sin-permiso'), TF('ordenar', 'sin-permiso'), TF('moderar', 'no-escucha'), TF('ordenar', 'no-escucha'), TF('moderar', 'sin-soporte'), TF('ordenar', 'sin-soporte')],
+    ['Solo quien creó la radio puede elegir quién modera.', 'Ya no puedes moderar esta radio.', 'Esa persona ya no está escuchando.',
+      'Tienes que estar escuchando la radio para moderar.', 'La app de esa persona todavía no permite moderar.', 'La app del anfitrión todavía no acepta órdenes.'],
+    'textoDeFallo: sin-permiso, no-escucha y sin-soporte, según la acción');
+  M([TF('moderar', 'es-el-anfitrion'), TF('moderar', 'moderadores-llenos'), TF('ordenar', 'ordenes-llenas'), TF('ordenar', 'obsoleta'), TF('ordenar', 'video'), TF('ordenar', 'sin-pista')],
+    ['La radio ya es tuya: no hace falta que la moderes.', 'Ya hay 3 personas moderando. Quita a alguien primero.', 'Hay muchas órdenes pendientes. Espera un momento.',
+      'La canción ya cambió.', 'Los videos no se pueden poner en la radio.', 'Esa canción ya no está en la biblioteca.'],
+    'textoDeFallo: los demás motivos nuevos');
+  M([TF('moderar', 'x'), TF('ordenar', 'x'), TF('ordenar', 'frecuencia'), S.textoDeFallo('ordenar', { error: 'servidor', status: 503 })],
+    ['No se pudo cambiar quién modera. Intenta de nuevo.', 'No se pudo mandar la orden. Intenta de nuevo.', 'Demasiados intentos. Espera unos segundos e intenta de nuevo.',
+      'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.'], 'textoDeFallo: los genéricos de moderar y ordenar, y los de siempre');
+
+  // ---- las constantes son las del servidor ----
+  M([S.MODERACION.MODERADORES_MAX, S.MODERACION.ORDENES_MAX, S.MODERACION.EVENTOS_MAX, S.MODERACION.TITULO_MAX],
+    [SERVIDOR.REGLAS.MAX_MODERADORES, SERVIDOR.REGLAS.MAX_ORDENES, SERVIDOR.REGLAS.MAX_EVENTOS, SERVIDOR.REGLAS.TITULO_MAX], 'los topes son los del servidor (reglas.js)');
+  M([...S.TIPOS_ORDEN], Object.keys(SERVIDOR.TIPOS_ORDEN), 'los tipos de orden son los del servidor');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
