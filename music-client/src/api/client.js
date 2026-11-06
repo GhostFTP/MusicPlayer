@@ -1,5 +1,5 @@
 import { clearViewCache } from './viewCache.js';
-import { RADIO, cuerpoDePublicacion, falloDeStatus, leerCreada, leerPublicada, leerRadio, leerTerminada, normalizarCodigo } from '../utils/radioSync.js';
+import { MODERACION, RADIO, TIPOS_ORDEN, cuerpoDePublicacion, falloDeStatus, leerCreada, leerNombre, leerOrdenEnviada, leerPersona, leerPublicada, leerRadio, leerTerminada, normalizarCodigo } from '../utils/radioSync.js';
 
 const BASE = '';
 
@@ -124,6 +124,53 @@ async function radioPedir(ruta, method, path, exito, leer, cuerpo, opciones = {}
 const rutaRadio = (codigo) => `/api/radio/${encodeURIComponent(codigo)}`;
 const NO_ES_CODIGO = Object.freeze({ ok: false, error: 'no-existe' });
 
+// ---- Moderación y control remoto (1.43.0, W2) ----
+// Todo lo nuevo es A PEDIDO: radioCrear(), radioPublicar(codigo, estado) y radioLeer(codigo) sin los
+// argumentos nuevos mandan EXACTAMENTE lo mismo que en 1.42.0 (mismo path, mismo cuerpo).
+const NO_VALE = Object.freeze({ ok: false, error: 'invalido' });
+const esIdPositivo = (v) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+const esSeqCliente = (v) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+const ALFABETO_ID = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+/** Un clientId nuevo: 16 caracteres al azar de [A-Za-z0-9_-] (el servidor acepta 6 a 24). Con él, el
+ *  servidor reconoce un reenvío de la MISMA orden y no la duplica (`repeated: true`). */
+export function nuevoIdCliente() {
+  const b = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(b);
+  return [...b].map((x) => ALFABETO_ID[x & 63]).join('');
+}
+/** La respuesta de PUT/DELETE /moderadores/:userId → { serverNow, moderators, name }, o null. */
+function leerModeradores(d) {
+  if (!d || typeof d !== 'object' || !Number.isFinite(d.serverNow) || d.serverNow <= 0 || !Array.isArray(d.moderators)) return null;
+  const vistos = new Set();
+  const moderators = [];
+  for (const x of d.moderators) {
+    const p = leerPersona(x);
+    if (!p || vistos.has(p.id)) continue;
+    vistos.add(p.id);
+    moderators.push(p);
+    if (moderators.length === MODERACION.MODERADORES_MAX) break;
+  }
+  return { serverNow: d.serverNow, moderators, name: leerNombre(d.name) || null };
+}
+/** El path de GET /api/radio/:code con lo que se pide: `cap: 'mod'` (este cliente sabe moderar) y
+ *  `desde` (el último evento visto, entero ≥ 0). Sin nada, el path de siempre. */
+function rutaLeer(c, { cap, desde } = {}) {
+  const q = [];
+  if (cap === 'mod') q.push('cap=mod');
+  if (esSeqCliente(desde)) q.push(`desde=${desde}`);
+  return q.length ? `${rutaRadio(c)}?${q.join('&')}` : rutaRadio(c);
+}
+/** El cuerpo de POST /ordenes, con las claves en inglés. Solo lo que el tipo lleva. */
+function cuerpoDeOrden(orden, clientId) {
+  const b = { type: orden.type };
+  if (orden.type === 'a-continuacion' || orden.type === 'ahora') b.trackId = orden.trackId;
+  if (orden.type === 'siguiente') b.seqBase = orden.seqBase;
+  b.clientId = clientId;
+  return b;
+}
+/** ¿Vale la pena reenviar? Solo cuando no se sabe si llegó: sin respuesta (red, timeout) o un 5xx. */
+const reenviable = (r) => r.error === 'sin-respuesta' || (r.error === 'servidor' && r.status >= 500);
+
 export const api = {
   // Auth
   // Iniciar sesión vacía la caché de vistas (viewCache.js): la cuenta nueva arranca sin datos ajenos.
@@ -184,14 +231,57 @@ export const api = {
 
   // Radio (ver radioPedir arriba). `estado` = EstadoAnfitrion de utils/radioSync.js.
   // crear → { code, serverNow } · publicar → { serverNow, state } · leer → { radio, serverNow } · terminar → { serverNow, endedReason }
-  radioCrear:    ()               => radioPedir('crear', 'POST', '/api/radio', 201, leerCreada),
-  radioPublicar: (codigo, estado) => {
+  // 1.43.0, A PEDIDO (sin estos argumentos, lo de siempre):
+  //   · radioCrear({ capabilities: { orders: true } }): el reproductor de este anfitrión ejecuta órdenes
+  //     (se declara solo al crear, decisión de S4). Solo cuenta un true de verdad.
+  //   · radioPublicar(codigo, estado, { ordenHasta, aplicadas }): confirma órdenes; vuelve con `orders`.
+  //   · radioLeer(codigo, { cap: 'mod', desde }): suma lo de la moderación (leerRadio).
+  radioCrear:    ({ capabilities } = {}) => radioPedir('crear', 'POST', '/api/radio', 201, leerCreada,
+    capabilities && typeof capabilities === 'object' ? { capabilities: { orders: capabilities.orders === true } } : undefined),
+  radioPublicar: (codigo, estado, confirmacion) => {
     const c = normalizarCodigo(codigo);
-    return c ? radioPedir('publicar', 'PUT', `${rutaRadio(c)}/state`, 200, leerPublicada, cuerpoDePublicacion(estado)) : Promise.resolve(NO_ES_CODIGO);
+    if (!c) return Promise.resolve(NO_ES_CODIGO);
+    const cuerpo = cuerpoDePublicacion(estado);
+    if (confirmacion != null) {
+      if (!esSeqCliente(confirmacion.ordenHasta)) return Promise.resolve(NO_VALE);
+      cuerpo.ordenHasta = confirmacion.ordenHasta;
+      const ap = Array.isArray(confirmacion.aplicadas) ? [...new Set(confirmacion.aplicadas.filter(esIdPositivo))].slice(0, MODERACION.ORDENES_MAX) : [];
+      if (ap.length) cuerpo.aplicadas = ap;
+    }
+    return radioPedir('publicar', 'PUT', `${rutaRadio(c)}/state`, 200, leerPublicada, cuerpo);
   },
-  radioLeer:     (codigo)         => {
+  radioLeer:     (codigo, opciones) => {
     const c = normalizarCodigo(codigo);
-    return c ? radioPedir('leer', 'GET', rutaRadio(c), 200, (d) => { const radio = leerRadio(d); return radio && { radio, serverNow: radio.serverNow }; }) : Promise.resolve(NO_ES_CODIGO);
+    return c ? radioPedir('leer', 'GET', rutaLeer(c, opciones), 200, (d) => { const radio = leerRadio(d); return radio && { radio, serverNow: radio.serverNow }; }) : Promise.resolve(NO_ES_CODIGO);
+  },
+  // El anfitrión nombra (si = true) o quita (si = false) a quien modera → { serverNow, moderators, name }.
+  // Errores (falloDeStatus 'moderar'): 403 sin-permiso · 409 es-el-anfitrion / no-escucha / sin-soporte /
+  // moderadores-llenos · 404 · 410 · 429 con Retry-After.
+  radioModerador: (codigo, userId, si) => {
+    const c = normalizarCodigo(codigo);
+    if (!c) return Promise.resolve(NO_ES_CODIGO);
+    if (!esIdPositivo(userId)) return Promise.resolve(NO_VALE);
+    return radioPedir('moderar', si === true ? 'PUT' : 'DELETE', `${rutaRadio(c)}/moderadores/${userId}`, 200, leerModeradores);
+  },
+  // Quien modera manda una orden: { type, trackId? (a-continuacion, ahora), seqBase? (siguiente) } →
+  // 202 { id, repeated, serverNow }, y vuelve también el `clientId` usado. Si no se sabe si llegó (sin
+  // respuesta o un 5xx) se reenvía UNA vez, en el acto y con el MISMO clientId: si la primera sí
+  // llegó, el servidor contesta la misma orden con repeated: true (nunca dos). `opciones.clientId`:
+  // para que la capa de arriba reintente más tarde con el mismo. Errores (falloDeStatus 'ordenar'):
+  // 403 sin-permiso · 409 no-escucha / sin-soporte / obsoleta / ordenes-llenas · 422 video / sin-pista ·
+  // 404 · 410 · 429 con Retry-After (no se reenvía: se espera).
+  radioOrdenar: async (codigo, orden, { clientId } = {}) => {
+    const c = normalizarCodigo(codigo);
+    if (!c) return NO_ES_CODIGO;
+    const o = orden && typeof orden === 'object' ? orden : {};
+    if (!TIPOS_ORDEN.includes(o.type)) return NO_VALE;
+    if ((o.type === 'a-continuacion' || o.type === 'ahora') && !esIdPositivo(o.trackId)) return NO_VALE;
+    if (o.type === 'siguiente' && !esSeqCliente(o.seqBase)) return NO_VALE;
+    const id = typeof clientId === 'string' && /^[A-Za-z0-9_-]{6,24}$/.test(clientId) ? clientId : nuevoIdCliente();
+    const pedir = () => radioPedir('ordenar', 'POST', `${rutaRadio(c)}/ordenes`, 202, leerOrdenEnviada, cuerpoDeOrden(o, id));
+    let r = await pedir();
+    if (!r.ok && reenviable(r)) r = await pedir();
+    return { ...r, clientId: id };
   },
   // `{ keepalive: true }`: para terminar al cerrar la pestaña (pagehide). El fetch sigue vivo aunque la
   // página se descargue, y lleva el Bearer (sendBeacon no manda headers). Sin cuerpo: keepalive tiene
