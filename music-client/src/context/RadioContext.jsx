@@ -8,6 +8,7 @@ import {
   mejorReloj, horaServidor, posicionProyectada, SINCRO_INICIAL, decidirCorreccion, pasoDelOyente,
   esperaDelSondeo, resolverColaDelOyente, fotoDeLaCola, planDeRestauracion, pausaDelOyente,
   idDeCancion, DESAJUSTE_MS,
+  planDeOrden, siguienteDelMotor, alFinalDeLaCola, confirmacionDe, colaDelOyente,
 } from '../utils/radioSync.js';
 
 // RADIO WEB: EL ANFITRIÓN (fase 1, sub-paso 3) Y EL OYENTE (sub-paso 4). Port de los puentes de iOS
@@ -25,7 +26,8 @@ import {
 //    que necesita del motor (la foto al entrar, play/seek/pause para devolverla) se lo deja el
 //    puente del oyente en refs.
 //
-//  · <PuenteAnfitrion/> — sin UI, montado SÓLO con fase === 'anfitrion'. Publica el estado y lee oyentes.
+//  · <PuenteAnfitrion/> — sin UI, montado SÓLO con fase === 'anfitrion'. Publica el estado, lee oyentes
+//    y (1.43.0) aplica las órdenes de quien modera.
 //  · <PuenteOyente/> — sin UI, montado SÓLO con fase === 'oyente'. Lee la sala y mueve el reproductor.
 //    Los dos son los únicos que leen usePlayer y usePlayerTime: re-renderizan a ~4 Hz mientras suena,
 //    pero son hojas aparte que devuelven null, así que eso no toca a Layout ni a las vistas.
@@ -51,6 +53,13 @@ const RadioContext = createContext(null);
 const MIRAR_CADA_MS = 500;
 /** Cada cuánto se lee la sala para saber quién escucha (iOS: OYENTES_CADA_MS). */
 const OYENTES_CADA_MS = 5000;
+/** 1.43.0: con moderadores la sala se lee además cada 2 s, porque ahí llegan las órdenes. Es un
+ *  intervalo APARTE, montado solo mientras haya moderadores: sin ellos quedan los dos de siempre. */
+const ORDENES_CADA_MS = 2000;
+/** Dos lecturas de la sala no más cerca que esto (el intervalo de 2 s y el de 5 s se cruzan). */
+const LECTURA_MIN_MS = 1500;
+/** Cuánto se espera a que el motor muestre lo que hizo una orden (otra pista, la pausa, la cola). */
+const ESPERA_MOTOR_MS = 1000;
 /** Unirse a la sala propia (decisión del usuario: el texto). */
 const TEXTO_SALA_PROPIA = 'Esta radio es tuya.';
 
@@ -177,7 +186,8 @@ export function RadioProvider({ children }) {
     ponerFase('creando');
     setError(null);
     setFin(null);
-    const r = await api.radioCrear();
+    // 1.43.0: este reproductor ejecuta órdenes de quien modera (se declara solo al crear).
+    const r = await api.radioCrear({ capabilities: { orders: true } });
     if (gen !== genRef.current || !montadoRef.current) return false;
     if (!r.ok) {
       ponerFase('sin-radio');
@@ -315,63 +325,223 @@ export function useRadio() {
   return useContext(RadioContext);
 }
 
-// ── El puente del anfitrión: publica lo que suena y lee quién escucha ──
+// ── El puente del anfitrión: publica lo que suena, lee quién escucha y aplica las órdenes ──
 //
 // Publica por CAMBIOS (pista, pausa, siguiente, salto, posición: cada render trae el estado nuevo y
 // se mira en el acto) y con un temporizador de respaldo cada MIRAR_CADA_MS para la pausa, el latido
 // y los reintentos. Quién decide: debePublicar (¿hay algo?), la puerta (¿se puede ahora?: una sola en
 // vuelo, Retry-After, reintento a los 3 s, canción rechazada) y alResponder (qué hacer con la
 // respuesta). Todo eso es puro y vive en radioSync.js.
+//
+// ÓRDENES (1.43.0). Llegan en la lectura de la sala (?desde=) y en la respuesta del PUT que confirma.
+//  · Un Set de ids vistos: una orden que vuelve a llegar (sigue pendiente hasta confirmarla) no se
+//    aplica dos veces.
+//  · De a UNA, en orden de id: la siguiente espera a que el motor muestre lo que hizo la anterior
+//    (esperarMotor, tope ESPERA_MOTOR_MS). Así el cambio de pista de una no se toma por el de otra,
+//    y cada una se decide (planDeOrden) con lo que suena de verdad.
+//  · planDeOrden recibe, además de lo publicado, dos datos LOCALES que no se publican: haySiguiente
+//    (siguienteDelMotor) y alFinal (alFinalDeLaCola). Lo que se publica es lo de 1.42.0.
+//  · "siguiente" con aleatorio sin repetir la cola: el motor no expone qué ya sonó, así que no se
+//    sabe si tiene a dónde ir. Se llama next() y cuenta como aplicada SOLO si cambió la pista o el
+//    índice en ESPERA_MOTOR_MS; si no, se descarta ('sin-siguiente'), sin evento.
+//    CASO RARO, aceptado: si el propio anfitrión cambia de pista (o quita una de antes y corre el
+//    índice) dentro de esa ventana, ese cambio se cuenta como efecto de la orden.
+//  · Resuelta (aplicada o descartada), va a resueltasRef y sale en el próximo PUT (confirmacionDe:
+//    ordenHasta y las aplicadas, en tandas de 10). Con algo por confirmar, debePublicar da
+//    'confirmar' aunque el estado no cambie. Si el PUT falla (429, red), queda para el siguiente.
+//    Lo aplicado se confirma en el MISMO render que muestra el cambio, antes de mirar(): el PUT lleva
+//    el estado nuevo y la confirmación juntos.
+//  · Al desmontar (terminar, salir, cerrar sesión, otra radio: key={codigo}) se corta la espera del
+//    motor y una orden a medio traer su pista (api.track) se abandona: vigente() antes de tocar nada.
 function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
-  const { currentTrack, isPlaying, queue, queueIndex } = usePlayer();
-  const { currentTime } = usePlayerTime();
+  const { currentTrack, isPlaying, queue, queueIndex, shuffle, repeat, upNext, next, pause, resume, playAfterCurrent } = usePlayer();
+  const { currentTime, duration } = usePlayerTime();
 
   const actual = estadoDelAnfitrion({ current: currentTrack, queue, queueIndex, playing: isPlaying, posicionSeg: currentTime });
   const actualRef = useRef(actual);   // lo último, para el temporizador (se escribe en un efecto, no en el render)
+  const motorRef = useRef(null);      // lo local del motor para las órdenes (tampoco se publica)
 
   const puertaRef = useRef(PUERTA_INICIAL);
   const publicadoRef = useRef(null);
   const leyendoRef = useRef(false);
+  const leidaEnRef = useRef(0);       // hora local de la última lectura de la sala
+  const cursorRef = useRef(0);        // eventsUntil: el último evento visto (?desde=)
+  const [conModeradores, setConModeradores] = useState(false);
+
+  const vivoRef = useRef(true);
+  const vistasRef = useRef(new Set());   // ids de órdenes ya recibidas
+  const porAplicarRef = useRef([]);      // recibidas y sin aplicar, en orden de id
+  const aplicandoRef = useRef(false);
+  const resueltasRef = useRef([]);       // [{ id, aplicada }] sin confirmar
+  const esperaRef = useRef(null);        // { listo(motor), fin(cambio), timer } | null
+
+  const vigente = useCallback(() => vivoRef.current && gen === genRef.current, [gen, genRef]);
+
+  // Las órdenes y mirar() se llaman entre sí (mirar recibe las del PUT; resolver una pide publicar):
+  // se cruzan por refs para no encadenar dependencias.
+  const mirarRef = useRef(null);
+  const recibirRef = useRef(null);
 
   const mirar = useCallback(async () => {
-    const vigente = () => gen === genRef.current;
     if (!vigente()) return;
     const ahora = Date.now();
     const a = actualRef.current;
     if (!puertaAbierta(puertaRef.current, a, ahora)) return;
-    if (!debePublicar(publicadoRef.current, a, ahora)) return;
+    const conf = confirmacionDe(resueltasRef.current);
+    if (!debePublicar(publicadoRef.current, a, ahora, conf != null)) return;
     puertaRef.current = alPublicar(puertaRef.current);
     const salidaMs = Date.now();
-    const r = await api.radioPublicar(codigo, a);
+    // Sin nada que confirmar, la llamada (y el cuerpo) de 1.42.0.
+    const r = conf ? await api.radioPublicar(codigo, a, conf) : await api.radioPublicar(codigo, a);
     if (!vigente()) return;
     const x = alResponder(puertaRef.current, r, a, salidaMs, Date.now());
     puertaRef.current = x.puerta;
     if (x.publicado) publicadoRef.current = x.publicado;
-    if (x.expulsar) salir(gen, x.expulsar);
-  }, [codigo, gen, genRef, salir]);
+    if (x.expulsar) { salir(gen, x.expulsar); return; }
+    if (r.ok && conf) {
+      resueltasRef.current = resueltasRef.current.filter((o) => o.id > conf.ordenHasta);
+      if (r.orders) recibirRef.current?.(r.orders);
+    }
+  }, [codigo, gen, salir, vigente]);
+  mirarRef.current = mirar;
+
+  /** Una orden resuelta: queda para el próximo PUT, y se intenta publicar ya. */
+  const anotar = (id, aplicada) => {
+    resueltasRef.current.push({ id, aplicada });
+    mirarRef.current?.();
+  };
+
+  /** Espera a que el motor cumpla `listo` (lo mira cada render) o a ESPERA_MOTOR_MS. `alTerminar()`
+   *  corre SÍNCRONA dentro del render que lo muestra, antes de mirar(); al vencer el tope, en el temporizador. */
+  const esperarMotor = (listo, alTerminar) => new Promise((resolve) => {
+    const e = {
+      listo,
+      fin: () => {
+        if (esperaRef.current !== e) return;
+        clearTimeout(e.timer);
+        esperaRef.current = null;
+        alTerminar();
+        resolve();
+      },
+    };
+    e.timer = setTimeout(() => e.fin(), ESPERA_MOTOR_MS);
+    esperaRef.current = e;
+    if (listo(motorRef.current)) e.fin();   // ya estaba así (p. ej. pausa sobre algo en pausa)
+  });
+
+  /** Lo que planDeOrden necesita saber AHORA: lo publicado más lo local del motor. */
+  const loLocal = () => {
+    const a = actualRef.current;
+    const m = motorRef.current;
+    const haySiguiente = siguienteDelMotor(m);
+    return { ...a, haySiguiente, alFinal: alFinalDeLaCola({ playing: a.playing, posicionMs: a.positionMs, duracionMs: m.duracionMs, haySiguiente }) };
+  };
+
+  const aplicarOrden = async (o) => {
+    let plan = planDeOrden(o, loLocal());
+    if (!plan.aplicar) return anotar(o.id, false);
+    const m = motorRef.current;
+    // ¿Pasó a otra entrada de la cola? (la pista o el índice: el estado real del motor)
+    const otraPista = (antes) => (x) => (x.currentTrack?.id ?? null) !== (antes.currentTrack?.id ?? null) || x.queueIndex !== antes.queueIndex;
+    // Lo que pone otra pista (next, "ahora") la hace SONAR (playIndex): se espera a que suene, así el PUT
+    // que confirma no la publica "en pausa" por el instante entre el cambio y el evento play del <audio>.
+    const otraSonando = (antes) => (x) => otraPista(antes)(x) && x.isPlaying;
+    switch (o.type) {
+      case 'pausa': pause(); return esperarMotor((x) => !x.isPlaying, () => anotar(o.id, true));
+      case 'reanudar': resume(); return esperarMotor((x) => x.isPlaying, () => anotar(o.id, true));
+      case 'siguiente':
+        next();
+        // Con lo que se sabe, se aplica igual; si no se sabía (verificar), solo si de verdad cambió de
+        // pista (aunque el navegador no la deje sonar: eso no la hace menos aplicada).
+        return esperarMotor(otraSonando(m), () => anotar(o.id, plan.verificar ? otraPista(m)(motorRef.current) : true));
+      default: {   // 'a-continuacion' | 'ahora': primero la pista
+        let cola = null;
+        try { const t = await api.track(o.trackId); cola = colaDelOyente(() => t, o.trackId, null); } catch { cola = null; }
+        if (!vigente()) return;
+        if (!cola) return anotar(o.id, false);
+        plan = planDeOrden(o, loLocal());   // pudo cambiar mientras llegaba la pista (un video, otra canción)
+        if (!plan.aplicar) return anotar(o.id, false);
+        const m2 = motorRef.current;
+        const sonabaAlgo = m2.queueIndex >= 0;
+        const ahora = o.type === 'ahora' || plan.como === 'ahora';
+        playAfterCurrent(cola);                // sin nada sonando, ya arranca con ella
+        if (ahora && sonabaAlgo) next();       // "a continuación" gana: suena ella
+        const listo = ahora || !sonabaAlgo ? otraSonando(m2) : (x) => x.queue !== m2.queue;
+        return esperarMotor(listo, () => anotar(o.id, true));
+      }
+    }
+  };
+
+  const procesar = async () => {
+    if (aplicandoRef.current) return;
+    aplicandoRef.current = true;
+    try {
+      while (vigente() && porAplicarRef.current.length) {
+        const o = porAplicarRef.current.shift();
+        try { await aplicarOrden(o); } catch { if (vigente()) anotar(o.id, false); }
+      }
+    } finally { aplicandoRef.current = false; }
+  };
+
+  recibirRef.current = (lista) => {
+    if (!vigente() || !Array.isArray(lista)) return;
+    for (const o of lista) {
+      if (vistasRef.current.has(o.id)) continue;   // sigue pendiente hasta confirmarla: llega otra vez
+      vistasRef.current.add(o.id);
+      porAplicarRef.current.push(o);
+    }
+    porAplicarRef.current.sort((a, b) => a.id - b.id);
+    procesar();
+  };
 
   const leerOyentes = useCallback(async () => {
-    const vigente = () => gen === genRef.current;
     if (!vigente() || leyendoRef.current) return;
+    if (Date.now() - leidaEnRef.current < LECTURA_MIN_MS) return;
     leyendoRef.current = true;
-    const r = await api.radioLeer(codigo);
+    leidaEnRef.current = Date.now();
+    const r = await api.radioLeer(codigo, { desde: cursorRef.current });
     leyendoRef.current = false;
     if (!vigente()) return;
     if (r.ok) {
       if (r.radio.status === 'ended') { salir(gen, r.radio.endedReason ?? 'otro'); return; }
       const host = r.radio.host?.id;
       alOyentes(gen, r.radio.listeners.filter((p) => p.id !== host));
+      // Lo de la moderación, si el servidor lo trae (uno sin moderación no lo manda: nada cambia).
+      if (r.radio.moderators) {
+        if (r.radio.eventsUntil != null) cursorRef.current = r.radio.eventsUntil;
+        setConModeradores(r.radio.moderators.length > 0);
+        if (r.radio.orders) recibirRef.current?.(r.radio.orders);
+      }
       return;
     }
     if (r.error === 'no-existe') salir(gen, 'no-existe');
     else if (r.error === 'terminada') salir(gen, r.razon);
     else if (r.error === 'sesion') salir(gen, 'sesion');
     // red caída, 429, 5xx: se vuelve a intentar en el próximo turno, sin salir.
-  }, [codigo, gen, genRef, salir, alOyentes]);
+  }, [codigo, gen, salir, alOyentes, vigente]);
 
-  // Por cambios: en cada render se guarda lo último y se mira (debePublicar devuelve null casi
-  // siempre, y es barato). El primer render publica en el acto ('primero').
-  useEffect(() => { actualRef.current = actual; mirar(); });
+  // Vivo mientras está montado (va PRIMERO: el doble montaje de StrictMode lo vuelve a poner en true
+  // antes de que el efecto de abajo publique); al desmontar se corta la espera del motor (su temporizador).
+  useEffect(() => {
+    vivoRef.current = true;
+    return () => {
+      vivoRef.current = false;
+      const e = esperaRef.current;
+      esperaRef.current = null;
+      if (e) clearTimeout(e.timer);
+    };
+  }, []);
+
+  // Por cambios: en cada render se guarda lo último, se resuelve la orden que esperaba al motor (su
+  // confirmación sale en ESTE mirar, junto con el estado nuevo) y se mira (debePublicar devuelve null
+  // casi siempre, y es barato). El primer render publica en el acto ('primero').
+  useEffect(() => {
+    actualRef.current = actual;
+    motorRef.current = { currentTrack, queue, queueIndex, shuffle, repeat, upNext, isPlaying, duracionMs: duration > 0 ? duration * 1000 : null };
+    const e = esperaRef.current;
+    if (e && e.listo(motorRef.current)) e.fin(true);
+    mirar();
+  });
 
   // Respaldo y oyentes. Se montan una vez por sala; al desmontar (salida, terminar, logout) se cortan.
   useEffect(() => {
@@ -380,6 +550,13 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
     const t2 = setInterval(leerOyentes, OYENTES_CADA_MS);
     return () => { clearInterval(t1); clearInterval(t2); };
   }, [mirar, leerOyentes]);
+
+  // Con moderadores, la lectura más seguida (ver ORDENES_CADA_MS). Sin ellos no existe.
+  useEffect(() => {
+    if (!conModeradores) return undefined;
+    const t = setInterval(leerOyentes, ORDENES_CADA_MS);
+    return () => clearInterval(t);
+  }, [conModeradores, leerOyentes]);
 
   return null;
 }

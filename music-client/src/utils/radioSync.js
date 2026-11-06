@@ -413,18 +413,27 @@ const leerOrdenes = (v) => lista(v, leerOrdenRecibida, MODERACION.ORDENES_MAX).s
 
 /**
  * Qué hace el reproductor del anfitrión con una orden, según lo que suena AHORA.
- * `actual`: lo de estadoDelAnfitrion ({ trackId, playing, enPausaPorVideo }).
+ * `actual`: lo de estadoDelAnfitrion ({ trackId, playing, enPausaPorVideo }) y, desde W3, dos datos
+ * LOCALES del puente que NO se publican (lo publicado sigue siendo lo de 1.42.0):
+ *   · haySiguiente: lo de siguienteDelMotor (true | false | null = no se sabe). Sin el dato
+ *     (undefined), lo de W1: "siguiente" se aplica sin preguntar al motor.
+ *   · alFinal: lo de alFinalDeLaCola (la cola terminó y no hay nada por sonar).
  * → { aplicar: true } o { aplicar: false, motivo }. Las dos se confirman (ordenHasta); solo las
  *   aplicadas van en `aplicadas` y quedan como evento.
  *   · Viendo un video no se aplica nada: la radio está en pausa por el video ('video').
- *   · "siguiente" salta LA canción que veía quien ordenó: si ya suena otra, 'obsoleta'.
+ *   · "siguiente" salta LA canción que veía quien ordenó: si ya suena otra, 'obsoleta'. Si el motor
+ *     no tiene a dónde ir (haySiguiente === false), 'sin-siguiente'. Si no se sabe (null: aleatorio
+ *     sin repetir la cola), { aplicar: true, verificar: true }: el puente la aplica y solo la da por
+ *     aplicada si la pista cambió.
  *   · pausa y reanudar son ABSOLUTAS: si ya estaba así, se aplica igual (no cambia nada y dos
  *     personas que pulsan a la vez dan el mismo resultado). Sin canción, 'sin-cancion'.
  *   · a continuación y ahora llevan su pista; sin ella, 'invalida'. Se aplican AUNQUE no suene nada
  *     (el anfitrión empieza a reproducir esa pista: playAfterCurrent arranca si la cola está vacía).
+ *     Con la cola TERMINADA (alFinal), "a continuación" es "ahora" ({ aplicar: true, como: 'ahora' }):
+ *     no hay nada después de lo que sonó, así que esperar a la siguiente sería esperar para siempre.
  * Al terminar la cola, el reproductor del anfitrión se queda en la ÚLTIMA pista, en pausa y al final
- * (medido en la web, 1.43.0): `actual` trae esa pista, no null. Ahí "siguiente" se aplica, pero el
- * motor no tiene a dónde ir, y "reanudar" vuelve a empezar esa pista: eso lo resuelve el puente (W3).
+ * (medido en la web, 1.43.0): `actual` trae esa pista, no null. "reanudar" ahí vuelve a empezar esa
+ * pista (medido): se deja así, es lo que haría el botón de play del anfitrión.
  */
 export function planDeOrden(orden, actual) {
   const o = objeto(orden);
@@ -435,13 +444,87 @@ export function planDeOrden(orden, actual) {
   switch (o.type) {
     case 'siguiente':
       if (suena == null) return { aplicar: false, motivo: 'sin-cancion' };
-      return o.trackBase === suena ? { aplicar: true } : { aplicar: false, motivo: 'obsoleta' };
+      if (o.trackBase !== suena) return { aplicar: false, motivo: 'obsoleta' };
+      if (a.haySiguiente === false) return { aplicar: false, motivo: 'sin-siguiente' };
+      return a.haySiguiente === null ? { aplicar: true, verificar: true } : { aplicar: true };
     case 'pausa':
     case 'reanudar':
       return suena == null ? { aplicar: false, motivo: 'sin-cancion' } : { aplicar: true };
     default:
-      return esId(o.trackId) ? { aplicar: true } : { aplicar: false, motivo: 'invalida' };
+      if (!esId(o.trackId)) return { aplicar: false, motivo: 'invalida' };
+      return o.type === 'a-continuacion' && a.alFinal === true ? { aplicar: true, como: 'ahora' } : { aplicar: true };
   }
+}
+
+// ---- Lo LOCAL del anfitrión para las órdenes (W3). Nada de esto se publica. ----
+
+/**
+ * ¿Un "siguiente" MANUAL del motor (PlayerContext next() = playNext(false, true)) tiene a dónde ir?
+ * p: { queue, queueIndex, shuffle, repeat, upNext } tal cual los expone usePlayer().
+ * → true | false | null (no se puede saber desde afuera). Calca playNext, en su orden:
+ *   1. lo de "a continuación" (upNext, por _qid) gana siempre, si sigue en la cola;
+ *   2. aleatorio con más de una pista: con repeat 'all' siempre hay; sin él depende de cuáles ya
+ *      sonaron en esta vuelta, que vive en playedRef y el motor NO expone → null;
+ *   3. en orden (o aleatorio con una sola pista): la de después, o con 'all' la primera.
+ *   Repetir una ('one') no cuenta: un siguiente manual la ignora (solo vale al terminar sola).
+ */
+export function siguienteDelMotor(p) {
+  const q = objeto(p) ?? {};
+  const cola = Array.isArray(q.queue) ? q.queue : [];
+  const len = cola.length;
+  if (len === 0) return false;
+  const pendientes = q.upNext instanceof Set ? [...q.upNext] : Array.isArray(q.upNext) ? q.upNext : [];
+  if (pendientes.length && cola.some((t) => pendientes.includes(objeto(t)?._qid))) return true;
+  const idx = Number.isInteger(q.queueIndex) ? q.queueIndex : -1;
+  if (q.shuffle === true && len > 1) return q.repeat === 'all' ? true : null;
+  if (idx + 1 < len) return true;
+  return q.repeat === 'all';
+}
+
+/** Cuánto antes del final una pista parada cuenta como "terminó" para alFinalDeLaCola. */
+export const FIN_DE_COLA_MS = 1000;
+
+/**
+ * ¿La cola del anfitrión TERMINÓ? Es lo que deja el motor al acabarse la cola (medido): la última
+ * pista en pausa, con la posición en su duración. La regla:
+ *   en pausa  Y  duración conocida (> 0)  Y  posición ≥ duración − FIN_DE_COLA_MS
+ *   Y  haySiguiente !== true (no hay nada por sonar, o no se sabe).
+ * "No se sabe" (aleatorio sin repetir) cuenta como terminada: si la pista llegó al final y el motor
+ * no pasó solo a otra, es que no tenía a dónde (playNext natural). Lo único que la confunde es
+ * pausar a mano en el último segundo con canciones por sonar; ahí "a continuación" suena ya.
+ * p: { playing, posicionMs, duracionMs, haySiguiente }.
+ */
+export function alFinalDeLaCola(p) {
+  const q = objeto(p) ?? {};
+  if (q.playing === true || q.haySiguiente === true) return false;
+  if (!finito(q.duracionMs) || q.duracionMs <= 0 || !finito(q.posicionMs)) return false;
+  return q.posicionMs >= q.duracionMs - FIN_DE_COLA_MS;
+}
+
+/**
+ * Lo que va en el próximo PUT para confirmar órdenes, o null si no hay nada.
+ * resueltas: [{ id, aplicada }] ya resueltas y sin confirmar (en cualquier orden).
+ * → { ordenHasta, aplicadas }: el servidor saca de la lista TODO hasta ordenHasta y deja como evento
+ *   solo las de `aplicadas`, que tiene tope (MODERACION.ORDENES_MAX, 10). Si hay más aplicadas, va
+ *   una TANDA: ordenHasta corta en la décima aplicada (las descartadas de antes entran en la misma)
+ *   y lo demás sale en el PUT siguiente. Ids repetidos o raros no cuentan dos veces.
+ */
+export function confirmacionDe(resueltas) {
+  const vistos = new Set();
+  const lista = (Array.isArray(resueltas) ? resueltas : [])
+    .filter((r) => objeto(r) && esId(r.id) && !vistos.has(r.id) && vistos.add(r.id))
+    .sort((a, b) => a.id - b.id);
+  if (!lista.length) return null;
+  const aplicadas = [];
+  let ordenHasta = 0;
+  for (const r of lista) {
+    if (r.aplicada === true) {
+      if (aplicadas.length === MODERACION.ORDENES_MAX) break;
+      aplicadas.push(r.id);
+    }
+    ordenHasta = r.id;
+  }
+  return { ordenHasta, aplicadas };
 }
 
 /**
@@ -701,8 +784,10 @@ export function esperaDelSondeo(fallo) {
 // Publicado: EstadoAnfitrion & { enMs } — lo último que se publicó BIEN, con la hora LOCAL.
 
 /** ¿Hay algo que publicar? → 'primero' | 'video' | 'cancion' | 'pausa' | 'siguiente' | 'salto'
- *  | 'latido' | null. Sin canción y sin video no se publica nada (el servidor exige una de dos). */
-export function debePublicar(ultimo, actual, ahoraMs) {
+ *  | 'confirmar' | 'latido' | null. Sin canción y sin video no se publica nada (el servidor exige una
+ *  de dos). `confirmar` (1.43.0, opcional): hay órdenes resueltas sin confirmar; sin ese argumento,
+ *  exactamente lo de 1.42.0. Un cambio de estado tiene prioridad (la confirmación viaja igual). */
+export function debePublicar(ultimo, actual, ahoraMs, confirmar = false) {
   if (actual.trackId == null && !actual.enPausaPorVideo) return null;
   if (!ultimo) return 'primero';
   if (ultimo.enPausaPorVideo !== actual.enPausaPorVideo) return 'video';
@@ -714,6 +799,7 @@ export function debePublicar(ultimo, actual, ahoraMs) {
     const esperada = ultimo.positionMs + (ultimo.playing ? Math.max(0, pasado) : 0);
     if (Math.abs(actual.positionMs - esperada) > RADIO.SALTO_MS && pasado >= RADIO.MIN_ENTRE_SALTOS_MS) return 'salto';
   }
+  if (confirmar === true) return 'confirmar';
   return pasado >= RADIO.LATIDO_MS ? 'latido' : null;
 }
 
@@ -875,6 +961,7 @@ export function textoDeFallo(accion, fallo) {
     case 'moderadores-llenos': return `Ya hay ${MODERACION.MODERADORES_MAX} personas moderando. Quita a alguien primero.`;
     case 'ordenes-llenas': return 'Hay muchas órdenes pendientes. Espera un momento.';
     case 'obsoleta': return 'La canción ya cambió.';
+    case 'sin-siguiente': return 'No hay una canción siguiente.';
     case 'video': return 'Los videos no se pueden poner en la radio.';
     case 'sin-pista': return 'Esa canción ya no está en la biblioteca.';
     default:
