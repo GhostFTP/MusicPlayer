@@ -20,7 +20,8 @@
 //
 // El backend es music-server/src/api/radio.js (1.29.0): POST /api/radio,
 // PUT /api/radio/:code/state, GET /api/radio/:code y DELETE /api/radio/:code. El estado vive en
-// la memoria del servidor: un redeploy cierra las radios.
+// la memoria del servidor: un redeploy cierra las radios. Desde 1.43.0, además, moderadores y
+// control remoto (PUT/DELETE /:code/moderadores/:userId, POST /:code/ordenes): ver "Moderación".
 
 // ---- Las perillas ----
 //
@@ -269,7 +270,7 @@ export function leerRadio(json) {
       if (listeners.length === RADIO.OYENTES_MAX) break;
     }
   }
-  return {
+  const leida = {
     serverNow: r.serverNow,
     code,
     status: r.status,
@@ -278,6 +279,9 @@ export function leerRadio(json) {
     host: leerPersona(r.host),
     listeners,
   };
+  // 1.43.0, a pedido: sin `moderators` (una respuesta de 1.42.0), exactamente lo de siempre.
+  const mod = leerModeracion(r);
+  return mod ? { ...leida, ...mod } : leida;
 }
 
 /** La respuesta de POST /api/radio. */
@@ -293,7 +297,9 @@ export function leerPublicada(json) {
   const r = objeto(json);
   if (!r || !finito(r.serverNow) || r.serverNow <= 0) return null;
   const state = leerEstado(r.state);
-  return state ? { serverNow: r.serverNow, state } : null;
+  if (!state) return null;
+  // 1.43.0: con una confirmación, el servidor devuelve las órdenes que siguen pendientes.
+  return r.orders !== undefined ? { serverNow: r.serverNow, state, orders: leerOrdenes(r.orders) } : { serverNow: r.serverNow, state };
 }
 
 /** La respuesta de DELETE /api/radio/:code. */
@@ -303,16 +309,242 @@ export function leerTerminada(json) {
   return { serverNow: r.serverNow, endedReason: leerRazon(r.endedReason) ?? 'otro' };
 }
 
+// ---- Moderación y control remoto (1.43.0) ----
+//
+// Lo nuevo del servidor (music-server/src/api/radio.js, S4) llega SOLO a pedido: el GET con ?cap=mod
+// o ?desde=N trae moderators, capabilities, events, eventsUntil y eventsLost (y orders, solo al
+// anfitrión); el PUT /state con una confirmación trae orders. Por eso estas lecturas también son a
+// pedido: si la respuesta no trae `moderators` (una de 1.42.0), leerRadio devuelve EXACTAMENTE lo de
+// siempre, sin una clave más; y si no trae `orders`, leerPublicada tampoco.
+//
+// Las claves viajan en inglés y los valores en español (type: 'pausa', reason: 'sin-permiso').
+
+/** Los tipos de orden (los de music-server/src/radio/reglas.js, TIPOS_ORDEN). */
+export const TIPOS_ORDEN = Object.freeze(['siguiente', 'pausa', 'reanudar', 'a-continuacion', 'ahora']);
+const CON_PISTA = new Set(['a-continuacion', 'ahora']);
+/** Los tipos de evento: los de las órdenes más nombrar y quitar a quien modera. */
+export const TIPOS_EVENTO = Object.freeze([...TIPOS_ORDEN, 'moderador', 'sin-moderador']);
+/** Topes de lo que se acepta (los del servidor: MAX_MODERADORES, MAX_ORDENES, MAX_EVENTOS, TITULO_MAX). */
+export const MODERACION = Object.freeze({ MODERADORES_MAX: 3, ORDENES_MAX: 10, EVENTOS_MAX: 20, TITULO_MAX: 100 });
+
+const esSeq = (v) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
+/** El título de una canción en un evento o una orden: limpio y acotado, o null. */
+function leerTitulo(v) {
+  if (typeof v !== 'string') return null;
+  const t = [...v].map((ch) => (esInvisible(ch.codePointAt(0) ?? 0) ? ' ' : ch)).join('').replace(/\s+/g, ' ').trim();
+  const corto = [...t].slice(0, MODERACION.TITULO_MAX).join('').trim();
+  return corto || null;
+}
+
+/** Una lista del servidor leída con `leer`: sin los que no tienen forma, sin ids repetidos y con tope. */
+function lista(v, leer, max) {
+  const out = [];
+  if (!Array.isArray(v)) return out;
+  const vistos = new Set();
+  for (const x of v) {
+    const e = leer(x);
+    if (!e || vistos.has(e.id)) continue;
+    vistos.add(e.id);
+    out.push(e);
+    if (out.length === max) break;
+  }
+  return out;
+}
+
+/** Un evento ("Sonia pausó"), o null si no tiene la forma o es de un tipo que esta versión no conoce. */
+export function leerEvento(v) {
+  const e = objeto(v);
+  if (!e || !esId(e.id) || !TIPOS_EVENTO.includes(e.type) || !finito(e.at)) return null;
+  return {
+    id: e.id,
+    type: e.type,
+    by: esId(e.by) ? e.by : null,
+    byName: leerNombre(e.byName),
+    target: esId(e.target) ? e.target : null,
+    targetName: leerNombre(e.targetName),
+    trackId: esId(e.trackId) ? e.trackId : null,
+    title: leerTitulo(e.title),
+    at: e.at,
+  };
+}
+
+/** Una orden como la recibe el anfitrión, o null. "siguiente" sin trackBase no se puede comprobar:
+ *  se lee igual y planDeOrden la descarta. */
+export function leerOrdenRecibida(v) {
+  const o = objeto(v);
+  if (!o || !esId(o.id) || !TIPOS_ORDEN.includes(o.type) || !esId(o.by)) return null;
+  const trackId = esId(o.trackId) ? o.trackId : null;
+  if (CON_PISTA.has(o.type) && trackId == null) return null;
+  return {
+    id: o.id,
+    type: o.type,
+    trackId: CON_PISTA.has(o.type) ? trackId : null,
+    seqBase: esSeq(o.seqBase) ? o.seqBase : null,
+    trackBase: esId(o.trackBase) ? o.trackBase : null,
+    by: o.by,
+    title: leerTitulo(o.title),
+  };
+}
+
+/** La respuesta de POST /api/radio/:code/ordenes (202), o null. */
+export function leerOrdenEnviada(json) {
+  const r = objeto(json);
+  if (!r || !esId(r.id) || !finito(r.serverNow) || r.serverNow <= 0) return null;
+  return { id: r.id, repeated: r.repeated === true, serverNow: r.serverNow };
+}
+
+/** Lo de la moderación de una respuesta del GET, o null si no lo trae (una de 1.42.0). */
+function leerModeracion(r) {
+  if (r.moderators === undefined) return null;
+  const caps = objeto(r.capabilities);
+  return {
+    moderators: lista(r.moderators, leerPersona, MODERACION.MODERADORES_MAX),
+    // Solo un true de verdad: un "true" en texto o un 1 no cuentan (como el servidor).
+    capabilities: { orders: caps?.orders === true },
+    events: lista(r.events, leerEvento, MODERACION.EVENTOS_MAX).sort((a, b) => a.id - b.id),
+    eventsUntil: esSeq(r.eventsUntil) ? r.eventsUntil : null,
+    eventsLost: r.eventsLost === true,
+    ...(r.orders !== undefined ? { orders: leerOrdenes(r.orders) } : {}),
+  };
+}
+
+const leerOrdenes = (v) => lista(v, leerOrdenRecibida, MODERACION.ORDENES_MAX).sort((a, b) => a.id - b.id);
+
+/**
+ * Qué hace el reproductor del anfitrión con una orden, según lo que suena AHORA.
+ * `actual`: lo de estadoDelAnfitrion ({ trackId, playing, enPausaPorVideo }).
+ * → { aplicar: true } o { aplicar: false, motivo }. Las dos se confirman (ordenHasta); solo las
+ *   aplicadas van en `aplicadas` y quedan como evento.
+ *   · Viendo un video no se aplica nada: la radio está en pausa por el video ('video').
+ *   · "siguiente" salta LA canción que veía quien ordenó: si ya suena otra, 'obsoleta'.
+ *   · pausa y reanudar son ABSOLUTAS: si ya estaba así, se aplica igual (no cambia nada y dos
+ *     personas que pulsan a la vez dan el mismo resultado). Sin canción, 'sin-cancion'.
+ *   · a continuación y ahora llevan su pista; sin ella, 'invalida'. Se aplican AUNQUE no suene nada
+ *     (el anfitrión empieza a reproducir esa pista: playAfterCurrent arranca si la cola está vacía).
+ * Al terminar la cola, el reproductor del anfitrión se queda en la ÚLTIMA pista, en pausa y al final
+ * (medido en la web, 1.43.0): `actual` trae esa pista, no null. Ahí "siguiente" se aplica, pero el
+ * motor no tiene a dónde ir, y "reanudar" vuelve a empezar esa pista: eso lo resuelve el puente (W3).
+ */
+export function planDeOrden(orden, actual) {
+  const o = objeto(orden);
+  const a = objeto(actual);
+  if (!o || !a || !TIPOS_ORDEN.includes(o.type)) return { aplicar: false, motivo: 'invalida' };
+  if (a.enPausaPorVideo === true) return { aplicar: false, motivo: 'video' };
+  const suena = esId(a.trackId) ? a.trackId : null;
+  switch (o.type) {
+    case 'siguiente':
+      if (suena == null) return { aplicar: false, motivo: 'sin-cancion' };
+      return o.trackBase === suena ? { aplicar: true } : { aplicar: false, motivo: 'obsoleta' };
+    case 'pausa':
+    case 'reanudar':
+      return suena == null ? { aplicar: false, motivo: 'sin-cancion' } : { aplicar: true };
+    default:
+      return esId(o.trackId) ? { aplicar: true } : { aplicar: false, motivo: 'invalida' };
+  }
+}
+
+/**
+ * El texto de un evento, para la región viva y el aviso. Redacción NEUTRA de género. `yo`: mi id
+ * (quien hizo la acción, o a quien se la hicieron, se nombra "Tú" / "te"). Sin nombre, "Alguien".
+ * Un tipo que esta versión no conoce no llega acá (leerEvento lo descarta); por si acaso, null.
+ */
+export function textoDeEvento(e, yo) {
+  const ev = objeto(e);
+  if (!ev) return null;
+  const soyYo = ev.by != null && ev.by === yo;
+  const quien = soyYo ? 'Tú' : ev.byName || 'Alguien';
+  const v = (el, tu) => (soyYo ? tu : el);
+  const cancion = (t) => (t ? `«${t}»` : 'una canción');
+  const aMi = ev.target != null && ev.target === yo;
+  const aQuien = ev.targetName || 'alguien';
+  switch (ev.type) {
+    case 'siguiente': return `${quien} ${v('pasó', 'pasaste')} a la siguiente canción`;
+    case 'pausa': return `${quien} ${v('pausó', 'pausaste')}`;
+    case 'reanudar': return `${quien} ${v('reanudó', 'reanudaste')}`;
+    case 'a-continuacion': return `${quien} ${v('puso', 'pusiste')} ${cancion(ev.title)} a continuación`;
+    case 'ahora': return `${quien} ${v('puso', 'pusiste')} ${cancion(ev.title)}`;
+    case 'moderador':
+      return aMi ? `${quien} te nombró para moderar` : `${quien} ${v('nombró', 'nombraste')} a ${aQuien} para moderar`;
+    case 'sin-moderador':
+      return aMi ? `${quien} te quitó el control` : `${quien} le ${v('quitó', 'quitaste')} el control a ${aQuien}`;
+    default: return null;
+  }
+}
+
+/** ¿`miId` modera esta radio? (el anfitrión no: la radio es suya). Sin lo de la moderación, no. */
+export function esModerador(radio, miId) {
+  const r = objeto(radio);
+  if (!r || !esId(miId) || !Array.isArray(r.moderators) || r.host?.id === miId) return false;
+  return r.moderators.some((p) => p?.id === miId);
+}
+
+/** El rol de una persona en la radio: 'anfitrion', 'moderador' o null. */
+export function rolEnLaRadio(radio, id) {
+  const r = objeto(radio);
+  if (!r || !esId(id)) return null;
+  if (r.host?.id === id) return 'anfitrion';
+  return esModerador(r, id) ? 'moderador' : null;
+}
+
+/** El texto de la insignia de cada rol (neutro): lo que se lee junto al nombre. */
+export const INSIGNIA = Object.freeze({ anfitrion: 'Anfitrión', moderador: 'Modera' });
+
+/**
+ * ¿El submenú "En la radio" ofrece "Poner a continuación / Poner ahora" para este ítem?
+ * p: { fase ('oyente' | 'anfitrion' | …), radio (lo de leerRadio), miId, item (una pista o un video) }.
+ * Solo a quien modera, mientras escucha una radio abierta cuyo anfitrión ejecuta órdenes, y solo
+ * con una CANCIÓN (un video no se puede poner en la radio).
+ */
+export function puedePonerEnRadio(p) {
+  const q = objeto(p);
+  if (!q || q.fase !== 'oyente') return false;
+  const r = objeto(q.radio);
+  if (!r || r.status === 'ended' || r.capabilities?.orders !== true) return false;
+  return esModerador(r, q.miId) && idDeCancion(q.item) != null;
+}
+
+/**
+ * ¿El submenú ofrece "Pedir en la radio"? Es de 1.43.1 (pedidos de los oyentes comunes): hoy el
+ * servidor no declara esa capacidad (`capabilities.requests`), así que da false siempre. Queda la
+ * regla para que el menú pregunte una sola vez: quien escucha y NO modera (quien modera pone directo).
+ */
+export function puedePedir(p) {
+  const q = objeto(p);
+  if (!q || q.fase !== 'oyente') return false;
+  const r = objeto(q.radio);
+  if (!r || r.status === 'ended' || r.capabilities?.requests !== true) return false;
+  return esId(q.miId) && r.host?.id !== q.miId && !esModerador(r, q.miId) && idDeCancion(q.item) != null;
+}
+
 // ---- Los errores, como valores ----
 //
 // { error: 'sin-respuesta' | 'sesion' | 'invalido' | 'no-es-tuya' | 'no-existe' | 'sin-servicio'
 //          | 'demasiadas' | 'llena' | 'cuerpo' | 'cancion' }
 // | { error: 'terminada', razon } | { error: 'frecuencia', esperaMs } | { error: 'servidor', status }
+// Desde 1.43.0, en 'moderar' y 'ordenar': 'sin-permiso' (403, NUNCA 'no-es-tuya': ese hace abandonar
+// la radio), el motivo del 409 ('es-el-anfitrion' | 'no-escucha' | 'sin-soporte' | 'moderadores-llenos'
+// | 'ordenes-llenas' | 'obsoleta') y el del 422 ('video' | 'sin-pista'). Lo demás, como las otras rutas.
 //
-// ruta: 'crear' | 'publicar' | 'leer' | 'terminar'.
+// ruta: 'crear' | 'publicar' | 'leer' | 'terminar' | 'moderar' | 'ordenar'.
+
+const MOTIVOS_409 = ['es-el-anfitrion', 'no-escucha', 'sin-soporte', 'moderadores-llenos', 'ordenes-llenas', 'obsoleta'];
+
+/** Lo propio de las rutas de la moderación (lee `reason`), o null para caer al switch de siempre. */
+function falloDeModeracion(status, data) {
+  const reason = objeto(data)?.reason;
+  if (status === 403) return { error: 'sin-permiso' };
+  if (status === 409) return MOTIVOS_409.includes(reason) ? { error: reason } : { error: 'servidor', status };
+  if (status === 422) return reason === 'video' ? { error: 'video' } : { error: 'sin-pista' };
+  return null;
+}
 
 /** Un status que no es el de éxito → su fallo. `retryAfterS` es la cabecera Retry-After (s). */
 export function falloDeStatus(ruta, status, data, retryAfterS) {
+  if (ruta === 'moderar' || ruta === 'ordenar') {
+    const propio = falloDeModeracion(status, data);
+    if (propio) return propio;
+  }
   switch (status) {
     case 400: return { error: 'invalido' };
     case 401: return { error: 'sesion' };
@@ -610,8 +842,8 @@ export function textoDeFin(rol, razon) {
 
 // ---- Qué decirle a la persona (vista.ts) ----
 //
-// accion: 'iniciar' | 'unirse' | 'terminar'. `fallo` es un valor de falloDeStatus o el
-// { error: 'sin-respuesta' } de client.js. Los textos son los de iOS, palabra por palabra. Una
+// accion: 'iniciar' | 'unirse' | 'terminar' (y desde 1.43.0 'moderar' | 'ordenar'). `fallo` es un
+// valor de falloDeStatus o el { error: 'sin-respuesta' } de client.js. Los textos son los de iOS, palabra por palabra. Una
 // sola diferencia, de forma y no de texto: si no llega un fallo (null), no se rompe y cae al
 // mensaje genérico de la acción (en iOS el tipo no lo permite).
 
@@ -632,12 +864,27 @@ export function textoDeFallo(accion, fallo) {
     case 'frecuencia': return 'Demasiados intentos. Espera unos segundos e intenta de nuevo.';
     case 'no-es-tuya': return 'Esa radio no es tuya.';
     case 'sin-servicio': return 'El servidor todavía no tiene la radio. Intenta más tarde.';
+    // 1.43.0: moderar (el anfitrión nombra o quita) y ordenar (quien modera).
+    case 'sin-permiso':
+      return accion === 'moderar' ? 'Solo quien creó la radio puede elegir quién modera.' : 'Ya no puedes moderar esta radio.';
+    case 'es-el-anfitrion': return 'La radio ya es tuya: no hace falta que la moderes.';
+    case 'no-escucha':
+      return accion === 'moderar' ? 'Esa persona ya no está escuchando.' : 'Tienes que estar escuchando la radio para moderar.';
+    case 'sin-soporte':
+      return accion === 'moderar' ? 'La app de esa persona todavía no permite moderar.' : 'La app del anfitrión todavía no acepta órdenes.';
+    case 'moderadores-llenos': return `Ya hay ${MODERACION.MODERADORES_MAX} personas moderando. Quita a alguien primero.`;
+    case 'ordenes-llenas': return 'Hay muchas órdenes pendientes. Espera un momento.';
+    case 'obsoleta': return 'La canción ya cambió.';
+    case 'video': return 'Los videos no se pueden poner en la radio.';
+    case 'sin-pista': return 'Esa canción ya no está en la biblioteca.';
     default:
       // Un 5xx (o el 530 del túnel caído) es el servidor que no atiende: lo mismo que no haber
       // tenido respuesta, y "intenta de nuevo" a secas no diría qué revisar.
       if (fallo?.error === 'servidor' && fallo.status >= 500) return SIN_CONEXION;
       return accion === 'iniciar' ? 'No se pudo iniciar la radio. Intenta de nuevo.'
         : accion === 'unirse' ? 'No se pudo entrar a la radio. Intenta de nuevo.'
+        : accion === 'moderar' ? 'No se pudo cambiar quién modera. Intenta de nuevo.'
+        : accion === 'ordenar' ? 'No se pudo mandar la orden. Intenta de nuevo.'
         : 'No se pudo terminar la radio. Intenta de nuevo.';
   }
 }
