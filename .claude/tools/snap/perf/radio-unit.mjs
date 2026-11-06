@@ -27,6 +27,10 @@
 //   (k) redmod.* client.js de la moderación (1.43.0, W2), con fetch falso: radioCrear con capabilities,
 //               radioLeer con ?cap=mod/?desde=, radioPublicar con confirmación, radioModerador, radioOrdenar
 //               (clientId, reenvío con el MISMO, errores por reason) y que sin argumentos nuevos sea lo de 1.42.0.
+//   (l) w3.*    lo LOCAL del anfitrión para las órdenes (1.43.0, W3): siguienteDelMotor contra un MODELO de
+//               playNext (PlayerContext.jsx, transcrito como datos y recorrido en todos los estados chicos),
+//               alFinalDeLaCola, planDeOrden con sin-siguiente / verificar / "a continuación" al final,
+//               confirmacionDe (tandas de 10) y debePublicar con 'confirmar'.
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -1278,6 +1282,109 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     [{ ok: false, error: 'invalido' }, { ok: false, error: 'invalido' }, { ok: false, error: 'invalido' }, { ok: false, error: 'invalido' }, { ok: false, error: 'no-existe' }, true],
     'ordenar: tipo desconocido, ahora sin pista, siguiente sin seqBase, sin orden o código raro: sin pedir nada');
   K(new Set(Array.from({ length: 200 }, () => C.nuevoIdCliente())).size, 200, 'nuevoIdCliente: 200 seguidos, ninguno repetido');
+}
+
+// ══════════════════ (l) w3.* lo local del anfitrión para las órdenes (1.43.0, W3) ══════════════════
+{
+  const W = (a, b, nombre) => igual('w3', a, b, nombre);
+  const cola = (n) => Array.from({ length: n }, (_, i) => ({ id: 100 + i, _qid: i + 1 }));
+  const SM = S.siguienteDelMotor;
+
+  // ---- siguienteDelMotor, a mano ----
+  W([0, 1, 2].map((i) => SM({ queue: cola(3), queueIndex: i })), [true, true, false], 'en orden: hay siguiente salvo en la última');
+  W(['all', 'one', 'off', undefined].map((repeat) => SM({ queue: cola(3), queueIndex: 2, repeat })), [true, false, false, false],
+    'en la última: con all vuelve a la primera; repetir una NO cuenta (un siguiente manual la ignora)');
+  W([SM({ queue: cola(3), queueIndex: 2, upNext: new Set([2]) }), SM({ queue: cola(3), queueIndex: 2, upNext: [2] }), SM({ queue: cola(3), queueIndex: 2, upNext: new Set([99]) })],
+    [true, true, false], 'a continuación gana (Set o lista), pero solo si sigue en la cola');
+  W(['off', 'one', 'all'].map((repeat) => SM({ queue: cola(3), queueIndex: 0, shuffle: true, repeat })), [null, null, true],
+    'aleatorio con varias pistas: sin all NO se sabe (lo ya sonado vive en playedRef); con all, siempre');
+  W([SM({ queue: cola(1), queueIndex: 0, shuffle: true }), SM({ queue: cola(1), queueIndex: 0, shuffle: true, repeat: 'all' }), SM({ queue: cola(3), queueIndex: 1, shuffle: true, upNext: new Set([3]) })],
+    [false, true, true], 'aleatorio con una sola pista: como en orden; con a continuación, sí hay');
+  W([SM({ queue: [], queueIndex: -1 }), SM(null), SM({ queue: cola(2), queueIndex: -1 }), SM({ queue: 'x', queueIndex: 0 })], [false, false, true, false],
+    'sin cola, nada; sin índice el motor arranca la primera; una cola rara es una cola vacía');
+
+  // ---- siguienteDelMotor contra un MODELO de playNext(false, true) ----
+  // Transcrito de music-client/src/context/PlayerContext.jsx (playNext, 1.43.0): forcedNext (los _qid que
+  // siguen en la cola) gana; aleatorio con len > 1 elige del pool de no sonadas (sin la actual) y con
+  // repeat 'all' reinicia el ciclo si se vació; en orden, idx + 1 o, con 'all', la primera. Manual: 'one'
+  // no cuenta. Devuelve si el motor PASA a otra entrada. Si cambia PlayerContext, esto no se entera solo.
+  const motor = ({ len, idx, shuffle, repeat, forced, played }) => {
+    if (len === 0) return false;
+    if (forced.some((qid) => qid >= 1 && qid <= len)) return true;
+    if (shuffle && len > 1) {
+      let pool = 0;
+      for (let i = 0; i < len; i++) if (i !== idx && !played.has(i + 1)) pool++;
+      if (pool === 0 && repeat === 'all') pool = len - 1;
+      return pool > 0;
+    }
+    return idx + 1 < len || repeat === 'all';
+  };
+  const subconjuntos = (n) => Array.from({ length: 2 ** n }, (_, m) => new Set(Array.from({ length: n }, (_, i) => i + 1).filter((q) => m & (1 << (q - 1)))));
+  let casos = 0, acierta = 0, dudaBien = 0, dudas = 0;
+  const malos = [];
+  for (let len = 0; len <= 4; len++) for (let idx = -1; idx < Math.max(len, 1); idx++) for (const shuffle of [false, true]) for (const repeat of ['off', 'one', 'all'])
+    for (const forced of [[], [len], [9]]) {
+      const dice = SM({ queue: cola(len), queueIndex: idx, shuffle, repeat, upNext: new Set(forced) });
+      const resultados = new Set(subconjuntos(len).map((played) => motor({ len, idx, shuffle, repeat, forced, played })));
+      casos++;
+      if (dice === null) { dudas++; if (resultados.size === 2) dudaBien++; else malos.push({ len, idx, shuffle, repeat, forced, dice, resultados: [...resultados] }); }
+      else if (resultados.size === 1 && resultados.has(dice)) acierta++;
+      else malos.push({ len, idx, shuffle, repeat, forced, dice, resultados: [...resultados] });
+    }
+  W({ malos: malos.slice(0, 3), nMalos: malos.length }, { malos: [], nMalos: 0 },
+    `contra el modelo del motor, en ${casos} estados × todo lo ya sonado posible: cuando contesta acierta siempre, y "no se sabe" solo donde lo sonado decide`);
+  W([acierta + dudaBien === casos, dudas > 0, dudas < casos / 4], [true, true, true], `los "no se sabe" son la minoría (${dudas} de ${casos}) y existen (el modelo los distingue)`);
+
+  // ---- alFinalDeLaCola ----
+  const F = (x) => S.alFinalDeLaCola({ playing: false, posicionMs: 180_000, duracionMs: 180_000, haySiguiente: false, ...x });
+  W(S.FIN_DE_COLA_MS, 1000, 'FIN_DE_COLA_MS: 1 s');
+  W([F({}), F({ posicionMs: 179_000 }), F({ posicionMs: 178_999 })], [true, true, false], 'en pausa al final: hasta 1 s antes cuenta; 1 ms más, no');
+  W([F({ playing: true }), F({ haySiguiente: true }), F({ haySiguiente: null }), F({ haySiguiente: undefined })], [false, false, true, true],
+    'sonando o con algo por sonar, no; "no se sabe" cuenta como terminada (el motor no pasó solo a otra)');
+  W([F({ duracionMs: 0 }), F({ duracionMs: null }), F({ posicionMs: NaN }), S.alFinalDeLaCola(null)], [false, false, false, false], 'sin duración o con datos raros, no');
+
+  // ---- planDeOrden con lo local ----
+  const ord = (id, type, extra = {}) => S.leerOrdenRecibida({ id, type, by: 2, trackBase: 7, ...(type === 'a-continuacion' || type === 'ahora' ? { trackId: 11 } : {}), ...extra });
+  const suena = { trackId: 7, playing: true, enPausaPorVideo: false };
+  const P = (o, x) => S.planDeOrden(o, { ...suena, ...x });
+  W([P(ord(1, 'siguiente'), { haySiguiente: true }), P(ord(1, 'siguiente'), { haySiguiente: false }), P(ord(1, 'siguiente'), { haySiguiente: null }), P(ord(1, 'siguiente'), {})],
+    [{ aplicar: true }, { aplicar: false, motivo: 'sin-siguiente' }, { aplicar: true, verificar: true }, { aplicar: true }],
+    'siguiente: con siguiente se aplica; sin ella, sin-siguiente; si no se sabe, se aplica y se verifica; sin el dato, lo de W1');
+  W([P(ord(1, 'siguiente', { trackBase: 8 }), { haySiguiente: false }), P(ord(1, 'siguiente'), { haySiguiente: false, enPausaPorVideo: true, trackId: null })],
+    [{ aplicar: false, motivo: 'obsoleta' }, { aplicar: false, motivo: 'video' }], 'obsoleta y video ganan sobre sin-siguiente');
+  const fin = { playing: false, haySiguiente: false, alFinal: true };
+  W([P(ord(1, 'a-continuacion'), fin), P(ord(1, 'ahora'), fin), P(ord(1, 'a-continuacion'), { alFinal: false }), P(ord(1, 'a-continuacion'), {})],
+    [{ aplicar: true, como: 'ahora' }, { aplicar: true }, { aplicar: true }, { aplicar: true }], 'al final de la cola, "a continuación" es "ahora"; si no, lo de siempre');
+  W([P(ord(1, 'a-continuacion'), { ...fin, enPausaPorVideo: true, trackId: null }), P(ord(1, 'pausa'), fin), P(ord(1, 'reanudar'), fin), P(ord(1, 'siguiente'), fin)],
+    [{ aplicar: false, motivo: 'video' }, { aplicar: true }, { aplicar: true }, { aplicar: false, motivo: 'sin-siguiente' }],
+    'al final: un video sigue descartando; pausa y reanudar igual que siempre; siguiente no tiene a dónde');
+  W(S.textoDeFallo('ordenar', { error: 'sin-siguiente' }), 'No hay una canción siguiente.', 'el texto de sin-siguiente');
+
+  // ---- confirmacionDe ----
+  const CD = S.confirmacionDe;
+  const r = (id, aplicada = true) => ({ id, aplicada });
+  W([CD([]), CD(null), CD([{ id: 0, aplicada: true }, { id: '5', aplicada: true }, null])], [null, null, null], 'nada resuelto (o solo ids raros): nada que confirmar');
+  W(CD([r(2, false), r(1)]), { ordenHasta: 2, aplicadas: [1] }, 'en orden de id: hasta la mayor, y solo las aplicadas como evento');
+  W(CD([r(4, false), r(3, false)]), { ordenHasta: 4, aplicadas: [] }, 'solo descartadas: igual se confirman (salen de la lista, sin evento)');
+  W(CD([r(3), r(3), r(3, false)]), { ordenHasta: 3, aplicadas: [3] }, 'un id repetido cuenta una vez (la primera)');
+  const doce = Array.from({ length: 12 }, (_, i) => r(i + 1));
+  const t1 = CD(doce);
+  const t2 = CD(doce.filter((x) => x.id > t1.ordenHasta));
+  W([t1, t2], [{ ordenHasta: 10, aplicadas: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }, { ordenHasta: 12, aplicadas: [11, 12] }], '12 aplicadas: una tanda de 10 (ordenHasta en la décima) y después las otras 2');
+  const mezcla = Array.from({ length: 25 }, (_, i) => r(i + 1, i % 2 === 0));   // aplicadas las impares
+  W(CD(mezcla), { ordenHasta: 20, aplicadas: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19] }, 'mezcladas: corta en la décima aplicada y se lleva las descartadas hasta la próxima aplicada (la 20 sí; la 21, aplicada, no)');
+  W(CD([r(1, false), r(2, false), ...Array.from({ length: 10 }, (_, i) => r(i + 3)), r(13, false)]).ordenHasta, 13, 'las descartadas de después de la décima, si no hay una 11.ª aplicada, entran en la misma');
+
+  // ---- debePublicar con 'confirmar' ----
+  const A = { trackId: 501, positionMs: 32_000, playing: true, nextTrackId: 502, enPausaPorVideo: false };
+  const Pub = { ...A, positionMs: 30_000, enMs: 100_000 };
+  W([S.debePublicar(Pub, A, 102_000, true), S.debePublicar(Pub, A, 102_000, false), S.debePublicar(Pub, A, 102_000)], ['confirmar', null, null], 'sin cambios: con algo por confirmar, "confirmar"; sin eso, nada');
+  W([S.debePublicar(Pub, { ...A, trackId: 503 }, 100_050, true), S.debePublicar(Pub, { ...A, playing: false }, 100_050, true), S.debePublicar(null, A, 0, true)], ['cancion', 'pausa', 'primero'],
+    'un cambio de estado gana (la confirmación viaja en el mismo PUT)');
+  W([S.debePublicar(Pub, { ...A, trackId: null }, 102_000, true), S.debePublicar({ ...A, trackId: null, enPausaPorVideo: true, enMs: 100_000 }, { trackId: null, positionMs: 0, playing: false, nextTrackId: null, enPausaPorVideo: true }, 101_000, true)],
+    [null, 'confirmar'], 'sin canción no se puede publicar ni para confirmar; con un video, sí');
+  W([S.debePublicar(Pub, { ...A, positionMs: 30_000 + S.RADIO.LATIDO_MS }, 100_000 + S.RADIO.LATIDO_MS, true), S.debePublicar(Pub, A, 102_000, 'si')], ['confirmar', null],
+    'a la hora del latido con algo por confirmar: "confirmar" (publica igual); solo un true de verdad');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
