@@ -24,6 +24,9 @@
 //   (j) mod.*   moderación y control remoto (1.43.0, W1): lecturas a pedido (una respuesta de 1.42.0 se
 //               lee igual), planDeOrden, los textos de los eventos (neutros, "Tú", "Alguien"), quién
 //               modera y quién puede poner o pedir en la radio, y los fallos de moderar y ordenar.
+//   (k) redmod.* client.js de la moderación (1.43.0, W2), con fetch falso: radioCrear con capabilities,
+//               radioLeer con ?cap=mod/?desde=, radioPublicar con confirmación, radioModerador, radioOrdenar
+//               (clientId, reenvío con el MISMO, errores por reason) y que sin argumentos nuevos sea lo de 1.42.0.
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -1156,6 +1159,125 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   M([S.MODERACION.MODERADORES_MAX, S.MODERACION.ORDENES_MAX, S.MODERACION.EVENTOS_MAX, S.MODERACION.TITULO_MAX],
     [SERVIDOR.REGLAS.MAX_MODERADORES, SERVIDOR.REGLAS.MAX_ORDENES, SERVIDOR.REGLAS.MAX_EVENTOS, SERVIDOR.REGLAS.TITULO_MAX], 'los topes son los del servidor (reglas.js)');
   M([...S.TIPOS_ORDEN], Object.keys(SERVIDOR.TIPOS_ORDEN), 'los tipos de orden son los del servidor');
+}
+
+// ============================ (k) red: moderación y control remoto en client.js (1.43.0, W2) ============================
+// Las llamadas de 1.42.0 sin argumentos nuevos mandan lo mismo de siempre; lo nuevo, con fetch falso.
+{
+  const K = (a, b, nombre) => igual('redmod', a, b, nombre);
+  const A = { trackId: 5, positionMs: 1000.4, playing: true, nextTrackId: 7, enPausaPorVideo: false };
+  const ST = { seq: 3, trackId: 5, positionMs: 1000, playing: true, nextTrackId: 7, enPausaPorVideo: false, publishedAtServerMs: 1_790_000_000_000 };
+  const SALA = { serverNow: 1_790_000_000_500, code: 'ABC234', status: 'live', state: ST, host: { id: 1, name: 'Ana', avatar: null }, listeners: [] };
+  const ultimo = () => pedidos[pedidos.length - 1];
+  const desde = () => { const i = pedidos.length; return () => pedidos.slice(i); };
+  const red = () => () => { throw new TypeError('Failed to fetch'); };
+
+  // ---- 1.42.0: lo mismo de siempre ----
+  respuestas.push(resp(201, { code: 'ABC234', serverNow: 9 }));
+  await C.api.radioCrear();
+  K([ultimo().method, ultimo().url, ultimo().body], ['POST', '/api/radio', null], '1.42.0: radioCrear() sin cuerpo');
+  respuestas.push(resp(200, SALA));
+  await C.api.radioLeer('abc234');
+  K(ultimo().url, '/api/radio/ABC234', '1.42.0: radioLeer(codigo) con el path de siempre, sin query');
+  respuestas.push(resp(200, { serverNow: 9, status: 'live', state: ST }));
+  await C.api.radioPublicar('ABC234', A);
+  K(ultimo().body, JSON.stringify(S.cuerpoDePublicacion(A)), '1.42.0: radioPublicar(codigo, estado) con el cuerpo de siempre');
+
+  // ---- radioCrear con capabilities ----
+  const crear = async (arg) => { respuestas.push(resp(201, { code: 'ABC234', serverNow: 9 })); await C.api.radioCrear(arg); return ultimo().body; };
+  K(await crear({ capabilities: { orders: true } }), '{"capabilities":{"orders":true}}', 'radioCrear con capabilities.orders true');
+  K([await crear({ capabilities: { orders: 'true' } }), await crear({}), await crear({ capabilities: 'si' })], ['{"capabilities":{"orders":false}}', null, null],
+    'un "true" en texto va como false; sin capabilities (o raras), sin cuerpo');
+
+  // ---- radioLeer a pedido ----
+  const leer = async (op, cuerpo = SALA) => { respuestas.push(resp(200, cuerpo)); const r = await C.api.radioLeer('ABC234', op); return { url: ultimo().url, r }; };
+  K([(await leer({ cap: 'mod' })).url, (await leer({ desde: 5 })).url, (await leer({ cap: 'mod', desde: 0 })).url],
+    ['/api/radio/ABC234?cap=mod', '/api/radio/ABC234?desde=5', '/api/radio/ABC234?cap=mod&desde=0'], 'radioLeer: ?cap=mod, ?desde=N y los dos');
+  K([(await leer({ cap: 'si', desde: -1 })).url, (await leer({ desde: 1.5 })).url, (await leer({ desde: '3' })).url, (await leer({})).url],
+    Array(4).fill('/api/radio/ABC234'), 'radioLeer: cap distinto de "mod" o desde que no es un entero ≥ 0 no se mandan');
+  const conMod = await leer({ cap: 'mod' }, { ...SALA, moderators: [{ id: 2, name: 'Sonia', avatar: null }], capabilities: { orders: true }, events: [], eventsUntil: 0, eventsLost: false });
+  K([conMod.r.ok, conMod.r.radio.moderators.map((p) => p.id), conMod.r.radio.capabilities], [true, [2], { orders: true }], 'radioLeer devuelve lo de la moderación cuando viene');
+
+  // ---- radioPublicar con confirmación ----
+  respuestas.push(resp(200, { serverNow: 9, status: 'live', state: ST, orders: [{ id: 4, type: 'pausa', trackId: null, seqBase: null, trackBase: 5, by: 2, title: null }] }));
+  const pc = await C.api.radioPublicar('ABC234', A, { ordenHasta: 3, aplicadas: [3, 2, 3, 'x', 0] });
+  K(JSON.parse(ultimo().body), { ...S.cuerpoDePublicacion(A), ordenHasta: 3, aplicadas: [3, 2] }, 'con confirmación: ordenHasta y aplicadas (sin repetidas ni inválidas)');
+  K([pc.ok, pc.orders?.map((o) => o.id)], [true, [4]], 'y vuelven las órdenes pendientes');
+  respuestas.push(resp(200, { serverNow: 9, status: 'live', state: ST, orders: [] }));
+  await C.api.radioPublicar('ABC234', A, { ordenHasta: 0, aplicadas: [] });
+  K(JSON.parse(ultimo().body), { ...S.cuerpoDePublicacion(A), ordenHasta: 0 }, 'aplicadas vacía: no se manda');
+  const antesMal = pedidos.length;
+  K([await C.api.radioPublicar('ABC234', A, { ordenHasta: 'x' }), pedidos.length === antesMal], [{ ok: false, error: 'invalido' }, true], 'ordenHasta inválido: invalido, sin pedir nada');
+
+  // ---- radioModerador ----
+  respuestas.push(resp(200, { serverNow: 9, moderators: [{ id: 7, name: 'Sonia@x.com', avatar: null }, { id: 7, name: 'x' }, 'x'], name: 'Sonia' }));
+  const nm = await C.api.radioModerador('abc234', 7, true);
+  K([ultimo().method, ultimo().url, ultimo().body], ['PUT', '/api/radio/ABC234/moderadores/7', null], 'nombrar: PUT /moderadores/:id, sin cuerpo');
+  K([nm.ok, nm.status, nm.moderators.map((p) => [p.id, p.name]), nm.name], [true, 200, [[7, 'Sonia']], 'Sonia'], 'nombrar: moderators leídos (sin repetidos) y el nombre');
+  respuestas.push(resp(200, { serverNow: 9, moderators: [], name: null }));
+  const qm = await C.api.radioModerador('ABC234', 7, false);
+  K([ultimo().method, ultimo().url, qm.moderators, qm.name], ['DELETE', '/api/radio/ABC234/moderadores/7', [], null], 'quitar: DELETE, y name null si no lo tenía');
+  const antesId = pedidos.length;
+  K([await C.api.radioModerador('ABC234', '7', true), await C.api.radioModerador('ABC234', 0, true), await C.api.radioModerador('nope', 7, true), pedidos.length === antesId],
+    [{ ok: false, error: 'invalido' }, { ok: false, error: 'invalido' }, { ok: false, error: 'no-existe' }, true], 'un id que no es entero > 0 o un código raro: sin pedir nada');
+  const mf = async (status, body, h) => { respuestas.push(resp(status, body, h)); const { muestra, ...r } = await C.api.radioModerador('ABC234', 7, true); return r; };
+  K([await mf(403, { error: 'x', reason: 'sin-permiso' }), await mf(409, { error: 'x', reason: 'sin-soporte' }), await mf(409, { error: 'x', reason: 'moderadores-llenos' }),
+    await mf(409, { error: 'x', reason: 'es-el-anfitrion' }), await mf(409, { error: 'x', reason: 'no-escucha' })],
+    [{ ok: false, status: 403, error: 'sin-permiso' }, { ok: false, status: 409, error: 'sin-soporte' }, { ok: false, status: 409, error: 'moderadores-llenos' },
+      { ok: false, status: 409, error: 'es-el-anfitrion' }, { ok: false, status: 409, error: 'no-escucha' }], 'moderar: 403 y 409 por su reason');
+  K([await mf(404, { error: 'x' }), await mf(410, { error: 'x', status: 'ended', endedReason: 'pausa' }), await mf(429, { error: 'x' }, { 'retry-after': '4' })],
+    [{ ok: false, status: 404, error: 'no-existe' }, { ok: false, status: 410, error: 'terminada', razon: 'pausa' }, { ok: false, status: 429, error: 'frecuencia', esperaMs: 4000 }],
+    'moderar: 404, 410 con su razón y 429 con Retry-After');
+
+  // ---- radioOrdenar ----
+  const ok202 = (id, repeated = false) => resp(202, { id, repeated, serverNow: 9 });
+  respuestas.push(ok202(1));
+  const o1 = await C.api.radioOrdenar('abc234', { type: 'pausa', trackId: 9, seqBase: 3, extra: 'x' });
+  const b1 = JSON.parse(ultimo().body);
+  K([ultimo().method, ultimo().url, Object.keys(b1), b1.type], ['POST', '/api/radio/ABC234/ordenes', ['type', 'clientId'], 'pausa'], 'ordenar pausa: solo type y clientId');
+  K([/^[A-Za-z0-9_-]{16}$/.test(b1.clientId), o1.clientId === b1.clientId, o1.ok, o1.id, o1.repeated], [true, true, true, 1, false], 'un clientId de 16, devuelto al llamador, y { id, repeated }');
+  respuestas.push(ok202(2));
+  await C.api.radioOrdenar('ABC234', { type: 'pausa' });
+  K(JSON.parse(ultimo().body).clientId !== b1.clientId, true, 'cada orden nueva, un clientId nuevo');
+  respuestas.push(ok202(3));
+  await C.api.radioOrdenar('ABC234', { type: 'ahora', trackId: 11, seqBase: 4 });
+  K(JSON.parse(ultimo().body), { type: 'ahora', trackId: 11, clientId: JSON.parse(ultimo().body).clientId }, 'ahora: con trackId, sin seqBase');
+  respuestas.push(ok202(4));
+  await C.api.radioOrdenar('ABC234', { type: 'siguiente', seqBase: 0, trackId: 9 });
+  K(Object.keys(JSON.parse(ultimo().body)), ['type', 'seqBase', 'clientId'], 'siguiente: con seqBase (aunque sea 0), sin trackId');
+  respuestas.push(ok202(5));
+  await C.api.radioOrdenar('ABC234', { type: 'reanudar' }, { clientId: 'mio-123456' });
+  K(JSON.parse(ultimo().body).clientId, 'mio-123456', 'opciones.clientId: se usa ese (el reintento de la capa de arriba)');
+
+  // Reenvío con el MISMO clientId cuando no se sabe si llegó.
+  let mios = desde();
+  respuestas.push(red(), ok202(6));
+  const rr = await C.api.radioOrdenar('ABC234', { type: 'pausa' });
+  K([mios().length, mios()[0]?.body === mios()[1]?.body, rr.ok, rr.id, JSON.parse(mios()[0]?.body ?? '{}').clientId === rr.clientId], [2, true, true, 6, true],
+    'sin respuesta: se reenvía UNA vez, con el MISMO cuerpo y clientId, y vale');
+  mios = desde();
+  respuestas.push(resp(502, { error: 'x' }), ok202(6, true));
+  const r5 = await C.api.radioOrdenar('ABC234', { type: 'pausa' });
+  K([mios().length, mios()[0]?.body === mios()[1]?.body, r5.ok, r5.repeated], [2, true, true, true], 'un 5xx: se reenvía igual y el servidor la reconoce (repeated)');
+  mios = desde();
+  respuestas.push(red(), red());
+  const rn = await C.api.radioOrdenar('ABC234', { type: 'pausa' });
+  K([mios().length, rn.ok, rn.error, /^[A-Za-z0-9_-]{16}$/.test(rn.clientId)], [2, false, 'sin-respuesta', true], 'dos veces sin respuesta: se rinde a la segunda, con el clientId para reintentar después');
+  const of = async (status, body, h) => { const m = desde(); respuestas.push(resp(status, body, h)); const { muestra, clientId, ...r } = await C.api.radioOrdenar('ABC234', { type: 'pausa' }); return { ...r, pedidos: m().length }; };
+  K([await of(429, { error: 'x' }, { 'retry-after': '7' }), await of(403, { error: 'x', reason: 'sin-permiso' })],
+    [{ ok: false, status: 429, error: 'frecuencia', esperaMs: 7000, pedidos: 1 }, { ok: false, status: 403, error: 'sin-permiso', pedidos: 1 }],
+    'ordenar: 429 con Retry-After y 403 sin-permiso, sin reenviar');
+  K([await of(409, { error: 'x', reason: 'obsoleta' }), await of(409, { error: 'x', reason: 'ordenes-llenas' }), await of(409, { error: 'x', reason: 'sin-soporte' }), await of(409, { error: 'x', reason: 'no-escucha' })].map((r) => [r.error, r.pedidos]),
+    [['obsoleta', 1], ['ordenes-llenas', 1], ['sin-soporte', 1], ['no-escucha', 1]], 'ordenar: 409 por su reason, sin reenviar');
+  K([await of(422, { error: 'x', reason: 'video' }), await of(422, { error: 'x', reason: 'sin-pista' }), await of(404, { error: 'x' }), await of(410, { error: 'x', status: 'ended', endedReason: 'admin' })].map((r) => r.error),
+    ['video', 'sin-pista', 'no-existe', 'terminada'], 'ordenar: 422 video / sin-pista, 404 y 410');
+  K((await of(200, { id: 1, serverNow: 9 })).error, 'servidor', 'un 200 en vez de 202: no es la respuesta esperada');
+  const antesO = pedidos.length;
+  K([await C.api.radioOrdenar('ABC234', { type: 'saltar' }), await C.api.radioOrdenar('ABC234', { type: 'ahora' }), await C.api.radioOrdenar('ABC234', { type: 'siguiente' }),
+    await C.api.radioOrdenar('ABC234', null), await C.api.radioOrdenar('x', { type: 'pausa' }), pedidos.length === antesO],
+    [{ ok: false, error: 'invalido' }, { ok: false, error: 'invalido' }, { ok: false, error: 'invalido' }, { ok: false, error: 'invalido' }, { ok: false, error: 'no-existe' }, true],
+    'ordenar: tipo desconocido, ahora sin pista, siguiente sin seqBase, sin orden o código raro: sin pedir nada');
+  K(new Set(Array.from({ length: 200 }, () => C.nuevoIdCliente())).size, 200, 'nuevoIdCliente: 200 seguidos, ninguno repetido');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
