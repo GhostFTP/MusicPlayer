@@ -171,8 +171,8 @@ await ctx.addInitScript((t) => {
 }, tokOye);
 const p = await ctx.newPage();
 const errores = []; p.on('pageerror', (e) => errores.push(String(e.message).slice(0, 160)));
-const lecturas = [];   // GET /api/radio/:codigo de la página: { t, codigo }
-p.on('request', (q) => { const u = new URL(q.url()); const m = u.pathname.match(/^\/api\/radio\/([A-Z0-9]{6})$/); if (m && q.method() === 'GET') lecturas.push({ t: Date.now(), codigo: m[1] }); });
+const lecturas = [];   // GET /api/radio/:codigo de la página: { t, codigo, cap, query }
+p.on('request', (q) => { const u = new URL(q.url()); const m = u.pathname.match(/^\/api\/radio\/([A-Z0-9]{6})$/); if (m && q.method() === 'GET') lecturas.push({ t: Date.now(), codigo: m[1], cap: u.searchParams.get('cap'), query: u.search }); });
 
 const esperar = async (fn, ms = 8000, paso = 150) => { const t = Date.now(); while (Date.now() - t < ms) { const v = await fn(); if (v) return { v, ms: Date.now() - t }; await sleep(paso); } return { v: null, ms: null }; };
 const foto = () => p.evaluate(() => {
@@ -474,6 +474,13 @@ try {
   ok('L_lecturas_cada_2s_y_motor_estable', enL.length >= 4 && enL.length <= 6 && huecosL.every((h) => h >= SONDEO_MS - 300) && otrasL === 0
     && Object.values(fnsIguales).every(Boolean),
     { lecturasEn10s: enL.length, huecosMs: huecosL, deOtraSala: otrasL, mismaIdentidad: fnsIguales });
+
+  // ── M (1.43.0): TODAS las lecturas del oyente declaran ?cap=mod — la de unirse (la primera de la sala)
+  // y las de cada vuelta. El servidor anota el soporte en cada lectura: una sola sin cap lo apaga.
+  { const deS1 = lecturas.filter((x) => x.codigo === s1.code);
+    const sinCap = deS1.filter((x) => x.cap !== 'mod').map((x) => x.query);
+    ok('M_todas_las_lecturas_del_oyente_llevan_cap_mod', deS1.length >= 3 && deS1[0].cap === 'mod' && sinCap.length === 0,
+      { lecturas: deS1.length, laDeUnirse: deS1[0]?.query ?? null, sinCap: sinCap.slice(0, 5) }); }
 
   // ── 10. el anfitrión termina → fin + restauración ──
   await p.evaluate(() => { window.__nPlay = 0; });
