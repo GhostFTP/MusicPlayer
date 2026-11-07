@@ -573,6 +573,64 @@ export function rolEnLaRadio(radio, id) {
 /** El texto de la insignia de cada rol (neutro): lo que se lee junto al nombre. */
 export const INSIGNIA = Object.freeze({ anfitrion: 'Anfitrión', moderador: 'Modera' });
 
+// ---- La lista de oyentes del anfitrión (W4) ----
+
+const idsDe = (v) => new Set((v instanceof Set ? [...v] : Array.isArray(v) ? v : []).map((x) => (objeto(x) ? x.id : x)).filter(esId));
+
+/** La nota de quien modera sin estar escuchando (neutra). */
+export const TEXTO_NO_ESCUCHA = 'No está escuchando';
+
+/**
+ * Quiénes van en la lista del anfitrión: los oyentes, y AL FINAL los que moderan sin estar escuchando
+ * (el rol dura hasta que el anfitrión lo quite: sin fila no se los podría quitar, y con 3 el tope quedaría
+ * trabado). → [{ ...persona, ausente: boolean }]. Sin repetidos.
+ */
+export function personasDeLaLista(p) {
+  const q = objeto(p) ?? {};
+  const oyentes = (Array.isArray(q.oyentes) ? q.oyentes : []).filter((x) => objeto(x) && esId(x.id));
+  const estan = new Set(oyentes.map((x) => x.id));
+  const fuera = (Array.isArray(q.moderadores) ? q.moderadores : []).filter((x) => objeto(x) && esId(x.id) && !estan.has(x.id) && estan.add(x.id));
+  return [...oyentes.map((x) => ({ ...x, ausente: false })), ...fuera.map((x) => ({ ...x, ausente: true }))];
+}
+
+/**
+ * La fila de un oyente en la lista del anfitrión. p: { id, moderadores ([{ id }] o ids), sinSoporte
+ * (Set o lista de ids que respondieron 409 sin-soporte en esta sala), ausente (modera sin escuchar) }.
+ * → { insignia: 'Modera' | null, boton: 'quitar' | 'nombrar' | null, nota: texto | null }
+ *   · Quien modera: la insignia y "Quitar" (si no está escuchando, además la nota TEXTO_NO_ESCUCHA).
+ *   · Quien respondió sin-soporte: sin botón y con la nota; no se reintenta en esta sala.
+ *   · Con el tope lleno, "Hacer moderador" se OCULTA (no se deshabilita): lo explica lineaDelTope.
+ */
+export function filaDeOyente(p) {
+  const q = objeto(p) ?? {};
+  const mods = idsDe(q.moderadores);
+  if (esId(q.id) && mods.has(q.id)) return { insignia: INSIGNIA.moderador, boton: 'quitar', nota: q.ausente === true ? TEXTO_NO_ESCUCHA : null };
+  if (esId(q.id) && idsDe(q.sinSoporte).has(q.id)) return { insignia: null, boton: null, nota: textoDeFallo('moderar', { error: 'sin-soporte' }) };
+  if (!esId(q.id) || mods.size >= MODERACION.MODERADORES_MAX) return { insignia: null, boton: null, nota: null };
+  return { insignia: null, boton: 'nombrar', nota: null };
+}
+
+/** La línea que explica por qué no hay "Hacer moderador", o null si todavía se puede nombrar. */
+export function lineaDelTope(moderadores) {
+  return idsDe(moderadores).size >= MODERACION.MODERADORES_MAX ? textoDeFallo('moderar', { error: 'moderadores-llenos' }) : null;
+}
+
+/** Los eventos vistos más los que llegan: sin repetidos (por id), en orden y solo los últimos EVENTOS_MAX. */
+export function juntarEventos(previos, llegados) {
+  const porId = new Map();
+  for (const e of [...(Array.isArray(previos) ? previos : []), ...(Array.isArray(llegados) ? llegados : [])]) {
+    if (objeto(e) && esId(e.id) && !porId.has(e.id)) porId.set(e.id, e);
+  }
+  return [...porId.values()].sort((a, b) => a.id - b.id).slice(-MODERACION.EVENTOS_MAX);
+}
+
+/** ¿Este evento va en el aviso breve (toast)? Solo los de OTROS, y con un texto que esta versión conozca:
+ *  lo que hice yo ya lo vi al hacerlo (va igual a la región viva). */
+export function avisarEvento(e, yo) {
+  const ev = objeto(e);
+  return !!ev && !(ev.by != null && ev.by === yo) && textoDeEvento(ev, yo) != null;
+}
+
 /**
  * ¿El submenú "En la radio" ofrece "Poner a continuación / Poner ahora" para este ítem?
  * p: { fase ('oyente' | 'anfitrion' | …), radio (lo de leerRadio), miId, item (una pista o un video) }.
@@ -957,7 +1015,7 @@ export function textoDeFallo(accion, fallo) {
     case 'no-escucha':
       return accion === 'moderar' ? 'Esa persona ya no está escuchando.' : 'Tienes que estar escuchando la radio para moderar.';
     case 'sin-soporte':
-      return accion === 'moderar' ? 'La app de esa persona todavía no permite moderar.' : 'La app del anfitrión todavía no acepta órdenes.';
+      return accion === 'moderar' ? 'Su versión todavía no lo admite.' : 'La app del anfitrión todavía no acepta órdenes.';
     case 'moderadores-llenos': return `Ya hay ${MODERACION.MODERADORES_MAX} personas moderando. Quita a alguien primero.`;
     case 'ordenes-llenas': return 'Hay muchas órdenes pendientes. Espera un momento.';
     case 'obsoleta': return 'La canción ya cambió.';

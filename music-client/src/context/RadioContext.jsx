@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from './AuthContext.jsx';
+import { useToast } from '../components/Toast.jsx';
 import { usePlayer, usePlayerTime } from './PlayerContext.jsx';
 import {
   PUERTA_INICIAL, puertaAbierta, alPublicar, alResponder, debePublicar,
@@ -9,6 +10,7 @@ import {
   esperaDelSondeo, resolverColaDelOyente, fotoDeLaCola, planDeRestauracion, pausaDelOyente,
   idDeCancion, DESAJUSTE_MS,
   planDeOrden, siguienteDelMotor, alFinalDeLaCola, confirmacionDe, colaDelOyente,
+  juntarEventos, avisarEvento, textoDeEvento,
 } from '../utils/radioSync.js';
 
 // RADIO WEB: EL ANFITRIÓN (fase 1, sub-paso 3) Y EL OYENTE (sub-paso 4). Port de los puentes de iOS
@@ -63,6 +65,9 @@ const ESPERA_MOTOR_MS = 1000;
 /** 1.43.0: cada lectura del OYENTE declara que esta app sabe moderar (?cap=mod). Va en TODAS (unirse
  *  y cada vuelta): el servidor anota el soporte en cada lectura, y una sin cap lo apagaría. */
 const LECTURA_OYENTE = { cap: 'mod' };
+/** Cuánto dura el aviso breve de un evento ajeno. NO 2000 ms: radio-oyente-func cuenta los setTimeout
+ *  de 2000 ms pendientes (es la demora del sondeo del oyente). */
+const AVISO_EVENTO_MS = 3500;
 /** Unirse a la sala propia (decisión del usuario: el texto). */
 const TEXTO_SALA_PROPIA = 'Esta radio es tuya.';
 
@@ -81,6 +86,14 @@ export function RadioProvider({ children }) {
   const [aviso, setAviso] = useState(null);           // null | 'sin-senal' | 'sin-respuesta' | 'esperando-anfitrion' | 'video' | 'falta-cancion' | 'no-se-pudo-cargar'
   const [silenciada, setSilenciada] = useState(false);   // el oyente pausó por su cuenta ("en pausa para ti")
   const [quiereSonar, setQuiereSonar] = useState(false);  // el anfitrión suena una canción (no en pausa ni en video)
+  // Sólo del anfitrión (1.43.0, W4): quién modera, lo que pasó en la radio y a quién no se puede nombrar.
+  const [moderadores, setModeradores] = useState([]);           // [{ id, name, avatar }]
+  const [eventos, setEventos] = useState([]);                   // los últimos EVENTOS_MAX, sin repetidos
+  const [sinSoporte, setSinSoporte] = useState(() => new Set());   // ids con 409 sin-soporte (esta sala)
+  const eventosVistosRef = useRef(new Set());   // ids ya vistos: un evento avisa una sola vez
+  // Lo pone el puente del anfitrión: (moderadores) → arranca o corta la lectura de 2 s en el acto.
+  const moderarRef = useRef(null);
+  const toast = useToast();
 
   // Espejos síncronos: un segundo clic llega antes del re-render, y pagehide lee la fase en el acto.
   const faseRef = useRef('sin-radio');
@@ -103,6 +116,14 @@ export function RadioProvider({ children }) {
   const motorRef = useRef(null);
   const tocarRef = useRef(null);
   const primeraRef = useRef(null);
+
+  /** Lo de la moderación vuelve a cero (otra sala, o ninguna). */
+  const limpiarModeracion = () => {
+    setModeradores([]);
+    setEventos([]);
+    setSinSoporte(new Set());
+    eventosVistosRef.current = new Set();
+  };
 
   useEffect(() => {
     montadoRef.current = true;
@@ -127,6 +148,7 @@ export function RadioProvider({ children }) {
     ponerFase('sin-radio');
     setCodigo(null);
     setOyentes([]);
+    limpiarModeracion();
     setFin({ razon, texto: textoDeFin('anfitrion', razon) });
   }, []);
 
@@ -165,6 +187,19 @@ export function RadioProvider({ children }) {
     setOyentes((prev) => (mismosOyentes(prev, lista) ? prev : lista));
   }, []);
 
+  /** Del puente del anfitrión, en cada lectura con moderación: quién modera y los eventos nuevos. A la
+   *  región viva van todos; al aviso breve, solo el último de OTRA persona (lo propio ya se vio). */
+  const alModeracion = useCallback((gen, lista, llegados) => {
+    if (gen !== genRef.current || !montadoRef.current) return;
+    setModeradores((prev) => (mismosOyentes(prev, lista) ? prev : lista));
+    const nuevos = (llegados ?? []).filter((e) => !eventosVistosRef.current.has(e.id));
+    if (!nuevos.length) return;
+    for (const e of nuevos) eventosVistosRef.current.add(e.id);
+    setEventos((prev) => juntarEventos(prev, nuevos));
+    const ajenos = nuevos.filter((e) => avisarEvento(e, userIdRef.current));
+    if (ajenos.length) toast(textoDeEvento(ajenos[ajenos.length - 1], userIdRef.current), { duration: AVISO_EVENTO_MS });
+  }, [toast]);
+
   const alAviso = useCallback((gen, a) => {
     if (gen !== genRef.current || !montadoRef.current) return;
     setAviso(a);
@@ -201,6 +236,7 @@ export function RadioProvider({ children }) {
     setCodigo(r.code);
     setGenSala(gen);
     setOyentes([]);
+    limpiarModeracion();
     ponerFase('anfitrion');   // monta el puente, que publica en el acto
     return true;
   }, []);
@@ -219,6 +255,7 @@ export function RadioProvider({ children }) {
     ponerFase('sin-radio');
     setCodigo(null);
     setOyentes([]);
+    limpiarModeracion();
     if (r.ok) setFin({ razon: 'anfitrion', texto: textoDeFin('anfitrion', 'anfitrion') });
     else if (r.error === 'terminada') setFin({ razon: r.razon, texto: textoDeFin('anfitrion', r.razon) });
     else if (r.error === 'no-existe') setFin({ razon: 'no-existe', texto: textoDeFin('anfitrion', 'no-existe') });
@@ -284,6 +321,26 @@ export function RadioProvider({ children }) {
 
   const limpiarFin = useCallback(() => { setFin(null); setError(null); }, []);
 
+  /** El anfitrión nombra (si) o quita (no) a quien modera → { ok } | { ok: false, error }. Al salir bien,
+   *  la lista entra ya y el puente arranca (o corta) la lectura de 2 s en el acto, sin esperar la de 5 s.
+   *  Un 409 sin-soporte deja a esa persona sin botón en esta sala (no se reintenta); lo demás, al aviso. */
+  const moderar = useCallback(async (userId, si) => {
+    if (faseRef.current !== 'anfitrion') return { ok: false, error: 'fase' };
+    const gen = genRef.current;
+    const r = await api.radioModerador(codigoRef.current, userId, si);
+    if (gen !== genRef.current || !montadoRef.current) return { ok: false, error: 'vieja' };
+    if (r.ok) {
+      setModeradores(r.moderators);
+      moderarRef.current?.(r.moderators);
+      return { ok: true };
+    }
+    if (r.error === 'sin-soporte') setSinSoporte((s) => new Set(s).add(userId));
+    else setError(textoDeFallo('moderar', r));
+    return { ok: false, error: r.error };
+  }, []);
+  const nombrarModerador = useCallback((userId) => moderar(userId, true), [moderar]);
+  const quitarModerador = useCallback((userId) => moderar(userId, false), [moderar]);
+
   // Cerrar la pestaña (o navegar fuera): DELETE con keepalive, que sobrevive a la descarga y lleva el
   // Bearer. Si la página no se descarga sino que queda en la caché del navegador (event.persisted) y
   // vuelve, la sala ya está cerrada: el próximo latido recibe 410 y el puente sale limpio, con su texto.
@@ -302,15 +359,18 @@ export function RadioProvider({ children }) {
     () => ({
       fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar,
       iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
+      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador,
     }),
-    [fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar, iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar],
+    [fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar, iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
+      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador],
   );
 
   return (
     <RadioContext.Provider value={value}>
       {children}
       {fase === 'anfitrion' && codigo && (
-        <PuenteAnfitrion key={codigo} codigo={codigo} gen={genSala} genRef={genRef} salir={finAnfitrion} alOyentes={alOyentes} />
+        <PuenteAnfitrion key={codigo} codigo={codigo} gen={genSala} genRef={genRef} salir={finAnfitrion} alOyentes={alOyentes}
+          alModeracion={alModeracion} moderarRef={moderarRef} />
       )}
       {fase === 'oyente' && codigo && (
         <PuenteOyente
@@ -356,7 +416,7 @@ export function useRadio() {
 //    el estado nuevo y la confirmación juntos.
 //  · Al desmontar (terminar, salir, cerrar sesión, otra radio: key={codigo}) se corta la espera del
 //    motor y una orden a medio traer su pista (api.track) se abandona: vigente() antes de tocar nada.
-function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
+function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, moderarRef }) {
   const { currentTrack, isPlaying, queue, queueIndex, shuffle, repeat, upNext, next, pause, resume, playAfterCurrent } = usePlayer();
   const { currentTime, duration } = usePlayerTime();
 
@@ -513,6 +573,7 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
       if (r.radio.moderators) {
         if (r.radio.eventsUntil != null) cursorRef.current = r.radio.eventsUntil;
         setConModeradores(r.radio.moderators.length > 0);
+        alModeracion(gen, r.radio.moderators, r.radio.events);   // W4: la lista y los eventos, a la vista
         if (r.radio.orders) recibirRef.current?.(r.radio.orders);
       }
       return;
@@ -521,7 +582,18 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
     else if (r.error === 'terminada') salir(gen, r.razon);
     else if (r.error === 'sesion') salir(gen, 'sesion');
     // red caída, 429, 5xx: se vuelve a intentar en el próximo turno, sin salir.
-  }, [codigo, gen, salir, alOyentes, vigente]);
+  }, [codigo, gen, salir, alOyentes, alModeracion, vigente]);
+
+  // W4: al nombrar o quitar desde la vista, la lectura de 2 s arranca (o se corta) en ESE render, sin
+  // esperar a la de 5 s, y se lee ya para traer lo nuevo (LECTURA_MIN_MS evita una lectura pegada).
+  useEffect(() => {
+    moderarRef.current = (lista) => {
+      if (!vigente()) return;
+      setConModeradores(lista.length > 0);
+      leerOyentes();
+    };
+    return () => { moderarRef.current = null; };
+  }, [moderarRef, vigente, leerOyentes]);
 
   // Vivo mientras está montado (va PRIMERO: el doble montaje de StrictMode lo vuelve a poner en true
   // antes de que el efecto de abajo publique); al desmontar se corta la espera del motor (su temporizador).

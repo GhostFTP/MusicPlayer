@@ -5,13 +5,17 @@ import { avatarUrl } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useRadio } from '../context/RadioContext.jsx';
-import { limpiarCodigoEscrito, codigoPegado, normalizarCodigo, cuentaDeOyentes, LARGO_CODIGO } from '../utils/radioSync.js';
+import {
+  limpiarCodigoEscrito, codigoPegado, normalizarCodigo, cuentaDeOyentes, LARGO_CODIGO,
+  filaDeOyente, lineaDelTope, textoDeEvento, INSIGNIA, personasDeLaLista,
+} from '../utils/radioSync.js';
 
 // Vista Radio. Cuatro caras:
 //  · "sin radio" (/radio): "Iniciar radio" (con una canción cargada; un video cuenta) y el campo
 //    "Unirse con código", que navega a /radio/CODIGO.
 //  · anfitrión (/radio, o /radio/TU-CÓDIGO, con la sala abierta): el código, copiar código/enlace,
-//    cuántos escuchan y "Terminar radio" con confirmación en la misma página.
+//    cuántos escuchan, la lista de quién escucha con "Hacer moderador" / "Quitar" (1.43.0, W4), lo
+//    último que pasó en la radio y "Terminar radio" con confirmación en la misma página.
 //  · la ficha (/radio/OTRO-CÓDIGO): el código y "Escuchar", que llama unirse(); ese clic es el gesto
 //    que habilita el audio. NO lee la sala antes: la primera lectura es la que anota al oyente. Es un
 //    DETALLE como los de las otras vistas (setDetailOpen → swipe-atrás del teléfono; BackButton → history.back).
@@ -71,7 +75,12 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   const {
     fase, codigo: miCodigo, oyentes, fin, error, iniciar, terminar, limpiarFin,
     anfitrion, aviso: avisoRadio, silenciada, quiereSonar, unirse, salir, tocarParaEscuchar,
+    moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador,
   } = useRadio();
+  const [moderando, setModerando] = useState(null);   // id con un nombrar/quitar en vuelo (un clic a la vez)
+  const [focoNota, setFocoNota] = useState(null);     // id cuya nota "sin soporte" toma el foco (su botón se fue)
+  const [focoLista, setFocoLista] = useState(false);  // quitar a quien no escucha: su fila se va y el foco pasa a la lista
+  const listaRef = useRef(null);
   const { user } = useAuth();
   const toast = useToast();
 
@@ -172,6 +181,28 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
       toast('No se pudo copiar', { variant: 'warning' });
     }
   };
+  // Nombrar o quitar. El botón es el MISMO nodo antes y después (cambia su texto), así que el foco se
+  // queda en él; si la persona no lo admite, el botón se va y el foco pasa a su nota.
+  const onModerar = async (persona, si) => {
+    if (moderando != null) return;
+    limpiarFin();
+    setModerando(persona.id);
+    const r = await (si ? nombrarModerador(persona.id) : quitarModerador(persona.id));
+    setModerando(null);
+    if (!r.ok && r.error === 'sin-soporte') setFocoNota(persona.id);
+    if (r.ok && !si && persona.ausente) setFocoLista(true);
+  };
+  useEffect(() => {
+    if (!focoLista) return;
+    listaRef.current?.focus();
+    setFocoLista(false);
+  }, [focoLista]);
+  useEffect(() => {
+    if (focoNota == null) return;
+    document.getElementById(`radio-persona-nota-${focoNota}`)?.focus();
+    setFocoNota(null);
+  }, [focoNota]);
+
   const onConfirmarKey = (e) => {
     if (e.key !== 'Escape') return;
     e.stopPropagation();   // un Esc = una cosa: que no cierre además la cola o el expandido
@@ -196,6 +227,36 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
             onClick={() => copiar(`${window.location.origin}/radio/${miCodigo}`, 'Enlace copiado')}>Copiar enlace</button>
         </div>
         <p className="radio-oyentes" aria-live="polite">{cuentaDeOyentes(oyentes.length)}</p>
+        <ul className="radio-personas" aria-label="Quién está en la radio" ref={listaRef} tabIndex={-1}>
+          <li className="radio-persona">
+            <Avatar persona={{ name: user?.username, avatar: null }} />
+            <span className="radio-persona-nombre">Tú</span>
+            <span className="radio-insignia radio-insignia--anfitrion">{INSIGNIA.anfitrion}</span>
+          </li>
+          {personasDeLaLista({ oyentes, moderadores }).map((o) => {
+            const f = filaDeOyente({ id: o.id, moderadores, sinSoporte, ausente: o.ausente });
+            const nombre = o.name || 'Alguien';
+            return (
+              <li key={o.id} className="radio-persona">
+                <Avatar key="avatar" persona={o} />
+                <span key="nombre" className="radio-persona-nombre">{nombre}</span>
+                {f.insignia && <span key="insignia" className="radio-insignia">{f.insignia}</span>}
+                {f.boton && (
+                  <button key="boton" type="button" className="radio-btn radio-btn--persona" data-persona={o.id}
+                    disabled={terminando} aria-busy={moderando === o.id ? 'true' : undefined}
+                    aria-label={f.boton === 'quitar' ? `Quitar a ${nombre} de moderar` : `Hacer moderador a ${nombre}`}
+                    onClick={() => onModerar(o, f.boton === 'nombrar')}>
+                    {f.boton === 'quitar' ? 'Quitar' : 'Hacer moderador'}
+                  </button>
+                )}
+                {f.nota && <span key="nota" id={`radio-persona-nota-${o.id}`} className="radio-persona-nota" tabIndex={-1}>{f.nota}</span>}
+              </li>
+            );
+          })}
+        </ul>
+        {lineaDelTope(moderadores) && <p className="radio-nota radio-tope">{lineaDelTope(moderadores)}</p>}
+        {/* Siempre montada (vacía sin eventos): una región viva que aparece de golpe no siempre se anuncia. */}
+        <p className="radio-evento" role="status">{eventos.length ? textoDeEvento(eventos[eventos.length - 1], user?.id) ?? '' : ''}</p>
         <div className="radio-terminar">
           {confirmando ? (
             <div className="radio-confirmar" role="group" aria-labelledby="radio-confirmar-pregunta" onKeyDown={onConfirmarKey}>

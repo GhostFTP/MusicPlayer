@@ -339,6 +339,25 @@ button, input, select, textarea { font-family: inherit; }
 .radio-acciones { margin-top: 16px; }
 .radio-oyentes { margin-top: 14px; font-size: 14px; color: var(--text-muted); }
 .radio-terminar { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+/* W4: la lista de quién escucha, del anfitrión. Cada fila: avatar, nombre, insignia y su botón (44 px). */
+.radio-personas { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.radio-personas:focus { outline: none; }
+.radio-personas:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.radio-persona { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: 44px; min-width: 0; }
+.radio-persona-nombre { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text); }
+.radio-insignia {
+  flex: none; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
+  font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-dim);
+}
+.radio-insignia--anfitrion { color: var(--text); background: var(--surface-2); }
+.radio-btn--persona { flex: none; min-width: 44px; padding: 0 14px; font-size: 13px; }
+.radio-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.radio-persona-nota { flex: 1 1 100%; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+.radio-persona-nota:focus { outline: none; }
+.radio-persona-nota:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.radio-tope { margin-top: 10px; }
+.radio-evento { margin-top: 12px; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+.radio-evento:empty { margin-top: 0; }
 .radio-confirmar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .radio-confirmar-pregunta { font-size: 14px; font-weight: 600; color: var(--text); margin-right: 4px; }
 .radio-btn--terminar { color: var(--amber); border-color: var(--amber-dim); }
