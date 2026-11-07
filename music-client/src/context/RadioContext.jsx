@@ -60,6 +60,9 @@ const ORDENES_CADA_MS = 2000;
 const LECTURA_MIN_MS = 1500;
 /** Cuánto se espera a que el motor muestre lo que hizo una orden (otra pista, la pausa, la cola). */
 const ESPERA_MOTOR_MS = 1000;
+/** 1.43.0: cada lectura del OYENTE declara que esta app sabe moderar (?cap=mod). Va en TODAS (unirse
+ *  y cada vuelta): el servidor anota el soporte en cada lectura, y una sin cap lo apagaría. */
+const LECTURA_OYENTE = { cap: 'mod' };
 /** Unirse a la sala propia (decisión del usuario: el texto). */
 const TEXTO_SALA_PROPIA = 'Esta radio es tuya.';
 
@@ -231,7 +234,7 @@ export function RadioProvider({ children }) {
     setError(null);
     setFin(null);
     setAviso(null);
-    const r = await api.radioLeer(codigoSala);
+    const r = await api.radioLeer(codigoSala, LECTURA_OYENTE);
     if (gen !== genRef.current || !montadoRef.current) return false;
     if (!r.ok) {
       ponerFase('sin-radio');
@@ -694,7 +697,7 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
       if (!vigente()) return;
       let lectura = primeraRef.current;
       primeraRef.current = null;
-      if (!lectura) lectura = await api.radioLeer(codigo);
+      if (!lectura) lectura = await api.radioLeer(codigo, LECTURA_OYENTE);
       if (!vigente()) return;
       if (lectura.ok) {
         relojRef.current = mejorReloj(relojRef.current, lectura.muestra);
