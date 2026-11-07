@@ -7,7 +7,7 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useRadio } from '../context/RadioContext.jsx';
 import {
   limpiarCodigoEscrito, codigoPegado, normalizarCodigo, cuentaDeOyentes, LARGO_CODIGO,
-  filaDeOyente, lineaDelTope, textoDeEvento, INSIGNIA, personasDeLaLista,
+  filaDeOyente, lineaDelTope, textoDeEvento, INSIGNIA, personasDeLaLista, TEXTOS_ORDEN,
 } from '../utils/radioSync.js';
 
 // Vista Radio. Cuatro caras:
@@ -76,6 +76,7 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
     fase, codigo: miCodigo, oyentes, fin, error, iniciar, terminar, limpiarFin,
     anfitrion, aviso: avisoRadio, silenciada, quiereSonar, unirse, salir, tocarParaEscuchar,
     moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
+    vistaMod, ordenando, lineaOrden, esperaOrden, ordenar,
   } = useRadio();
   const [moderando, setModerando] = useState(null);   // id con un nombrar/quitar en vuelo (un clic a la vez)
   const [focoNota, setFocoNota] = useState(null);     // id cuya nota "sin soporte" toma el foco (su botón se fue)
@@ -285,9 +286,18 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
     const caras = oyentes.slice(0, MAX_CARAS);
     const yo = user?.id != null ? Number(user.id) : null;
     const nombres = oyentes.map((o) => (o.id === yo ? 'tú' : o.name || 'alguien'));
+    // W5b-1: quien modera ve sus botones (si la radio admite órdenes) o la nota (si no). Pausar o
+    // reanudar según lo que ve de la radio. aria-disabled (no disabled) durante la espera de un 429:
+    // el botón conserva el foco.
+    const modera = vistaMod.modera;
+    const pausada = vistaMod.playing === false;
+    const tipoPausa = pausada ? 'reanudar' : 'pausa';
+    const textoPausa = pausada ? 'Reanudar la radio' : 'Pausar la radio';
+    const ocupadoPausa = !!(ordenando.pausa || ordenando.reanudar);
+    const enEspera = esperaOrden > 0;
     cara = (
       <section className="radio-card radio-card--oyente">
-        <p className="radio-card-title">En vivo</p>
+        <p className="radio-card-title">En vivo{modera && <span className="radio-insignia radio-insignia--titulo">Modera</span>}</p>
         <div className="radio-anfitrion">
           <Avatar persona={anfitrion} grande />
           <h2 className="radio-anfitrion-nombre" ref={oyenteRef} tabIndex={-1}>
@@ -314,6 +324,25 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
             arriba ni al revés. Siempre montada (vacía sin nada que anunciar). Cada anuncio es un hijo con key (su
             contador: un anuncio puede juntar varios eventos y el aviso de rol): un texto repetido monta un nodo nuevo. */}
         <p className="radio-evento" role="status" aria-live="polite">{anuncio ? <span key={anuncio.n}>{anuncio.texto}</span> : null}</p>
+        {modera && (vistaMod.admite ? (
+          <div className="radio-fila radio-ordenes">
+            {vistaMod.conBase && (
+              <button type="button" className="radio-btn radio-btn--orden" aria-label="Siguiente canción de la radio"
+                aria-busy={ordenando.siguiente || undefined} aria-disabled={enEspera || undefined}
+                onClick={() => { if (!ordenando.siguiente && !enEspera) ordenar('siguiente'); }}>
+                Siguiente canción de la radio
+              </button>
+            )}
+            <button type="button" className="radio-btn radio-btn--orden" aria-label={textoPausa}
+              aria-busy={ocupadoPausa || undefined} aria-disabled={enEspera || undefined}
+              onClick={() => { if (!ocupadoPausa && !enEspera) ordenar(tipoPausa); }}>
+              {textoPausa}
+            </button>
+          </div>
+        ) : <p className="radio-nota radio-ordenes-nota">{TEXTOS_ORDEN.sinOrdenes}</p>)}
+        {/* W5b-1: cómo va la orden de quien modera, en SU región (aparte de las de arriba): siempre montada,
+            vacía sin nada que decir (y para quien no modera). Un texto nuevo es un nodo nuevo (key n). */}
+        <p className="radio-orden-estado" role="status" aria-live="polite">{lineaOrden ? <span key={lineaOrden.n}>{lineaOrden.texto}</span> : null}</p>
         <div className="radio-oyentes radio-oyentes--oyente">
           {caras.length > 0 && (
             <span className="radio-oyentes-caras" aria-hidden="true">

@@ -358,6 +358,15 @@ button, input, select, textarea { font-family: inherit; }
 .radio-tope { margin-top: 10px; }
 .radio-evento { margin-top: 12px; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
 .radio-evento:empty { margin-top: 0; }
+/* W5b-1: quien modera, en su tarjeta de oyente: la insignia junto al título, sus botones (44 px) y la
+   línea de cómo va su orden (siempre montada, vacía sin texto). */
+.radio-insignia--titulo { display: inline-block; margin-left: 8px; vertical-align: 1px; text-transform: none; letter-spacing: normal; }
+.radio-ordenes { margin-top: 14px; }
+.radio-btn--orden { flex: 1 1 auto; min-width: 44px; }
+.radio-btn--orden[aria-busy="true"] { opacity: .7; cursor: progress; }
+.radio-btn--orden[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.radio-orden-estado { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--text); }
+.radio-orden-estado:empty { margin-top: 0; }
 .radio-confirmar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .radio-confirmar-pregunta { font-size: 14px; font-weight: 600; color: var(--text); margin-right: 4px; }
 .radio-btn--terminar { color: var(--amber); border-color: var(--amber-dim); }

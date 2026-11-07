@@ -11,6 +11,7 @@ import {
   idDeCancion, DESAJUSTE_MS,
   planDeOrden, siguienteDelMotor, alFinalDeLaCola, confirmacionDe, colaDelOyente,
   juntarEventos, avisarEvento, textoDeEvento, pasoDeEventos,
+  esModerador, resolverOrden, ORDEN_ESPERANDO_MS, ORDEN_VENCE_MS, ORDENES_DE_LA_TARJETA, TEXTOS_ORDEN, textoDeEspera,
 } from '../utils/radioSync.js';
 
 // RADIO WEB: EL ANFITRIÓN (fase 1, sub-paso 3) Y EL OYENTE (sub-paso 4). Port de los puentes de iOS
@@ -68,6 +69,10 @@ const LECTURA_OYENTE = { cap: 'mod' };
 /** Cuánto dura el aviso breve de un evento ajeno. NO 2000 ms: radio-oyente-func cuenta los setTimeout
  *  de 2000 ms pendientes (es la demora del sondeo del oyente). */
 const AVISO_EVENTO_MS = 3500;
+/** W5b-1: lo que ve de la radio quien escucha, para sus botones de moderar. Sin el seq: sube con cada
+ *  publicación del anfitrión (también el latido) y re-renderizaría la sala cada vez sin que cambie nada
+ *  visible. El seq (la base de "siguiente") vive solo en vistaModRef; acá, si lo hay (conBase). */
+const VISTA_MOD_VACIA = Object.freeze({ modera: false, admite: false, playing: null, conBase: false, trackId: null });
 /** Unirse a la sala propia (decisión del usuario: el texto). */
 const TEXTO_SALA_PROPIA = 'Esta radio es tuya.';
 
@@ -93,6 +98,16 @@ export function RadioProvider({ children }) {
   const eventosVistosRef = useRef(new Set());   // ids ya vistos: un evento avisa una sola vez
   // Del oyente (W5a): lo último que se anunció de la radio (eventos y aviso de rol) → { texto, n } | null.
   const [anuncio, setAnuncio] = useState(null);
+  // Del oyente que modera (W5b-1): lo que ve de la radio, sus órdenes en vuelo, la línea de estado y la
+  // cuenta de un 429. Las órdenes viven en un ref (con sus temporizadores); el estado es lo que pinta.
+  const [vistaMod, setVistaMod] = useState(VISTA_MOD_VACIA);
+  const [ordenando, setOrdenando] = useState({});        // tipo → true mientras está en vuelo
+  const [lineaOrden, setLineaOrden] = useState(null);    // { texto, n } | null
+  const [esperaOrden, setEsperaOrden] = useState(0);     // segundos que faltan por un 429 (0 = ninguno)
+  const vistaModRef = useRef({ ...VISTA_MOD_VACIA, estado: null, cursor: 0 });
+  const ordenesRef = useRef(new Map());   // tipo → { tipo, baseTrackId, cursor, enviadaEn, enviando, resuelta, esperando, timers }
+  const esperaRef = useRef({ t: null, s: 0 });
+  const lineaDeRef = useRef(null);        // de quién es la línea: un tipo, 'espera' o null
   // Lo pone el puente del anfitrión: (moderadores) → arranca o corta la lectura de 2 s en el acto.
   const moderarRef = useRef(null);
   const toast = useToast();
@@ -119,6 +134,68 @@ export function RadioProvider({ children }) {
   const tocarRef = useRef(null);
   const primeraRef = useRef(null);
 
+  // ── Las órdenes de quien modera (W5b-1). Funciones de render que solo tocan refs y setters. ──
+  /** La línea de estado. Un texto nuevo es un nodo nuevo (key n): así un texto repetido se vuelve a
+   *  anunciar. `mismo`: la cuenta regresiva cambia el texto sin montar otro nodo. */
+  const decirOrden = (texto, de = null, mismo = false) => {
+    lineaDeRef.current = texto ? de : null;
+    setLineaOrden((l) => (texto ? { texto, n: mismo && l ? l.n : (l?.n ?? 0) + 1 } : null));
+  };
+  const cerrarOrden = (tipo) => {
+    const o = ordenesRef.current.get(tipo);
+    if (!o) return;
+    for (const t of o.timers) clearTimeout(t);
+    ordenesRef.current.delete(tipo);
+    setOrdenando((x) => { const y = { ...x }; delete y[tipo]; return y; });
+  };
+  const cortarEspera = () => {
+    clearTimeout(esperaRef.current.t);
+    esperaRef.current = { t: null, s: 0 };
+    setEsperaOrden(0);
+  };
+  /** Sin órdenes ni cuenta ni línea (salir, terminar, perder el rol, otra sala). */
+  const limpiarOrdenes = () => {
+    for (const tipo of [...ordenesRef.current.keys()]) cerrarOrden(tipo);
+    cortarEspera();
+    lineaDeRef.current = null;
+    setLineaOrden(null);
+  };
+  /** Lo que dijo resolverOrden, a la línea. */
+  const cerrarCon = (tipo, res) => {
+    const o = ordenesRef.current.get(tipo);
+    if (!o) return;
+    switch (res) {
+      case 'cancelada': cerrarOrden(tipo); if (lineaDeRef.current === tipo) decirOrden(null); break;
+      // Aplicada: la línea se vacía y lo dice el evento ("Tú pausaste") en SU región: nada se pisa.
+      case 'aplicada': cerrarOrden(tipo); if (lineaDeRef.current === tipo) decirOrden(null); break;
+      case 'ya-cambio': cerrarOrden(tipo); decirOrden(TEXTOS_ORDEN.yaCambio, tipo); break;
+      case 'no-se-aplico': cerrarOrden(tipo); decirOrden(TEXTOS_ORDEN.noSeAplico, tipo); break;
+      case 'esperando': if (!o.esperando) { o.esperando = true; decirOrden(TEXTOS_ORDEN.esperando, tipo); } break;
+      default: break;
+    }
+  };
+  /** Mira una orden contra lo último que se vio. Mientras se envía, solo se anota lo que la resuelve. */
+  const revisarOrden = (tipo, nuevos = []) => {
+    const o = ordenesRef.current.get(tipo);
+    if (!o) return;
+    const v = vistaModRef.current;
+    const res = resolverOrden(o, { ahoraMs: Date.now(), modera: v.modera, estado: v.estado, eventos: nuevos, yo: Number(userIdRef.current) });
+    if (o.enviando) { if (res === 'aplicada' || res === 'ya-cambio' || res === 'cancelada') o.resuelta = res; return; }
+    cerrarCon(tipo, res);
+  };
+  /** La cuenta de un 429: una cadena de setTimeout de 1000 ms (nunca setInterval). */
+  const empezarEspera = (s) => {
+    clearTimeout(esperaRef.current.t);
+    const paso = (n) => {
+      esperaRef.current.s = n;
+      setEsperaOrden(n);
+      if (n <= 0) { esperaRef.current.t = null; if (lineaDeRef.current === 'espera') decirOrden(null); return; }
+      decirOrden(textoDeEspera(n), 'espera', lineaDeRef.current === 'espera');
+      esperaRef.current.t = setTimeout(() => paso(n - 1), 1000);
+    };
+    paso(s);
+  };
+
   /** Lo de la moderación vuelve a cero (otra sala, o ninguna). */
   const limpiarModeracion = () => {
     setModeradores([]);
@@ -126,6 +203,9 @@ export function RadioProvider({ children }) {
     setSinSoporte(new Set());
     eventosVistosRef.current = new Set();
     setAnuncio(null);
+    limpiarOrdenes();
+    vistaModRef.current = { ...VISTA_MOD_VACIA, estado: null, cursor: 0 };
+    setVistaMod(VISTA_MOD_VACIA);
   };
 
   useEffect(() => {
@@ -133,6 +213,10 @@ export function RadioProvider({ children }) {
     return () => {
       montadoRef.current = false;
       genRef.current += 1;
+      // W5b-1: ningún temporizador de las órdenes sobrevive al provider.
+      for (const o of ordenesRef.current.values()) for (const t of o.timers) clearTimeout(t);
+      ordenesRef.current.clear();
+      clearTimeout(esperaRef.current.t);
       // Logout (o reauth) siendo oyente: el reproductor vive por encima y seguiría sonando lo de la
       // radio. Se calla y se devuelve el repeat; la cola NO se restaura. La salida normal no pasa por
       // acá: finOyente ya dejó la fase en 'sin-radio' antes de desmontar.
@@ -215,6 +299,20 @@ export function RadioProvider({ children }) {
     const conToast = anuncios.filter((a) => a.toast);
     if (conToast.length) toast(conToast[conToast.length - 1].texto, { duration: AVISO_EVENTO_MS });
   }, [toast]);
+
+  /** Del puente del oyente (W5b-1), en cada lectura con moderación: lo que ve (si modera, si la radio
+   *  admite órdenes, el estado y el cursor de eventos) y los eventos nuevos. Con eso se revisan las
+   *  órdenes en vuelo; perder el rol las cancela sin error. */
+  const alVistaOyente = useCallback((gen, obs) => {
+    if (gen !== genRef.current || !montadoRef.current) return;
+    const antes = vistaModRef.current;
+    const e = obs.estado ?? null;
+    vistaModRef.current = { modera: obs.modera, admite: obs.admite, playing: e?.playing ?? null, seq: e?.seq ?? null, trackId: e?.trackId ?? null, estado: e, cursor: obs.cursor ?? 0 };
+    const v = { modera: obs.modera, admite: obs.admite, playing: e?.playing ?? null, conBase: e?.seq != null, trackId: e?.trackId ?? null };
+    setVistaMod((prev) => (Object.keys(v).every((k) => prev[k] === v[k]) ? prev : v));
+    if (!obs.modera) { if (antes.modera) limpiarOrdenes(); return; }
+    for (const tipo of [...ordenesRef.current.keys()]) revisarOrden(tipo, obs.nuevos);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const alAviso = useCallback((gen, a) => {
     if (gen !== genRef.current || !montadoRef.current) return;
@@ -355,6 +453,34 @@ export function RadioProvider({ children }) {
     else setError(textoDeFallo('moderar', r));
     return { ok: false, error: r.error };
   }, []);
+  /** Quien modera manda una orden desde su tarjeta (W5b-1): una en vuelo por tipo. "siguiente" lleva la
+   *  base (el seq del estado que se ve). → lo de api.radioOrdenar, o { ok: false, error } sin mandar. */
+  const ordenar = useCallback(async (tipo) => {
+    if (faseRef.current !== 'oyente' || !ORDENES_DE_LA_TARJETA.includes(tipo)) return { ok: false, error: 'fase' };
+    const v = vistaModRef.current;
+    if (!v.modera || !v.admite) return { ok: false, error: 'sin-rol' };
+    if (ordenesRef.current.has(tipo) || esperaRef.current.s > 0) return { ok: false, error: 'ocupado' };
+    if (tipo === 'siguiente' && v.seq == null) return { ok: false, error: 'sin-estado' };
+    const gen = genRef.current;
+    const o = { tipo, baseTrackId: v.trackId, cursor: v.cursor, enviadaEn: Date.now(), enviando: true, resuelta: null, esperando: false, timers: [] };
+    ordenesRef.current.set(tipo, o);
+    setOrdenando((x) => ({ ...x, [tipo]: true }));
+    decirOrden(TEXTOS_ORDEN.enviando, tipo);
+    const r = await api.radioOrdenar(codigoRef.current, tipo === 'siguiente' ? { type: tipo, seqBase: v.seq } : { type: tipo });
+    if (gen !== genRef.current || !montadoRef.current || ordenesRef.current.get(tipo) !== o) return { ok: false, error: 'vieja' };
+    o.enviando = false;
+    if (!r.ok) {
+      cerrarOrden(tipo);
+      if (r.error === 'frecuencia') empezarEspera(Math.max(1, Math.ceil(r.esperaMs / 1000)));
+      else decirOrden(textoDeFallo('ordenar', r), tipo);
+      return r;
+    }
+    if (o.resuelta) { cerrarCon(tipo, o.resuelta); return r; }
+    if (lineaDeRef.current === tipo) decirOrden(null);
+    o.timers = [setTimeout(() => revisarOrden(tipo), ORDEN_ESPERANDO_MS), setTimeout(() => revisarOrden(tipo), ORDEN_VENCE_MS)];
+    return r;
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const nombrarModerador = useCallback((userId) => moderar(userId, true), [moderar]);
   const quitarModerador = useCallback((userId) => moderar(userId, false), [moderar]);
 
@@ -377,9 +503,11 @@ export function RadioProvider({ children }) {
       fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar,
       iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
       moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
+      vistaMod, ordenando, lineaOrden, esperaOrden, ordenar,
     }),
     [fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar, iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
-      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio],
+      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
+      vistaMod, ordenando, lineaOrden, esperaOrden, ordenar],
   );
 
   return (
@@ -394,7 +522,7 @@ export function RadioProvider({ children }) {
           key={codigo} codigo={codigo} gen={genSala} genRef={genRef}
           primeraRef={primeraRef} fotoRef={fotoRef} motorRef={motorRef} tocarRef={tocarRef}
           salir={finOyente} alOyentes={alOyentes} alAviso={alAviso} alSilenciada={alSilenciada}
-          alQuiereSonar={alQuiereSonar} alEventos={alEventosOyente} yoRef={userIdRef}
+          alQuiereSonar={alQuiereSonar} alEventos={alEventosOyente} alVista={alVistaOyente} yoRef={userIdRef}
         />
       )}
     </RadioContext.Provider>
@@ -666,7 +794,7 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
 // Cada orden propia anota cuándo fue (la gracia de pausaDelOyente) y reinicia la sincro.
 // Si no se pudo cargar la canción (api.track), se pausa lo que sonaba, se avisa y `seguido` vuelve
 // a lo de antes: el próximo sondeo da 'arrancar' otra vez y reintenta, sin sacar al oyente.
-function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar, alEventos, yoRef }) {
+function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar, alEventos, alVista, yoRef }) {
   const { currentTrack, isPlaying, playBlocked, queue, queueIndex, repeat, play, seek, pause, resume, setRepeatMode } = usePlayer();
   const { currentTime, duration } = usePlayerTime();
 
@@ -800,6 +928,13 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
           const pe = pasoDeEventos(eventos, lectura.radio, Number(yoRef.current));
           eventos = pe.estado;
           if (pe.nuevos.length || pe.anuncios.length) alEventos(gen, pe.nuevos, pe.anuncios);
+          // W5b-1: lo que ve quien modera (después de los eventos: la región ya tiene el "Tú pausaste").
+          if (Array.isArray(lectura.radio.moderators)) {
+            alVista(gen, {
+              modera: esModerador(lectura.radio, Number(yoRef.current)), admite: lectura.radio.capabilities?.orders === true,
+              estado: lectura.radio.state ?? null, cursor: eventos?.cursor ?? 0, nuevos: pe.nuevos,
+            });
+          }
         }
       }
       const previo = seguidoRef.current;
