@@ -14,6 +14,10 @@
 // con aleatorio y el ciclo agotado y con repetir una en la última (descartadas: sin evento), "a
 // continuación" y "ahora" al final de la cola (suenan), y una "siguiente" vieja (409 obsoleta).
 // MIDE (en "medidas", fuera del conteo): de la orden al motor del anfitrión, al evento y al oyente.
+// W5b-1 (q, r, s): los BOTONES de su tarjeta ("Pausar la radio", "Reanudar la radio", "Siguiente canción de
+// la radio"), REPS veces cada uno: el motor del anfitrión cambia, el evento llega a SU región (un nodo nuevo
+// cada vez: los textos se repiten), la línea de estado queda vacía y el foco sigue en el botón. Mide del clic
+// al motor y del clic al evento (mínimo, mediana y máximo, en "medidas").
 //
 // Uso: SNAP_BASE=http://localhost:4173 SNAP2_USER=… SNAP2_PASS=… node radio-mod-func.mjs
 // RADIO_MOD_SALIDA=<archivo>: deja ahí los resultados con sus valores.
@@ -243,6 +247,50 @@ try {
     await H.p.evaluate(() => window.__player().next()); await sleep(1500);
     const r = await ordenar({ type: 'siguiente', seqBase: Math.max(0, viejo - 50) });
     ok('n_siguiente_vieja_409_obsoleta', r.status === 409 && r.j?.reason === 'obsoleta', { status: r.status, reason: r.j?.reason }); }
+
+  // ── W5b-1: los botones de la moderadora, contra el motor del anfitrión ──
+  { const REPS = 3;
+    await poner(Q.slice(0, 3), 0, { repeat: 'all' });
+    await sleep(2500);
+    // Cada anuncio de su región es un nodo nuevo (key): se cuentan, así un "Tú pausaste" repetido también se ve.
+    await M.p.evaluate(() => {
+      window.__anuncios = [];
+      const r = document.querySelector('.radio-card--oyente .radio-evento');
+      new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) window.__anuncios.push(n.textContent); }).observe(r, { childList: true });
+    });
+    const anuncios = () => M.p.evaluate(() => window.__anuncios.length);
+    const ultimo = () => M.p.evaluate(() => window.__anuncios[window.__anuncios.length - 1] ?? null);
+    const lineaM = () => M.p.evaluate(() => document.querySelector('.radio-orden-estado')?.textContent ?? null);
+    const lat = { pausa: [], reanudar: [], siguiente: [] };
+    const malas = { pausa: [], reanudar: [], siguiente: [] };
+    const clic = async (tipo, nombre, efecto, texto, otro) => {
+      const b = M.p.getByRole('button', { name: nombre, exact: true });
+      await b.waitFor({ timeout: 9000 });
+      const antes = await motor(H.p);
+      const n0 = await anuncios();
+      const t = Date.now();
+      await b.click();
+      const m = await esperar(async () => { const x = await motor(H.p); return efecto(x, antes) ? x : null; }, 9000, 20);
+      const tM = m.v ? Date.now() - t : null;
+      const ev = await esperar(async () => ((await anuncios()) > n0 && (await ultimo()) === texto ? true : null), 9000, 20);
+      const tE = ev.v ? Date.now() - t : null;
+      await sleep(150);
+      const linea = await lineaM();
+      const foco = await M.p.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
+      lat[tipo].push({ motor_ms: tM, evento_ms: tE });
+      if (!m.v || !ev.v || linea !== '' || ![nombre, otro].includes(foco)) malas[tipo].push({ motor: !!m.v, evento: !!ev.v, linea, foco });
+      await sleep(1200);
+    };
+    for (let k = 0; k < REPS; k++) {
+      await clic('pausa', 'Pausar la radio', (x) => !x.playing, 'Tú pausaste', 'Reanudar la radio');
+      await clic('reanudar', 'Reanudar la radio', (x) => x.playing && x.sonando === 1, 'Tú reanudaste', 'Pausar la radio');
+      await clic('siguiente', 'Siguiente canción de la radio', (x, a) => x.qid !== a.qid && x.playing, 'Tú pasaste a la siguiente canción', null);
+    }
+    const resumen = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? { min: v[0], mediana: v[Math.floor((v.length - 1) / 2)], max: v[v.length - 1], n: v.length } : null; };
+    for (const tipo of Object.keys(lat)) medidas[`boton_${tipo}`] = { motor_ms: resumen(lat[tipo].map((x) => x.motor_ms)), evento_ms: resumen(lat[tipo].map((x) => x.evento_ms)), crudo: lat[tipo] };
+    ok('q_boton_pausar_la_radio', lat.pausa.length === REPS && malas.pausa.length === 0, { malas: malas.pausa, medidas: medidas.boton_pausa });
+    ok('r_boton_reanudar_la_radio', lat.reanudar.length === REPS && malas.reanudar.length === 0, { malas: malas.reanudar, medidas: medidas.boton_reanudar });
+    ok('s_boton_siguiente_cancion_de_la_radio', lat.siguiente.length === REPS && malas.siguiente.length === 0, { malas: malas.siguiente, medidas: medidas.boton_siguiente }); }
 
   // ── Terminar ──
   await H.p.getByRole('button', { name: 'Terminar radio' }).click(); await sleep(250);

@@ -37,6 +37,9 @@
 //   (n) w5a.*   los eventos y el aviso de rol del OYENTE (1.43.0, W5a): pasoDeEventos (la primera lectura solo
 //               fija la base, el cursor no retrocede, eventsLost no anuncia, nombrarme/quitarme sale como aviso
 //               de rol y no como evento, el toast solo con lo ajeno).
+//   (o) w5b1.*  las órdenes de quien modera (1.43.0, W5b-1): resolverOrden (perder el rol cancela; un evento
+//               MÍO la aplica; "siguiente" con otra canción sin evento mío es "Ya había cambiado"; pausa y
+//               reanudar se resuelven por el estado; 5 s "Esperando al anfitrión…", 30 s "No se aplicó").
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -1467,6 +1470,36 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     [{ estado: b, nuevos: [], anuncios: [] }, { estado: null, nuevos: [], anuncios: [] }, { estado: b, nuevos: [], anuncios: [] }],
     'una respuesta sin moderación (moderators ausente) no cambia nada');
   W(P(b, radio({ events: [ev(3, 'algo-de-1.44'), ev(4)], eventsUntil: 4 }), YO).anuncios.map((a) => a.texto), ['Sonia pausó'], 'un tipo que esta versión no conoce no se anuncia');
+}
+
+// ══════════════════ (o) w5b1.* las órdenes de quien modera (1.43.0, W5b-1) ══════════════════
+{
+  const W = (a, b, nombre) => igual('w5b1', a, b, nombre);
+  const Z = S.resolverOrden;
+  const YO = 7;
+  const o = (tipo, x = {}) => ({ tipo, baseTrackId: 100, cursor: 5, enviadaEn: 1000, ...x });
+  const obs = (x = {}) => ({ ahoraMs: 1500, modera: true, estado: { trackId: 100, playing: true }, eventos: [], yo: YO, ...x });
+  const ev = (id, type, by = YO) => ({ id, type, by });
+  const otra = { trackId: 101, playing: true };
+
+  W(Z(o('siguiente'), obs({ estado: otra, eventos: [ev(6, 'siguiente')] })), 'aplicada', 'siguiente: cambió la canción Y llegó mi evento → aplicada');
+  W(Z(o('siguiente'), obs({ estado: otra })), 'ya-cambio', 'siguiente: cambió la canción sin evento mío → "Ya había cambiado"');
+  W(Z(o('siguiente'), obs({ estado: otra, eventos: [ev(6, 'siguiente', 9)] })), 'ya-cambio', 'siguiente: el evento de OTRA persona no la aplica');
+  W(Z(o('siguiente'), obs({ eventos: [ev(5, 'siguiente'), ev(6, 'pausa')] })), 'en-vuelo', 'un evento mío viejo (id ≤ cursor) o de otro tipo no la aplica');
+  W(Z(o('siguiente', { baseTrackId: null }), obs({ estado: otra })), 'en-vuelo', 'siguiente sin base no se da por cambiada');
+  W(Z(o('pausa'), obs({ estado: { trackId: 100, playing: false } })), 'aplicada', 'pausa: la radio ya se ve en pausa → aplicada');
+  W(Z(o('reanudar'), obs({ estado: { trackId: 100, playing: true } })), 'aplicada', 'reanudar: la radio ya se ve sonando → aplicada');
+  W(Z(o('pausa'), obs({ eventos: [ev(6, 'pausa')] })), 'aplicada', 'pausa: mi evento la resuelve aunque el estado todavía no lo muestre');
+  W(Z(o('pausa'), obs()), 'en-vuelo', 'pausa: todavía sonando y antes de 5 s → en vuelo');
+  W([4999, 5000, 29_999, 30_000, 45_000].map((t) => Z(o('pausa'), obs({ ahoraMs: 1000 + t }))), ['en-vuelo', 'esperando', 'esperando', 'no-se-aplico', 'no-se-aplico'],
+    'el tiempo: a los 5 s "esperando", a los 30 s "no se aplicó" (nunca antes)');
+  W(Z(o('siguiente'), obs({ ahoraMs: 40_000, estado: otra })), 'ya-cambio', 'lo que se ve gana sobre el tiempo');
+  W([Z(o('pausa'), obs({ modera: false, ahoraMs: 40_000 })), Z(o('siguiente'), obs({ modera: false, estado: otra, eventos: [ev(6, 'siguiente')] }))], ['cancelada', 'cancelada'],
+    'perder el rol: cancelada, gana sobre el tiempo y sobre el evento');
+  W([Z(null, obs()), Z(o('pausa'), null), Z(o('pausa'), obs({ estado: null, ahoraMs: 'x' }))], ['en-vuelo', 'en-vuelo', 'en-vuelo'], 'entradas que no tienen la forma');
+  W([S.ORDEN_ESPERANDO_MS, S.ORDEN_VENCE_MS, [...S.ORDENES_DE_LA_TARJETA], S.textoDeEspera(7), S.TEXTOS_ORDEN.enviando, S.TEXTOS_ORDEN.esperando, S.TEXTOS_ORDEN.yaCambio, S.TEXTOS_ORDEN.noSeAplico, S.TEXTOS_ORDEN.sinOrdenes],
+    [5000, 30_000, ['siguiente', 'pausa', 'reanudar'], 'Espera 7 s', 'Enviando…', 'Esperando al anfitrión…', 'Ya había cambiado', 'No se aplicó', 'Esta radio no admite moderación'],
+    'los tiempos y los textos');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
