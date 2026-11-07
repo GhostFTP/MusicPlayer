@@ -34,6 +34,9 @@
 //   (m) w4.*    la lista de oyentes del anfitrión (1.43.0, W4): filaDeOyente (insignia, botón y nota: el tope
 //               OCULTA "Hacer moderador", sin-soporte deja la nota), lineaDelTope, juntarEventos (sin
 //               repetidos, en orden y con tope) y avisarEvento (el toast, solo con eventos ajenos).
+//   (n) w5a.*   los eventos y el aviso de rol del OYENTE (1.43.0, W5a): pasoDeEventos (la primera lectura solo
+//               fija la base, el cursor no retrocede, eventsLost no anuncia, nombrarme/quitarme sale como aviso
+//               de rol y no como evento, el toast solo con lo ajeno).
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -1429,6 +1432,41 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     'quien modera sin escuchar: insignia, nota y "Quitar" (también con el tope lleno); el tope cuenta a TODOS los que moderan');
   W(S.lineaDelTope(PL({ oyentes: [p(2)], moderadores: [p(2), p(7), p(8)] }).filter((x) => F({ id: x.id, moderadores: [p(2), p(7), p(8)] }).boton === 'quitar')), 'Ya hay 3 personas moderando. Quita a alguien primero.',
     'tres moderando con dos ausentes: el tope sigue (cuenta a los tres) y los tres tienen "Quitar"');
+}
+
+// ══════════════════ (n) w5a.* los eventos y el aviso de rol del oyente (1.43.0, W5a) ══════════════════
+{
+  const W = (a, b, nombre) => igual('w5a', a, b, nombre);
+  const P = S.pasoDeEventos;
+  const YO = 7, HOST = { id: 1, name: 'Ana' };
+  const ev = (id, type = 'pausa', by = 2, extra = {}) => ({ id, type, by, byName: by === 1 ? 'Ana' : 'Sonia', target: null, targetName: null, trackId: null, title: null, at: 1000 + id, ...extra });
+  const radio = (x = {}) => ({ host: HOST, moderators: [], capabilities: { orders: true }, events: [], eventsUntil: 0, eventsLost: false, ...x });
+  const yoMod = [{ id: YO, name: 'Yo' }];
+
+  W(P(null, radio({ events: [ev(1), ev(2)], eventsUntil: 2 }), YO), { estado: { cursor: 2, moderaba: false }, nuevos: [], anuncios: [] },
+    'la primera lectura (la de unirse) solo fija la base: el cursor en eventsUntil, sin anunciar los eventos viejos');
+  W(P(null, radio({ moderators: yoMod, eventsUntil: 5 }), YO), { estado: { cursor: 5, moderaba: true }, nuevos: [], anuncios: [] },
+    'la primera lectura NO avisa el rol aunque ya modere al entrar');
+  const b = { cursor: 2, moderaba: false };
+  W(P(b, radio({ events: [ev(2), ev(3), ev(4, 'pausa', YO)], eventsUntil: 4 }), YO),
+    { estado: { cursor: 4, moderaba: false }, nuevos: [ev(3), ev(4, 'pausa', YO)], anuncios: [{ texto: 'Sonia pausó', toast: true }, { texto: 'Tú pausaste', toast: false }] },
+    'lo nuevo (id > cursor): lo ajeno con toast, lo propio solo a la región; el cursor pasa a eventsUntil');
+  W(P(b, radio({ moderators: yoMod, events: [ev(3, 'moderador', 1, { target: YO, targetName: 'Yo' })], eventsUntil: 3 }), YO).anuncios,
+    [{ texto: 'Puedes moderar esta radio', toast: true }], 'me nombran: el aviso de rol, y el evento "te nombró" NO se anuncia aparte');
+  W(P({ cursor: 3, moderaba: true }, radio({ events: [ev(4, 'sin-moderador', 1, { target: YO, targetName: 'Yo' })], eventsUntil: 4 }), YO).anuncios,
+    [{ texto: 'Ya no puedes moderar esta radio', toast: true }], 'me quitan el rol: "Ya no puedes moderar esta radio"');
+  W(P(b, radio({ events: [ev(3, 'moderador', 1, { target: 9, targetName: 'Beto' })], eventsUntil: 3 }), YO).anuncios,
+    [{ texto: 'Ana nombró a Beto para moderar', toast: true }], 'nombrar a OTRA persona sí es un evento (ajeno: con toast)');
+  W(P(b, radio({ events: [ev(20), ev(21)], eventsUntil: 21, eventsLost: true }), YO), { estado: { cursor: 21, moderaba: false }, nuevos: [], anuncios: [] },
+    'eventsLost: el cursor se adelanta y no se anuncia nada');
+  W(P(b, radio({ moderators: yoMod, events: [ev(20)], eventsUntil: 20, eventsLost: true }), YO).anuncios, [{ texto: 'Puedes moderar esta radio', toast: true }],
+    'con eventsLost el aviso de rol igual sale (sale de moderators, no de los eventos)');
+  W([P({ cursor: 9, moderaba: false }, radio({ eventsUntil: 4 }), YO).estado.cursor, P({ cursor: 9, moderaba: false }, radio({ eventsUntil: null }), YO).estado.cursor], [9, 9],
+    'el cursor nunca retrocede (ni con un eventsUntil menor ni sin él)');
+  W([P(b, { host: HOST, status: 'live' }, YO), P(null, { host: HOST }, YO), P(b, null, YO)],
+    [{ estado: b, nuevos: [], anuncios: [] }, { estado: null, nuevos: [], anuncios: [] }, { estado: b, nuevos: [], anuncios: [] }],
+    'una respuesta sin moderación (moderators ausente) no cambia nada');
+  W(P(b, radio({ events: [ev(3, 'algo-de-1.44'), ev(4)], eventsUntil: 4 }), YO).anuncios.map((a) => a.texto), ['Sonia pausó'], 'un tipo que esta versión no conoce no se anuncia');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);

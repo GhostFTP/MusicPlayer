@@ -999,6 +999,22 @@ if (corre(20)) {
     && fH2.find((x) => x.nombre === 'Eva')?.boton?.label === 'Hacer moderador a Eva' && focoH === 'radio-personas',
     { filas: fH, caja: cajaCaro, topeAntes, topeDespues, foco: focoH, despues: fH2.map((x) => [x.nombre, x.insignia, x.boton?.texto ?? null]) });
 
+  // i: dos eventos seguidos con el MISMO texto ("Sonia pausó" dos veces) → la región monta DOS nodos (cada
+  // evento es un hijo con key): si el texto solo se reescribiera igual, un lector de pantalla no anunciaría el 2º.
+  await p.evaluate(() => { window.__nodosEv = []; if (window.__obsNodos) window.__obsNodos.disconnect();
+      const r = document.querySelector('.radio-evento');
+      window.__obsNodos = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) window.__nodosEv.push(n.textContent); });
+      window.__obsNodos.observe(r, { childList: true }); });
+  const nodosEv = () => p.evaluate(() => window.__nodosEv.slice());
+  evento('pausa', 9002, 'Sonia');
+  const uno = await esperar(async () => ((await nodosEv()).length >= 1 ? true : null), 6000, 50);
+  evento('pausa', 9002, 'Sonia');
+  const dosN = await esperar(async () => ((await nodosEv()).length >= 2 ? true : null), 6000, 50);
+  await sleep(300);
+  const nodosI = await nodosEv();
+  ok('20i_dos_eventos_con_el_mismo_texto_montan_dos_nodos', !!uno.v && !!dosN.v && nodosI.length === 2 && nodosI.every((x) => x === 'Sonia pausó'),
+    { nodos: nodosI, region: await p.evaluate(() => document.querySelector('.radio-evento')?.textContent ?? null) });
+
   } catch (e) { ok('20_excepcion', false, { error: String(e.message).split(/\r?\n/)[0].slice(0, 300), donde: String(e.stack).split(/\r?\n/).slice(1, 3).join(' | ') }); }
   if (errores.length) ok('20_sin_errores_de_pagina', false, { errores });
   await ctx.close();

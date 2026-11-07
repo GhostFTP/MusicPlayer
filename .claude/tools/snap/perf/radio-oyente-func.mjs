@@ -218,7 +218,8 @@ const restaurada = (f, antes) => mismo(f.cola, antes.cola) && f.indice === antes
   && Math.abs(f.ct - 30) < 1 && f.paused === true && f.isPlaying === false && f.nPlay === 0 && f.repeat === antes.repeat;
 
 // ── Servidor falso (segunda tanda) ──
-// Las salas FK…: GET /api/radio/FK… lo contesta node con FK[código]. `modo`: 'ok' (200 live), 'ended'
+// Las salas FK…: GET /api/radio/FK… lo contesta node con FK[código]. Con `mod` ({ moderators, events, until,
+// lost }) suma lo de la moderación como el servidor real (W5a); con `queries` (una lista) anota el ?… de cada lectura. `modo`: 'ok' (200 live), 'ended'
 // (200 con status ended y `razon`), 'abort' (red caída), { status, headers?, body? } (un error), o una
 // función que devuelve uno de ésos en cada lectura; `demora` (ms) retrasa sólo la próxima respuesta. El estado lo escribe estadoFk(), con la hora de node
 // (el mismo equipo: el reloj del "servidor" y el de la página son el mismo).
@@ -243,6 +244,8 @@ await p.route((u) => /^\/api\/radio\/FK[A-Z0-9]{4}$/.test(u.pathname), async (ro
   const s = FK[code];
   if (!s || route.request().method() !== 'GET') return route.fulfill(json(404, { error: 'Radio not found' }));
   s.lecturas.push(Date.now());
+  const qs = new URL(route.request().url()).searchParams;
+  if (s.queries) s.queries.push(new URL(route.request().url()).search);
   if (s.demora) { const d = s.demora; s.demora = 0; await sleep(d); }
   const m = typeof s.modo === 'function' ? s.modo() : s.modo;
   if (m === 'abort') return route.abort('internetdisconnected');
@@ -251,6 +254,10 @@ await p.route((u) => /^\/api\/radio\/FK[A-Z0-9]{4}$/.test(u.pathname), async (ro
   return route.fulfill(json(200, {
     serverNow: Date.now(), code, status: ended ? 'ended' : 'live', endedReason: ended ? s.razon : null,
     state: s.estado, host: s.host, listeners: s.listeners ?? [s.host, YO_FK],
+    ...(s.mod && (qs.get('cap') === 'mod' || qs.has('desde')) ? {
+      moderators: s.mod.moderators, capabilities: { orders: true }, eventsUntil: s.mod.until, eventsLost: s.mod.lost,
+      events: qs.has('desde') ? s.mod.events.filter((x) => x.id > Number(qs.get('desde'))) : [],
+    } : {}),
   }));
 });
 // /api/tracks/:id: TRK[id] = { fallos, status } → las próximas `fallos` lecturas contestan `status`; el resto, la real.
@@ -790,6 +797,101 @@ try {
     ok('B_con_el_anfitrion_en_pausa_no_aparece', !!vuelve.v && !!pausa.v && f3.bloqueado === true && f3.quiereSonar === false && !v3.toca,
       { volvioElBotonAlReanudar: !!vuelve.v, bloqueado: f3.bloqueado, quiereSonar: f3.quiereSonar, boton: v3.toca });
     await p.evaluate(() => { window.__bloquear = false; });
+    await salirFk();
+  }
+
+  // ── E. (1.43.0, W5a) eventos y aviso de rol para el oyente: el cursor, sin eventos viejos, lo ajeno con
+  //    toast, lo propio sin toast, nombrado y quitado, eventsLost y que la región no repita anuncios ──
+  {
+    const T = { ajeno: 'Anfitriona nombró a Beto para moderar', propio: 'Tú pausaste', nombrado: 'Puedes moderar esta radio',
+      quitado: 'Ya no puedes moderar esta radio', tras: 'Anfitriona pausó', teNombro: 'Anfitriona te nombró para moderar' };
+    const evFk = (id, type, by, extra = {}) => ({ id, type, by, byName: by === HOST_FK.id ? 'Anfitriona' : 'Yo', target: null, targetName: null, trackId: null, title: null, at: Date.now(), ...extra });
+    const observar = () => p.evaluate(() => {
+      window.__toasts = []; window.__regEv = [];
+      if (window.__obsEv) window.__obsEv.disconnect();
+      window.__obsEv = new MutationObserver(() => {
+        for (const n of document.querySelectorAll('.toast-text')) if (!n.dataset.visto) { n.dataset.visto = '1'; window.__toasts.push(n.textContent); }
+        const r = document.querySelector('.radio-evento'); const t = r ? r.textContent : null;
+        if (r && window.__regEv[window.__regEv.length - 1] !== t) window.__regEv.push(t);
+      });
+      window.__obsEv.observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    const region = () => p.evaluate(() => { const r = document.querySelector('.radio-evento'); return r ? { texto: r.textContent, rol: r.getAttribute('role') } : null; });
+    const toasts = () => p.evaluate(() => window.__toasts.slice());
+    const llega = (texto) => esperar(async () => ((await region())?.texto === texto ? true : null), 6000, 50);
+
+    await observar();
+    const e = await entrarFk({ mod: { moderators: [], events: [evFk(1, 'pausa', HOST_FK.id), evFk(2, 'reanudar', HOST_FK.id), evFk(3, 'siguiente', HOST_FK.id)], until: 3, lost: false }, queries: [] });
+    const s = FK[e.code];
+    await esperar(async () => (s.queries.length >= 3 ? true : null), 8000, 100);
+    const r0 = await region(); const t0 = await toasts();
+    ok('E_unirse_fija_el_cursor_y_las_siguientes_leen_con_desde', e.sono && s.queries[0] === '?cap=mod' && s.queries.length >= 3 && s.queries.slice(1).every((q) => q === '?cap=mod&desde=3'),
+      { queries: s.queries.slice(0, 5) });
+    ok('E_sin_eventos_viejos_al_entrar', r0?.rol === 'status' && r0.texto === '' && t0.length === 0, { region: r0, toasts: t0 });
+
+    s.mod.events.push(evFk(4, 'moderador', HOST_FK.id, { target: 990002, targetName: 'Beto' })); s.mod.until = 4;
+    const aj = await llega(T.ajeno); await sleep(300);
+    const tA = await toasts();
+    ok('E_evento_ajeno_en_la_region_y_en_el_toast', !!aj.v && tA.includes(T.ajeno), { region: await region(), toasts: tA });
+
+    s.mod.events.push(evFk(5, 'pausa', idOye)); s.mod.until = 5;
+    const pr = await llega(T.propio); await sleep(800);
+    const tP = await toasts();
+    ok('E_evento_propio_solo_en_la_region', !!pr.v && !tP.includes(T.propio), { region: await region(), toasts: tP });
+
+    s.mod.moderators = [YO_FK]; s.mod.events.push(evFk(6, 'moderador', HOST_FK.id, { target: idOye, targetName: 'Yo' })); s.mod.until = 6;
+    const nm = await llega(T.nombrado); await sleep(300);
+    const tN = await toasts(); const regN = await p.evaluate(() => window.__regEv.slice());
+    ok('E_aviso_al_ser_nombrado', !!nm.v && tN.includes(T.nombrado) && !regN.some((x) => x?.includes(T.teNombro)), { region: await region(), toasts: tN });
+
+    s.mod.moderators = []; s.mod.events.push(evFk(7, 'sin-moderador', HOST_FK.id, { target: idOye, targetName: 'Yo' })); s.mod.until = 7;
+    const qt = await llega(T.quitado); await sleep(300);
+    const tQ = await toasts();
+    ok('E_aviso_al_quitar_el_rol', !!qt.v && tQ.includes(T.quitado), { region: await region(), toasts: tQ });
+
+    // eventsLost: el cursor salta a 21 sin anunciar los 20 y 21; después, el 22 se anuncia normal
+    const regAntes = (await p.evaluate(() => window.__regEv.slice())).length; const toastsAntes = (await toasts()).length;
+    const nq = s.queries.length;
+    s.mod.events = [evFk(20, 'reanudar', HOST_FK.id), evFk(21, 'siguiente', HOST_FK.id)]; s.mod.until = 21; s.mod.lost = true;
+    const salto = await esperar(async () => (s.queries.slice(nq).includes('?cap=mod&desde=21') ? true : null), 8000, 50);
+    const regLost = (await p.evaluate(() => window.__regEv.slice())).length; const toastsLost = (await toasts()).length;
+    s.mod.lost = false; s.mod.events.push(evFk(22, 'pausa', HOST_FK.id)); s.mod.until = 22;
+    const sigue = await llega(T.tras);
+    ok('E_events_lost_adelanta_el_cursor_sin_anunciar', !!salto.v && regLost === regAntes && toastsLost === toastsAntes && !!sigue.v,
+      { saltoA21: !!salto.v, anunciosDuranteLost: regLost - regAntes, toastsDuranteLost: toastsLost - toastsAntes, siguio: !!sigue.v, queries: s.queries.slice(nq, nq + 4) });
+
+    await sleep(2500);   // un par de vueltas más sin nada nuevo: la región no vuelve a anunciar
+    const secuencia = (await p.evaluate(() => window.__regEv.slice())).filter((x) => x);
+    ok('E_la_region_no_repite_anuncios', JSON.stringify(secuencia) === JSON.stringify([T.ajeno, T.propio, T.nombrado, T.quitado, T.tras]), { secuencia });
+    await salirFk();
+
+    await observar();
+    const e2 = await entrarFk({ mod: { moderators: [YO_FK], events: [], until: 9, lost: false }, queries: [] });
+    await esperar(async () => (FK[e2.code].queries.length >= 3 ? true : null), 8000, 100);
+    await sleep(500);
+    const r2 = await region(); const t2 = await toasts();
+    ok('E_primera_lectura_no_avisa_si_ya_moderaba', e2.sono && r2?.texto === '' && !t2.includes('Puedes moderar esta radio'), { region: r2, toasts: t2, lecturas: FK[e2.code].queries.length });
+    await salirFk();
+
+    // Dos eventos seguidos con el MISMO texto ("Anfitriona pausó" dos veces) → la región monta DOS nodos (cada
+    // anuncio es un hijo con key): si el texto solo se reescribiera igual, un lector de pantalla no anunciaría el 2º.
+    const e3 = await entrarFk({ mod: { moderators: [], events: [], until: 0, lost: false }, queries: [] });
+    const s3 = FK[e3.code];
+    await esperar(async () => (s3.queries.length >= 2 ? true : null), 8000, 100);
+    await p.evaluate(() => { window.__nodosEv = []; if (window.__obsNodos) window.__obsNodos.disconnect();
+      const r = document.querySelector('.radio-evento');
+      window.__obsNodos = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) window.__nodosEv.push(n.textContent); });
+      window.__obsNodos.observe(r, { childList: true }); });
+    const nodosEv = () => p.evaluate(() => window.__nodosEv.slice());
+    s3.mod.events.push(evFk(1, 'pausa', HOST_FK.id)); s3.mod.until = 1;
+    const uno = await esperar(async () => ((await nodosEv()).length >= 1 ? true : null), 6000, 50);
+    s3.mod.events.push(evFk(2, 'pausa', HOST_FK.id)); s3.mod.until = 2;
+    const dosN = await esperar(async () => ((await nodosEv()).length >= 2 ? true : null), 6000, 50);
+    await sleep(300);
+    const nodos3 = await nodosEv();
+    const vivo3 = await p.evaluate(() => document.querySelector('.radio-evento')?.getAttribute('aria-live') ?? null);
+    ok('E_texto_repetido_monta_dos_nodos', e3.sono && !!uno.v && !!dosN.v && nodos3.length === 2 && nodos3.every((x) => x === T.tras) && vivo3 === 'polite',
+      { nodos: nodos3, ariaLive: vivo3, region: await region() });
     await salirFk();
   }
 
