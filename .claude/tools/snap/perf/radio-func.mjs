@@ -20,6 +20,7 @@
 // DevTools sobre el build de producción, ubicando los componentes por su DOM), y que al salir no
 // quede vivo ningún intervalo de la radio.
 //
+// 20 (1.43.0, W4): la cara del anfitrión con la lista de quién escucha, contra un servidor FALSO.
 // RADIO_SOLO=2,11 corre sólo esos escenarios (lo usan las mutaciones de control; el conteo no cuadra
 // con el baseline a propósito). Lo que no se puede medir va en "NO MEDIDO", fuera del conteo.
 // Uso: SNAP_BASE=http://localhost:4173 SNAP2_USER=… SNAP2_PASS=… node radio-func.mjs
@@ -835,6 +836,171 @@ if (corre(19)) {
     MEDIDAS_19 = medidas;
   }
   if (errores.length) ok('19_sin_errores_de_pagina', false, { errores });
+  await ctx.close();
+}
+
+// ══════════════════════════ 20: LA CARA DEL ANFITRIÓN (1.43.0, W4), servidor de radio FALSO ══════════════════════════
+// La lista de quién escucha con "Hacer moderador" / "Quitar", el tope de 3, el 409 sin-soporte, la región
+// viva de los eventos y el toast (solo con eventos AJENOS), y que la lectura de 2 s arranque al nombrar,
+// sin esperar la de 5 s. Cuatro oyentes que admiten moderar (Sonia, Beto, Caro, Eva) y una que no (Dani).
+const FW = { host: null, mods: [], sinSoporte: new Set([9005]), fuera: new Set(), eventos: [], evId: 0, log: [] };   // fuera: dejaron de escuchar
+// Ids altos: que ninguno coincida con el anfitrión real (la lista lo saca por id).
+const PERS = { 9002: 'Sonia', 9003: 'Beto', 9004: 'Caro', 9005: 'Dani', 9006: 'Eva' };
+const persona = (id) => ({ id, name: PERS[id], avatar: null });
+const evento = (type, by, byName, target = null) => {
+  const e = { id: ++FW.evId, type, by, byName, target, targetName: target ? PERS[target] : null, trackId: null, title: null, at: Date.now() };
+  FW.eventos.push(e); return e;
+};
+async function falsoW4(route) {
+  const q = route.request(); const m = q.method(); const t = Date.now(); const u = new URL(q.url());
+  FW.log.push({ t, m, ruta: u.pathname + u.search });
+  const json = (status, b) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(b) });
+  const code = 'K7M2QX';
+  const mod = u.pathname.match(/\/moderadores\/(\d+)$/);
+  if (mod) {
+    const id = +mod[1];
+    if (m === 'PUT') {
+      if (FW.sinSoporte.has(id)) return json(409, { error: 'x', reason: 'sin-soporte' });
+      if (!FW.mods.includes(id)) {
+        if (FW.mods.length >= 3) return json(409, { error: 'x', reason: 'moderadores-llenos' });
+        FW.mods.push(id); evento('moderador', FW.host, 'Yo', id);
+      }
+    } else if (FW.mods.includes(id)) { FW.mods = FW.mods.filter((x) => x !== id); evento('sin-moderador', FW.host, 'Yo', id); }
+    return json(200, { serverNow: t, moderators: FW.mods.map(persona), name: PERS[id] });
+  }
+  if (m === 'POST') return json(201, { code, serverNow: t, status: 'live' });
+  if (m === 'PUT') {
+    const b = q.postData() ? JSON.parse(q.postData()) : {};
+    return json(200, { serverNow: t, status: 'live', state: { seq: 1, trackId: b.trackId ?? null, positionMs: b.positionMs ?? 0, playing: !!b.playing, nextTrackId: b.nextTrackId ?? null, enPausaPorVideo: false, publishedAtServerMs: t } });
+  }
+  if (m === 'GET') {
+    const desde = Number(u.searchParams.get('desde') ?? 0);
+    return json(200, { serverNow: t, code, status: 'live', state: null, host: { id: FW.host, name: 'Yo' }, listeners: [9002, 9003, 9004, 9005, 9006].filter((id) => !FW.fuera.has(id)).map(persona),
+      moderators: FW.mods.map(persona), capabilities: { orders: true }, events: FW.eventos.filter((e) => e.id > desde), eventsUntil: FW.evId, eventsLost: false, orders: [] });
+  }
+  if (m === 'DELETE') return json(200, { serverNow: t, status: 'ended', endedReason: 'anfitrion' });
+  return route.continue();
+}
+// Lo que pasa por la región viva y por los toasts, anotado en la página (un toast dura 3,5 s: así no se escapa).
+const OBSERVAR_W4 = () => {
+  window.__toasts = []; window.__region = [];
+  new MutationObserver(() => {
+    for (const n of document.querySelectorAll('.toast-text')) if (!n.dataset.visto) { n.dataset.visto = '1'; window.__toasts.push(n.textContent); }
+    const r = document.querySelector('.radio-evento'); const tx = r?.textContent ?? null;
+    if (r && window.__region[window.__region.length - 1] !== tx) window.__region.push(tx);
+  }).observe(document.body, { subtree: true, childList: true, characterData: true });
+};
+
+if (corre(20)) {
+  const { ctx, p, errores } = await abrir({ falso: falsoW4, init: INIT_MOD });
+  try {
+  await sonar(p); await irA(p, 'Radio');
+  FW.host = await p.evaluate(() => window.__sesion()?.user?.id ?? null);
+  await p.evaluate(OBSERVAR_W4);
+  const intervalos = (ms) => p.evaluate((x) => [...window.__intervalos.values()].filter((v) => v === x).length, ms);
+  const filas = () => p.evaluate(() => [...document.querySelectorAll('.radio-persona')].map((li) => {
+    const b = li.querySelector('.radio-btn--persona');
+    return { nombre: li.querySelector('.radio-persona-nombre')?.textContent, insignia: li.querySelector('.radio-insignia')?.textContent ?? null,
+      boton: b ? { texto: b.textContent, label: b.getAttribute('aria-label'), off: b.disabled, id: b.dataset.persona } : null,
+      nota: li.querySelector('.radio-persona-nota')?.textContent ?? null };
+  }));
+  const fila = async (nombre) => (await filas()).find((x) => x.nombre === nombre);
+  const foco = () => p.evaluate(() => { const a = document.activeElement; return { clase: a?.className ?? null, texto: a?.textContent ?? null, persona: a?.dataset?.persona ?? null, id: a?.id ?? null }; });
+  const tras = (t, ruta) => FW.log.filter((x) => x.t >= t && x.ruta.includes(ruta));
+  // Clic justo DESPUÉS de una lectura: la de 5 s queda a ~5 s, así lo que pase en el primer segundo es del clic.
+  const gets = () => FW.log.filter((x) => x.m === 'GET').length;
+  const trasUnaLectura = async () => { const n = gets(); await esperar(async () => gets() > n, 7000, 25); };
+
+  await iniciar(p);
+  const lista = await esperar(async () => ((await filas()).length === 6 ? true : null), 8000, 100);
+  const f0 = await filas();
+  const region0 = await p.evaluate(() => { const r = document.querySelector('.radio-evento'); return r ? { rol: r.getAttribute('role'), texto: r.textContent } : null; });
+  ok('20a_lista_con_insignias_y_hacer_moderador', !!lista.v && f0[0].nombre === 'Tú' && f0[0].insignia === 'Anfitrión' && !f0[0].boton
+    && f0.slice(1).every((x) => x.insignia === null && x.boton?.texto === 'Hacer moderador' && x.boton.label === `Hacer moderador a ${x.nombre}` && !x.boton.off)
+    && region0?.rol === 'status' && region0.texto === '' && (await intervalos(2000)) === 0,
+    { filas: f0, region: region0 });
+
+  // b: nombrar a Sonia → insignia, "Quitar", el foco sigue en el botón y la lectura de 2 s ya está
+  await trasUnaLectura();
+  const tB = Date.now();
+  await p.getByRole('button', { name: 'Hacer moderador a Sonia' }).click();
+  const dos = await esperar(async () => ((await intervalos(2000)) === 1 ? true : null), 3000, 25);
+  const msDos = dos.v ? Date.now() - tB : null;
+  await sleep(200);
+  const fB = await fila('Sonia'); const focoB = await foco();
+  ok('20b_nombrar_marca_modera_y_arranca_la_lectura_de_2s_en_el_acto', tras(tB, '/moderadores/9002').some((x) => x.m === 'PUT') && fB.insignia === 'Modera' && fB.boton?.texto === 'Quitar'
+    && fB.boton.label === 'Quitar a Sonia de moderar' && focoB.persona === '9002' && msDos != null && msDos < 1000,
+    { fila: fB, foco: focoB, ms2s: msDos });
+
+  // c/d: el evento propio (nombrar) va a la región y NO al toast; uno ajeno (Sonia pausa) va a los dos
+  const propio = await esperar(async () => ((await p.evaluate(() => window.__region)).includes('Tú nombraste a Sonia para moderar') ? true : null), 5000, 50);
+  evento('pausa', 9002, 'Sonia');
+  const ajenoR = await esperar(async () => ((await p.evaluate(() => document.querySelector('.radio-evento')?.textContent)) === 'Sonia pausó' ? true : null), 5000, 50);
+  const ajenoT = await esperar(async () => ((await p.evaluate(() => window.__toasts)).includes('Sonia pausó') ? true : null), 3000, 50);
+  const toasts = await p.evaluate(() => window.__toasts);
+  const region = await p.evaluate(() => window.__region);
+  ok('20c_evento_ajeno_en_la_region_viva_y_en_el_toast', !!ajenoR.v && !!ajenoT.v, { region, toasts });
+  ok('20d_evento_propio_solo_en_la_region_sin_toast', !!propio.v && !toasts.some((x) => /^Tú /.test(x)), { region, toasts });
+
+  // e: quitar a Sonia → sin insignia, "Hacer moderador", el foco sigue ahí y se corta la lectura de 2 s
+  const tE = Date.now();
+  await p.getByRole('button', { name: 'Quitar a Sonia de moderar' }).click();
+  const sinDos = await esperar(async () => ((await intervalos(2000)) === 0 ? true : null), 3000, 25);
+  await sleep(200);
+  const fE = await fila('Sonia'); const focoE = await foco();
+  ok('20e_quitar_vuelve_a_hacer_moderador_y_corta_la_lectura_de_2s', tras(tE, '/moderadores/9002').some((x) => x.m === 'DELETE') && fE.insignia === null && fE.boton?.texto === 'Hacer moderador'
+    && focoE.persona === '9002' && !!sinDos.v, { fila: fE, foco: focoE });
+
+  // g: Dani no lo admite (409 sin-soporte) → sin botón, la nota con el foco, sin aviso de error, y no se reintenta
+  const tG = Date.now();
+  await p.getByRole('button', { name: 'Hacer moderador a Dani' }).click();
+  await esperar(async () => ((await fila('Dani'))?.nota ? true : null), 3000, 50);
+  await sleep(2500);
+  const fG = await fila('Dani'); const focoG = await foco();
+  const estadoG = await p.evaluate(() => document.querySelector('.radio-estado')?.textContent ?? null);
+  ok('20g_sin_soporte_deja_la_nota_y_no_reintenta', fG.nota === 'Su versión todavía no lo admite.' && fG.boton === null && focoG.id === 'radio-persona-nota-9005'
+    && tras(tG, '/moderadores/9005').length === 1 && estadoG === '', { fila: fG, foco: focoG, pedidos: tras(tG, '/moderadores/9005').length, estado: estadoG });
+
+  // f: tres moderando → a Eva se le OCULTA el botón (no está en el DOM) y aparece la línea del tope
+  for (const n of ['Sonia', 'Beto', 'Caro']) {
+    await p.getByRole('button', { name: `Hacer moderador a ${n}` }).click();
+    await esperar(async () => ((await fila(n))?.insignia === 'Modera' ? true : null), 3000, 50);
+  }
+  await sleep(300);
+  const fF = await filas();
+  const tope = await p.evaluate(() => document.querySelector('.radio-tope')?.textContent ?? null);
+  const eva = fF.find((x) => x.nombre === 'Eva');
+  const nodosEva = await p.evaluate(() => document.querySelectorAll('[data-persona="9006"]').length);
+  ok('20f_con_3_moderando_se_oculta_hacer_moderador_y_sale_la_linea', FW.mods.length === 3 && !!eva && eva.boton === null && eva.nota === null
+    && fF.every((x) => !x.boton?.off) && tope === 'Ya hay 3 personas moderando. Quita a alguien primero.' && nodosEva === 0,
+    { filas: fF, tope, mods: FW.mods });
+
+  // h: un moderador que DEJA DE ESCUCHAR sigue moderando (el servidor no lo saca). Con 3 (Caro ausente)
+  // su fila sigue, al final, con "Modera", la nota y "Quitar"; quitarla libera el tope y el foco va a la lista.
+  FW.fuera.add(9004);
+  const ausente = await esperar(async () => { const f = await filas(); return f[f.length - 1]?.nombre === 'Caro' && f.filter((x) => x.nombre === 'Caro').length === 1 ? f : null; }, 8000, 100);
+  const fH = ausente.v ?? await filas();
+  const caro = fH[fH.length - 1];
+  const cajaCaro = await p.evaluate(() => { const b = document.querySelector('[aria-label="Quitar a Caro de moderar"]'); if (!b) return null; const r = b.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; });
+  const topeAntes = await p.evaluate(() => document.querySelector('.radio-tope')?.textContent ?? null);
+  const tH = Date.now();
+  let quitada = false;
+  if (cajaCaro) {
+    await p.getByRole('button', { name: 'Quitar a Caro de moderar' }).click();
+    quitada = !!(await esperar(async () => ((await filas()).some((x) => x.nombre === 'Caro') ? null : true), 4000, 50)).v;
+  }
+  await sleep(300);
+  const fH2 = await filas();
+  const topeDespues = await p.evaluate(() => document.querySelector('.radio-tope')?.textContent ?? null);
+  const focoH = await p.evaluate(() => document.activeElement?.className ?? null);
+  ok('20h_moderador_ausente_tiene_fila_con_quitar_y_libera_el_tope', !!ausente.v && caro?.insignia === 'Modera' && caro.nota === 'No está escuchando' && caro.boton?.label === 'Quitar a Caro de moderar'
+    && cajaCaro?.w >= 44 && cajaCaro?.h >= 44 && topeAntes === 'Ya hay 3 personas moderando. Quita a alguien primero.'
+    && tras(tH, '/moderadores/9004').some((x) => x.m === 'DELETE') && quitada && topeDespues === null
+    && fH2.find((x) => x.nombre === 'Eva')?.boton?.label === 'Hacer moderador a Eva' && focoH === 'radio-personas',
+    { filas: fH, caja: cajaCaro, topeAntes, topeDespues, foco: focoH, despues: fH2.map((x) => [x.nombre, x.insignia, x.boton?.texto ?? null]) });
+
+  } catch (e) { ok('20_excepcion', false, { error: String(e.message).split(/\r?\n/)[0].slice(0, 300), donde: String(e.stack).split(/\r?\n/).slice(1, 3).join(' | ') }); }
+  if (errores.length) ok('20_sin_errores_de_pagina', false, { errores });
   await ctx.close();
 }
 

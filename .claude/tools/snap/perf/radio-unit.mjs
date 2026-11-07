@@ -31,6 +31,9 @@
 //               playNext (PlayerContext.jsx, transcrito como datos y recorrido en todos los estados chicos),
 //               alFinalDeLaCola, planDeOrden con sin-siguiente / verificar / "a continuación" al final,
 //               confirmacionDe (tandas de 10) y debePublicar con 'confirmar'.
+//   (m) w4.*    la lista de oyentes del anfitrión (1.43.0, W4): filaDeOyente (insignia, botón y nota: el tope
+//               OCULTA "Hacer moderador", sin-soporte deja la nota), lineaDelTope, juntarEventos (sin
+//               repetidos, en orden y con tope) y avisarEvento (el toast, solo con eventos ajenos).
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -1149,7 +1152,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   const TF = (accion, error) => S.textoDeFallo(accion, { error });
   M([TF('moderar', 'sin-permiso'), TF('ordenar', 'sin-permiso'), TF('moderar', 'no-escucha'), TF('ordenar', 'no-escucha'), TF('moderar', 'sin-soporte'), TF('ordenar', 'sin-soporte')],
     ['Solo quien creó la radio puede elegir quién modera.', 'Ya no puedes moderar esta radio.', 'Esa persona ya no está escuchando.',
-      'Tienes que estar escuchando la radio para moderar.', 'La app de esa persona todavía no permite moderar.', 'La app del anfitrión todavía no acepta órdenes.'],
+      'Tienes que estar escuchando la radio para moderar.', 'Su versión todavía no lo admite.', 'La app del anfitrión todavía no acepta órdenes.'],
     'textoDeFallo: sin-permiso, no-escucha y sin-soporte, según la acción');
   M([TF('moderar', 'es-el-anfitrion'), TF('moderar', 'moderadores-llenos'), TF('ordenar', 'ordenes-llenas'), TF('ordenar', 'obsoleta'), TF('ordenar', 'video'), TF('ordenar', 'sin-pista')],
     ['La radio ya es tuya: no hace falta que la moderes.', 'Ya hay 3 personas moderando. Quita a alguien primero.', 'Hay muchas órdenes pendientes. Espera un momento.',
@@ -1385,6 +1388,47 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     [null, 'confirmar'], 'sin canción no se puede publicar ni para confirmar; con un video, sí');
   W([S.debePublicar(Pub, { ...A, positionMs: 30_000 + S.RADIO.LATIDO_MS }, 100_000 + S.RADIO.LATIDO_MS, true), S.debePublicar(Pub, A, 102_000, 'si')], ['confirmar', null],
     'a la hora del latido con algo por confirmar: "confirmar" (publica igual); solo un true de verdad');
+}
+
+// ══════════════════ (m) w4.* la lista de oyentes del anfitrión (1.43.0, W4) ══════════════════
+{
+  const W = (a, b, nombre) => igual('w4', a, b, nombre);
+  const F = S.filaDeOyente;
+  const p = (id) => ({ id, name: `P${id}`, avatar: null });
+  const NOMBRAR = { insignia: null, boton: 'nombrar', nota: null };
+  const QUITAR = { insignia: 'Modera', boton: 'quitar', nota: null };
+  const NADA = { insignia: null, boton: null, nota: null };
+  const SIN = { insignia: null, boton: null, nota: 'Su versión todavía no lo admite.' };
+  W([F({ id: 5, moderadores: [] }), F({ id: 5, moderadores: [p(2)] }), F({ id: 2, moderadores: [p(2)] })], [NOMBRAR, NOMBRAR, QUITAR],
+    'quien no modera: "Hacer moderador"; quien modera: la insignia y "Quitar"');
+  W([F({ id: 5, moderadores: [p(2), p(3), p(4)] }), F({ id: 3, moderadores: [p(2), p(3), p(4)] }), F({ id: 5, moderadores: [2, 3, 4] })], [NADA, QUITAR, NADA],
+    'con el tope (3) lleno: el resto SIN botón (oculto, no deshabilitado); quien modera conserva "Quitar"; vale con ids sueltos');
+  W([F({ id: 5, moderadores: [p(2), p(2), p(3)] })], [NOMBRAR], 'un moderador repetido cuenta una vez: no llena el tope');
+  W([F({ id: 5, moderadores: [], sinSoporte: new Set([5]) }), F({ id: 5, moderadores: [], sinSoporte: [5] }), F({ id: 6, moderadores: [], sinSoporte: new Set([5]) })], [SIN, SIN, NOMBRAR],
+    'sin-soporte (Set o lista): sin botón y con la nota; a los demás no les cambia nada');
+  W([F({ id: 5, moderadores: [p(2), p(3), p(4)], sinSoporte: [5] }), F({ id: 2, moderadores: [p(2)], sinSoporte: [2] })], [SIN, QUITAR],
+    'sin-soporte con el tope lleno: la nota igual (dice por qué); si ya modera, "Quitar" gana');
+  W([F({ id: 0, moderadores: [] }), F({ id: '5', moderadores: [] }), F(null), F({ id: 5 })], [NADA, NADA, NADA, NOMBRAR], 'un id raro no lleva botón; sin lista de moderadores, nadie modera');
+  W([S.lineaDelTope([]), S.lineaDelTope([p(2), p(3)]), S.lineaDelTope([p(2), p(3), p(4)]), S.lineaDelTope([p(2), p(2), p(3)]), S.lineaDelTope(null)],
+    [null, null, 'Ya hay 3 personas moderando. Quita a alguien primero.', null, null], 'la línea del tope: solo con 3 distintos, con el texto de textoDeFallo');
+  const ev = (id, by = 2, type = 'pausa') => ({ id, type, by, byName: 'Sonia', target: null, targetName: null, trackId: null, title: null, at: 1000 + id });
+  W(S.juntarEventos([ev(1), ev(3)], [ev(2), ev(3), ev(4)]).map((e) => e.id), [1, 2, 3, 4], 'juntarEventos: sin repetidos y en orden de id');
+  W(S.juntarEventos([], Array.from({ length: 25 }, (_, i) => ev(i + 1))).map((e) => e.id), Array.from({ length: 20 }, (_, i) => i + 6), 'con tope: solo los últimos 20 (EVENTOS_MAX)');
+  W([S.juntarEventos(null, [ev(1), null, { id: 0 }, 'x']).map((e) => e.id), S.juntarEventos(undefined, undefined)], [[1], []], 'lo que no tiene forma de evento no entra; sin nada, vacío');
+  W([S.avisarEvento(ev(1, 7), 7), S.avisarEvento(ev(1, 2), 7), S.avisarEvento({ ...ev(1, null) }, 7), S.avisarEvento(ev(1, 2, 'algo-de-1.44'), 7), S.avisarEvento(null, 7)],
+    [false, true, true, false, false], 'avisarEvento: lo propio NO va al toast; lo ajeno sí (aunque no tenga autor); un tipo desconocido, no');
+  W([S.avisarEvento(ev(1, 1, 'moderador'), 1), S.avisarEvento({ ...ev(1, 1, 'moderador'), target: 9, targetName: 'Beto' }, 9)], [false, true],
+    'nombrar: a quien nombró no le avisa; a quien nombraron, sí');
+  const PL = S.personasDeLaLista;
+  W(PL({ oyentes: [p(2), p(5)], moderadores: [p(2), p(7)] }).map((x) => [x.id, x.ausente]), [[2, false], [5, false], [7, true]],
+    'la lista: los oyentes y AL FINAL quien modera sin escuchar (sin repetir a quien modera y escucha)');
+  W([PL({ oyentes: [p(2)], moderadores: [p(7), p(7), { id: 0 }, null] }).map((x) => x.id), PL({}).length, PL({ oyentes: [p(2)], moderadores: null }).map((x) => x.id)], [[2, 7], 0, [2]],
+    'sin repetidos ni malformados; sin datos, vacía');
+  W([F({ id: 7, moderadores: [p(2), p(3), p(7)], ausente: true }), F({ id: 7, moderadores: [p(2)], ausente: true }), F({ id: 2, moderadores: [p(2)], ausente: false })],
+    [{ insignia: 'Modera', boton: 'quitar', nota: 'No está escuchando' }, NOMBRAR, QUITAR],
+    'quien modera sin escuchar: insignia, nota y "Quitar" (también con el tope lleno); el tope cuenta a TODOS los que moderan');
+  W(S.lineaDelTope(PL({ oyentes: [p(2)], moderadores: [p(2), p(7), p(8)] }).filter((x) => F({ id: x.id, moderadores: [p(2), p(7), p(8)] }).boton === 'quitar')), 'Ya hay 3 personas moderando. Quita a alguien primero.',
+    'tres moderando con dos ausentes: el tope sigue (cuenta a los tres) y los tres tienen "Quitar"');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
