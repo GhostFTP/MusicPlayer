@@ -10,7 +10,7 @@ import {
   esperaDelSondeo, resolverColaDelOyente, fotoDeLaCola, planDeRestauracion, pausaDelOyente,
   idDeCancion, DESAJUSTE_MS,
   planDeOrden, siguienteDelMotor, alFinalDeLaCola, confirmacionDe, colaDelOyente,
-  juntarEventos, avisarEvento, textoDeEvento,
+  juntarEventos, avisarEvento, textoDeEvento, pasoDeEventos,
 } from '../utils/radioSync.js';
 
 // RADIO WEB: EL ANFITRIÓN (fase 1, sub-paso 3) Y EL OYENTE (sub-paso 4). Port de los puentes de iOS
@@ -91,6 +91,8 @@ export function RadioProvider({ children }) {
   const [eventos, setEventos] = useState([]);                   // los últimos EVENTOS_MAX, sin repetidos
   const [sinSoporte, setSinSoporte] = useState(() => new Set());   // ids con 409 sin-soporte (esta sala)
   const eventosVistosRef = useRef(new Set());   // ids ya vistos: un evento avisa una sola vez
+  // Del oyente (W5a): lo último que se anunció de la radio (eventos y aviso de rol) → { texto, n } | null.
+  const [anuncio, setAnuncio] = useState(null);
   // Lo pone el puente del anfitrión: (moderadores) → arranca o corta la lectura de 2 s en el acto.
   const moderarRef = useRef(null);
   const toast = useToast();
@@ -123,6 +125,7 @@ export function RadioProvider({ children }) {
     setEventos([]);
     setSinSoporte(new Set());
     eventosVistosRef.current = new Set();
+    setAnuncio(null);
   };
 
   useEffect(() => {
@@ -179,6 +182,7 @@ export function RadioProvider({ children }) {
     setAviso(null);
     setSilenciada(false);
     setQuiereSonar(false);
+    limpiarModeracion();
     if (razon) setFin({ razon, texto: textoDeFin('oyente', razon) });
   }, []);
 
@@ -198,6 +202,18 @@ export function RadioProvider({ children }) {
     setEventos((prev) => juntarEventos(prev, nuevos));
     const ajenos = nuevos.filter((e) => avisarEvento(e, userIdRef.current));
     if (ajenos.length) toast(textoDeEvento(ajenos[ajenos.length - 1], userIdRef.current), { duration: AVISO_EVENTO_MS });
+  }, [toast]);
+
+  /** Del puente del oyente (W5a): los eventos nuevos y lo que hay que anunciar (pasoDeEventos). A la región
+   *  viva va TODO lo de esta lectura junto (así nada se pisa); al toast, lo último que lleva toast. */
+  const alEventosOyente = useCallback((gen, nuevos, anuncios) => {
+    if (gen !== genRef.current || !montadoRef.current) return;
+    if (nuevos.length) setEventos((prev) => juntarEventos(prev, nuevos));
+    if (!anuncios.length) return;
+    const texto = anuncios.map((a) => a.texto).join('. ');
+    setAnuncio((a) => ({ texto, n: (a?.n ?? 0) + 1 }));
+    const conToast = anuncios.filter((a) => a.toast);
+    if (conToast.length) toast(conToast[conToast.length - 1].texto, { duration: AVISO_EVENTO_MS });
   }, [toast]);
 
   const alAviso = useCallback((gen, a) => {
@@ -271,6 +287,7 @@ export function RadioProvider({ children }) {
     setError(null);
     setFin(null);
     setAviso(null);
+    limpiarModeracion();
     const r = await api.radioLeer(codigoSala, LECTURA_OYENTE);
     if (gen !== genRef.current || !montadoRef.current) return false;
     if (!r.ok) {
@@ -359,10 +376,10 @@ export function RadioProvider({ children }) {
     () => ({
       fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar,
       iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
-      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador,
+      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
     }),
     [fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar, iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
-      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador],
+      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio],
   );
 
   return (
@@ -377,7 +394,7 @@ export function RadioProvider({ children }) {
           key={codigo} codigo={codigo} gen={genSala} genRef={genRef}
           primeraRef={primeraRef} fotoRef={fotoRef} motorRef={motorRef} tocarRef={tocarRef}
           salir={finOyente} alOyentes={alOyentes} alAviso={alAviso} alSilenciada={alSilenciada}
-          alQuiereSonar={alQuiereSonar}
+          alQuiereSonar={alQuiereSonar} alEventos={alEventosOyente} yoRef={userIdRef}
         />
       )}
     </RadioContext.Provider>
@@ -649,7 +666,7 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
 // Cada orden propia anota cuándo fue (la gracia de pausaDelOyente) y reinicia la sincro.
 // Si no se pudo cargar la canción (api.track), se pausa lo que sonaba, se avisa y `seguido` vuelve
 // a lo de antes: el próximo sondeo da 'arrancar' otra vez y reintenta, sin sacar al oyente.
-function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar }) {
+function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar, alEventos, yoRef }) {
   const { currentTrack, isPlaying, playBlocked, queue, queueIndex, repeat, play, seek, pause, resume, setRepeatMode } = usePlayer();
   const { currentTime, duration } = usePlayerTime();
 
@@ -671,6 +688,8 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
 
   useEffect(() => {
     let vivo = true;
+    // W5a: { cursor, moderaba } de los eventos; null hasta la primera lectura (la de unirse fija la base).
+    let eventos = null;
     let timer = null;
     const vigente = () => vivo && gen === genRef.current;
 
@@ -769,7 +788,8 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
       if (!vigente()) return;
       let lectura = primeraRef.current;
       primeraRef.current = null;
-      if (!lectura) lectura = await api.radioLeer(codigo, LECTURA_OYENTE);
+      // Con la base fijada, la MISMA vuelta lee además los eventos desde el cursor (?desde=).
+      if (!lectura) lectura = await api.radioLeer(codigo, eventos ? { ...LECTURA_OYENTE, desde: eventos.cursor } : LECTURA_OYENTE);
       if (!vigente()) return;
       if (lectura.ok) {
         relojRef.current = mejorReloj(relojRef.current, lectura.muestra);
@@ -777,6 +797,9 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
           const host = lectura.radio.host?.id;
           alOyentes(gen, lectura.radio.listeners.filter((p) => p.id !== host));
           if (lectura.radio.state) estadoRef.current = lectura.radio.state;
+          const pe = pasoDeEventos(eventos, lectura.radio, Number(yoRef.current));
+          eventos = pe.estado;
+          if (pe.nuevos.length || pe.anuncios.length) alEventos(gen, pe.nuevos, pe.anuncios);
         }
       }
       const previo = seguidoRef.current;

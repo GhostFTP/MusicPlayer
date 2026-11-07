@@ -624,6 +624,45 @@ export function juntarEventos(previos, llegados) {
   return [...porId.values()].sort((a, b) => a.id - b.id).slice(-MODERACION.EVENTOS_MAX);
 }
 
+// ---- Los eventos y el aviso de rol del OYENTE (W5a) ----
+
+/** El aviso al oyente cuando el anfitrión le da o le quita el rol (neutros). */
+export const TEXTO_PUEDES_MODERAR = 'Puedes moderar esta radio';
+export const TEXTO_YA_NO_MODERAS = 'Ya no puedes moderar esta radio';
+
+/**
+ * Lectura por lectura, qué anuncia el oyente. previo: { cursor, moderaba } | null (null = la PRIMERA
+ * lectura, la de unirse: solo fija la base: el cursor en eventsUntil y si ya moderaba; no anuncia nada).
+ * radio: lo de leerRadio. yo: mi id.
+ * → { estado: { cursor, moderaba } | null, nuevos: [eventos], anuncios: [{ texto, toast }] }
+ *   · Una respuesta sin moderación (moderators ausente): nada cambia.
+ *   · Los eventos con id > cursor son nuevos; el cursor pasa a eventsUntil (nunca retrocede).
+ *   · eventsLost: el cursor se adelanta y no se anuncia ningún evento (se perdió el hilo).
+ *   · Nombrarme o quitarme no se anuncia como evento: lo dice el aviso de rol, que sale de comparar
+ *     moderators entre esta lectura y la anterior (así no se anuncia dos veces).
+ *   · toast: solo lo ajeno (avisarEvento) y el aviso de rol.
+ */
+export function pasoDeEventos(previo, radio, yo) {
+  const r = objeto(radio);
+  const p = objeto(previo);
+  if (!r || !Array.isArray(r.moderators)) return { estado: p ? { cursor: p.cursor, moderaba: p.moderaba } : null, nuevos: [], anuncios: [] };
+  const modera = esModerador(r, yo);
+  const hasta = esSeq(r.eventsUntil) ? r.eventsUntil : (p && esSeq(p.cursor) ? p.cursor : 0);
+  if (!p) return { estado: { cursor: hasta, moderaba: modera }, nuevos: [], anuncios: [] };
+  const cursor = esSeq(p.cursor) ? Math.max(p.cursor, hasta) : hasta;
+  const nuevos = r.eventsLost === true ? []
+    : (Array.isArray(r.events) ? r.events : []).filter((e) => objeto(e) && esId(e.id) && e.id > (p.cursor ?? 0)).sort((a, b) => a.id - b.id);
+  const anuncios = [];
+  for (const e of nuevos) {
+    if ((e.type === 'moderador' || e.type === 'sin-moderador') && e.target != null && e.target === yo) continue;
+    const texto = textoDeEvento(e, yo);
+    if (texto) anuncios.push({ texto, toast: avisarEvento(e, yo) });
+  }
+  if (modera && p.moderaba !== true) anuncios.push({ texto: TEXTO_PUEDES_MODERAR, toast: true });
+  if (!modera && p.moderaba === true) anuncios.push({ texto: TEXTO_YA_NO_MODERAS, toast: true });
+  return { estado: { cursor, moderaba: modera }, nuevos, anuncios };
+}
+
 /** ¿Este evento va en el aviso breve (toast)? Solo los de OTROS, y con un texto que esta versión conozca:
  *  lo que hice yo ya lo vi al hacerlo (va igual a la región viva). */
 export function avisarEvento(e, yo) {

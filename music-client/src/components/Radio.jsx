@@ -75,7 +75,7 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   const {
     fase, codigo: miCodigo, oyentes, fin, error, iniciar, terminar, limpiarFin,
     anfitrion, aviso: avisoRadio, silenciada, quiereSonar, unirse, salir, tocarParaEscuchar,
-    moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador,
+    moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
   } = useRadio();
   const [moderando, setModerando] = useState(null);   // id con un nombrar/quitar en vuelo (un clic a la vez)
   const [focoNota, setFocoNota] = useState(null);     // id cuya nota "sin soporte" toma el foco (su botón se fue)
@@ -83,6 +83,8 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   const listaRef = useRef(null);
   const { user } = useAuth();
   const toast = useToast();
+  const ultimoEvento = eventos.length ? eventos[eventos.length - 1] : null;
+  const textoUltimo = ultimoEvento ? textoDeEvento(ultimoEvento, user?.id) : null;
 
   const h1Ref = useRef(null);
   const copiarRef = useRef(null);
@@ -255,8 +257,9 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
           })}
         </ul>
         {lineaDelTope(moderadores) && <p className="radio-nota radio-tope">{lineaDelTope(moderadores)}</p>}
-        {/* Siempre montada (vacía sin eventos): una región viva que aparece de golpe no siempre se anuncia. */}
-        <p className="radio-evento" role="status">{eventos.length ? textoDeEvento(eventos[eventos.length - 1], user?.id) ?? '' : ''}</p>
+        {/* Siempre montada (vacía sin eventos): una región viva que aparece de golpe no siempre se anuncia. Cada
+            evento es un hijo con key (su id): dos eventos con el mismo texto montan dos nodos y se anuncian los dos. */}
+        <p className="radio-evento" role="status">{ultimoEvento && textoUltimo ? <span key={ultimoEvento.id}>{textoUltimo}</span> : null}</p>
         <div className="radio-terminar">
           {confirmando ? (
             <div className="radio-confirmar" role="group" aria-labelledby="radio-confirmar-pregunta" onKeyDown={onConfirmarKey}>
@@ -307,6 +310,10 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
         )}
         {/* Siempre montada (vacía sin aviso): una región viva que aparece de golpe no siempre se anuncia. */}
         <p className={`radio-aviso-vivo radio-aviso-vivo--${tono}`} role="status" aria-live="polite">{textoAviso}</p>
+        {/* W5a: lo que pasó en la radio (eventos y aviso de rol), en su PROPIA región: así no pisa el aviso de
+            arriba ni al revés. Siempre montada (vacía sin nada que anunciar). Cada anuncio es un hijo con key (su
+            contador: un anuncio puede juntar varios eventos y el aviso de rol): un texto repetido monta un nodo nuevo. */}
+        <p className="radio-evento" role="status" aria-live="polite">{anuncio ? <span key={anuncio.n}>{anuncio.texto}</span> : null}</p>
         <div className="radio-oyentes radio-oyentes--oyente">
           {caras.length > 0 && (
             <span className="radio-oyentes-caras" aria-hidden="true">
