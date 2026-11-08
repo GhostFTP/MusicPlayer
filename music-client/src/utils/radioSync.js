@@ -671,12 +671,16 @@ export const ORDEN_ESPERANDO_MS = 5000;
 export const ORDEN_VENCE_MS = 30_000;
 /** Los tipos que manda la tarjeta. "a-continuacion" y "ahora" son del menú "En la radio" (W5b-2). */
 export const ORDENES_DE_LA_TARJETA = Object.freeze(['siguiente', 'pausa', 'reanudar']);
+/** Los tipos del menú "En la radio" (W5b-2): llevan la pista (trackId). */
+export const ORDENES_DEL_MENU = Object.freeze(['a-continuacion', 'ahora']);
 export const TEXTOS_ORDEN = Object.freeze({
   enviando: 'Enviando…',
   esperando: 'Esperando al anfitrión…',
   yaCambio: 'Ya había cambiado',
   noSeAplico: 'No se aplicó',
   sinOrdenes: 'Esta radio no admite moderación',
+  anterior: 'Espera a que se aplique la anterior',
+  yaSuena: 'Ya suena en la radio',
 });
 /** La cuenta regresiva de un 429 (Retry-After). */
 export const textoDeEspera = (s) => `Espera ${s} s`;
@@ -685,7 +689,7 @@ export const textoDeEspera = (s) => `Espera ${s} s`;
  * ¿Cómo va una orden de quien modera? Pura: la llama el provider con cada lectura y con sus dos
  * temporizadores (5 s y 30 s).
  * orden: { tipo, baseTrackId (la canción que se veía al mandarla), cursor (eventsUntil de entonces),
- *          enviadaEn (ms) }.
+ *          enviadaEn (ms), trackId (la pista pedida: solo "a-continuacion" y "ahora") }.
  * obs:   { ahoraMs, modera, estado (el de la radio que se ve: { trackId, playing } | null),
  *          eventos (los NUEVOS de esta lectura), yo }.
  * → 'cancelada' | 'aplicada' | 'ya-cambio' | 'no-se-aplico' | 'esperando' | 'en-vuelo'. En este orden:
@@ -693,7 +697,8 @@ export const textoDeEspera = (s) => `Espera ${s} s`;
  *  2. Un evento MÍO de ese tipo, posterior al cursor con que salió: 'aplicada'.
  *  3. Lo que se ve: "siguiente" con otra canción que la base → 'ya-cambio' (cambió, pero no por mí; si
  *     fue por mí, el evento llega en la MISMA lectura y ganó el punto 2). Pausa o reanudar con la radio
- *     ya como se pidió → 'aplicada'.
+ *     ya como se pidió → 'aplicada'. "ahora" con esa pista sonando → 'aplicada' ("a continuación" no se
+ *     ve en el estado: solo la resuelve el evento).
  *  4. El tiempo, de respaldo: 30 s → 'no-se-aplico'; 5 s → 'esperando'; antes, 'en-vuelo'.
  */
 export function resolverOrden(orden, obs) {
@@ -701,13 +706,11 @@ export function resolverOrden(orden, obs) {
   const b = objeto(obs);
   if (!o || !b) return 'en-vuelo';
   if (b.modera !== true) return 'cancelada';
-  const cursor = esSeq(o.cursor) ? o.cursor : 0;
-  const mio = (Array.isArray(b.eventos) ? b.eventos : [])
-    .some((e) => objeto(e) && esId(e.id) && e.id > cursor && e.type === o.tipo && e.by != null && e.by === b.yo);
-  if (mio) return 'aplicada';
+  if (eventoDeOrden(o, b.eventos, b.yo)) return 'aplicada';
   const e = objeto(b.estado);
   if (e) {
     if (o.tipo === 'siguiente' && o.baseTrackId != null && e.trackId !== o.baseTrackId) return 'ya-cambio';
+    if (o.tipo === 'ahora' && o.trackId != null && e.trackId === o.trackId) return 'aplicada';
     if (o.tipo === 'pausa' && e.playing === false) return 'aplicada';
     if (o.tipo === 'reanudar' && e.playing === true) return 'aplicada';
   }
@@ -715,6 +718,16 @@ export function resolverOrden(orden, obs) {
   if (t >= ORDEN_VENCE_MS) return 'no-se-aplico';
   if (t >= ORDEN_ESPERANDO_MS) return 'esperando';
   return 'en-vuelo';
+}
+
+/** El evento MÍO que aplicó esta orden (de su tipo, posterior a su cursor y, si los dos la dicen, de la
+ *  misma pista), o null. Con él el provider avisa una orden del menú con el texto del evento. */
+export function eventoDeOrden(orden, eventos, yo) {
+  const o = objeto(orden);
+  if (!o) return null;
+  const cursor = esSeq(o.cursor) ? o.cursor : 0;
+  return (Array.isArray(eventos) ? eventos : []).find((e) => objeto(e) && esId(e.id) && e.id > cursor && e.type === o.tipo
+    && e.by != null && e.by === yo && (o.trackId == null || e.trackId == null || e.trackId === o.trackId)) ?? null;
 }
 
 /** ¿Este evento va en el aviso breve (toast)? Solo los de OTROS, y con un texto que esta versión conozca:

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from '../api/client.js';
 import { useAuth } from './AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
+import { registrarRadioEnMenu } from '../components/ContextMenu.jsx';
 import { usePlayer, usePlayerTime } from './PlayerContext.jsx';
 import {
   PUERTA_INICIAL, puertaAbierta, alPublicar, alResponder, debePublicar,
@@ -11,7 +12,7 @@ import {
   idDeCancion, DESAJUSTE_MS,
   planDeOrden, siguienteDelMotor, alFinalDeLaCola, confirmacionDe, colaDelOyente,
   juntarEventos, avisarEvento, textoDeEvento, pasoDeEventos,
-  esModerador, resolverOrden, ORDEN_ESPERANDO_MS, ORDEN_VENCE_MS, ORDENES_DE_LA_TARJETA, TEXTOS_ORDEN, textoDeEspera,
+  esModerador, resolverOrden, ORDEN_ESPERANDO_MS, ORDEN_VENCE_MS, ORDENES_DE_LA_TARJETA, ORDENES_DEL_MENU, eventoDeOrden, TEXTOS_ORDEN, textoDeEspera,
 } from '../utils/radioSync.js';
 
 // RADIO WEB: EL ANFITRIÓN (fase 1, sub-paso 3) Y EL OYENTE (sub-paso 4). Port de los puentes de iOS
@@ -73,6 +74,8 @@ const AVISO_EVENTO_MS = 3500;
  *  publicación del anfitrión (también el latido) y re-renderizaría la sala cada vez sin que cambie nada
  *  visible. El seq (la base de "siguiente") vive solo en vistaModRef; acá, si lo hay (conBase). */
 const VISTA_MOD_VACIA = Object.freeze({ modera: false, admite: false, playing: null, conBase: false, trackId: null });
+/** W5b-2: ¿se está fuera de la vista Radio? Ahí la línea de estado no se ve y va también como toast. */
+const fueraDeLaRadio = () => typeof window !== 'undefined' && !/^\/radio(\/|$)/.test(window.location.pathname);
 /** Unirse a la sala propia (decisión del usuario: el texto). */
 const TEXTO_SALA_PROPIA = 'Esta radio es tuya.';
 
@@ -136,10 +139,14 @@ export function RadioProvider({ children }) {
 
   // ── Las órdenes de quien modera (W5b-1). Funciones de render que solo tocan refs y setters. ──
   /** La línea de estado. Un texto nuevo es un nodo nuevo (key n): así un texto repetido se vuelve a
-   *  anunciar. `mismo`: la cuenta regresiva cambia el texto sin montar otro nodo. */
-  const decirOrden = (texto, de = null, mismo = false) => {
+   *  anunciar. `mismo`: la cuenta regresiva cambia el texto sin montar otro nodo. `fallo`: es un error
+   *  (textoDeFallo): su toast va con la variante de aviso, no con la de éxito. */
+  const decirOrden = (texto, de = null, mismo = false, fallo = false) => {
     lineaDeRef.current = texto ? de : null;
     setLineaOrden((l) => (texto ? { texto, n: mismo && l ? l.n : (l?.n ?? 0) + 1 } : null));
+    // W5b-2: fuera de la vista Radio la línea no se ve → el mismo texto sale también como toast. No el
+    // "Enviando…" (dura lo que la petición) ni cada segundo de la cuenta (mismo).
+    if (texto && !mismo && texto !== TEXTOS_ORDEN.enviando && fueraDeLaRadio()) toast(texto, { duration: AVISO_EVENTO_MS, ...(fallo ? { variant: 'warning' } : {}) });
   };
   const cerrarOrden = (tipo) => {
     const o = ordenesRef.current.get(tipo);
@@ -161,13 +168,18 @@ export function RadioProvider({ children }) {
     setLineaOrden(null);
   };
   /** Lo que dijo resolverOrden, a la línea. */
-  const cerrarCon = (tipo, res) => {
+  const cerrarCon = (tipo, res, aviso = null) => {
     const o = ordenesRef.current.get(tipo);
     if (!o) return;
     switch (res) {
       case 'cancelada': cerrarOrden(tipo); if (lineaDeRef.current === tipo) decirOrden(null); break;
       // Aplicada: la línea se vacía y lo dice el evento ("Tú pausaste") en SU región: nada se pisa.
-      case 'aplicada': cerrarOrden(tipo); if (lineaDeRef.current === tipo) decirOrden(null); break;
+      // W5b-2: una orden del menú, fuera de la vista Radio, lo avisa con un toast (el texto del evento).
+      case 'aplicada':
+        cerrarOrden(tipo);
+        if (lineaDeRef.current === tipo) decirOrden(null);
+        if (aviso && fueraDeLaRadio()) toast(aviso, { duration: AVISO_EVENTO_MS });
+        break;
       case 'ya-cambio': cerrarOrden(tipo); decirOrden(TEXTOS_ORDEN.yaCambio, tipo); break;
       case 'no-se-aplico': cerrarOrden(tipo); decirOrden(TEXTOS_ORDEN.noSeAplico, tipo); break;
       case 'esperando': if (!o.esperando) { o.esperando = true; decirOrden(TEXTOS_ORDEN.esperando, tipo); } break;
@@ -179,9 +191,15 @@ export function RadioProvider({ children }) {
     const o = ordenesRef.current.get(tipo);
     if (!o) return;
     const v = vistaModRef.current;
-    const res = resolverOrden(o, { ahoraMs: Date.now(), modera: v.modera, estado: v.estado, eventos: nuevos, yo: Number(userIdRef.current) });
-    if (o.enviando) { if (res === 'aplicada' || res === 'ya-cambio' || res === 'cancelada') o.resuelta = res; return; }
-    cerrarCon(tipo, res);
+    const yo = Number(userIdRef.current);
+    const res = resolverOrden(o, { ahoraMs: Date.now(), modera: v.modera, estado: v.estado, eventos: nuevos, yo });
+    let aviso = null;
+    if (res === 'aplicada' && ORDENES_DEL_MENU.includes(tipo)) {
+      const ev = eventoDeOrden(o, nuevos, yo);
+      aviso = (ev && textoDeEvento(ev, yo)) || TEXTOS_ORDEN.yaSuena;
+    }
+    if (o.enviando) { if (res === 'aplicada' || res === 'ya-cambio' || res === 'cancelada') { o.resuelta = res; o.aviso = aviso; } return; }
+    cerrarCon(tipo, res, aviso);
   };
   /** La cuenta de un 429: una cadena de setTimeout de 1000 ms (nunca setInterval). */
   const empezarEspera = (s) => {
@@ -453,33 +471,51 @@ export function RadioProvider({ children }) {
     else setError(textoDeFallo('moderar', r));
     return { ok: false, error: r.error };
   }, []);
-  /** Quien modera manda una orden desde su tarjeta (W5b-1): una en vuelo por tipo. "siguiente" lleva la
-   *  base (el seq del estado que se ve). → lo de api.radioOrdenar, o { ok: false, error } sin mandar. */
-  const ordenar = useCallback(async (tipo) => {
-    if (faseRef.current !== 'oyente' || !ORDENES_DE_LA_TARJETA.includes(tipo)) return { ok: false, error: 'fase' };
+  /** Quien modera manda una orden desde su tarjeta (W5b-1) o desde el menú "En la radio" (W5b-2, con la
+   *  pista): una en vuelo por tipo. "siguiente" lleva la base (el seq del estado que se ve). → lo de
+   *  api.radioOrdenar, o { ok: false, error } sin mandar. Sin el rol (el menú no lo refresca abierto)
+   *  cancela sin error; del menú, una segunda del mismo tipo en vuelo lo dice en la línea. */
+  const ordenar = useCallback(async (tipo, trackId = null) => {
+    const delMenu = ORDENES_DEL_MENU.includes(tipo);
+    if (faseRef.current !== 'oyente' || !(delMenu || ORDENES_DE_LA_TARJETA.includes(tipo))) return { ok: false, error: 'fase' };
     const v = vistaModRef.current;
     if (!v.modera || !v.admite) return { ok: false, error: 'sin-rol' };
-    if (ordenesRef.current.has(tipo) || esperaRef.current.s > 0) return { ok: false, error: 'ocupado' };
+    if (ordenesRef.current.has(tipo) || esperaRef.current.s > 0) {
+      if (delMenu) {
+        if (esperaRef.current.s > 0) decirOrden(textoDeEspera(esperaRef.current.s), 'espera');
+        else decirOrden(TEXTOS_ORDEN.anterior, tipo);
+      }
+      return { ok: false, error: 'ocupado' };
+    }
     if (tipo === 'siguiente' && v.seq == null) return { ok: false, error: 'sin-estado' };
     const gen = genRef.current;
-    const o = { tipo, baseTrackId: v.trackId, cursor: v.cursor, enviadaEn: Date.now(), enviando: true, resuelta: null, esperando: false, timers: [] };
+    const o = { tipo, trackId: delMenu ? trackId : null, baseTrackId: v.trackId, cursor: v.cursor, enviadaEn: Date.now(), enviando: true, resuelta: null, aviso: null, esperando: false, timers: [] };
     ordenesRef.current.set(tipo, o);
     setOrdenando((x) => ({ ...x, [tipo]: true }));
     decirOrden(TEXTOS_ORDEN.enviando, tipo);
-    const r = await api.radioOrdenar(codigoRef.current, tipo === 'siguiente' ? { type: tipo, seqBase: v.seq } : { type: tipo });
+    const r = await api.radioOrdenar(codigoRef.current,
+      tipo === 'siguiente' ? { type: tipo, seqBase: v.seq } : delMenu ? { type: tipo, trackId } : { type: tipo });
     if (gen !== genRef.current || !montadoRef.current || ordenesRef.current.get(tipo) !== o) return { ok: false, error: 'vieja' };
     o.enviando = false;
     if (!r.ok) {
       cerrarOrden(tipo);
       if (r.error === 'frecuencia') empezarEspera(Math.max(1, Math.ceil(r.esperaMs / 1000)));
-      else decirOrden(textoDeFallo('ordenar', r), tipo);
+      else decirOrden(textoDeFallo('ordenar', r), tipo, false, true);
       return r;
     }
-    if (o.resuelta) { cerrarCon(tipo, o.resuelta); return r; }
+    if (o.resuelta) { cerrarCon(tipo, o.resuelta, o.aviso); return r; }
     if (lineaDeRef.current === tipo) decirOrden(null);
     o.timers = [setTimeout(() => revisarOrden(tipo), ORDEN_ESPERANDO_MS), setTimeout(() => revisarOrden(tipo), ORDEN_VENCE_MS)];
     return r;
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // W5b-2: el menú contextual (montado POR ENCIMA de este provider) lee lo que ve quien modera y manda
+  // las órdenes "En la radio" por acá. Es un ref, no un contexto: el menú lo lee solo al armar sus
+  // acciones, así que ni la radio re-renderiza el menú ni el menú a la radio.
+  useEffect(() => registrarRadioEnMenu({
+    vista: () => (faseRef.current === 'oyente' ? vistaModRef.current : null),
+    ordenar,
+  }), [ordenar]);
 
   const nombrarModerador = useCallback((userId) => moderar(userId, true), [moderar]);
   const quitarModerador = useCallback((userId) => moderar(userId, false), [moderar]);
