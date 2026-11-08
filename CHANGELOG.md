@@ -3,6 +3,22 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.43.0] - 2026-11-07
+
+### Nuevo
+- **Moderar la radio.** Quien transmite puede nombrar hasta 3 moderadores entre sus oyentes. Quien modera
+  maneja la radio desde su vista (siguiente canción, pausar y reanudar) y, desde el menú de una canción,
+  «En la radio» → «Poner a continuación» o «Poner ahora». Funciona mientras el reproductor de quien transmite siga abierto.
+- **Todos ven lo que pasa en la radio**: quién pausó, saltó o puso una canción. Quien es nombrado
+  moderador, o deja de serlo, recibe un aviso.
+
+### Para tener en cuenta
+- La app de iPhone todavía no modera: si transmite desde ahí no recibe órdenes; como oyente se une igual.
+- Si quien transmite cierra la pestaña, la radio se cierra al momento, siempre que el navegador alcance a
+  avisar; si apaga la compu o se queda sin conexión, se cierra a los 5 minutos, como hasta ahora.
+- Dos canciones pedidas «a continuación» seguidas se apilan: suena primero la última que pediste.
+- Cada despliegue cierra las radios abiertas: conviene desplegar cuando nadie esté en una.
+
 ## [1.42.0] - 2026-11-04
 
 ### Nuevo
