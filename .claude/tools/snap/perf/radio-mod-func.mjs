@@ -18,6 +18,9 @@
 // la radio"), REPS veces cada uno: el motor del anfitrión cambia, el evento llega a SU región (un nodo nuevo
 // cada vez: los textos se repiten), la línea de estado queda vacía y el foco sigue en el botón. Mide del clic
 // al motor y del clic al evento (mínimo, mediana y máximo, en "medidas").
+// W5b-2 (t, u): el menú "En la radio" desde la vista del ÁLBUM (fuera de la vista Radio): "Poner ahora" y "Poner
+// a continuación", REPS veces cada una, contra el motor del anfitrión. Fuera de la vista Radio la región de
+// eventos no está: lo que ve la moderadora es el toast de RadioProvider. Mide del clic al motor y al toast.
 //
 // Uso: SNAP_BASE=http://localhost:4173 SNAP2_USER=… SNAP2_PASS=… node radio-mod-func.mjs
 // RADIO_MOD_SALIDA=<archivo>: deja ahí los resultados con sus valores.
@@ -291,6 +294,51 @@ try {
     ok('q_boton_pausar_la_radio', lat.pausa.length === REPS && malas.pausa.length === 0, { malas: malas.pausa, medidas: medidas.boton_pausa });
     ok('r_boton_reanudar_la_radio', lat.reanudar.length === REPS && malas.reanudar.length === 0, { malas: malas.reanudar, medidas: medidas.boton_reanudar });
     ok('s_boton_siguiente_cancion_de_la_radio', lat.siguiente.length === REPS && malas.siguiente.length === 0, { malas: malas.siguiente, medidas: medidas.boton_siguiente }); }
+
+  // ── W5b-2: el menú "En la radio" de la moderadora, desde la vista del álbum ──
+  { const REPS = 3;
+    await poner(Q.slice(0, 3), 0, { repeat: 'all' });
+    await sleep(2500);
+    await M.p.evaluate((r) => { history.pushState({}, '', r); dispatchEvent(new PopStateEvent('popstate')); }, RUTA_ALBUM);
+    await M.p.waitForSelector('.main-content .track-row', { timeout: 9000 });
+    await M.p.evaluate(() => {
+      window.__toasts = []; const vistos = new WeakSet();
+      new MutationObserver(() => { for (const t of document.querySelectorAll('.toast')) { if (vistos.has(t)) continue; vistos.add(t); window.__toasts.push(t.querySelector('.toast-text')?.textContent ?? ''); } })
+        .observe(document.body, { childList: true, subtree: true });
+    });
+    const nToasts = () => M.p.evaluate(() => window.__toasts.length);
+    const toastsDesde = (n) => M.p.evaluate((k) => window.__toasts.slice(k), n);
+    const fila = (t) => M.p.locator('.main-content .track-row').filter({ has: M.p.locator('.track-title', { hasText: t.title }) }).first();
+    const lat = { ahora: [], 'a-continuacion': [] };
+    const malas = { ahora: [], 'a-continuacion': [] };
+    const desdeMenu = async (tipo, accion, efecto, esToast) => {
+      const antes = await motor(H.p);
+      const t = Q.slice(0, 3).find((x) => x.id !== antes.id && x.id !== antes.ids[antes.idx + 1]) ?? Q[1];
+      await fila(t).click({ button: 'right' });
+      await M.p.getByRole('menuitem', { name: 'En la radio' }).click();
+      const b = M.p.getByRole('menuitem', { name: accion });
+      await b.waitFor({ timeout: 4000 });
+      const n0 = await nToasts();
+      const t0 = Date.now();
+      await b.click();
+      const m = await esperar(async () => { const x = await motor(H.p); return efecto(x, antes, t) ? x : null; }, 9000, 20);
+      const tM = m.v ? Date.now() - t0 : null;
+      const ts = await esperar(async () => { const l = await toastsDesde(n0); return l.some((x) => esToast(x, t)) ? l : null; }, 9000, 20);
+      const tT = ts.v ? Date.now() - t0 : null;
+      lat[tipo].push({ motor_ms: tM, toast_ms: tT });
+      if (!m.v || !ts.v) malas[tipo].push({ pista: t.id, motor: !!m.v, toasts: ts.v ?? await toastsDesde(n0) });
+      await sleep(1500);
+    };
+    for (let k = 0; k < REPS; k++) {
+      await desdeMenu('ahora', 'Poner ahora', (x, a, t) => x.id === t.id && x.playing && x.sonando === 1,
+        (x, t) => x === `Tú pusiste «${t.title}»` || x === 'Ya suena en la radio');
+      await desdeMenu('a-continuacion', 'Poner a continuación', (x, a, t) => x.len === a.len + 1 && x.ids[x.idx + 1] === t.id && x.qid === a.qid,
+        (x, t) => x.includes(`«${t.title}»`) && x.includes('a continuación'));
+    }
+    const resumen = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? { min: v[0], mediana: v[Math.floor((v.length - 1) / 2)], max: v[v.length - 1], n: v.length } : null; };
+    for (const tipo of Object.keys(lat)) medidas[`menu_${tipo}`] = { motor_ms: resumen(lat[tipo].map((x) => x.motor_ms)), toast_ms: resumen(lat[tipo].map((x) => x.toast_ms)), crudo: lat[tipo] };
+    ok('t_menu_poner_ahora', lat.ahora.length === REPS && malas.ahora.length === 0, { malas: malas.ahora, medidas: medidas.menu_ahora });
+    ok('u_menu_poner_a_continuacion', lat['a-continuacion'].length === REPS && malas['a-continuacion'].length === 0, { malas: malas['a-continuacion'], medidas: medidas['menu_a-continuacion'] }); }
 
   // ── Terminar ──
   await H.p.getByRole('button', { name: 'Terminar radio' }).click(); await sleep(250);

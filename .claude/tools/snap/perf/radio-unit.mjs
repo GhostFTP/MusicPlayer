@@ -40,6 +40,9 @@
 //   (o) w5b1.*  las órdenes de quien modera (1.43.0, W5b-1): resolverOrden (perder el rol cancela; un evento
 //               MÍO la aplica; "siguiente" con otra canción sin evento mío es "Ya había cambiado"; pausa y
 //               reanudar se resuelven por el estado; 5 s "Esperando al anfitrión…", 30 s "No se aplicó").
+//   (p) w5b2.*  las órdenes del menú "En la radio" (1.43.0, W5b-2): "a continuación" solo la aplica un evento
+//               MÍO (de esa pista); "ahora" también el estado con esa pista; ninguna es "Ya había cambiado";
+//               los mismos 5 s / 30 s; perder el rol cancela; eventoDeOrden y los textos.
 //
 // Uso: node radio-unit.mjs     (sale con 1 si algo falla)
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -1500,6 +1503,35 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   W([S.ORDEN_ESPERANDO_MS, S.ORDEN_VENCE_MS, [...S.ORDENES_DE_LA_TARJETA], S.textoDeEspera(7), S.TEXTOS_ORDEN.enviando, S.TEXTOS_ORDEN.esperando, S.TEXTOS_ORDEN.yaCambio, S.TEXTOS_ORDEN.noSeAplico, S.TEXTOS_ORDEN.sinOrdenes],
     [5000, 30_000, ['siguiente', 'pausa', 'reanudar'], 'Espera 7 s', 'Enviando…', 'Esperando al anfitrión…', 'Ya había cambiado', 'No se aplicó', 'Esta radio no admite moderación'],
     'los tiempos y los textos');
+}
+
+// ══════════════════ (p) w5b2.* las órdenes del menú "En la radio" (1.43.0, W5b-2) ══════════════════
+{
+  const W = (a, b, nombre) => igual('w5b2', a, b, nombre);
+  const Z = S.resolverOrden;
+  const YO = 7;
+  const o = (tipo, x = {}) => ({ tipo, trackId: 300, baseTrackId: 100, cursor: 5, enviadaEn: 1000, ...x });
+  const obs = (x = {}) => ({ ahoraMs: 1500, modera: true, estado: { trackId: 100, playing: true }, eventos: [], yo: YO, ...x });
+  const ev = (id, type, trackId = 300, by = YO) => ({ id, type, by, trackId });
+
+  W(Z(o('a-continuacion'), obs({ eventos: [ev(6, 'a-continuacion')] })), 'aplicada', 'a continuación: mi evento de esa pista → aplicada');
+  W(Z(o('a-continuacion'), obs({ eventos: [ev(6, 'a-continuacion', 301)] })), 'en-vuelo', 'a continuación: mi evento de OTRA pista no la aplica');
+  W(Z(o('a-continuacion'), obs({ eventos: [ev(6, 'a-continuacion', 300, 9)] })), 'en-vuelo', 'a continuación: el evento de OTRA persona no la aplica');
+  W(Z(o('a-continuacion'), obs({ estado: { trackId: 300, playing: true } })), 'en-vuelo', 'a continuación: el estado no la resuelve (solo el evento)');
+  W(Z(o('ahora'), obs({ estado: { trackId: 300, playing: true } })), 'aplicada', 'ahora: la radio ya suena esa pista → aplicada');
+  W(Z(o('ahora'), obs({ eventos: [ev(6, 'ahora')] })), 'aplicada', 'ahora: mi evento la aplica aunque el estado todavía no lo muestre');
+  W([Z(o('ahora'), obs({ estado: { trackId: 101, playing: true } })), Z(o('a-continuacion'), obs({ estado: { trackId: 101, playing: true } }))], ['en-vuelo', 'en-vuelo'],
+    'otra canción sin evento mío: ninguna es "Ya había cambiado" (son absolutas)');
+  W(['a-continuacion', 'ahora'].map((t) => [4999, 5000, 29_999, 30_000].map((d) => Z(o(t), obs({ ahoraMs: 1000 + d })))),
+    [['en-vuelo', 'esperando', 'esperando', 'no-se-aplico'], ['en-vuelo', 'esperando', 'esperando', 'no-se-aplico']],
+    'el tiempo de las dos: 5 s "esperando", 30 s "no se aplicó" (nunca antes)');
+  W([Z(o('ahora'), obs({ modera: false, estado: { trackId: 300, playing: true } })), Z(o('a-continuacion'), obs({ modera: false, eventos: [ev(6, 'a-continuacion')], ahoraMs: 40_000 }))],
+    ['cancelada', 'cancelada'], 'perder el rol: cancelada, gana sobre el estado, el evento y el tiempo');
+  W([S.eventoDeOrden(o('ahora'), [ev(5, 'ahora'), ev(6, 'pausa'), ev(7, 'ahora')], YO)?.id, S.eventoDeOrden(o('ahora'), [ev(6, 'ahora', 301)], YO),
+    S.eventoDeOrden(o('ahora'), [{ id: 6, type: 'ahora', by: YO }], YO)?.id, S.eventoDeOrden(null, [ev(6, 'ahora')], YO)], [7, null, 6, null],
+    'eventoDeOrden: el mío posterior al cursor, de esa pista (sin trackId en el evento, vale)');
+  W(Z(o('pausa', { trackId: null }), obs({ eventos: [{ id: 6, type: 'pausa', by: YO, trackId: 555 }] })), 'aplicada', 'las de la tarjeta (sin trackId) no miran la pista del evento');
+  W([[...S.ORDENES_DEL_MENU], S.TEXTOS_ORDEN.anterior, S.TEXTOS_ORDEN.yaSuena], [['a-continuacion', 'ahora'], 'Espera a que se aplique la anterior', 'Ya suena en la radio'], 'los tipos y los textos');
 }
 
 const fails = Object.entries(R).filter(([, v]) => v !== true);
