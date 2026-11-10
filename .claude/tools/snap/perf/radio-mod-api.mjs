@@ -10,7 +10,8 @@
 //
 // Qué cubre: sin sesión (401) · el GET y el PUT sin pedir nada (las claves de 1.42.0) · a pedido
 // (?cap=mod, ?desde=) · userId y desde inválidos (400) · nombrar y quitar (403 sin-permiso, 409
-// es-el-anfitrion / no-escucha / sin-soporte) · órdenes (202, repetida, 403, 400, 422 sin-pista y
+// es-el-anfitrion / no-escucha / sin-soporte) · una moderadora no publica el estado (403) · dos radios
+// vivas a la vez: el rol no cruza de una a otra (403 sin-permiso) · órdenes (202, repetida, 403, 400, 422 sin-pista y
 // video, 409 obsoleta) · cuerpo de más de 512 bytes (413) · confirmación y eventos con nombres y
 // título · solo el anfitrión ve las órdenes · quitar borra lo pendiente · topes (409 ordenes-llenas,
 // 429 con Retry-After) · una radio creada sin capabilities (409 sin-soporte, como la app de iOS) ·
@@ -81,6 +82,7 @@ const mod = (tok, method, code, id) => api(tok, method, `/api/radio/${code}/mode
 const CLAVES_142 = ['serverNow', 'code', 'status', 'state', 'host', 'listeners'];
 const MODERACION = /moderat|capabilit|events|orders/i;
 let code;
+let codeC = null;   // la radio de C (dos radios vivas a la vez, sección 8)
 
 try {
   // ---- 1. Sin sesión: 401 en las rutas nuevas ----
@@ -137,6 +139,11 @@ try {
     { j: nb.j });
   const otraVez = await mod(tA, 'PUT', code, B);
   ok('nombrarla otra vez: 200, igual', otraVez.status === 200 && otraVez.j.moderators.length === 1);
+  // Moderar no es publicar: el estado lo publica solo el anfitrión (403, el "no es tuya" de 1.42.0).
+  const pubB = await api(tB, 'PUT', `/api/radio/${code}/state`, { trackId: P2.id, positionMs: 0, playing: true });
+  const sigue = (await api(tA, 'GET', `/api/radio/${code}`)).j?.state;
+  ok('una moderadora que publica el estado: 403, y lo publicado no cambia', pubB.status === 403 && sigue?.trackId === P1.id,
+    { status: pubB.status, j: pubB.j, trackId: sigue?.trackId });
 
   // ---- 5. Órdenes ----
   const deC = await orden(tC, code, { type: 'pausa', clientId: cli() });
@@ -220,6 +227,21 @@ try {
   await api(tC, 'GET', `/api/radio/${code}?cap=mod`);
   const dos = [await mod(tA, 'PUT', code, B), await mod(tA, 'PUT', code, C)];
   ok('en la radio nueva hay que volver a nombrar (B y C)', dos.every((r) => r.status === 200) && dos[1].j.moderators.length === 2);
+  // Dos radios vivas a la vez: C abre la suya (sigue moderando la de A). B, moderadora de la de A, la
+  // escucha desde un cliente que sabe moderar y le ordena: el rol es de UNA radio, no de la cuenta.
+  const cC = await api(tC, 'POST', '/api/radio', { capabilities: { orders: true } });
+  codeC = cC.j?.code;
+  await api(tC, 'PUT', `/api/radio/${codeC}/state`, { trackId: P1.id, positionMs: 0, playing: true });
+  await api(tB, 'GET', `/api/radio/${codeC}?cap=mod`);
+  const cruzada = await orden(tB, codeC, { type: 'pausa', clientId: cli() });
+  const enC = (await api(tC, 'GET', `/api/radio/${codeC}?desde=0`)).j;
+  const deA = (await api(tA, 'GET', `/api/radio/${code}?cap=mod`)).j;
+  ok('dos radios vivas: la moderadora de una que le ordena a la otra recibe 403 sin-permiso',
+    cC.status === 201 && cruzada.status === 403 && cruzada.j?.reason === 'sin-permiso' && igual(enC?.orders, []) && igual(enC?.moderators, [])
+    && deA?.status === 'live' && deA.moderators.length === 2,
+    { crear: cC.status, status: cruzada.status, j: cruzada.j, ordenesEnC: enC?.orders, vivaA: deA?.status });
+  await api(tC, 'DELETE', `/api/radio/${codeC}`);
+  codeC = null;
   const serie = [];
   for (let i = 0; i < 5; i++) serie.push(await orden(tB, code, { type: 'pausa', clientId: cli() }));
   for (let i = 0; i < 5; i++) serie.push(await orden(tC, code, { type: 'reanudar', clientId: cli() }));
@@ -256,6 +278,7 @@ try {
   ok('el script no se cortó', false, { error: String(e?.stack ?? e).slice(0, 400) });
 } finally {
   if (code) await api(tA, 'DELETE', `/api/radio/${code}`).catch(() => {});
+  if (codeC) await api(tC, 'DELETE', `/api/radio/${codeC}`).catch(() => {});
 }
 
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
