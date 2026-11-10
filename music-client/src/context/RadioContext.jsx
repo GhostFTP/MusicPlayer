@@ -47,6 +47,10 @@ import {
 //    aleatorio encendido, al terminar la pista el motor puede saltar a lo encolado (medido: 11 de 20)
 //    hasta que el desajuste (DESAJUSTE_MS, 6 s) vuelve a poner la de la radio. Arreglo propuesto: un
 //    setShuffleMode(bool) idempotente en el motor (P-h), apagarlo al unirse y devolverlo al salir.
+//    M4 (aleatorio con orden fijo): el motor camina por posición y play() respeta [pista, siguiente];
+//    lo encolado va al final. Medido A NIVEL MOTOR (play([A, B]) + aleatorio + addToQueue(X), A termina
+//    sola): antes 13 de 20 saltaban a X, con M4 0 de 20. Falta medirlo de punta a punta con la radio
+//    real antes de dar la deuda por cerrada y descartar P-h.
 //  · Un 403 durante (Cloudflare Access, no el servidor) se toma como pasajero: si es permanente, el
 //    aviso "sin respuesta" queda para siempre. Igual que iOS.
 
@@ -588,9 +592,11 @@ const idsDeModeradores = (lista) => new Set((Array.isArray(lista) ? lista : []).
 //    y cada una se decide (planDeOrden) con lo que suena de verdad.
 //  · planDeOrden recibe, además de lo publicado, dos datos LOCALES que no se publican: haySiguiente
 //    (siguienteDelMotor) y alFinal (alFinalDeLaCola). Lo que se publica es lo de 1.42.0.
-//  · "siguiente" con aleatorio sin repetir la cola: el motor no expone qué ya sonó, así que no se
-//    sabe si tiene a dónde ir. Se llama next() y cuenta como aplicada SOLO si cambió la pista o el
-//    índice en ESPERA_MOTOR_MS; si no, se descarta ('sin-siguiente'), sin evento.
+//  · "siguiente" cuando no se sabe si el motor tiene a dónde ir (haySiguiente null): se llama next() y
+//    cuenta como aplicada SOLO si cambió la pista o el índice en ESPERA_MOTOR_MS; si no, se descarta
+//    ('sin-siguiente'), sin evento. Hasta M4 era el caso del aleatorio sin repetir la cola (el motor
+//    sorteaba entre las no sonadas); desde M4 el aleatorio camina por posición y siguienteDelMotor
+//    siempre sabe, así que el camino queda como red.
 //    CASO RARO, aceptado: si el propio anfitrión cambia de pista (o quita una de antes y corre el
 //    índice) dentro de esa ventana, ese cambio se cuenta como efecto de la orden.
 //  · Resuelta (aplicada o descartada), va a resueltasRef y sale en el próximo PUT (confirmacionDe:

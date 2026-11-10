@@ -422,9 +422,10 @@ const leerOrdenes = (v) => lista(v, leerOrdenRecibida, MODERACION.ORDENES_MAX).s
  *   aplicadas van en `aplicadas` y quedan como evento.
  *   · Viendo un video no se aplica nada: la radio está en pausa por el video ('video').
  *   · "siguiente" salta LA canción que veía quien ordenó: si ya suena otra, 'obsoleta'. Si el motor
- *     no tiene a dónde ir (haySiguiente === false), 'sin-siguiente'. Si no se sabe (null: aleatorio
- *     sin repetir la cola), { aplicar: true, verificar: true }: el puente la aplica y solo la da por
- *     aplicada si la pista cambió.
+ *     no tiene a dónde ir (haySiguiente === false), 'sin-siguiente'. Si no se sabe (null),
+ *     { aplicar: true, verificar: true }: el puente la aplica y solo la da por aplicada si la pista
+ *     cambió. Desde M4 (aleatorio con orden fijo) siguienteDelMotor ya no devuelve null; el camino
+ *     queda como red para un dato que no se pueda calcular.
  *   · pausa y reanudar son ABSOLUTAS: si ya estaba así, se aplica igual (no cambia nada y dos
  *     personas que pulsan a la vez dan el mismo resultado). Sin canción, 'sin-cancion'.
  *   · a continuación y ahora llevan su pista; sin ella, 'invalida'. Se aplican AUNQUE no suene nada
@@ -461,11 +462,11 @@ export function planDeOrden(orden, actual) {
 /**
  * ¿Un "siguiente" MANUAL del motor (PlayerContext next() = playNext(false, true)) tiene a dónde ir?
  * p: { queue, queueIndex, shuffle, repeat, upNext } tal cual los expone usePlayer().
- * → true | false | null (no se puede saber desde afuera). Calca playNext, en su orden:
+ * → true | false. Calca playNext, en su orden:
  *   1. lo de "a continuación" (upNext, por _qid) gana siempre, si sigue en la cola;
- *   2. aleatorio con más de una pista: con repeat 'all' siempre hay; sin él depende de cuáles ya
- *      sonaron en esta vuelta, que vive en playedRef y el motor NO expone → null;
- *   3. en orden (o aleatorio con una sola pista): la de después, o con 'all' la primera.
+ *   2. la de después en la cola, o con 'all' la primera. Vale igual con el aleatorio encendido: desde
+ *      M4 la cola ES el orden barajado y playNext camina por posición (antes sorteaba entre las no
+ *      sonadas, que el motor no expone, y esto devolvía null = no se sabe). `shuffle` ya no cuenta.
  *   Repetir una ('one') no cuenta: un siguiente manual la ignora (solo vale al terminar sola).
  */
 export function siguienteDelMotor(p) {
@@ -476,7 +477,6 @@ export function siguienteDelMotor(p) {
   const pendientes = q.upNext instanceof Set ? [...q.upNext] : Array.isArray(q.upNext) ? q.upNext : [];
   if (pendientes.length && cola.some((t) => pendientes.includes(objeto(t)?._qid))) return true;
   const idx = Number.isInteger(q.queueIndex) ? q.queueIndex : -1;
-  if (q.shuffle === true && len > 1) return q.repeat === 'all' ? true : null;
   if (idx + 1 < len) return true;
   return q.repeat === 'all';
 }
@@ -489,7 +489,8 @@ export const FIN_DE_COLA_MS = 1000;
  * pista en pausa, con la posición en su duración. La regla:
  *   en pausa  Y  duración conocida (> 0)  Y  posición ≥ duración − FIN_DE_COLA_MS
  *   Y  haySiguiente !== true (no hay nada por sonar, o no se sabe).
- * "No se sabe" (aleatorio sin repetir) cuenta como terminada: si la pista llegó al final y el motor
+ * "No se sabe" (null; desde M4 siguienteDelMotor ya no lo da, ni con aleatorio) cuenta como
+ * terminada: si la pista llegó al final y el motor
  * no pasó solo a otra, es que no tenía a dónde (playNext natural). Lo único que la confunde es
  * pausar a mano en el último segundo con canciones por sonar; ahí "a continuación" suena ya.
  * p: { playing, posicionMs, duracionMs, haySiguiente }.
