@@ -41,6 +41,7 @@
     { "nombre": "radio-menu-func", "archivo": "radio-menu-func.mjs", "modo": "name-line", "esperado": { "ok": 9, "total": 9 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
     { "nombre": "radio-mod-api", "archivo": "radio-mod-api.mjs", "modo": "name-line", "esperado": { "ok": 46, "total": 46 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS", "SNAP3_USER", "SNAP3_PASS"] } },
     { "nombre": "radio-mod-func", "archivo": "radio-mod-func.mjs", "modo": "name-line", "esperado": { "ok": 20, "total": 20 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
+    { "nombre": "radio-e2e-func", "archivo": "radio-e2e-func.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS", "SNAP3_USER", "SNAP3_PASS"] } },
     { "nombre": "motor-func", "archivo": "motor-func.mjs", "modo": "name-line", "esperado": { "ok": 38, "total": 38 } },
     { "nombre": "nav-real", "archivo": "nav-real.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 } },
     { "nombre": "videos-v3", "archivo": "videos-v3.mjs", "modo": "name-line", "esperado": { "ok": 21, "total": 21 } },
