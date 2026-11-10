@@ -9,7 +9,7 @@ Novedades destacables de **SonoraRev**. El formato sigue
 - **Moderar la radio.** Quien transmite puede nombrar hasta 3 moderadores entre sus oyentes. Quien modera
   maneja la radio desde su vista (siguiente canción, pausar y reanudar) y, desde el menú de una canción,
   «En la radio» → «Poner a continuación» o «Poner ahora». Funciona mientras el reproductor de quien transmite siga abierto.
-- **Todos ven lo que pasa en la radio**: quién pausó, saltó o puso una canción. Quien es nombrado
+- **Todos ven lo que hace cada moderador**: si pausa, salta o pone una canción, todos ven quién fue. Quien es nombrado
   moderador, o deja de serlo, recibe un aviso.
 
 ### Para tener en cuenta
