@@ -145,8 +145,8 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   **siempre** por `album_artist`. La cola y la navegación no se implementan acá, se **reúnen**:
   salen de `PlayerContext` y del host (`Player.jsx` vía `registerHost`).
   **Motor:** se sumó **`removeFromQueue(qid)`** — toma un **`_qid`**, no un índice; se niega
-  sobre la que suena, y limpia `playedRef`/`historyRef`/`forcedNext` (+ su espejo `upNextIds`)
-  recomputando `idxRef` por `findIndex`. Es el caso canónico de por qué la cola se keyea por
+  sobre la que suena, y limpia `forcedNext` (+ su espejo `upNextIds`) y, con aleatorio, `baseRef`
+  (en v1.10.0 eran `playedRef`/`historyRef`, que M4 quitó), recomputando `idxRef` por `findIndex`. Es el caso canónico de por qué la cola se keyea por
   `_qid`. **No toca MediaSession.**
   **Ya no falta cablear nada** — lo que v1.10.0 dejó pendiente se cerró en v1.10.1 (abajo).
   Contrato completo: `.claude/skills/actions-lab/SKILL.md`; lo táctil:
@@ -168,13 +168,19 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   suena** — no llama a `playIndex` ni al `<audio>`, y MediaSession (que cuelga de
   `currentTrack`/`isPlaying`) ni se entera: reordenar cambia el **plan**, nunca la reproducción en
   curso. Lo único posicional del motor es `idxRef`, recomputado por `findIndex(_qid)`. `toIndex` es
-  la posición **ya sin la pista movida** (splice-remove-then-insert). `played`/`history` **no** se
-  tocan (son `_qid`; permutar el plan no reescribe lo que ya sonó); `forcedNext` **sí**: mover a
+  la posición **ya sin la pista movida** (splice-remove-then-insert). `baseRef` (el orden original
+  del aleatorio) **no** se toca; `forcedNext` **sí**: mover a
   mano una pista marcada "a continuación" **revoca el pill**, porque forcedNext gana sobre el orden
   y si no el arrastre mentiría.
-  ⚠️ **Con aleatorio encendido el reorden es cosmético**: el motor elige del pool de no-sonadas y
-  no mira el orden. Es **decisión tomada, no olvido** — el aviso vive en el header de la cola
-  ("Aleatorio · orden de la cola") desde v1.8.0, y por eso tampoco se menciona en el CHANGELOG.
+  **Aleatorio con orden fijo (M4, reemplaza el "reorden cosmético" de v1.8.0–v1.11.0):** el motor
+  ya no sortea entre no-sonadas. La cola **es** el orden de reproducción también en aleatorio:
+  encenderlo baraja lo que viene después de la actual y guarda el orden previo en `baseRef`;
+  apagarlo lo devuelve (lo agregado después va al final). `playNext`/`prev` caminan por posición
+  (siguiente → anterior → siguiente = la misma), "repetir todo" repite el mismo orden y **arrastrar
+  con aleatorio encendido cambia lo que suena después**. `play()` respeta el orden recibido (la
+  radio carga `[pista, siguiente]`); `{ vista: true }` = tocada primero + resto barajado si el
+  aleatorio está encendido; `{ mezclar: true }` = el Mix (baraja todo y enciende el aleatorio).
+  Prueba: `mix-orden-func.mjs`. Contrato: `.claude/skills/actions-lab/SKILL.md`.
   **El gesto** (`QueueOverlay.jsx`): pointer events **a mano**, sin librerías; handlers en el `<ul>`
   con filtro por target, así las filas memoizadas no reciben ni una prop nueva (sólo un `data-qid`).
   Durante el arrastre **no se pasa por React** —transforms y marcas se escriben sobre los nodos— y
@@ -351,7 +357,7 @@ cierres). El subagente `actions-qa` sigue disponible para auditarlo contra el co
 escritorio** al cerrar la serie, y los tres commits pasaron build. Lo que **no** se ejercitó es
 la interacción del reorden con el resto del motor: mover la pista marcada **"a continuación"**
 (que debe hacer desaparecer el pill), reordenar **cruzando la pista actual**, reordenar con
-**aleatorio** encendido (donde el efecto es cosmético a propósito), y confirmar que en el
+**aleatorio** encendido (cosmético hasta M4; desde M4 cambia lo que suena después), y confirmar que en el
 **teléfono** el gesto sigue sin existir. Mismo subagente `actions-qa` para auditarlo.
 
 **QA de v1.12.0 — validado a mano, fase por fase:** el usuario probó en escritorio las tres

@@ -152,8 +152,7 @@ Recibe un **`_qid`**, no un índice ni un `track.id`. Se niega a quitar la que s
 (`qid === curQid` → return) y, al filtrar la cola, limpia **todas** las estructuras que podrían
 quedar apuntando a un fantasma:
 
-- `playedRef.delete(qid)` → el ciclo de shuffle no cuenta una pista que ya no está.
-- `historyRef` se filtra → `prev()` no vuelve a un fantasma.
+- si hay aleatorio, sale también de `baseRef` (el orden original) → al apagarlo no vuelve.
 - si estaba en `forcedNextRef`, sale de ahí **y** del espejo reactivo `upNextIds` (el pill
   "a continuación").
 - `idxRef` se **recomputa** con `findIndex(_qid === curQid)`.
@@ -163,10 +162,18 @@ Es el ejemplo canónico de la regla `_qid`: **quitar no remapea nada**.
 ## El motor de cola: `_qid`, no índices (regla dura, no re-litigar)
 
 Cada entrada de cola lleva un **`_qid` estable** (contador `uidRef`), y
-`playedRef`/`historyRef`/`forcedNextRef` se llevan **por `_qid`**. Así insertar/quitar/reordenar
-nunca corrompe played/history (son posición-independientes) y los **duplicados** funcionan (la
-misma pista dos veces = dos `_qid` distintos). `idxRef` se recomputa con
+`baseRef`/`forcedNextRef` se llevan **por `_qid`**. Así insertar/quitar/reordenar
+nunca corrompe el orden original del aleatorio (es posición-independiente) y los **duplicados**
+funcionan (la misma pista dos veces = dos `_qid` distintos). `idxRef` se recomputa con
 `findIndex(current._qid)` tras cada mutación — un solo lugar, no per-estructura.
+
+**Aleatorio con orden fijo (M4):** ya no hay `playedRef` ni `historyRef`. La cola **es** el orden
+de reproducción también en aleatorio: encenderlo baraja la cola de verdad (sólo lo que viene
+después de la actual; lo "a continuación" pendiente queda justo detrás de la actual) y guarda el
+orden previo en `baseRef`; apagarlo lo devuelve (lo agregado después va al final). `playNext` y
+`prev` caminan por posición; "repetir todo" vuelve a la primera sin rebarajar. `play()` respeta el
+orden que recibe (la radio lo necesita); `{ vista: true }` pone la tocada primero y baraja el resto
+si el aleatorio está encendido, y `{ mezclar: true }` es el Mix.
 
 - Se descartó remapear índices: la fragilidad mordía justo en "quitar de la cola".
 - Se descartó keyear por `track.id`: **se rompe con duplicados** (no distingue instancias).
@@ -240,7 +247,7 @@ inventar una capa nueva — mismo patrón que `.exp-scrim`.
 
 1. **MediaSession** vive en `PlayerContext.jsx`: los cambios de cola **NO tocan** esos efectos.
    Si uno pretende entrar, **parar y avisar**.
-2. **`playedRef`/`historyRef`/`forcedNextRef` se llevan por `_qid`, NUNCA por índice.**
+2. **`baseRef`/`forcedNextRef` se llevan por `_qid`, NUNCA por índice.**
 3. **UN menú, un provider.** Si aparece un segundo componente de menú, algo se hizo mal.
 4. **Las acciones que no aplican se OCULTAN, no se deshabilitan.** Un menú con ítems grises es
    ruido.
@@ -294,9 +301,10 @@ inventar una capa nueva — mismo patrón que `.exp-scrim`.
 1. `addToQueue` con la cola **vacía** → arranca la reproducción.
 2. `addToQueue` durante reproducción → **no interrumpe** lo que suena.
 3. `playAfterCurrent` → la insertada suena **inmediatamente después** de la actual.
-4. **`playAfterCurrent` + shuffle**: ninguna ya sonada vuelve a sonar en el ciclo, y ninguna sin
-   sonar se saltea. *(Test del keying por `_qid`.)*
-5. **`playAfterCurrent` + `prev()` en shuffle** → vuelve a la realmente sonada antes.
+4. **`playAfterCurrent` + aleatorio**: la insertada suena justo después, y después se sigue por
+   el orden de la cola sin saltear ni repetir. *(Test del keying por `_qid`.)*
+5. **Aleatorio: siguiente → anterior → siguiente** da la misma pista; la cola visible es el orden
+   real (`mix-orden-func.mjs`).
 6. **`removeFromQueue`**: quitar una pista NO altera qué suena después; quitar una que estaba
    "a continuación" la saca también del pill; sobre la que suena la acción **no aparece**.
 7. `repeat: 'all'` con cola crecida → el ciclo cubre las nuevas.
