@@ -288,7 +288,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
     // estado (error, vacía, sin red, "Mis favoritos"), nada.
     const nVideos = vista === 'lista' ? filasVideo.length : (!esFav && estado === 'cargando' ? (playlist.video_count ?? 0) : 0);
     const sinCanciones = tracks.length === 0 ? vistaSinCanciones({ esFav, estado, vista }) : null;
-    const playVideoRow = (id) => play(itemsVideo, itemsVideo.findIndex((it) => it.id === id));
+    const playVideoRow = (id) => play(itemsVideo, itemsVideo.findIndex((it) => it.id === id), { vista: true });
     // El payload del menú de una fila de video (ContextMenu, case 'playlist-video').
     const videoPayload = (v) => ({
       type: 'playlist-video',
@@ -364,7 +364,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                         <>
                           <button
                             className="btn-primary"
-                            onClick={() => { play([...sortedTracks, ...itemsVideo], 0); avisarOmitidos(); }}
+                            onClick={() => { play([...sortedTracks, ...itemsVideo], 0, { vista: true }); avisarOmitidos(); }}
                             disabled={sortedTracks.length + itemsVideo.length === 0}
                           >
                             ▶ Reproducir
@@ -487,7 +487,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                     key={track.id}
                     className={`track-row${active ? ' playing' : ''}`}
                     {...bindPress(track, {
-                      onClick: () => play(sortedTracks, i),
+                      onClick: () => play(sortedTracks, i, { vista: true }),
                       onContextMenu: (e) => openMenu(e, ctxPayload(track)),
                     })}
                     {...dragProps(track)}

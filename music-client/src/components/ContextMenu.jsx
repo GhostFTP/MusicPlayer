@@ -483,7 +483,7 @@ export function ContextMenuProvider({ children }) {
       case 'album': {
         list.push({
           id: 'play', label: 'Reproducir álbum', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
-          run: () => onTracks(() => albumTracks(it), (ts) => play(ts, 0), 'Ese álbum no tiene pistas'),
+          run: () => onTracks(() => albumTracks(it), (ts) => play(ts, 0, { vista: true }), 'Ese álbum no tiene pistas'),
         });
         list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
@@ -503,7 +503,7 @@ export function ContextMenuProvider({ children }) {
       case 'artist': {
         list.push({
           id: 'play', label: 'Reproducir todo', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
-          run: () => onTracks(() => artistTracks(it), (ts) => play(ts, 0), 'Ese artista no tiene pistas'),
+          run: () => onTracks(() => artistTracks(it), (ts) => play(ts, 0, { vista: true }), 'Ese artista no tiene pistas'),
         });
         list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
@@ -522,7 +522,7 @@ export function ContextMenuProvider({ children }) {
       case 'genre': {
         list.push({
           id: 'play', label: 'Reproducir género', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
-          run: () => onTracks(() => genreTracks(it), (ts) => play(ts, 0), 'Ese género no tiene pistas'),
+          run: () => onTracks(() => genreTracks(it), (ts) => play(ts, 0, { vista: true }), 'Ese género no tiene pistas'),
         });
         list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
@@ -542,7 +542,7 @@ export function ContextMenuProvider({ children }) {
       case 'year': {
         list.push({
           id: 'play', label: 'Reproducir año', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
-          run: () => onTracks(() => yearTracks(it), (ts) => play(ts, 0), 'Ese año no tiene pistas'),
+          run: () => onTracks(() => yearTracks(it), (ts) => play(ts, 0, { vista: true }), 'Ese año no tiene pistas'),
         });
         list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,

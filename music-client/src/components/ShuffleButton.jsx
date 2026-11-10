@@ -1,13 +1,14 @@
 import { useRef, useState } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from './Toast.jsx';
-import { shuffled, MIN_TRACKS, ERROR_TOAST_MS, MIX_ERROR_TEXT } from '../utils/mixPlayback.js';
+import { MIN_TRACKS, ERROR_TOAST_MS, MIX_ERROR_TEXT } from '../utils/mixPlayback.js';
 
-// shuffled, MIN_TRACKS, ERROR_TOAST_MS y el texto del aviso viven en utils/mixPlayback.js (Frente 2,
+// MIN_TRACKS, ERROR_TOAST_MS y el texto del aviso viven en utils/mixPlayback.js (Frente 2,
 // M3): los comparte el atajo de teclado M, así botón y atajo se comportan igual.
 
 // Botón "Mix aleatorio" reutilizable (los 10 usos de la app): baraja las pistas dadas, reproduce y
-// activa el modo shuffle del PlayerContext. Recibe la lista directa (`tracks`) o un cargador
+// activa el aleatorio del PlayerContext, todo en una llamada: play(lista, 0, { mezclar: true }). El motor
+// guarda el orden de la vista para devolverlo al apagar el aleatorio (M4). Recibe la lista directa (`tracks`) o un cargador
 // asíncrono (`getTracks`) para vistas que aún no tienen la lista cargada.
 //
 // Frente 2 · M2b:
@@ -36,7 +37,7 @@ import { shuffled, MIN_TRACKS, ERROR_TOAST_MS, MIX_ERROR_TEXT } from '../utils/m
 // `onPlayed` (opcional, V8c): se llama DESPUÉS de arrancar el Mix. Hoy sólo lo pasa el detalle de
 // playlist, para avisar los videos que quedaron afuera; sin él, el botón hace exactamente lo de antes.
 export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix aleatorio', onPlayed, noun = 'canciones' }) {
-  const { play, shuffle, toggleShuffle } = usePlayer();
+  const { play } = usePlayer();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
@@ -67,8 +68,7 @@ export default function ShuffleButton({ tracks, getTracks, count, label = 'Mix a
         }
       }
       if (!list || list.length < MIN_TRACKS) return;
-      play(shuffled(list), 0);
-      if (!shuffle) toggleShuffle();
+      play(list, 0, { mezclar: true });
       onPlayed?.();
     } finally {
       inFlight.current = false;

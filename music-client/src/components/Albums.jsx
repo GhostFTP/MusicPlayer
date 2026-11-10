@@ -192,7 +192,7 @@ export default function Albums({ target, clearTarget, setDetailOpen, navigate })
             </div>
             {selected.tracks.length > 0 && (
               <div className="detail-actions">
-                <button className="btn-primary" onClick={() => play(selected.tracks, 0)}>▶ Reproducir</button>
+                <button className="btn-primary" onClick={() => play(selected.tracks, 0, { vista: true })}>▶ Reproducir</button>
                 <ShuffleButton tracks={selected.tracks} />
               </div>
             )}

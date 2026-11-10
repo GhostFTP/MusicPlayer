@@ -334,22 +334,43 @@ export function PlayerProvider({ children }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
-  const play = useCallback((tracks, startIndex = 0, { sonar = true } = {}) => {
+  // play(tracks, startIndex, opciones) REEMPLAZA la cola entera. Sin opciones respeta el orden de
+  // `tracks` TAL CUAL aunque el aleatorio esté encendido: la radio carga [pista, siguiente] y
+  // devuelve la cola guardada con esto, y necesita ese orden. Opciones:
+  //  · sonar: false → cargada y en pausa (la radio al devolver la cola).
+  //  · vista: true → `tracks` es una lista de la app (tocar una fila, "Reproducir"). Con el aleatorio
+  //    encendido, la tocada va PRIMERO y TODO el resto de la lista barajado detrás: lo de antes de la
+  //    tocada también suena. Con el aleatorio apagado, lo de siempre.
+  //  · mezclar: true → el Mix: la lista entera barajada desde la primera, y enciende el aleatorio.
+  // Con el aleatorio encendido, baseRef queda con `tracks` en el orden recibido (el de la vista):
+  // apagarlo lo devuelve.
+  const play = useCallback((tracks, startIndex = 0, { sonar = true, vista = false, mezclar = false } = {}) => {
     // Cada entrada recibe un _qid estable (identidad interna de la cola; NO viaja a la API ni a
-    // MediaSession). play() REEMPLAZA la cola entera, como antes, en el orden de `tracks`.
+    // MediaSession).
     setPlayBlocked(false);                 // un intento nuevo: si lo vuelven a bloquear, el catch lo pone otra vez
     const items = tracks.map((t) => ({ ...t, _qid: ++uidRef.current }));
-    queueRef.current = items;              // espejo síncrono para los callbacks
-    setQueue(items);                       // estado reactivo para la UI
+    let order = items;
+    let start = startIndex;
+    if (mezclar) {
+      order = shuffled(items);
+      start = 0;
+      if (!shuffleRef.current) { shuffleRef.current = true; setShuffle(true); }
+    } else if (vista && shuffleRef.current && items[startIndex]) {
+      order = [items[startIndex], ...shuffled(items.filter((_, i) => i !== startIndex))];
+      start = 0;
+    }
+    queueRef.current = order;              // espejo síncrono para los callbacks
+    setQueue(order);                       // estado reactivo para la UI
     baseRef.current = shuffleRef.current ? items.map((t) => t._qid) : null;   // orden a devolver al apagar
     forcedNextRef.current = [];            // reemplazar la cola entera también limpia lo "a continuación"
     setUpNextIds([]);                      // espejo reactivo
-    playIndex(startIndex, sonar);          // sonar: false → cargada y en pausa (la radio al devolver la cola)
+    playIndex(start, sonar);
   }, [playIndex]);
 
   // Encola pistas AL FINAL sin resetear. Acepta una o muchas. Si nada suena (sin pista actual),
   // arranca la reproducción con la primera agregada — si no, la acción sería invisible. Append
-  // no corre índices → played/history (por _qid) no se tocan.
+  // no corre índices. Con aleatorio va al final del orden barajado (no se mezcla con lo que viene) y
+  // NO entra en baseRef: al apagar el aleatorio queda al final, después del orden de la vista.
   const addToQueue = useCallback((tracks) => {
     const list = Array.isArray(tracks) ? tracks : [tracks];
     if (!list.length) return;
@@ -362,8 +383,10 @@ export function PlayerProvider({ children }) {
   }, [playIndex]);
 
   // Inserta pistas JUSTO DESPUÉS de la actual y las marca para sonar a continuación (forcedNext,
-  // así vale también en shuffle). Acepta una o muchas. Nada suena → arranca. Como played/history
-  // son por _qid, insertar NO remapea nada; solo se recomputa idxRef por _qid.
+  // así vale también en aleatorio). Acepta una o muchas. Nada suena → arranca. Como baseRef y
+  // forcedNext son por _qid, insertar NO remapea nada; solo se recomputa idxRef por _qid. Lo insertado
+  // no entra en baseRef: si el aleatorio se apaga con eso pendiente, toggleShuffle lo deja justo
+  // detrás de la actual; si ya sonó, va al final como todo lo agregado después.
   const playAfterCurrent = useCallback((tracks) => {
     const list = Array.isArray(tracks) ? tracks : [tracks];
     if (!list.length) return;

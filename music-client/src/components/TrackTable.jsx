@@ -26,7 +26,7 @@ export default function TrackTable({ tracks, showAlbum = true, flat = false }) {
   const activeRowRef = useRef(null);
 
   // Handlers ESTABLES para TrackRow (memo): la fila los llama con su índice / su pista.
-  const onPlay = useCallback((i) => play(tracks, i), [play, tracks]);
+  const onPlay = useCallback((i) => play(tracks, i, { vista: true }), [play, tracks]);
   const onCtx  = useCallback((e, track) => openMenu(e, { type: 'track', item: track }), [openMenu]);
 
   // Al abrir una lista (álbum/género), desplaza la pista que suena a la vista.

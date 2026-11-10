@@ -54,7 +54,7 @@ export default function Videos({ target, clearTarget, navigate }) {
   // desde AHÍ, así que con filtro tocar un video reproduce los filtrados desde ése (y al terminar pasa
   // al siguiente que se ve, no al siguiente de la lista completa). Como la Biblioteca con su búsqueda.
   const { query, setQuery, activeQuery, filtered: shown } = useListFilter(items, SEARCH_FIELDS);
-  const onPlay = useCallback((i) => play(shown, i), [play, shown]);
+  const onPlay = useCallback((i) => play(shown, i, { vista: true }), [play, shown]);
 
   // Tocar la pestaña ya activa (el `tab` de Layout.navigate) borra el buscador. Videos no tiene
   // detalle: del target no consume nada más.

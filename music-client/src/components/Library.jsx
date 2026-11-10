@@ -182,7 +182,7 @@ export default function Library({ target, clearTarget }) {
   // Handlers ESTABLES para LibraryRow (memo): la fila los llama con SUS datos (índice / pista), así
   // ninguna closure nueva por render le rompe el memo. onPlay sólo cambia si cambia la lista visible
   // — y ahí todas las filas cambian de verdad.
-  const onPlay = useCallback((i) => play(visibleRef.current, i), [play]);
+  const onPlay = useCallback((i) => play(visibleRef.current, i, { vista: true }), [play]);
   const onCtx  = useCallback((e, track) => openMenu(e, { type: 'track', item: track }), [openMenu]);
 
   // Ventana (Frente 1, sub-paso 9): sólo se montan las filas visibles + overscan; el resto son

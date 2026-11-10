@@ -248,7 +248,7 @@ export default function Artists({ target, clearTarget, setDetailOpen, navigate }
                   key={v.id}
                   video={v}
                   press={bindVideoPress(v, {
-                    onClick: () => play(artistVideos, i),
+                    onClick: () => play(artistVideos, i, { vista: true }),
                     onContextMenu: (e) => openMenu(e, { type: 'video', item: v }),
                   })}
                 />
