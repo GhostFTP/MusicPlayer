@@ -498,9 +498,9 @@ export function PlayerProvider({ children }) {
   // queda simple y explicable: si la moviste a mano, manda el orden. Simétrico con
   // removeFromQueue, y sale del ref Y de su espejo reactivo (el pill).
   //
-  // En SHUFFLE el motor no mira el orden (playNext elige del pool de no-sonadas), así que reordenar
-  // es cosmético: shuffle sigue activo y sólo se reacomoda lo que se ve. El aviso ya está en el
-  // header de la cola ("Aleatorio · orden de la cola").
+  // En ALEATORIO también manda el orden (M4): la cola es el orden barajado y playNext camina por
+  // posición, así que arrastrar cambia lo que suena después, igual que sin aleatorio. Lo que no
+  // cambia es baseRef: apagar el aleatorio devuelve el orden de la vista y deshace el arrastre.
   const moveInQueue = useCallback((qid, toIndex) => {
     if (qid == null) return;
     const q = queueRef.current;
