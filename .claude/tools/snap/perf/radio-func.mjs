@@ -459,6 +459,8 @@ async function falsoMod(route) {
   const json = (status, b) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(b) });
   const salen = () => FM.ordenes.slice(0, 10).map((o) => { if (!FM.entregas.has(o.id)) FM.entregas.set(o.id, t); FM.veces.set(o.id, (FM.veces.get(o.id) ?? 0) + 1); return o; });
   const code = 'K7M2QX';
+  // Nombrar o quitar (19aa): la respuesta de PUT/DELETE /moderadores/:id con la lista que tenga FM ahora.
+  if (/\/moderadores\/\d+$/.test(u.pathname)) return json(200, { serverNow: t, moderators: FM.moderadores, name: null });
   if (m === 'POST') return json(201, { code, serverNow: t, status: 'live' });
   if (m === 'PUT') {
     const b = body ?? {};
@@ -470,8 +472,12 @@ async function falsoMod(route) {
   }
   if (m === 'GET') {
     const mod = u.searchParams.has('desde') || u.searchParams.get('cap') === 'mod';
-    return json(200, { serverNow: t, code, status: 'live', state: null, host: { id: 1, name: 'h' }, listeners: [{ id: 2, name: 'Sonia', avatar: null }],
-      ...(mod ? { moderators: FM.moderadores, capabilities: { orders: true }, events: [], eventsUntil: 0, eventsLost: false, orders: salen() } : {}) });
+    const cuerpo = { serverNow: t, code, status: 'live', state: null, host: { id: 1, name: 'h' }, listeners: [{ id: 2, name: 'Sonia', avatar: null }],
+      ...(mod ? { moderators: FM.moderadores, capabilities: { orders: true }, events: [], eventsUntil: 0, eventsLost: false, orders: salen() } : {}) };
+    // 19aa: con FM.retenerGet, la respuesta YA ARMADA (lista, órdenes y serverNow de ahora) espera esa promesa.
+    const retener = FM.retenerGet;
+    if (retener) await retener;
+    return json(200, cuerpo);
   }
   if (m === 'DELETE') return json(200, { serverNow: t, status: 'ended', endedReason: 'anfitrion' });
   return route.continue();
@@ -497,6 +503,7 @@ const INIT_MOD = () => {
   };
   window.__player = () => valor((v) => typeof v.play === 'function' && typeof v.addToQueue === 'function');
   window.__sesion = () => valor((v) => typeof v.signOut === 'function');
+  window.__radioCtx = () => valor((v) => typeof v.nombrarModerador === 'function');
   window.__motor = () => {
     const v = window.__player();
     const s = [...window.__els].filter((e) => !e.paused && !e.ended);
@@ -782,6 +789,100 @@ if (corre(19)) {
         && aplicadasTodas.includes(a.id) && aplicadasTodas.includes(b.id) && m.len === antes.len + 2 && m.qid === antes.qid
         && detras[0] === B.id && detras[1] === A.id,
         { juntas: FM.entregas.get(a.id) === FM.entregas.get(b.id), largo: [antes.len, m.len], esperado: [B.id, A.id], detras, cola: cola.ids, idx: cola.idx }); }
+
+    // Quitar el rol con órdenes ya recibidas (1.43.0): lo de esa persona que todavía no tocó el motor se
+    // descarta sin evento y se confirma igual (ordenHasta la cubre). FM hace lo que hace el servidor al
+    // quitar: la saca de la lista y borra sus pendientes.
+    const SONIA = { id: 2, name: 'Sonia', avatar: null }, CARO = { id: 3, name: 'Caro', avatar: null };
+    const leidaDesde = (t0) => esperar(async () => FM.log.find((x) => x.m === 'GET' && x.t > t0 && /desde=/.test(x.ruta)) ?? null, 8000, 30).then((r) => r.v);
+    const aplicadasDesde = (t0) => FM.log.filter((x) => x.m === 'PUT' && x.t >= t0 && x.respuesta === 200 && Array.isArray(x.body?.aplicadas)).flatMap((x) => x.body.aplicadas);
+
+    // y: dos moderadoras. La 1.ª orden (Sonia, "a continuación") espera su pista; la 2.ª (Caro, pausa) espera
+    // su turno en la cola local. Le quitan el rol a Caro: al motor llega solo la 1.ª.
+    { await poner(Q.slice(0, 3), 0);
+      FM.moderadores = [SONIA, CARO];
+      const antes = await motor();
+      let pedida = 0, soltar;
+      const puerta = new Promise((r) => { soltar = r; });
+      const ruta = `**/api/tracks/${X.id}`;
+      await p.route(ruta, async (r) => { pedida = Date.now(); await puerta; await r.continue().catch(() => {}); });
+      const t0 = Date.now();
+      const a = dar('a-continuacion', { trackId: X.id });
+      await esperar(async () => pedida > 0, 8000, 30);
+      const b = dar('pausa', { by: CARO.id });
+      const llego = await esperar(async () => FM.entregas.has(b.id) || null, 6000, 30);
+      const tQ = Date.now();
+      FM.moderadores = [SONIA]; FM.ordenes = FM.ordenes.filter((o) => o.by !== CARO.id);
+      const lista = await leidaDesde(tQ);
+      await sleep(300);
+      soltar();
+      const c = await confirmada(b.id);
+      await p.unroute(ruta);
+      await sleep(300);
+      const m = await motor();
+      const aplicadas = aplicadasDesde(t0);
+      ok('19y_quitado_con_su_orden_en_cola_no_llega_al_motor', !!llego.v && !!lista && !!c && m.playing && m.len === antes.len + 1
+        && aplicadas.includes(a.id) && !aplicadas.includes(b.id),
+        { llego: !!llego.v, listaNueva: !!lista, confirmada: !!c, playing: m.playing, largo: [antes.len, m.len], aplicadas, a: a.id, b: b.id }); }
+
+    // z: la orden EN VUELO. Sonia pausa (llega al motor); su "ahora" espera la pista y le quitan el rol
+    // mientras tanto: después del await, la pista no se pone.
+    { await poner(Q.slice(0, 3), 0);
+      FM.moderadores = [SONIA];
+      const antes = await motor();
+      const t0 = Date.now();
+      const a = dar('pausa');
+      await confirmada(a.id);
+      let pedida = 0, soltar;
+      const puerta = new Promise((r) => { soltar = r; });
+      const ruta = `**/api/tracks/${X.id}`;
+      await p.route(ruta, async (r) => { pedida = Date.now(); await puerta; await r.continue().catch(() => {}); });
+      const b = dar('ahora', { trackId: X.id });
+      await esperar(async () => pedida > 0, 8000, 30);
+      const tQ = Date.now();
+      FM.moderadores = []; FM.ordenes = FM.ordenes.filter((o) => o.by !== SONIA.id);
+      const lista = await leidaDesde(tQ);
+      await sleep(300);
+      soltar();
+      const c = await confirmada(b.id);
+      await p.unroute(ruta);
+      await sleep(300);
+      const m = await motor();
+      const aplicadas = aplicadasDesde(t0);
+      ok('19z_quitado_mientras_llega_su_pista_no_la_pone', !!lista && !!c && !m.playing && m.qid === antes.qid && m.len === antes.len
+        && aplicadas.includes(a.id) && !aplicadas.includes(b.id),
+        { listaNueva: !!lista, confirmada: !!c, playing: m.playing, qid: [antes.qid, m.qid], largo: [antes.len, m.len], aplicadas, a: a.id, b: b.id });
+      FM.moderadores = [SONIA];
+      await p.evaluate(() => window.__player().resume()); await sleep(400); }
+
+    // aa: la guarda de listas viejas. Una lectura que se ARMÓ antes de nombrar a Caro (lista [Sonia], su
+    // serverNow) llega DESPUÉS de la respuesta de nombrarla (lista [Sonia, Caro], serverNow más nuevo): no
+    // la pisa. La orden de Caro llega en la respuesta del PUT que confirma la de Sonia (ahí no viaja lista)
+    // y se aplica. Las lecturas siguientes quedan retenidas para que ninguna "cure" la lista a tiempo.
+    { await poner(Q.slice(0, 3), 0);
+      FM.moderadores = [SONIA];
+      let soltar1, soltar2;
+      const p1 = new Promise((r) => { soltar1 = r; }), p2 = new Promise((r) => { soltar2 = r; });
+      const t0 = Date.now();
+      FM.retenerGet = p1; const s = dar('pausa');   // juntas: la próxima lectura lleva la pausa y queda retenida
+      const vieja = await esperar(async () => FM.log.find((x) => x.m === 'GET' && x.t >= t0 && FM.entregas.has(s.id) && /desde=/.test(x.ruta)) ?? null, 8000, 20);
+      FM.retenerGet = p2;
+      await sleep(30);
+      FM.moderadores = [SONIA, CARO];
+      const nombrada = await p.evaluate(() => window.__radioCtx().nombrarModerador(3));
+      const c = dar('reanudar', { by: CARO.id });
+      soltar1();
+      const conf = await confirmada(c.id);
+      soltar2(); FM.retenerGet = null;
+      await sleep(400);
+      const m = await motor();
+      const aplicadas = aplicadasDesde(t0);
+      const put = FM.log.find((x) => x.m === 'PUT' && x.t >= t0 && /\/moderadores\/3$/.test(x.ruta));
+      ok('19aa_lista_vieja_que_llega_tarde_no_descarta_a_la_recien_nombrada', !!vieja.v && nombrada?.ok === true && !!put && put.t > vieja.v.t && !!conf
+        && m.playing && aplicadas.includes(s.id) && aplicadas.includes(c.id),
+        { vieja: !!vieja.v, nombrada, playing: m.playing, aplicadas, s: s.id, c: c.id });
+      FM.moderadores = [SONIA];
+      if (!m.playing) { await p.evaluate(() => window.__player().resume()); await sleep(400); } }
 
     // v: termina la radio mientras llega la pista de "a continuación": no se toca el motor
     { await poner(Q.slice(0, 3), 0);
