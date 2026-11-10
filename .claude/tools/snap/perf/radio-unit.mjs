@@ -1308,27 +1308,24 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     'en la última: con all vuelve a la primera; repetir una NO cuenta (un siguiente manual la ignora)');
   W([SM({ queue: cola(3), queueIndex: 2, upNext: new Set([2]) }), SM({ queue: cola(3), queueIndex: 2, upNext: [2] }), SM({ queue: cola(3), queueIndex: 2, upNext: new Set([99]) })],
     [true, true, false], 'a continuación gana (Set o lista), pero solo si sigue en la cola');
-  W(['off', 'one', 'all'].map((repeat) => SM({ queue: cola(3), queueIndex: 0, shuffle: true, repeat })), [null, null, true],
-    'aleatorio con varias pistas: sin all NO se sabe (lo ya sonado vive en playedRef); con all, siempre');
-  W([SM({ queue: cola(1), queueIndex: 0, shuffle: true }), SM({ queue: cola(1), queueIndex: 0, shuffle: true, repeat: 'all' }), SM({ queue: cola(3), queueIndex: 1, shuffle: true, upNext: new Set([3]) })],
+  W([0, 1, 2].map((i) => SM({ queue: cola(3), queueIndex: i, shuffle: true })).concat(['off', 'one', 'all'].map((repeat) => SM({ queue: cola(3), queueIndex: 2, shuffle: true, repeat }))),
+    [true, true, false, false, false, true],
+    'aleatorio (M4): la cola es el orden barajado, así que se sabe igual que en orden; en la última solo con all');
+  W([SM({ queue: cola(1), queueIndex: 0, shuffle: true }), SM({ queue: cola(1), queueIndex: 0, shuffle: true, repeat: 'all' }), SM({ queue: cola(3), queueIndex: 2, shuffle: true, upNext: new Set([3]) })],
     [false, true, true], 'aleatorio con una sola pista: como en orden; con a continuación, sí hay');
   W([SM({ queue: [], queueIndex: -1 }), SM(null), SM({ queue: cola(2), queueIndex: -1 }), SM({ queue: 'x', queueIndex: 0 })], [false, false, true, false],
     'sin cola, nada; sin índice el motor arranca la primera; una cola rara es una cola vacía');
 
   // ---- siguienteDelMotor contra un MODELO de playNext(false, true) ----
-  // Transcrito de music-client/src/context/PlayerContext.jsx (playNext, 1.43.0): forcedNext (los _qid que
-  // siguen en la cola) gana; aleatorio con len > 1 elige del pool de no sonadas (sin la actual) y con
-  // repeat 'all' reinicia el ciclo si se vació; en orden, idx + 1 o, con 'all', la primera. Manual: 'one'
-  // no cuenta. Devuelve si el motor PASA a otra entrada. Si cambia PlayerContext, esto no se entera solo.
-  const motor = ({ len, idx, shuffle, repeat, forced, played }) => {
+  // Transcrito de music-client/src/context/PlayerContext.jsx (playNext, M4): forcedNext (los _qid que
+  // siguen en la cola) gana; después, POR POSICIÓN con o sin aleatorio (la cola ya es el orden barajado):
+  // idx + 1 o, con 'all', la primera. Manual: 'one' no cuenta. Devuelve si el motor PASA a otra entrada.
+  // Lo ya sonado (`played`) se sigue variando a propósito: desde M4 no decide nada, y eso es lo que se
+  // comprueba (antes de M4 el aleatorio sorteaba entre las no sonadas y había "no se sabe").
+  // Si cambia PlayerContext, esto no se entera solo.
+  const motor = ({ len, idx, repeat, forced }) => {
     if (len === 0) return false;
     if (forced.some((qid) => qid >= 1 && qid <= len)) return true;
-    if (shuffle && len > 1) {
-      let pool = 0;
-      for (let i = 0; i < len; i++) if (i !== idx && !played.has(i + 1)) pool++;
-      if (pool === 0 && repeat === 'all') pool = len - 1;
-      return pool > 0;
-    }
     return idx + 1 < len || repeat === 'all';
   };
   const subconjuntos = (n) => Array.from({ length: 2 ** n }, (_, m) => new Set(Array.from({ length: n }, (_, i) => i + 1).filter((q) => m & (1 << (q - 1)))));
@@ -1344,8 +1341,8 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
       else malos.push({ len, idx, shuffle, repeat, forced, dice, resultados: [...resultados] });
     }
   W({ malos: malos.slice(0, 3), nMalos: malos.length }, { malos: [], nMalos: 0 },
-    `contra el modelo del motor, en ${casos} estados × todo lo ya sonado posible: cuando contesta acierta siempre, y "no se sabe" solo donde lo sonado decide`);
-  W([acierta + dudaBien === casos, dudas > 0, dudas < casos / 4], [true, true, true], `los "no se sabe" son la minoría (${dudas} de ${casos}) y existen (el modelo los distingue)`);
+    `contra el modelo del motor, en ${casos} estados × todo lo ya sonado posible: acierta siempre`);
+  W([acierta === casos, dudas, dudaBien], [true, 0, 0], `M4: nunca "no se sabe", tampoco con aleatorio (${casos} estados, la mitad con aleatorio)`);
 
   // ---- alFinalDeLaCola ----
   const F = (x) => S.alFinalDeLaCola({ playing: false, posicionMs: 180_000, duracionMs: 180_000, haySiguiente: false, ...x });

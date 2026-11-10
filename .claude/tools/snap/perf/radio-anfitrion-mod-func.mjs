@@ -5,7 +5,7 @@
 //
 //   · 19    las ÓRDENES de quien modera (W3), con un servidor FALSO que las entrega como el real: aplicar
 //           cada tipo, repetida, 429 y red caída en la confirmación, obsoleta, sin siguiente (en orden y en
-//           aleatorio, verificando el cambio de pista), video, "a continuación" y "ahora" al final de la cola
+//           aleatorio, que desde M4 se sabe de antemano como en orden), video, "a continuación" y "ahora" al final de la cola
 //           (que de verdad suenan), tandas de 10, el intervalo de 2 s solo con moderadores (19c), que van de a
 //           una (la segunda ve lo que dejó la primera, y espera su turno aunque llegue en otra lectura), que
 //           las de quien dejó de moderar no lleguen al motor (19y, 19z) y que una lista vieja no pise a la
@@ -21,7 +21,7 @@
 // Uso: SNAP_BASE=http://localhost:4173 SNAP2_USER=… SNAP2_PASS=… node radio-anfitrion-mod-func.mjs
 import {
   T0, corre, R, ok, NO_MEDIDO, sleep, tokHost, api, browser, abrir, vista, esperar, sonar, irA, iniciar,
-  tecla, terminarUI, TXT
+  terminarUI, TXT
 } from './radio-anfitrion-comun.mjs';
 
 // ══════════════════════════ 19: ÓRDENES (1.43.0, W3), servidor de radio FALSO ══════════════════════════
@@ -234,7 +234,8 @@ if (corre(19)) {
       ok('19j_siguiente_en_orden_se_aplica_y_confirma_con_la_pista_nueva', aplicada(c, o.id) && c.body.trackId === Q[1].id && m.idx === 1 && e[0]?.estado === 'limpiada',
         { cuerpo: c?.body, espera: e[0] }); }
 
-    // k: siguiente en ALEATORIO con a dónde ir (no se sabe de antemano): cambió → aplicada
+    // k: siguiente en ALEATORIO con a dónde ir: desde M4 la cola es el orden barajado y se sabe de
+    // antemano (siguienteDelMotor da true, como en orden): se aplica y cambia la pista
     { await poner(Q.slice(0, 3), 0, { shuffle: true });
       const antes = await motor();
       const o = dar('siguiente', { trackBase: antes.id });
@@ -246,16 +247,18 @@ if (corre(19)) {
       ok('19k_aleatorio_con_a_donde_cambia_y_se_da_por_aplicada', m.shuffle && aplicada(c, o.id) && m.qid !== antes.qid && c.body.trackId === m.id && e[0]?.estado === 'limpiada' && e[0].ms < 1000,
         { cuerpo: c?.body, espera: e[0] });
 
-      // l: el ciclo agotado (las 3 sonaron): next() no hace nada → sin-siguiente, sin evento
+      // l: la última del orden barajado (las 3 sonaron): como en orden (19f), se sabe que no hay a
+      // dónde ir → sin-siguiente sin tocar el motor ni esperarlo. Antes de M4 no se sabía: se aplicaba
+      // y se descartaba tras 1 s de verificación.
       await p.evaluate(() => window.__player().next()); await sleep(600);
       const agotado = await motor();
       const o2 = dar('siguiente', { trackBase: agotado.id });
       const t2 = await listo(o2.id);
       const c2 = await confirmada(o2.id);
       const m2 = await motor();
-      const e2 = await espera(t2);
-      ok('19l_aleatorio_sin_a_donde_se_descarta_tras_verificar', !!c2 && !aplicada(c2, o2.id) && m2.qid === agotado.qid && m2.playing && e2[0]?.estado === 'disparada' && c2.t - t2 >= 1000 && c2.t - t2 < 2000,
-        { cuerpo: c2?.body, ms: c2 ? c2.t - t2 : null, espera: e2[0] }); }
+      const e2 = await espera(t2 ?? Date.now());
+      ok('19l_aleatorio_sin_a_donde_se_descarta_sin_tocar_el_motor', !!c2 && !aplicada(c2, o2.id) && m2.qid === agotado.qid && m2.playing && agotado.idx === 2 && e2.length === 0 && c2.t - t2 < 1500,
+        { cuerpo: c2?.body, ms: c2 ? c2.t - t2 : null, idx: agotado.idx, esperas: e2 }); }
 
     // m/n: al FINAL de la cola, "a continuación" y "ahora" suenan de verdad
     { await poner(Q.slice(0, 2), 1);
@@ -490,13 +493,17 @@ if (corre(19)) {
       await iniciar(p); await sleep(1500); }
 
     // r/s/t: la espera del motor se corta al desmontar el puente
-    const agotarAleatorio = async () => {
-      await poner(Q.slice(0, 3), 0, { shuffle: true });
-      for (let k = 0; k < 2; k++) { await p.evaluate(() => window.__player().next()); await sleep(500); }
+    // Una sola pista con «repetir todo»: siguienteDelMotor dice que hay (vuelve a la primera) y next()
+    // vuelve a empezar la MISMA entrada, así que el motor nunca muestra otra pista y la espera de 1 s
+    // queda viva. Antes de M4 esto se armaba con el aleatorio agotado (el camino de verificar), que
+    // desde M4 se sabe de antemano y ya no espera.
+    const unaConRepetir = async () => {
+      await poner(Q.slice(0, 1), 0);
+      await p.evaluate(() => window.__player().cycleRepeat()); await sleep(300);
       return motor();
     };
-    const conEspera = async () => {   // una "siguiente" sin a dónde: la espera de 1 s queda viva
-      const a = await agotarAleatorio();
+    const conEspera = async () => {   // una "siguiente" que no cambia de pista: la espera de 1 s queda viva
+      const a = await unaConRepetir();
       const o = dar('siguiente', { trackBase: a.id });
       const t0 = await listo(o.id);
       const r = await esperar(async () => { const e = await espera(t0); return e.find((x) => x.estado === 'viva') ? e : null; }, 1500, 20);
@@ -510,7 +517,10 @@ if (corre(19)) {
     { await iniciar(p); await sleep(1500);
       const { t0, viva } = await conEspera();
       FM.falla.PUT = { status: 410, body: { error: 'x', status: 'ended', endedReason: 'reemplazada' } };
-      await tecla(p, 'ArrowRight');
+      // El PUT que trae el 410 sale de una PAUSA (se publica en el acto). Hasta M4 era ArrowRight, un
+      // «salto», que tiene MIN_ENTRE_SALTOS_MS (1 s) desde la publicación anterior y con una sola pista
+      // recién puesta caía después de que la espera ya se disparó.
+      await p.evaluate(() => window.__player().pause());
       const sale = await esperar(async () => (await vista(p)).estado === TXT.reemplazada, 3000, 50);
       FM.falla = {};
       const r = await tras(t0);
