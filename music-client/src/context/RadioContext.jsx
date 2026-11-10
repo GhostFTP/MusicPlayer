@@ -464,7 +464,7 @@ export function RadioProvider({ children }) {
     if (gen !== genRef.current || !montadoRef.current) return { ok: false, error: 'vieja' };
     if (r.ok) {
       setModeradores(r.moderators);
-      moderarRef.current?.(r.moderators);
+      moderarRef.current?.(r.moderators, r.serverNow);
       return { ok: true };
     }
     if (r.error === 'sin-soporte') setSinSoporte((s) => new Set(s).add(userId));
@@ -569,6 +569,9 @@ export function useRadio() {
   return useContext(RadioContext);
 }
 
+/** Los ids de una lista de moderadores (personas ya leídas por leerPersona) → Set. */
+const idsDeModeradores = (lista) => new Set((Array.isArray(lista) ? lista : []).map((p) => p?.id).filter(Number.isSafeInteger));
+
 // ── El puente del anfitrión: publica lo que suena, lee quién escucha y aplica las órdenes ──
 //
 // Publica por CAMBIOS (pista, pausa, siguiente, salto, posición: cada render trae el estado nuevo y
@@ -618,8 +621,20 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
   const aplicandoRef = useRef(false);
   const resueltasRef = useRef([]);       // [{ id, aplicada }] sin confirmar
   const esperaRef = useRef(null);        // { listo(motor), fin(cambio), timer } | null
+  const modsRef = useRef(null);          // ids de quienes moderan AHORA (lo último del servidor); null: todavía nada
+  const modsEnRef = useRef(-Infinity);   // el serverNow de esa lista: una más vieja que llega tarde no la pisa
 
   const vigente = useCallback(() => vivoRef.current && gen === genRef.current, [gen, genRef]);
+  // ¿Quien mandó la orden sigue moderando? Sin lista todavía, sí: las órdenes llegan junto con ella
+  // (la lectura con ?desde= las trae con moderators, y el PUT solo las devuelve después de esa).
+  const sigueModerando = (o) => modsRef.current == null || modsRef.current.has(o.by);
+  // La lista nueva, solo si es la más nueva vista (por serverNow, el reloj del servidor): una lectura que
+  // salió antes de nombrar y llega después no la pisa. Solo refs: no hay render.
+  const ponerModeradores = (lista, serverNow) => {
+    if (!Number.isFinite(serverNow) || serverNow < modsEnRef.current) return;
+    modsEnRef.current = serverNow;
+    modsRef.current = idsDeModeradores(lista);
+  };
 
   // Las órdenes y mirar() se llaman entre sí (mirar recibe las del PUT; resolver una pide publicar):
   // se cruzan por refs para no encadenar dependencias.
@@ -702,6 +717,7 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
         let cola = null;
         try { const t = await api.track(o.trackId); cola = colaDelOyente(() => t, o.trackId, null); } catch { cola = null; }
         if (!vigente()) return;
+        if (!sigueModerando(o)) return anotar(o.id, false);   // le quitaron el rol mientras llegaba la pista
         if (!cola) return anotar(o.id, false);
         plan = planDeOrden(o, loLocal());   // pudo cambiar mientras llegaba la pista (un video, otra canción)
         if (!plan.aplicar) return anotar(o.id, false);
@@ -722,6 +738,9 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
     try {
       while (vigente() && porAplicarRef.current.length) {
         const o = porAplicarRef.current.shift();
+        // Quien la mandó dejó de moderar mientras esperaba su turno: se descarta sin evento (el servidor
+        // ya anotó el "sin-moderador" al quitar) y se confirma como descartada, para que no quede colgada.
+        if (!sigueModerando(o)) { anotar(o.id, false); continue; }
         try { await aplicarOrden(o); } catch { if (vigente()) anotar(o.id, false); }
       }
     } finally { aplicandoRef.current = false; }
@@ -752,6 +771,7 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
       alOyentes(gen, r.radio.listeners.filter((p) => p.id !== host));
       // Lo de la moderación, si el servidor lo trae (uno sin moderación no lo manda: nada cambia).
       if (r.radio.moderators) {
+        ponerModeradores(r.radio.moderators, r.serverNow);
         if (r.radio.eventsUntil != null) cursorRef.current = r.radio.eventsUntil;
         setConModeradores(r.radio.moderators.length > 0);
         alModeracion(gen, r.radio.moderators, r.radio.events);   // W4: la lista y los eventos, a la vista
@@ -768,8 +788,9 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
   // W4: al nombrar o quitar desde la vista, la lectura de 2 s arranca (o se corta) en ESE render, sin
   // esperar a la de 5 s, y se lee ya para traer lo nuevo (LECTURA_MIN_MS evita una lectura pegada).
   useEffect(() => {
-    moderarRef.current = (lista) => {
+    moderarRef.current = (lista, serverNow) => {
       if (!vigente()) return;
+      ponerModeradores(lista, serverNow);
       setConModeradores(lista.length > 0);
       leerOyentes();
     };
