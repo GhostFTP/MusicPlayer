@@ -607,7 +607,7 @@ const idsDeModeradores = (lista) => new Set((Array.isArray(lista) ? lista : []).
 //  · Al desmontar (terminar, salir, cerrar sesión, otra radio: key={codigo}) se corta la espera del
 //    motor y una orden a medio traer su pista (api.track) se abandona: vigente() antes de tocar nada.
 function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, moderarRef }) {
-  const { currentTrack, isPlaying, queue, queueIndex, shuffle, repeat, upNext, next, pause, resume, playAfterCurrent } = usePlayer();
+  const { currentTrack, isPlaying, queue, queueIndex, shuffle, repeat, upNext, next, pause, resume, playAfterCurrent, pendientesDe } = usePlayer();
   const { currentTime, duration } = usePlayerTime();
 
   const actual = estadoDelAnfitrion({ current: currentTrack, queue, queueIndex, playing: isPlaying, posicionSeg: currentTime });
@@ -694,16 +694,18 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
     if (listo(motorRef.current)) e.fin();   // ya estaba así (p. ej. pausa sobre algo en pausa)
   });
 
-  /** Lo que planDeOrden necesita saber AHORA: lo publicado más lo local del motor. */
-  const loLocal = () => {
+  /** Lo que planDeOrden necesita saber AHORA: lo publicado más lo local del motor (y, para el tope, cuántas
+   *  peticiones de quien mandó `o` siguen pendientes). */
+  const loLocal = (o) => {
     const a = actualRef.current;
     const m = motorRef.current;
     const haySiguiente = siguienteDelMotor(m);
-    return { ...a, haySiguiente, alFinal: alFinalDeLaCola({ playing: a.playing, posicionMs: a.positionMs, duracionMs: m.duracionMs, haySiguiente }) };
+    return { ...a, haySiguiente, alFinal: alFinalDeLaCola({ playing: a.playing, posicionMs: a.positionMs, duracionMs: m.duracionMs, haySiguiente }),
+      pendientesDeQuienPide: pendientesDe(o.by) };
   };
 
   const aplicarOrden = async (o) => {
-    let plan = planDeOrden(o, loLocal());
+    let plan = planDeOrden(o, loLocal(o));
     if (!plan.aplicar) return anotar(o.id, false);
     const m = motorRef.current;
     // ¿Pasó a otra entrada de la cola? (la pista o el índice: el estado real del motor)
@@ -725,12 +727,14 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
         if (!vigente()) return;
         if (!sigueModerando(o)) return anotar(o.id, false);   // le quitaron el rol mientras llegaba la pista
         if (!cola) return anotar(o.id, false);
-        plan = planDeOrden(o, loLocal());   // pudo cambiar mientras llegaba la pista (un video, otra canción)
+        plan = planDeOrden(o, loLocal(o));  // pudo cambiar mientras llegaba la pista (un video, otra canción)
         if (!plan.aplicar) return anotar(o.id, false);
         const m2 = motorRef.current;
         const sonabaAlgo = m2.queueIndex >= 0;
         const ahora = o.type === 'ahora' || plan.como === 'ahora';
-        playAfterCurrent(cola);                // sin nada sonando, ya arranca con ella
+        // "a continuación" de la radio va en ORDEN DE LLEGADA (pedidoPor); "ahora" se inserta como el menú
+        // local y next() la hace sonar. Sin nada sonando, ya arranca con ella.
+        playAfterCurrent(cola, ahora ? undefined : { pedidoPor: o.by });
         if (ahora && sonabaAlgo) next();       // "a continuación" gana: suena ella
         const listo = ahora || !sonabaAlgo ? otraSonando(m2) : (x) => x.queue !== m2.queue;
         return esperarMotor(listo, () => anotar(o.id, true));

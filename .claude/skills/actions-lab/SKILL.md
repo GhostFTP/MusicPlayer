@@ -175,6 +175,19 @@ orden previo en `baseRef`; apagarlo lo devuelve (lo agregado después va al fina
 orden que recibe (la radio lo necesita); `{ vista: true }` pone la tocada primero y baraja el resto
 si el aleatorio está encendido, y `{ mezclar: true }` es el Mix.
 
+**"A continuación" en dos órdenes (1.44.0):** el menú local **apila** (`playAfterCurrent(item)`:
+justo detrás de la actual y al frente de `forcedNextRef`; la última pedida suena primero). Una
+**petición de la radio** (`playAfterCurrent(item, { pedidoPor })`, la usa solo `RadioContext` al
+aplicar `a-continuacion`) va en **orden de llegada**: detrás de la última petición de la radio
+pendiente (o de la actual) y, en `forcedNextRef`, justo después de esa. Así cola y `forcedNextRef`
+siguen diciendo lo mismo. `pedidosRef` (`_qid` → id de quien la pidió) solo marca el origen;
+`pendientesDe(id)` cuenta las de esa persona que siguen en `forcedNextRef` (tope
+`PETICIONES_POR_MODERADOR` = 3 en `radioSync.js`; la que lo pasa se confirma sin evento y quien
+modera solo ve, por su temporizador, "Esperando al anfitrión…" a los 5 s y "No se aplicó" a los
+30 s; **deuda:** sin aviso del tope, la mejora es una respuesta del servidor, nivel C).
+**`jumpTo` quita la marca** a lo "a continuación" que queda en la fila elegida o por encima: ya es
+"anterior" (antes `playNext` volvía a ellas).
+
 - Se descartó remapear índices: la fragilidad mordía justo en "quitar de la cola".
 - Se descartó keyear por `track.id`: **se rompe con duplicados** (no distingue instancias).
 - El `_qid` es **identidad interna**: no viaja a la API ni se muestra.
@@ -300,7 +313,10 @@ inventar una capa nueva — mismo patrón que `.exp-scrim`.
 **Cola:**
 1. `addToQueue` con la cola **vacía** → arranca la reproducción.
 2. `addToQueue` durante reproducción → **no interrumpe** lo que suena.
-3. `playAfterCurrent` → la insertada suena **inmediatamente después** de la actual.
+3. `playAfterCurrent` → la insertada suena **inmediatamente después** de la actual. Dos seguidas
+   del menú local: suena primero la **última** (pila). Dos peticiones de la radio: suena primero la
+   **primera** (orden de llegada), y la cuarta pendiente de una misma persona se descarta (tope 3).
+   Tocar en el drawer una fila por debajo de las marcadas les quita la marca y se sigue por posición.
 4. **`playAfterCurrent` + aleatorio**: la insertada suena justo después, y después se sigue por
    el orden de la cola sin saltear ni repetir. *(Test del keying por `_qid`.)*
 5. **Aleatorio: siguiente → anterior → siguiente** da la misma pista; la cola visible es el orden

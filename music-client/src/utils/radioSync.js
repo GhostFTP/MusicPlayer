@@ -326,6 +326,11 @@ const CON_PISTA = new Set(['a-continuacion', 'ahora']);
 export const TIPOS_EVENTO = Object.freeze([...TIPOS_ORDEN, 'moderador', 'sin-moderador']);
 /** Topes de lo que se acepta (los del servidor: MAX_MODERADORES, MAX_ORDENES, MAX_EVENTOS, TITULO_MAX). */
 export const MODERACION = Object.freeze({ MODERADORES_MAX: 3, ORDENES_MAX: 10, EVENTOS_MAX: 20, TITULO_MAX: 100 });
+/** Peticiones "a continuación" PENDIENTES por persona en la cola del anfitrión (1.44.0). Es solo del
+ *  cliente del anfitrión: el servidor no lo sabe. La que pasa el tope se descarta (planDeOrden, 'tope')
+ *  y se confirma sin evento; quien la mandó no recibe aviso (resolverOrden: "No se aplicó" a los 30 s).
+ *  Deuda: el aviso del tope necesita una respuesta del servidor (nivel C). */
+export const PETICIONES_POR_MODERADOR = 3;
 
 const esSeq = (v) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
@@ -432,6 +437,9 @@ const leerOrdenes = (v) => lista(v, leerOrdenRecibida, MODERACION.ORDENES_MAX).s
  *     (el anfitrión empieza a reproducir esa pista: playAfterCurrent arranca si la cola está vacía).
  *     Con la cola TERMINADA (alFinal), "a continuación" es "ahora" ({ aplicar: true, como: 'ahora' }):
  *     no hay nada después de lo que sonó, así que esperar a la siguiente sería esperar para siempre.
+ *   · pendientesDeQuienPide (1.44.0, opcional): cuántas peticiones "a continuación" de quien mandó la
+ *     orden siguen pendientes en la cola del anfitrión. Con PETICIONES_POR_MODERADOR o más, 'tope'.
+ *     Sin el dato, sin tope (lo de 1.43.0).
  * Al terminar la cola, el reproductor del anfitrión se queda en la ÚLTIMA pista, en pausa y al final
  * (medido en la web, 1.43.0): `actual` trae esa pista, no null. "reanudar" ahí vuelve a empezar esa
  * pista (medido): se deja así, es lo que haría el botón de play del anfitrión.
@@ -453,6 +461,9 @@ export function planDeOrden(orden, actual) {
       return suena == null ? { aplicar: false, motivo: 'sin-cancion' } : { aplicar: true };
     default:
       if (!esId(o.trackId)) return { aplicar: false, motivo: 'invalida' };
+      if (o.type === 'a-continuacion' && Number.isInteger(a.pendientesDeQuienPide) && a.pendientesDeQuienPide >= PETICIONES_POR_MODERADOR) {
+        return { aplicar: false, motivo: 'tope' };
+      }
       return o.type === 'a-continuacion' && a.alFinal === true ? { aplicar: true, como: 'ahora' } : { aplicar: true };
   }
 }

@@ -63,6 +63,10 @@ export function PlayerProvider({ children }) {
   // _qid en el orden de la vista) para devolverlo al apagarlo; sin aleatorio vale null.
   const baseRef     = useRef(null);
   const forcedNextRef = useRef([]);          // FIFO de _qid "a continuación" (play-next; prioridad sobre el orden)
+  // Peticiones de la RADIO (1.44.0): _qid → id de quien la pidió. Solo marca de dónde vino: la que
+  // está pendiente es la que sigue en forcedNext. Sirve para ponerlas en orden de llegada (no apiladas
+  // como el menú local) y para el tope por persona (pendientesDe).
+  const pedidosRef = useRef(new Map());
 
   const [queue,        setQueue]        = useState([]);    // cola reactiva para la UI; queueRef es su espejo
   const [upNextIds,    setUpNextIds]    = useState([]);    // espejo REACTIVO de forcedNextRef → el pill "a continuación" no cuelga de un ref invisible a React
@@ -363,6 +367,7 @@ export function PlayerProvider({ children }) {
     setQueue(order);                       // estado reactivo para la UI
     baseRef.current = shuffleRef.current ? items.map((t) => t._qid) : null;   // orden a devolver al apagar
     forcedNextRef.current = [];            // reemplazar la cola entera también limpia lo "a continuación"
+    pedidosRef.current.clear();            // y las peticiones de la radio
     setUpNextIds([]);                      // espejo reactivo
     playIndex(start, sonar);
   }, [playIndex]);
@@ -387,24 +392,55 @@ export function PlayerProvider({ children }) {
   // forcedNext son por _qid, insertar NO remapea nada; solo se recomputa idxRef por _qid. Lo insertado
   // no entra en baseRef: si el aleatorio se apaga con eso pendiente, toggleShuffle lo deja justo
   // detrás de la actual; si ya sonó, va al final como todo lo agregado después.
-  const playAfterCurrent = useCallback((tracks) => {
+  //
+  // DOS ÓRDENES (1.44.0). El menú local APILA: cada una va justo detrás de la actual, así que la
+  // última pedida suena primero. Una petición de la RADIO (`pedidoPor`: el id de quien modera) va en
+  // ORDEN DE LLEGADA: detrás de la última petición de la radio que siga pendiente (o de la actual, si
+  // no hay), y en forcedNext justo después de esa. Así la cola y forcedNext siguen diciendo lo mismo
+  // (la cola ES el orden de reproducción, M4) y "siguiente" da la primera que llegó.
+  const playAfterCurrent = useCallback((tracks, { pedidoPor = null } = {}) => {
     const list = Array.isArray(tracks) ? tracks : [tracks];
     if (!list.length) return;
     const items = list.map((t) => ({ ...t, _qid: ++uidRef.current }));
-    const curQid = queueRef.current[idxRef.current]?._qid;
-    const at = idxRef.current + 1;                     // idx=-1 (nada suena) → at=0
-    const next = [...queueRef.current];
+    const q = queueRef.current;
+    const idx = idxRef.current;
+    const curQid = q[idx]?._qid;
+    const forced = forcedNextRef.current;
+    // La última petición de la radio pendiente, por delante de la actual: su lugar en la cola y en forcedNext.
+    let ultima = -1, ultimaEn = -1;
+    if (pedidoPor != null && idx >= 0) {
+      forced.forEach((qid, k) => {
+        if (!pedidosRef.current.has(qid)) return;
+        const i = q.findIndex((t) => t._qid === qid);
+        if (i > idx && i > ultimaEn) { ultima = k; ultimaEn = i; }
+      });
+    }
+    const at = ultimaEn >= 0 ? ultimaEn + 1 : idx + 1;   // idx=-1 (nada suena) → at=0
+    const next = [...q];
     next.splice(at, 0, ...items);
     queueRef.current = next;
     setQueue(next);
-    if (idxRef.current < 0) {
+    if (idx < 0) {
       playIndex(at);                                  // nada sonaba → arranca con la primera insertada
     } else {
-      forcedNextRef.current.unshift(...items.map((t) => t._qid));   // que suenen a continuación (incl. shuffle)
-      setUpNextIds([...forcedNextRef.current]);                     // espejo reactivo para el pill
+      const qids = items.map((t) => t._qid);
+      if (pedidoPor != null) {
+        for (const qid of qids) pedidosRef.current.set(qid, pedidoPor);
+        forcedNextRef.current = [...forced.slice(0, ultima + 1), ...qids, ...forced.slice(ultima + 1)];
+      } else {
+        forcedNextRef.current = [...qids, ...forced];   // el menú local: apilada, suena primero
+      }
+      setUpNextIds([...forcedNextRef.current]);       // espejo reactivo para el pill
       if (curQid != null) idxRef.current = next.findIndex((t) => t._qid === curQid);  // recomputar posición actual
     }
   }, [playIndex]);
+
+  // Cuántas peticiones de la radio de esta persona siguen pendientes (marcadas "a continuación" y sin
+  // sonar). Lo usa el anfitrión para el tope por persona; lee refs, así que siempre da lo de este instante.
+  const pendientesDe = useCallback((por) => {
+    if (por == null) return 0;
+    return forcedNextRef.current.filter((qid) => pedidosRef.current.get(qid) === por).length;
+  }, []);
 
   const togglePlay = useCallback(() => {
     const el = getActive();
@@ -448,7 +484,16 @@ export function PlayerProvider({ children }) {
 
   // Salta a una pista de la cola por índice (tap en la vista de cola). Desde ahí se sigue por
   // posición: lo de abajo es lo que viene, lo de arriba es "anterior".
+  //
+  // Lo "a continuación" que queda en la pista elegida o por ENCIMA de ella pierde la marca (1.44.0): ya
+  // es "anterior". Sin esto, playNext lo seguía buscando por _qid y volvía hacia atrás (y luego, por
+  // posición, repetía lo que había entre medio); y saltar a una marcada la hacía sonar otra vez.
   const jumpTo = useCallback((index) => {
+    const pasadas = new Set(queueRef.current.slice(0, Math.max(0, index + 1)).map((t) => t._qid));
+    if (forcedNextRef.current.some((qid) => pasadas.has(qid))) {
+      forcedNextRef.current = forcedNextRef.current.filter((qid) => !pasadas.has(qid));
+      setUpNextIds([...forcedNextRef.current]);
+    }
     playIndex(index);
   }, [playIndex]);
 
@@ -814,11 +859,11 @@ export function PlayerProvider({ children }) {
     currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex,
     shuffle, repeat,
     queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
+    play, addToQueue, playAfterCurrent, pendientesDe, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   }), [
     currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
+    play, addToQueue, playAfterCurrent, pendientesDe, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   ]);
 

@@ -181,6 +181,19 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   radio carga `[pista, siguiente]`); `{ vista: true }` = tocada primero + resto barajado si el
   aleatorio está encendido; `{ mezclar: true }` = el Mix (baraja todo y enciende el aleatorio).
   Prueba: `mix-orden-func.mjs`. Contrato: `.claude/skills/actions-lab/SKILL.md`.
+  **"A continuación" en dos órdenes (1.44.0):** el menú local **apila** (`playAfterCurrent(t)`: justo
+  detrás de la actual, la última pedida suena primero, como Apple Music). Una **petición de la radio**
+  (orden `a-continuacion` que aplica el anfitrión: `playAfterCurrent(t, { pedidoPor: idModerador })`)
+  va en **orden de llegada**: detrás de la última petición de la radio pendiente, o de la actual si no
+  hay. `pedidosRef` (`_qid` → quién) marca de dónde vino; `pendientesDe(id)` cuenta las pendientes de
+  esa persona y `planDeOrden` descarta la que pase `PETICIONES_POR_MODERADOR` (3, `radioSync.js`,
+  motivo `'tope'`: solo cliente, el servidor no lo sabe). La descartada el anfitrión la **confirma
+  sin evento** (`ordenHasta` sin `aplicadas`); quien modera no recibe nada, así que su propio
+  temporizador dice "Esperando al anfitrión…" a los 5 s y "No se aplicó" a los 30 s, y mientras
+  tanto el menú no le deja mandar otra "a continuación". **Deuda:** el moderador no recibe aviso
+  del tope; la mejora es una respuesta del servidor (nivel C).
+  `jumpTo` **quita la marca** a lo "a continuación" que queda en la elegida o por encima (ya es
+  "anterior"). Pruebas: `radio-anfitrion-mod-func.mjs` 19x y 19ab–19aj, `mix-orden-func.mjs` (10).
   **El gesto** (`QueueOverlay.jsx`): pointer events **a mano**, sin librerías; handlers en el `<ul>`
   con filtro por target, así las filas memoizadas no reciben ni una prop nueva (sólo un `data-qid`).
   Durante el arrastre **no se pasa por React** —transforms y marcas se escriben sobre los nodos— y
@@ -374,6 +387,10 @@ error, cola vacía, rechazo de un arrastre ajeno) — ahora también **sobre la 
 el handler: lo que se audite en una zona vale para la otra, porque es el mismo hook.
 
 ## Pendientes conocidos
+- **Peticiones de la radio (1.44.0), dos deudas menores** (`PlayerContext.jsx`):
+  (a) `jumpTo` con un índice fuera de rango quita las marcas "a continuación" sin cambiar de pista;
+  (b) `pedidosRef` solo se vacía en `play()`, así que las peticiones pendientes de una radio
+  anterior siguen contando para el tope de la siguiente.
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
 - **Novedades sin color:** `Changelog.jsx:95` ya emite el hook por sección
   (`cl-${slug(título)}`), pero `main.css:1752-1753` sólo pinta **`.cl-nuevo`** (verde) y
