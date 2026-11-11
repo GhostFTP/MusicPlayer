@@ -435,6 +435,37 @@ try {
     const s9b = await paso(p, 'next');
     ok('arrastrar_con_aleatorio_es_lo_que_suena_despues_canciones', s9b.qid === arrastrada, { arrastrada: a9b.cola[a9b.idx + 4], sono: s9b.t });
 
+    // 10. (1.44.0) Sin aleatorio: «Reproducir a continuación» del menú local sigue APILANDO, y jumpTo (tocar
+    // una fila del drawer) con marcadas pendientes: las que quedan en la elegida o por encima pierden la
+    // marca. Antes, «siguiente» volvía a ellas (y luego repetía lo de en medio), y saltar a una marcada la
+    // hacía sonar dos veces.
+    await ponerAleatorio(p, false);
+    const marcadas = () => p.evaluate(() => { const v = window.__moPlayer(); return v.queue.filter((t) => v.upNext.has(t._qid)).map((t) => t.title); });
+    const conDos = async () => {   // cola = LIB, suena LIB[0], y a continuación LIB[5] y después LIB[6] → [0, 6, 5, 1, 2, …]
+      await p.evaluate((lib) => window.__moPlayer().play(lib, 0), LIB);
+      await suena(p);
+      await p.evaluate((lib) => { const v = window.__moPlayer(); v.playAfterCurrent(lib[5]); v.playAfterCurrent(lib[6]); }, LIB);
+      await p.waitForTimeout(200);
+      return estado(p);
+    };
+    const hasta = (t) => p.waitForFunction((x) => window.__moPlayer().currentTrack?.title === x, t, { timeout: 5000 }).then(() => true, () => false);
+    const e10 = await conDos();
+    const m10 = await marcadas();
+    ok('a_continuacion_local_sigue_apilando_canciones', eq(e10.cola.slice(0, 4), [LIB[0].title, LIB[6].title, LIB[5].title, LIB[1].title]) && eq(m10, [LIB[6].title, LIB[5].title]),
+      { cola: e10.cola.slice(0, 4), marcadas: m10, esperado: [LIB[0].title, LIB[6].title, LIB[5].title, LIB[1].title] });
+    await p.evaluate(() => window.__moPlayer().jumpTo(3));
+    const llego10 = await hasta(LIB[1].title);
+    const m10b = await marcadas();
+    ok('jumpto_por_encima_de_las_marcadas_les_quita_la_marca_canciones', llego10 && eq(m10b, []), { suena: (await actual(p)).t, marcadas: m10b });
+    const s10 = await paso(p, 'next');
+    ok('jumpto_despues_siguiente_va_por_posicion_canciones', s10.t === LIB[2].title, { sono: s10.t, esperado: LIB[2].title });
+    await conDos();
+    await p.evaluate(() => window.__moPlayer().jumpTo(2));   // la marcada LIB[5]; LIB[6] queda arriba
+    const llego10c = await hasta(LIB[5].title);
+    const m10c = await marcadas();
+    const s10c = await paso(p, 'next');
+    ok('jumpto_a_una_marcada_no_la_repite_canciones', llego10c && eq(m10c, []) && s10c.t === LIB[1].title, { marcadas: m10c, sono: s10c.t, esperado: LIB[1].title });
+
     ok('sin_errores_de_pagina_canciones', !errores.length, { errores });
     await ctx.close();
   }

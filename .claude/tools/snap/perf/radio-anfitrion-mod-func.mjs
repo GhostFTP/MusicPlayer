@@ -363,9 +363,9 @@ if (corre(19)) {
     // x: dos "a continuación" con pistas DISTINTAS, juntas (el mismo bucle): la 2.ª llama a
     // playAfterCurrent DESPUÉS de que la 1.ª cambió la cola, y tiene que ver la cola que dejó la 1.ª.
     // Con un playAfterCurrent viejo (que leyera la cola del render donde arrancó el bucle) la 2.ª
-    // pisaría a la 1.ª y el largo sería +1. Esperado: +2, en orden de PILA: es la conducta documentada
-    // de playAfterCurrent (inserta tras la actual + forcedNext.unshift): la última pedida suena primero.
-    // Si en 1.43.1 se pasa a orden de llegada (FIFO), esta expectativa se actualiza.
+    // pisaría a la 1.ª y el largo sería +1. Esperado: +2, en ORDEN DE LLEGADA (1.44.0; hasta 1.43.0 era
+    // de pila): la petición de la radio va detrás de la última petición pendiente, así que la 1.ª pedida
+    // suena primero.
     { await poner(Q.slice(0, 3), 0);
       const A = Q[3] ?? Q[1], B = Q[4] ?? Q[2];
       const antes = await motor();
@@ -377,10 +377,137 @@ if (corre(19)) {
       const cola = await p.evaluate(() => { const v = window.__player(); return { ids: v.queue.map((t) => t.id), idx: v.queueIndex }; });
       const detras = cola.ids.slice(cola.idx + 1, cola.idx + 3);
       const aplicadasTodas = FM.log.filter((x) => x.m === 'PUT' && x.respuesta === 200 && Array.isArray(x.body?.aplicadas)).flatMap((x) => x.body.aplicadas);
-      ok('19x_dos_a_continuacion_juntas_crecen_2_en_orden_de_pila',A.id !== B.id && !!c && FM.entregas.get(a.id) === FM.entregas.get(b.id)
+      ok('19x_dos_a_continuacion_juntas_crecen_2_en_orden_de_llegada', A.id !== B.id && !!c && FM.entregas.get(a.id) === FM.entregas.get(b.id)
         && aplicadasTodas.includes(a.id) && aplicadasTodas.includes(b.id) && m.len === antes.len + 2 && m.qid === antes.qid
-        && detras[0] === B.id && detras[1] === A.id,
-        { juntas: FM.entregas.get(a.id) === FM.entregas.get(b.id), largo: [antes.len, m.len], esperado: [B.id, A.id], detras, cola: cola.ids, idx: cola.idx }); }
+        && detras[0] === A.id && detras[1] === B.id,
+        { juntas: FM.entregas.get(a.id) === FM.entregas.get(b.id), largo: [antes.len, m.len], esperado: [A.id, B.id], detras, cola: cola.ids, idx: cola.idx }); }
+
+    // ab–aj (1.44.0): las peticiones de la radio en ORDEN DE LLEGADA, con tope de 3 PENDIENTES por persona
+    // (PETICIONES_POR_MODERADOR en radioSync.js), y el menú local que sigue apilando. Cola base de una
+    // pista (Q[0]) salvo donde se dice; las pedidas son Q[1..4], distintas de la base. `colaV` lee la cola,
+    // la posición y las marcadas "a continuación" (upNext), en el orden de la cola.
+    const colaV = () => p.evaluate(() => { const v = window.__player(); return { ids: v.queue.map((t) => t.id), idx: v.queueIndex, up: v.queue.filter((t) => v.upNext.has(t._qid)).map((t) => t.id), cur: v.currentTrack?.id ?? null }; });
+    const detrasN = (k, n) => k.ids.slice(k.idx + 1, k.idx + 1 + n);
+    const iguales = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+    const suenaId = (id) => esperar(async () => { const m = await motor(); return m.id === id && m.playing && m.sonando === 1 ? m : null; }, 6000, 50).then((r) => r.v);
+    const siguienteLocal = async (id) => { await p.evaluate(() => window.__player().next()); return suenaId(id); };
+    const aplicadasYa = () => FM.log.filter((x) => x.m === 'PUT' && x.respuesta === 200 && Array.isArray(x.body?.aplicadas)).flatMap((x) => x.body.aplicadas);
+    const leidaTras = (t0) => esperar(async () => FM.log.find((x) => x.m === 'GET' && x.t > t0 && /desde=/.test(x.ruta)) ?? null, 8000, 30).then((r) => r.v);
+    const modsAntes = FM.moderadores;
+    if (Q.length < 5) NO_MEDIDO.push(`19ab–19aj peticiones en orden de llegada: el álbum de prueba tiene ${Q.length} pistas (hacen falta 5)`);
+    else {
+      const [B0, P1, P2, P3, P4] = Q;
+
+      // ab: dos peticiones (Sonia) → detrás de la actual en el orden en que llegaron, y "siguiente" las da así.
+      { await poner([B0], 0);
+        dar('a-continuacion', { trackId: P1.id }); const b = dar('a-continuacion', { trackId: P2.id });
+        const c = await confirmada(b.id); await sleep(300);
+        const k = await colaV();
+        const s1 = await siguienteLocal(P1.id); const k1 = await colaV();
+        const s2 = await siguienteLocal(P2.id);
+        ok('19ab_dos_peticiones_suenan_en_orden_de_llegada', !!c && iguales(detrasN(k, 2), [P1.id, P2.id]) && iguales(k.up, [P1.id, P2.id]) && !!s1 && iguales(k1.up, [P2.id]) && !!s2,
+          { detras: detrasN(k, 2), marcadas: k.up, esperado: [P1.id, P2.id], primera: s1?.id ?? null, marcadasTras1: k1.up, segunda: s2?.id ?? null }); }
+
+      // ac: tres peticiones de TRES moderadores distintos → en el orden en que llegaron, las tres aplicadas.
+      { await poner([B0], 0);
+        FM.moderadores = [{ id: 2, name: 'Sonia', avatar: null }, { id: 3, name: 'Caro', avatar: null }, { id: 4, name: 'Dani', avatar: null }];
+        const vista = await leidaTras(Date.now());   // el anfitrión ya tiene la lista con las tres
+        const a = dar('a-continuacion', { trackId: P1.id, by: 2 }), b = dar('a-continuacion', { trackId: P2.id, by: 3 }), d = dar('a-continuacion', { trackId: P3.id, by: 4 });
+        const c = await confirmada(d.id); await sleep(300);
+        const k = await colaV();
+        const ap = aplicadasYa();
+        ok('19ac_tres_moderadores_distintos_en_orden_de_llegada', !!vista && !!c && [a, b, d].every((o) => ap.includes(o.id)) && iguales(detrasN(k, 3), [P1.id, P2.id, P3.id]) && k.ids.length === 4,
+          { detras: detrasN(k, 3), esperado: [P1.id, P2.id, P3.id], aplicadas: [a, b, d].map((o) => ap.includes(o.id)), largo: k.ids.length });
+        FM.moderadores = modsAntes; }
+
+      // ad: la CUARTA petición pendiente de la misma persona se descarta (tope 3): el anfitrión la confirma
+      // sin evento (ordenHasta la cubre, no va en aplicadas) y la cola no crece. Cuando una suena, vuelve a
+      // haber lugar. Quien modera no recibe nada: su temporizador dice "No se aplicó" a los 30 s (no se
+      // mide acá; deuda: aviso del tope = respuesta del servidor, nivel C).
+      { await poner([B0], 0);
+        const os = [P1, P2, P3, P4].map((t) => dar('a-continuacion', { trackId: t.id }));
+        const c = await confirmada(os[3].id); await sleep(300);
+        const k = await colaV();
+        const ap = aplicadasYa();
+        ok('19ad_cuarta_pendiente_del_mismo_moderador_se_descarta_por_el_tope', !!c && os.slice(0, 3).every((o) => ap.includes(o.id)) && !ap.includes(os[3].id)
+          && iguales(detrasN(k, 3), [P1.id, P2.id, P3.id]) && k.ids.length === 4 && iguales(k.up, [P1.id, P2.id, P3.id]),
+          { aplicadas: os.map((o) => ap.includes(o.id)), detras: detrasN(k, 4), largo: k.ids.length, marcadas: k.up });
+        const s1 = await siguienteLocal(P1.id);
+        const e = dar('a-continuacion', { trackId: P4.id });
+        const c2 = await confirmada(e.id); await sleep(300);
+        const k2 = await colaV();
+        ok('19ae_al_sonar_una_vuelve_a_entrar_otra_al_final_de_las_pedidas', !!s1 && !!c2 && aplicadasYa().includes(e.id) && iguales(detrasN(k2, 3), [P2.id, P3.id, P4.id]) && iguales(k2.up, [P2.id, P3.id, P4.id]),
+          { sono: s1?.id ?? null, aplicada: aplicadasYa().includes(e.id), detras: detrasN(k2, 3), esperado: [P2.id, P3.id, P4.id], marcadas: k2.up }); }
+
+      // af: con peticiones pendientes, la PAUSA del anfitrión no toca la cola ni las marcas; al reanudar,
+      // "siguiente" sigue dándolas en orden.
+      { await poner([B0], 0);
+        dar('a-continuacion', { trackId: P1.id }); const b = dar('a-continuacion', { trackId: P2.id });
+        const c = await confirmada(b.id); await sleep(300);
+        const k0 = await colaV();
+        await p.evaluate(() => window.__player().pause());
+        const pausada = await esperar(async () => { const m = await motor(); return !m.playing ? m : null; }, 4000, 50).then((r) => r.v);
+        const k1 = await colaV();
+        await p.evaluate(() => window.__player().resume());
+        await suenaId(B0.id);
+        const s1 = await siguienteLocal(P1.id); const k2 = await colaV();
+        ok('19af_pausa_y_siguiente_con_peticiones_pendientes', !!c && !!pausada && iguales(k1, k0) && iguales(detrasN(k0, 2), [P1.id, P2.id]) && !!s1 && iguales(k2.up, [P2.id]) && iguales(detrasN(k2, 1), [P2.id]),
+          { antes: k0, enPausa: k1, sono: s1?.id ?? null, marcadasDespues: k2.up }); }
+
+      // ag: jumpTo POR ENCIMA de las peticiones pendientes (tocar una fila más abajo en el drawer): las que
+      // quedan arriba pierden la marca y "siguiente" sigue por posición (antes volvía a ellas y después
+      // repetía lo de en medio). Una petición nueva va justo detrás de la nueva actual.
+      { await poner([B0, P1, P2], 0);
+        dar('a-continuacion', { trackId: P3.id }); const b = dar('a-continuacion', { trackId: P4.id });
+        const c = await confirmada(b.id); await sleep(300);
+        const k0 = await colaV();   // [B0, P3, P4, P1, P2]
+        await p.evaluate(() => window.__player().jumpTo(3));
+        const sP1 = await suenaId(P1.id); const k1 = await colaV();
+        const sP2 = await siguienteLocal(P2.id);
+        ok('19ag_jumpto_por_encima_de_las_peticiones_les_quita_la_marca', !!c && iguales(k0.ids, [B0.id, P3.id, P4.id, P1.id, P2.id]) && !!sP1 && k1.idx === 3 && iguales(k1.up, []),
+          { antes: k0.ids, marcadasAntes: k0.up, actual: k1.cur, idx: k1.idx, marcadasDespues: k1.up });
+        const n = dar('a-continuacion', { trackId: P3.id });
+        const c2 = await confirmada(n.id); await sleep(300);
+        const k2 = await colaV();
+        ok('19ag2_tras_jumpto_siguiente_va_por_posicion_y_la_nueva_queda_detras', !!sP2 && !!c2 && k2.cur === P2.id && iguales(detrasN(k2, 1), [P3.id]) && iguales(k2.up, [P3.id]),
+          { siguienteSono: sP2?.id ?? null, esperado: P2.id, detras: detrasN(k2, 1), marcadas: k2.up }); }
+
+      // ah: con ALEATORIO encendido: las peticiones quedan justo detrás de la actual, en orden de llegada; al
+      // apagarlo siguen ahí (en ese orden) y después vuelve el orden de la vista.
+      { await poner([B0, P1, P2], 0, { shuffle: true });
+        dar('a-continuacion', { trackId: P3.id }); const b = dar('a-continuacion', { trackId: P4.id });
+        const c = await confirmada(b.id); await sleep(300);
+        const k0 = await colaV();
+        await p.evaluate(() => window.__player().toggleShuffle()); await sleep(200);
+        const k1 = await colaV();
+        ok('19ah_con_aleatorio_en_orden_de_llegada_y_al_apagarlo_siguen_detras', !!c && iguales(detrasN(k0, 2), [P3.id, P4.id]) && iguales(k0.up, [P3.id, P4.id])
+          && iguales(k1.ids, [B0.id, P3.id, P4.id, P1.id, P2.id]) && iguales(k1.up, [P3.id, P4.id]),
+          { conAleatorio: k0.ids, marcadas: k0.up, alApagar: k1.ids, esperado: [B0.id, P3.id, P4.id, P1.id, P2.id] }); }
+
+      // ai: con REPETIR TODO: suenan las pedidas en orden y después vuelve a la primera de la cola.
+      { await poner([B0], 0);
+        await p.evaluate(() => window.__player().cycleRepeat());   // off → all
+        dar('a-continuacion', { trackId: P1.id }); const b = dar('a-continuacion', { trackId: P2.id });
+        const c = await confirmada(b.id); await sleep(300);
+        const rep = (await motor()).repeat;
+        const s1 = await siguienteLocal(P1.id), s2 = await siguienteLocal(P2.id), s3 = await siguienteLocal(B0.id);
+        ok('19ai_con_repetir_todo_suenan_en_orden_y_vuelve_al_principio', !!c && rep === 'all' && !!s1 && !!s2 && !!s3,
+          { repetir: rep, sonaron: [s1?.id ?? null, s2?.id ?? null, s3?.id ?? null], esperado: [P1.id, P2.id, B0.id] }); }
+
+      // aj: el menú LOCAL («Reproducir a continuación») sigue APILANDO, mezclado con peticiones de la radio:
+      // lo local va justo detrás de la actual; la petición, detrás de la última petición pendiente.
+      { await poner([B0], 0);
+        const a = dar('a-continuacion', { trackId: P1.id });
+        const c1 = await confirmada(a.id); await sleep(300);
+        await p.evaluate((t) => window.__player().playAfterCurrent(t), P3);
+        const b = dar('a-continuacion', { trackId: P2.id });
+        const c2 = await confirmada(b.id); await sleep(300);
+        await p.evaluate((t) => window.__player().playAfterCurrent(t), P4);
+        await sleep(200);
+        const k = await colaV();
+        ok('19aj_el_menu_local_sigue_apilando_y_las_peticiones_no', !!c1 && !!c2 && iguales(k.ids, [B0.id, P4.id, P3.id, P1.id, P2.id]) && iguales(k.up, [P4.id, P3.id, P1.id, P2.id]),
+          { cola: k.ids, esperado: [B0.id, P4.id, P3.id, P1.id, P2.id], marcadas: k.up }); }
+    }
 
     // Quitar el rol con órdenes ya recibidas (1.43.0): lo de esa persona que todavía no tocó el motor se
     // descarta sin evento y se confirma igual (ordenHasta la cubre). FM hace lo que hace el servidor al

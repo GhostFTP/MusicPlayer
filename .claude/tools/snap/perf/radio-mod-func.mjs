@@ -86,6 +86,7 @@ const INIT = (t) => {
     const v = window.__player();
     const s = [...window.__els].filter((e) => !e.paused && !e.ended);
     return { id: v?.currentTrack?.id ?? null, qid: v?.currentTrack?._qid ?? null, idx: v?.queueIndex ?? -1, len: v?.queue.length ?? 0, ids: v?.queue.map((x) => x.id) ?? [],
+      up: v ? v.queue.filter((x) => v.upNext.has(x._qid)).map((x) => x.id) : [],
       playing: !!v?.isPlaying, shuffle: !!v?.shuffle, repeat: v?.repeat ?? null, sonando: s.length, t: s[0] ? s[0].currentTime : null };
   };
 };
@@ -332,7 +333,11 @@ try {
     for (let k = 0; k < REPS; k++) {
       await desdeMenu('ahora', 'Poner ahora', (x, a, t) => x.id === t.id && x.playing && x.sonando === 1,
         (x, t) => x === `Tú pusiste «${t.title}»` || x === 'Ya suena en la radio');
-      await desdeMenu('a-continuacion', 'Poner a continuación', (x, a, t) => x.len === a.len + 1 && x.ids[x.idx + 1] === t.id && x.qid === a.qid,
+      // 1.44.0: en ORDEN DE LLEGADA. La de la vuelta anterior sigue pendiente ("ahora" no la consume), así
+      // que la nueva va al FINAL de las pedidas, que quedan juntas detrás de la actual (antes: justo detrás).
+      // Con REPS = 3 llega a 3 pendientes, justo el tope (PETICIONES_POR_MODERADOR), sin pasarlo.
+      await desdeMenu('a-continuacion', 'Poner a continuación', (x, a, t) => x.len === a.len + 1 && x.qid === a.qid
+        && x.up.length === a.up.length + 1 && x.up[x.up.length - 1] === t.id && x.ids[x.idx + x.up.length] === t.id,
         (x, t) => x.includes(`«${t.title}»`) && x.includes('a continuación'));
     }
     const resumen = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? { min: v[0], mediana: v[Math.floor((v.length - 1) / 2)], max: v[v.length - 1], n: v.length } : null; };

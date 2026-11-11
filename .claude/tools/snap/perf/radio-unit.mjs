@@ -1368,6 +1368,15 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     [{ aplicar: false, motivo: 'video' }, { aplicar: true }, { aplicar: true }, { aplicar: false, motivo: 'sin-siguiente' }],
     'al final: un video sigue descartando; pausa y reanudar igual que siempre; siguiente no tiene a dónde');
   W(S.textoDeFallo('ordenar', { error: 'sin-siguiente' }), 'No hay una canción siguiente.', 'el texto de sin-siguiente');
+  // 1.44.0: tope de peticiones "a continuación" PENDIENTES por persona en la cola del anfitrión.
+  const TOPE = S.PETICIONES_POR_MODERADOR;
+  W([TOPE, P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: TOPE - 1 }), P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: TOPE }), P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: TOPE + 2 })],
+    [3, { aplicar: true }, { aplicar: false, motivo: 'tope' }, { aplicar: false, motivo: 'tope' }], 'tope: con 2 pendientes entra la 3.ª; con 3 (o más), tope');
+  W([P(ord(1, 'ahora'), { pendientesDeQuienPide: TOPE }), P(ord(1, 'siguiente'), { haySiguiente: true, pendientesDeQuienPide: TOPE }),
+    P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: undefined }), P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: '3' }), P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: 2.5 })],
+    [{ aplicar: true }, { aplicar: true }, { aplicar: true }, { aplicar: true }, { aplicar: true }], 'tope: solo "a continuación"; sin el dato (o uno raro), sin tope (lo de 1.43.0)');
+  W([P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: TOPE, enPausaPorVideo: true, trackId: null }), P(ord(1, 'a-continuacion'), { ...fin, pendientesDeQuienPide: 0 })],
+    [{ aplicar: false, motivo: 'video' }, { aplicar: true, como: 'ahora' }], 'tope: el video gana; sin pendientes, al final sigue siendo "ahora"');
 
   // ---- confirmacionDe ----
   const CD = S.confirmacionDe;
