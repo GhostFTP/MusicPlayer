@@ -404,6 +404,15 @@ el handler: lo que se audite en una zona vale para la otra, porque es el mismo h
   (a) `jumpTo` con un índice fuera de rango quita las marcas "a continuación" sin cambiar de pista;
   (b) `pedidosRef` solo se vacía en `play()`, así que las peticiones pendientes de una radio
   anterior siguen contando para el tope de la siguiente.
+- **Apagar el aleatorio MIENTRAS suena una "a continuación" corta la cola** (`toggleShuffle`,
+  `PlayerContext.jsx`): la que suena no está en `baseRef` (es una entrada nueva de
+  `playAfterCurrent`), así que al apagar cae al **final** con lo agregado después, y todo lo que
+  queda de la vista termina **por encima** de la actual → después de ella no sigue nada (o, con
+  "repetir todo", vuelve a la primera). Medido **sólo leyendo el código**; la sección 12 de
+  `mix-orden-func.mjs` lo registra en `medidas.apagar_con_a_continuacion_sonando` (no cuenta).
+  Mejora posible, **no implementada**: al apagar, dejar la actual donde estaba en `baseRef`, o
+  ponerla de modo que lo que no sonó de la vista quede **debajo** de ella. Distinto de la que ya sonó (va al final y vuelve a sonar:
+  decidido, se queda así).
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
 - **Novedades sin color:** `Changelog.jsx:95` ya emite el hook por sección
   (`cl-${slug(título)}`), pero `main.css:1752-1753` sólo pinta **`.cl-nuevo`** (verde) y
