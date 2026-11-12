@@ -21,7 +21,10 @@
 //     aleatorio con algo sonando baraja sólo lo que viene, sin tocar lo anterior ni cortar; tocar una
 //     pista con el aleatorio encendido la pone PRIMERA y el resto barajado trae todas las demás;
 //     «Reproducir a continuación» sigue sonando justo después de la actual; mover en la cola
-//     (moveInQueue, y el arrastre real del drawer con el mouse) cambia lo que suena después.
+//     (moveInQueue, y el arrastre real del drawer con el mouse) cambia lo que suena después;
+//   · (sólo canciones, 1.44.0) en el detalle de un género SINTÉTICO (/api/browse/genres y ?genre=
+//     interceptados), «▶ Reproducir» con el aleatorio encendido lo APAGA y suena en el orden de la lista,
+//     igual «Reproducir género» del menú de la tarjeta; tocar una fila del mismo detalle no lo apaga.
 // Los casos comunes corren con canciones (_canciones) y con videos (_videos), mismo código.
 //
 // El estado se lee del value de PlayerContext por la fibra de React (como fin-de-cola.mjs), y las
@@ -81,6 +84,7 @@ const VIDS = Array.from({ length: 8 }, (_, i) => ({
   id: `0f0f0f0f0f0f0f${(0xa0 + i).toString(16)}`, title: `Video ${i + 1}`, artist: `Mix Orden ${'HDAFCGBE'[i]}`, year: null,
   ext: 'mp4', size: VIDEO.length, mime: 'video/mp4', duration: 30, has_cover: false,
 }));
+const GENERO = LIB[0].genre;   // el de las 10 pistas sintéticas; /api/browse/genres lo devuelve solo a él
 
 const R = {};
 const ok = (k, v, extra = {}) => {
@@ -107,6 +111,9 @@ async function abrir(ruta, esperar) {
   await ctx.route((u) => u.pathname === '/api/tracks' && !['album', 'artist', 'album_artist', 'genre', 'year', 'search'].some((k) => u.searchParams.has(k)),
     (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LIB) }));
   await ctx.route((u) => u.pathname === '/api/videos', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ videos: VIDS }) }));
+  // Un género sintético con las 10 pistas (sección 11: el «▶ Reproducir» del detalle y el del menú).
+  await ctx.route((u) => u.pathname === '/api/browse/genres', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ genre: GENERO, track_count: LIB.length, album_count: LIB.length }]) }));
+  await ctx.route((u) => u.pathname === '/api/tracks' && u.searchParams.get('genre') === GENERO, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(LIB) }));
   await ctx.route('**/api/plays', (r) => r.fulfill({ status: 201, contentType: 'application/json', body: '{"added":0,"already":0,"skipped":0}' }));
   await ctx.addInitScript((t) => {
     localStorage.setItem('token', t);
@@ -465,6 +472,64 @@ try {
     const m10c = await marcadas();
     const s10c = await paso(p, 'next');
     ok('jumpto_a_una_marcada_no_la_repite_canciones', llego10c && eq(m10c, []) && s10c.t === LIB[1].title, { marcadas: m10c, sono: s10c.t, esperado: LIB[1].title });
+
+    // 11. (1.44.0) «▶ Reproducir» con el aleatorio ENCENDIDO lo apaga y suena en el orden de la lista; tocar
+    // una FILA sigue igual (la tocada primero y el resto barajado). En el detalle de un género sintético
+    // (las 10 pistas) y con «Reproducir género» del menú de su tarjeta. Contra el código de antes (1.43/M4)
+    // fallan los reproducir_*: el aleatorio seguía encendido y el resto salía barajado.
+    await p.goto(BASE + `/genres/${encodeURIComponent(GENERO)}`);
+    await p.waitForSelector('.view-actions .btn-primary', { timeout: 8000 });
+    await p.waitForSelector('.track-table .track-row', { timeout: 8000 });
+    await p.waitForTimeout(500);
+    const vistaG = await p.evaluate(() => [...document.querySelectorAll('.track-table .track-row .track-title')].map((e) => e.textContent.trim()));
+    medidas.vista_genero = vistaG;
+    const filaG = (i) => p.locator('.track-table .track-row').nth(i);
+    const reproducirG = async () => { const a = (await estado(p)).qids.join(','); await p.locator('.view-actions .btn-primary', { hasText: 'Reproducir' }).click(); await esperarColaNueva(p, a, N); };
+    const botonAleatorio = () => p.locator('.player-bar .shuffle-btn').getAttribute('aria-pressed');
+    // Con algo sonando y el aleatorio encendido por el Mix del detalle.
+    { const a = (await estado(p)).qids.join(','); await p.locator('.view-actions .mix-btn').click(); await esperarColaNueva(p, a, N); }
+    await suena(p);
+    const a11 = await estado(p);
+    await reproducirG();
+    await suena(p);
+    const e11 = await estado(p);
+    const b11 = await botonAleatorio();
+    ok('reproducir_con_aleatorio_lo_apaga_canciones', a11.shuffle === true && e11.shuffle === false && b11 === 'false',
+      { aleatorio_antes: a11.shuffle, aleatorio_despues: e11.shuffle, boton_aleatorio: b11 });
+    ok('reproducir_con_aleatorio_suena_en_el_orden_de_la_lista_canciones', vistaG.length === N && eq(e11.cola, vistaG) && e11.idx === 0 && e11.actual === vistaG[0] && !eq(e11.qids, a11.qids),
+      { lista: vistaG, cola: e11.cola, idx: e11.idx, suena: e11.actual });
+    const s11 = await recorrer(p, 2, 'next');
+    ok('reproducir_con_aleatorio_siguiente_sigue_la_lista_canciones', eq(tq(s11), vistaG.slice(0, 3)), { sonaron: tq(s11), esperado: vistaG.slice(0, 3) });
+    // Apagarlo no deja un orden "original" colgado: encenderlo de nuevo baraja lo que viene, como siempre.
+    await ponerAleatorio(p, true);
+    const e11b = await estado(p);
+    ok('reproducir_despues_el_aleatorio_vuelve_a_encender_canciones', e11b.shuffle === true && e11b.qid === s11[2].qid && eq(e11b.cola.slice(0, e11b.idx + 1), vistaG.slice(0, 3)) && same(e11b.cola, vistaG),
+      { cola: e11b.cola, idx: e11b.idx, suena: e11b.actual });
+    // Sin aleatorio, «Reproducir» como siempre.
+    await ponerAleatorio(p, false);
+    await reproducirG();
+    const e11c = await estado(p);
+    ok('reproducir_sin_aleatorio_como_siempre_canciones', e11c.shuffle === false && eq(e11c.cola, vistaG) && e11c.idx === 0, { cola: e11c.cola, idx: e11c.idx, aleatorio: e11c.shuffle });
+    // Tocar una fila del MISMO detalle con el aleatorio encendido: no lo apaga, la tocada primero y el resto barajado.
+    await ponerAleatorio(p, true);
+    { const a = (await estado(p)).qids.join(','); await filaG(4).locator('.track-title').click(); await esperarColaNueva(p, a, N); }
+    const e11d = await estado(p);
+    ok('tocar_fila_del_detalle_con_aleatorio_no_lo_apaga_canciones', e11d.shuffle === true && e11d.cola[0] === vistaG[4] && e11d.idx === 0 && same(e11d.cola, vistaG) && !eq(e11d.cola.slice(1), vistaG.filter((t) => t !== vistaG[4])),
+      { tocada: vistaG[4], cola: e11d.cola, idx: e11d.idx, aleatorio: e11d.shuffle });
+    // «Reproducir género» del menú de la tarjeta, con el aleatorio encendido (navegación en la app: el motor sigue).
+    await p.evaluate(() => { history.pushState({}, '', '/genres'); dispatchEvent(new PopStateEvent('popstate')); });
+    const tarjeta = p.locator('.genre-item', { hasText: GENERO }).first();
+    await tarjeta.waitFor({ timeout: 8000 });
+    await p.waitForTimeout(300);
+    const a11e = await estado(p);
+    await tarjeta.click({ button: 'right' });
+    await p.waitForSelector('.ctx-menu [role="menuitem"][data-accion="play"]', { timeout: 4000 });
+    await p.waitForTimeout(150);
+    await p.locator('.ctx-menu [role="menuitem"][data-accion="play"]').first().click();
+    await esperarColaNueva(p, a11e.qids.join(','), N);
+    const e11e = await estado(p);
+    ok('reproducir_genero_del_menu_con_aleatorio_lo_apaga_en_orden_canciones', a11e.shuffle === true && e11e.shuffle === false && eq(e11e.cola, vistaG) && e11e.idx === 0,
+      { aleatorio_antes: a11e.shuffle, aleatorio_despues: e11e.shuffle, cola: e11e.cola, idx: e11e.idx });
 
     ok('sin_errores_de_pagina_canciones', !errores.length, { errores });
     await ctx.close();

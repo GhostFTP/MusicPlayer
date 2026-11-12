@@ -136,7 +136,7 @@ barra y el expandido, no copias.
 
 | Acción | Origen | Nota |
 |---|---|---|
-| Reproducir álbum/artista | `play(tracks, 0)` de **PlayerContext** | las pistas se cargan con los MISMOS parámetros que la vista (`albumTracks` / `artistTracks`) → el orden que se encola es el que se ve |
+| Reproducir álbum/artista/género/año | `play(tracks, 0, { enOrden: true })` de **PlayerContext** | las pistas se cargan con los MISMOS parámetros que la vista (`albumTracks` / `artistTracks` / `genreTracks` / `yearTracks`) → el orden que se encola es el que se ve; con el aleatorio encendido lo apaga (1.44.0) |
 | Reproducir a continuación | `playAfterCurrent(item)` de **PlayerContext** | |
 | Agregar a la cola | `addToQueue(item \| tracks)` de **PlayerContext** | acepta una o muchas |
 | Quitar de la cola | `removeFromQueue(_qid)` de **PlayerContext** | ver abajo |
@@ -172,8 +172,17 @@ de reproducción también en aleatorio: encenderlo baraja la cola de verdad (só
 después de la actual; lo "a continuación" pendiente queda justo detrás de la actual) y guarda el
 orden previo en `baseRef`; apagarlo lo devuelve (lo agregado después va al final). `playNext` y
 `prev` caminan por posición; "repetir todo" vuelve a la primera sin rebarajar. `play()` respeta el
-orden que recibe (la radio lo necesita); `{ vista: true }` pone la tocada primero y baraja el resto
-si el aleatorio está encendido, y `{ mezclar: true }` es el Mix.
+orden que recibe (la radio lo necesita). Las opciones las elige **el gesto**, no la vista:
+
+| Gesto | Llamada | Con aleatorio encendido |
+|---|---|---|
+| Tocar una **fila** | `play(lista, i, { vista: true })` | la tocada primero y el resto barajado; sigue encendido |
+| **«Reproducir»** la lista (botón «▶ Reproducir», «Reproducir álbum/todo/género/año» del menú) | `play(lista, 0, { enOrden: true })` | **lo apaga** (1.44.0) y suena en el orden de la lista |
+| **Mix** (botón y tecla M) | `play(lista, 0, { mezclar: true })` | baraja todo; lo enciende si estaba apagado |
+
+«Reproducir» apaga el aleatorio porque quien lo pide quiere la lista como se ve; para barajarla
+está el Mix. Antes (M4) «Reproducir» con el aleatorio encendido daba la primera y el resto
+barajado, igual que tocar la fila 0.
 
 **"A continuación" en dos órdenes (1.44.0):** el menú local **apila** (`playAfterCurrent(item)`:
 justo detrás de la actual y al frente de `forcedNextRef`; la última pedida suena primero). Una

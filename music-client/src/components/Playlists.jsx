@@ -364,7 +364,7 @@ export default function Playlists({ target, clearTarget, setDetailOpen, navigate
                         <>
                           <button
                             className="btn-primary"
-                            onClick={() => { play([...sortedTracks, ...itemsVideo], 0, { vista: true }); avisarOmitidos(); }}
+                            onClick={() => { play([...sortedTracks, ...itemsVideo], 0, { enOrden: true }); avisarOmitidos(); }}
                             disabled={sortedTracks.length + itemsVideo.length === 0}
                           >
                             ▶ Reproducir

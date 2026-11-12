@@ -342,13 +342,17 @@ export function PlayerProvider({ children }) {
   // `tracks` TAL CUAL aunque el aleatorio esté encendido: la radio carga [pista, siguiente] y
   // devuelve la cola guardada con esto, y necesita ese orden. Opciones:
   //  · sonar: false → cargada y en pausa (la radio al devolver la cola).
-  //  · vista: true → `tracks` es una lista de la app (tocar una fila, "Reproducir"). Con el aleatorio
-  //    encendido, la tocada va PRIMERO y TODO el resto de la lista barajado detrás: lo de antes de la
-  //    tocada también suena. Con el aleatorio apagado, lo de siempre.
+  //  · vista: true → `tracks` es una lista de la app y se TOCÓ una fila. Con el aleatorio encendido,
+  //    la tocada va PRIMERO y TODO el resto de la lista barajado detrás: lo de antes de la tocada
+  //    también suena. Con el aleatorio apagado, lo de siempre.
+  //  · enOrden: true → «Reproducir» una lista entera (el botón «▶ Reproducir» de Álbum, Género y
+  //    Playlist, y «Reproducir álbum/todo/género/año» del menú). Suena en el orden de la lista y, si el
+  //    aleatorio estaba encendido, lo APAGA (1.44.0): quien pide «Reproducir» quiere la lista como se
+  //    ve; para barajarla está el Mix. Tocar una fila NO es esto: va con `vista`.
   //  · mezclar: true → el Mix: la lista entera barajada desde la primera, y enciende el aleatorio.
   // Con el aleatorio encendido, baseRef queda con `tracks` en el orden recibido (el de la vista):
   // apagarlo lo devuelve.
-  const play = useCallback((tracks, startIndex = 0, { sonar = true, vista = false, mezclar = false } = {}) => {
+  const play = useCallback((tracks, startIndex = 0, { sonar = true, vista = false, enOrden = false, mezclar = false } = {}) => {
     // Cada entrada recibe un _qid estable (identidad interna de la cola; NO viaja a la API ni a
     // MediaSession).
     setPlayBlocked(false);                 // un intento nuevo: si lo vuelven a bloquear, el catch lo pone otra vez
@@ -359,6 +363,8 @@ export function PlayerProvider({ children }) {
       order = shuffled(items);
       start = 0;
       if (!shuffleRef.current) { shuffleRef.current = true; setShuffle(true); }
+    } else if (enOrden) {
+      if (shuffleRef.current) { shuffleRef.current = false; setShuffle(false); }   // y baseRef queda en null, abajo
     } else if (vista && shuffleRef.current && items[startIndex]) {
       order = [items[startIndex], ...shuffled(items.filter((_, i) => i !== startIndex))];
       start = 0;

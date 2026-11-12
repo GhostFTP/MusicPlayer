@@ -178,9 +178,13 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   apagarlo lo devuelve (lo agregado después va al final). `playNext`/`prev` caminan por posición
   (siguiente → anterior → siguiente = la misma), "repetir todo" repite el mismo orden y **arrastrar
   con aleatorio encendido cambia lo que suena después**. `play()` respeta el orden recibido (la
-  radio carga `[pista, siguiente]`); `{ vista: true }` = tocada primero + resto barajado si el
-  aleatorio está encendido; `{ mezclar: true }` = el Mix (baraja todo y enciende el aleatorio).
-  Prueba: `mix-orden-func.mjs`. Contrato: `.claude/skills/actions-lab/SKILL.md`.
+  radio carga `[pista, siguiente]`); `{ vista: true }` = **tocar una fila**: tocada primero + resto
+  barajado si el aleatorio está encendido; `{ enOrden: true }` (1.44.0) = **«Reproducir» una lista**
+  (el «▶ Reproducir» de Álbum, Género y Playlist, y «Reproducir álbum/todo/género/año» del menú):
+  **apaga el aleatorio** si estaba encendido y suena en el orden de la lista — quien pide
+  «Reproducir» quiere la lista como se ve, y para barajarla está el Mix; `{ mezclar: true }` = el
+  Mix (baraja todo y enciende el aleatorio). Prueba: `mix-orden-func.mjs` (11) y
+  `pl-videos-func.mjs`. Contrato: `.claude/skills/actions-lab/SKILL.md`.
   **"A continuación" en dos órdenes (1.44.0):** el menú local **apila** (`playAfterCurrent(t)`: justo
   detrás de la actual, la última pedida suena primero, como Apple Music). Una **petición de la radio**
   (orden `a-continuacion` que aplica el anfitrión: `playAfterCurrent(t, { pedidoPor: idModerador })`)
