@@ -198,6 +198,15 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   del tope; la mejora es una respuesta del servidor (nivel C).
   `jumpTo` **quita la marca** a lo "a continuación" que queda en la elegida o por encima (ya es
   "anterior"). Pruebas: `radio-anfitrion-mod-func.mjs` 19x y 19ab–19aj, `mix-orden-func.mjs` (10).
+  **"A continuación" que YA SONÓ y después se apaga el aleatorio (1.44.0, decidido: se queda así,
+  sin cambio de código):** va al **final** de la cola y **vuelve a sonar** cuando la reproducción
+  llega ahí. Por qué: al apagar, `toggleShuffle` arma la cola con `baseRef` (el orden de la vista,
+  por `_qid`) y pone detrás lo que no está en él; `playAfterCurrent` inserta una **entrada nueva**
+  (otro `_qid`) que nunca entra en `baseRef`, igual que "Agregar a la cola". Mientras está
+  **pendiente** sigue en `forcedNextRef` y por eso `toggleShuffle` la deja justo detrás de la
+  actual; al sonar sale de `forcedNextRef` y desde ahí es "lo agregado después". Sin apagar el
+  aleatorio no pasa (lo ya sonado queda arriba de la actual y no se repite). Prueba:
+  `mix-orden-func.mjs` (12).
   **El gesto** (`QueueOverlay.jsx`): pointer events **a mano**, sin librerías; handlers en el `<ul>`
   con filtro por target, así las filas memoizadas no reciben ni una prop nueva (sólo un `data-qid`).
   Durante el arrastre **no se pasa por React** —transforms y marcas se escriben sobre los nodos— y

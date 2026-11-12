@@ -24,7 +24,9 @@
 //     (moveInQueue, y el arrastre real del drawer con el mouse) cambia lo que suena después;
 //   · (sólo canciones, 1.44.0) en el detalle de un género SINTÉTICO (/api/browse/genres y ?genre=
 //     interceptados), «▶ Reproducir» con el aleatorio encendido lo APAGA y suena en el orden de la lista,
-//     igual «Reproducir género» del menú de la tarjeta; tocar una fila del mismo detalle no lo apaga.
+//     igual «Reproducir género» del menú de la tarjeta; tocar una fila del mismo detalle no lo apaga;
+//   · (sólo canciones, 1.44.0, sin cambio de código) una «a continuación» que ya sonó va al final al
+//     apagar el aleatorio y vuelve a sonar ahí. Apagarlo MIENTRAS suena una se registra en `medidas`.
 // Los casos comunes corren con canciones (_canciones) y con videos (_videos), mismo código.
 //
 // El estado se lee del value de PlayerContext por la fibra de React (como fin-de-cola.mjs), y las
@@ -530,6 +532,40 @@ try {
     const e11e = await estado(p);
     ok('reproducir_genero_del_menu_con_aleatorio_lo_apaga_en_orden_canciones', a11e.shuffle === true && e11e.shuffle === false && eq(e11e.cola, vistaG) && e11e.idx === 0,
       { aleatorio_antes: a11e.shuffle, aleatorio_despues: e11e.shuffle, cola: e11e.cola, idx: e11e.idx });
+
+    // 12. (1.44.0, sin cambio de código) «A continuación» que YA SONÓ y después se apaga el aleatorio: va
+    // al FINAL de la cola y vuelve a sonar al llegar ahí. Es lo agregado después: no está en baseRef (el
+    // orden de la vista), así que al apagar cae detrás de todo, como «Agregar a la cola». Lo pendiente,
+    // en cambio, queda justo detrás de la actual (eso ya lo dice el código de toggleShuffle).
+    await ponerAleatorio(p, true);
+    const T12 = LIB[7];
+    const conT = async () => {   // cola = LIB barajada (LIB[0] primero), T12 «a continuación», suena T12 y luego la siguiente
+      await p.evaluate((lib) => window.__moPlayer().play(lib, 0, { vista: true }), LIB);
+      await suena(p);
+      await p.evaluate((t) => window.__moPlayer().playAfterCurrent(t), T12);
+      await p.waitForTimeout(200);
+      const e = await estado(p);
+      const tQid = e.qids[e.idx + 1];
+      const sT = await paso(p, 'next');
+      return { e, tQid, sT };
+    };
+    const c12 = await conT();
+    const s12 = await paso(p, 'next');   // ya sonó: ahora suena otra de la lista
+    await ponerAleatorio(p, false);
+    const e12 = await estado(p);
+    ok('a_continuacion_ya_sonada_al_apagar_va_al_final_canciones', c12.sT.qid === c12.tQid && s12.qid !== c12.tQid && e12.shuffle === false
+      && e12.cola.length === N + 1 && eq(e12.cola.slice(0, N), LIB.map((t) => t.title)) && e12.qids[N] === c12.tQid && e12.qid === s12.qid,
+      { cola: e12.cola, idx: e12.idx, suena: e12.actual, a_continuacion: T12.title, al_final: e12.qids[N] === c12.tQid });
+    await p.evaluate((i) => window.__moPlayer().jumpTo(i), N - 1);
+    await p.waitForFunction((t) => window.__moPlayer().currentTrack?.title === t, LIB[N - 1].title, { timeout: 5000 }).catch(() => {});
+    const s12b = await paso(p, 'next');
+    ok('a_continuacion_ya_sonada_vuelve_a_sonar_al_final_canciones', s12b.qid === c12.tQid && s12b.t === T12.title, { sono: s12b.t, esperado: T12.title });
+    // Sólo se registra (no cuenta): apagar el aleatorio MIENTRAS suena la «a continuación».
+    await ponerAleatorio(p, true);
+    await conT();
+    await ponerAleatorio(p, false);
+    const e12c = await estado(p);
+    medidas.apagar_con_a_continuacion_sonando = { suena: e12c.actual, idx: e12c.idx, largo: e12c.cola.length, despues: e12c.cola.slice(e12c.idx + 1) };
 
     ok('sin_errores_de_pagina_canciones', !errores.length, { errores });
     await ctx.close();

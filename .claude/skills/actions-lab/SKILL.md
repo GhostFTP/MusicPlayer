@@ -303,6 +303,14 @@ inventar una capa nueva — mismo patrón que `.exp-scrim`.
 - **Álbum o artista sin pistas**: el fetch devuelve vacío → **toast de aviso**. Sin eso,
   "reproducir álbum" no haría nada y parecería un bug.
 - **Cola vacía + "agregar a la cola"**: arranca la reproducción.
+- **"A continuación" que YA SONÓ y después se apaga el aleatorio** (1.44.0, decidido: se queda
+  así, sin cambio de código): va al **final** de la cola y **vuelve a sonar** al llegar ahí.
+  `toggleShuffle` devuelve `baseRef` (el orden de la vista, por `_qid`) y pone detrás lo que no
+  está en él; lo de `playAfterCurrent` es una entrada nueva (otro `_qid`) que nunca entra en
+  `baseRef`, como lo de "agregar a la cola". Pendiente, en cambio, sigue en `forcedNextRef` y
+  queda justo detrás de la actual; al sonar sale de `forcedNextRef` y pasa a ser "lo agregado
+  después". Sin apagar el aleatorio no pasa: lo ya sonado queda arriba de la actual. Prueba:
+  `mix-orden-func.mjs` (12).
 
 ## Deudas conocidas (anotadas a propósito)
 

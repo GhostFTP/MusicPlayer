@@ -17,7 +17,7 @@
     { "nombre": "mix-func", "archivo": "mix-func.mjs", "modo": "ok-line", "esperado": { "ok": 14, "total": 14 } },
     { "nombre": "mix-a11y", "archivo": "mix-a11y.mjs", "modo": "ok-line", "esperado": { "ok": 16, "total": 16 } },
     { "nombre": "mix-shortcut", "archivo": "mix-shortcut.mjs", "modo": "ok-line", "esperado": { "ok": 15, "total": 15 } },
-    { "nombre": "mix-orden-func", "archivo": "mix-orden-func.mjs", "modo": "name-line", "esperado": { "ok": 55, "total": 55 } },
+    { "nombre": "mix-orden-func", "archivo": "mix-orden-func.mjs", "modo": "name-line", "esperado": { "ok": 57, "total": 57 } },
     { "nombre": "fin-de-cola-func", "archivo": "fin-de-cola-func.mjs", "modo": "name-line", "esperado": { "ok": 11, "total": 11 } },
     { "nombre": "queue-func", "archivo": "queue-func.mjs", "modo": "name-line", "esperado": { "ok": 24, "total": 24 } },
     { "nombre": "cache-func", "archivo": "cache-func.mjs", "modo": "name-line", "esperado": { "ok": 4, "total": 4 } },
