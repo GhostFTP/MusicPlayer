@@ -5,7 +5,7 @@
 // (salaFalsa, estadoFk, rutaFk, rutaOrdenFk, entrarFk, salirFk…), más R/ok/REG para los resultados.
 // Como módulo ES corre UNA vez por proceso, al importarlo, y en el mismo orden que antes. No es una suite: no está
 // en baseline.json. Las suites no reasignan nada de acá (`pub`, `nFk`, `seqFk`, `idOrdenFk` cambian solo dentro
-// de las funciones de este módulo).
+// de las funciones de este módulo). También lo usa radio-oyente-aleatorio-func (la deuda del aleatorio, 1.44.0).
 export { BASE };
 import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
 
