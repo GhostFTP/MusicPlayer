@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import db from '../db/database.js';
-import { signToken } from '../auth/jwt.js';
+import { cuentaExiste, signToken, verifyToken } from '../auth/jwt.js';
 import { verifyCfAccess, cfAccessEnabled } from '../auth/cloudflare.js';
 import { googleEnabled, verifyGoogle } from '../auth/google.js';
 import { ipDeCloudflare, limiteDeFallos, limitePorIp } from '../auth/rate-limit.js';
@@ -255,6 +255,56 @@ const limiteGoogle = limitePorIp({
 });
 
 router.post('/google', limiteGoogle, crearLoginGoogle({ verificar: verifyGoogle, habilitado: googleEnabled }));
+
+// ---- Renovar la sesión (S1) ----
+//
+// Con un token VÁLIDO y sin vencer devuelve uno nuevo de 90 días (auth/jwt.js) y el `me` de
+// GET /api/me, la misma respuesta que /google. La app lo llama cuando al suyo le quedan menos
+// de 60 días; así nadie vuelve a ver el login mientras abra la app al menos una vez cada 90.
+//
+// SOLO EL HEADER `Authorization: Bearer`, NUNCA `?token=`, y por eso no usa authMiddleware,
+// que acepta los dos. El query existe para `<img>` y `<audio>`, que no mandan headers; acá no
+// hace falta, y un token en la URL termina en logs y en el historial del navegador justo en
+// la ruta que fabrica tokens nuevos.
+//
+// El token nuevo se arma desde la BASE (`leerMe`), no desde el viejo: quien se renombró sale
+// con el nombre de hoy, y nada del payload viejo (ni su `exp`) se copia.
+//
+// Los tres 401, que para quien llama son lo mismo —volver a entrar—:
+//   · sin header Bearer;
+//   · token inválido o VENCIDO: renovar no resucita una sesión muerta. Si se pudiera, un
+//     token robado de hace un año valdría para siempre;
+//   · cuenta borrada (cuentaExiste, como los dos porteros de auth/jwt.js), o borrada entre
+//     esa lectura y leerMe.
+export function renovarSesion(req, res) {
+  const header = req.headers.authorization ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (!token) return res.status(401).json({ error: 'No token' });
+
+  let payload;
+  try {
+    payload = verifyToken(token);
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  const me = cuentaExiste(payload?.id) ? leerMe(payload.id) : null;
+  if (!me) return res.status(401).json({ error: 'User not found' });
+
+  res.json({ token: signToken({ id: me.id, username: me.username }), me });
+}
+
+// El mismo límite que /google, 10 por IP cada 15 minutos, y por lo mismo: cuenta todas las
+// peticiones, las que salen bien también. Una app sana renueva una vez cada ~30 días; diez
+// en un cuarto de hora es un cliente en bucle o alguien probando tokens. Se aplica ANTES de
+// verificar, así que el 429 sale igual para un token bueno y uno malo.
+const limiteRenovar = limitePorIp({
+  max: 10,
+  ventanaMs: 15 * 60 * 1000,
+  mensaje: 'Demasiados intentos. Espera unos minutos y vuelve a probar.',
+});
+
+router.post('/renovar', limiteRenovar, renovarSesion);
 
 // Config PÚBLICA del login: SIN auth middleware (este router es público — es la pantalla
 // de login, el usuario aún no tiene token; gatearlo sería un catch-22). Solo expone si el

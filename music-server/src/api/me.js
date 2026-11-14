@@ -15,7 +15,7 @@ const router = Router();
 // Quién soy. Lo lee de la BASE y no del token, por el mismo motivo que requireAdmin
 // (auth/jwt.js): el JWT congela id y username en el momento del login y el rol no
 // está ahí a propósito. Si esto contestara con lo del token, un ascenso a admin no
-// se vería hasta dentro de siete días.
+// se vería hasta que venciera su sesión (90 días).
 //
 // COLUMNAS NOMBRADAS, nunca `SELECT *`: password_hash vive en esta misma tabla, y un
 // `*` lo mandaría por la red al primer descuido. Es la misma regla que sigue el CLI.
@@ -75,7 +75,7 @@ router.patch('/', authMiddleware, handle(async (req, res) => {
   //
   // Entonces el token nuevo NO es una revocación: es para que el cliente no siga
   // mostrando el nombre viejo en su pantalla de cuenta hasta que venza la sesión, que
-  // son siete días. Cambiar la contraseña tampoco invalida los tokens existentes —para
+  // son 90 días. Cambiar la contraseña tampoco invalida los tokens existentes —para
   // eso haría falta rotar JWT_SECRET, que echa a todos—, y con doce personas de
   // confianza no lo vale.
   res.json({ me, token: signToken({ id: me.id, username: me.username }) });

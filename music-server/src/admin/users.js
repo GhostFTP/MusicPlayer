@@ -222,7 +222,7 @@ async function passwd(username, { generate }) {
   }
   // El aviso importa tanto como el cambio: si el motivo fue una filtración, esto
   // solo la cierra a medias.
-  console.log('[USERS] Ojo: los JWT ya emitidos siguen siendo válidos hasta 7 días.');
+  console.log('[USERS] Ojo: los JWT ya emitidos siguen siendo válidos hasta 90 días (y se pueden renovar).');
   console.log('        Para invalidarlos hay que rotar JWT_SECRET, y eso desloguea a todos.');
 }
 
