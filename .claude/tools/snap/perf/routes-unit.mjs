@@ -87,6 +87,16 @@ ok('radio_invalido_se_escribe_radio', stateToPath({ view: 'radio', target: { inv
 ok('radio_segmento_de_mas', esCodigo(radio('/radio/K7M2QX/extra'), 'K7M2QX'));
 for (const p of ['/Radio', '/RADIO', '/radios', '/radio-x', '/api/radio']) ok(`radio_no_choca_${p}`, pathToState(p).view === 'library' && pathToState(p).target === null);
 
+// Modo DJ: /dj es una vista simple (sin detalle ni parámetros), como settings. Un segmento de más se
+// ignora (no hay detalle que abrir) y lo que sólo se le parece cae a la Biblioteca, como cualquier ruta
+// desconocida.
+const esDj = (s) => s.view === 'dj' && s.target === null;
+ok('dj_ida_vuelta', stateToPath({ view: 'dj', target: null }) === '/dj' && esDj(pathToState(asBrowser('/dj'))));
+ok('dj_barra_final', esDj(pathToState('/dj/')));
+ok('dj_segmento_de_mas', esDj(pathToState('/dj/algo')));
+ok('dj_target_no_viaja', stateToPath({ view: 'dj', target: { algo: 1 } }) === '/dj');
+for (const p of ['/DJ', '/Dj', '/djs', '/dj-x', '/api/dj']) ok(`dj_no_choca_${p}`, pathToState(p).view === 'library' && pathToState(p).target === null);
+
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
 console.log(JSON.stringify(R, null, 1));
 console.log(`\nroutes-unit: ${Object.keys(R).length - fails.length}/${Object.keys(R).length}`);

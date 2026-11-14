@@ -36,7 +36,8 @@ export const NO_ALBUM_ARTIST = '@';
 // fuera de este set = ruta desconocida → library. `search` es una vista simple (sin detalle ni
 // parámetros): la consulta NO viaja en la URL, vive en memoria (utils/searchAll.js). `radio` tiene
 // detalle propio (/radio/CODIGO, ver abajo).
-const KNOWN_VIEWS = new Set(['albums', 'artists', 'genres', 'years', 'playlists', 'changelog', 'settings', 'videos', 'search', 'radio']);
+// `dj` (Modo DJ, sub-paso a): vista simple, sin detalle ni parámetros, como settings.
+const KNOWN_VIEWS = new Set(['albums', 'artists', 'genres', 'years', 'playlists', 'changelog', 'settings', 'videos', 'search', 'radio', 'dj']);
 
 // Radio: /radio = sin radio; /radio/CODIGO = unirse a esa radio. El código se valida con la MISMA
 // regla que el campo de la vista (normalizarCodigo de radioSync.js): perdona minúsculas, espacios y

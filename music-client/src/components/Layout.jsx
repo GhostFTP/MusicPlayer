@@ -11,9 +11,11 @@ import Settings  from './Settings.jsx';
 import Videos    from './Videos.jsx';
 import Search    from './Search.jsx';
 import Radio     from './Radio.jsx';
+import DjPage    from '../dj/DjPage.jsx';
 import Player    from './Player.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import { DragQueueProvider } from '../context/DragQueueContext.jsx';
+import { useRadio } from '../context/RadioContext.jsx';
 import { pathToState, stateToPath } from '../utils/routes.js';
 import { clearViewCache } from '../api/viewCache.js';
 import { clearSavedSearch } from '../utils/searchAll.js';
@@ -157,7 +159,16 @@ export default function Layout() {
     videos:    <Videos    {...viewProps} />,
     search:    <Search    {...viewProps} />,
     radio:     <Radio     {...viewProps} />,
+    dj:        <DjPage    {...viewProps} />,
   };
+
+  // Modo DJ: con /dj abierto y SIN radio, la barra del reproductor se oculta por CSS (.layout--dj, ver
+  // main.css). Se oculta y NO se desmonta: Player es también el dueño del popstate (el «atrás» de toda
+  // la app), del Esc, del registerHost del menú contextual y de los huecos del <video>. Con radio
+  // activa DjPage no toma nada (ni pausa) y la barra sigue visible. useRadio sólo cambia con la sala,
+  // no a 4 Hz, así que esto no re-renderiza el Layout mientras suena.
+  const { fase: faseRadio } = useRadio();
+  const djActivo = view === 'dj' && faseRadio === 'sin-radio';
 
   // ── Gesto "atrás" (móvil): ver banner de comentario arriba del archivo ──
   const [navDrag, setNavDrag] = useState({ mode: 'idle', x: 0 }); // idle | drag | settle
@@ -252,7 +263,7 @@ export default function Layout() {
       {/* Registro de escuchas (POST /api/plays): componente sin UI, aparte para que el tiempo del
           player no re-renderice el Layout entero. Ver utils/usePlayLogger.js. */}
       <PlayLogger />
-      <div className={`layout${showQueue ? ' layout--queue' : ''}`}>
+      <div className={`layout${showQueue ? ' layout--queue' : ''}${djActivo ? ' layout--dj' : ''}`}>
         <Sidebar view={view} navigate={navigate} />
 
         <main
