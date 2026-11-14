@@ -1,13 +1,22 @@
-import { useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useRadio } from '../context/RadioContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
+import QualityChip from '../components/QualityChip.jsx';
+import { libraryTracks, onLibraryChange } from '../utils/viewTracks.js';
+import { useListFilter } from '../utils/useListFilter.js';
+import { useWindowedRows } from '../utils/useWindowedRows.js';
+import { crearMotor } from './motor/motor.js';
+import { antesDeBajar, cargarPista, mbTexto } from './motor/carga.js';
 
-// MODO DJ (V1, sub-paso a): sólo la página y la CONVIVENCIA con el reproductor normal. Todavía sin
-// AudioContext ni MIDI. Nada de esto toca PlayerContext: usa lo que el motor ya publica.
+// MODO DJ (V1). Sub-paso a: la página y la CONVIVENCIA con el reproductor normal. Sub-paso b: el motor
+// de audio propio (motor/motor.js, un AudioContext con dos decks) y la carga de una pista en A o B
+// (motor/carga.js). Sin crossfader, filtro ni MIDI todavía. Nada de esto toca PlayerContext.
 //
 //  · Radio activa (fase distinta de 'sin-radio'): la página sólo pide salir de la radio y NO toma
-//    nada (no pausa). La barra del reproductor sigue visible (Layout no pone .layout--dj).
+//    nada (no pausa, no tapa teclas, NO monta la consola → no crea AudioContext). La barra del
+//    reproductor sigue visible (Layout no pone .layout--dj).
 //  · Sin radio: al entrar (o cuando la radio termina estando acá) se guarda si sonaba y se llama a
 //    pause(). Al salir NO se reanuda solo: si sonaba, sale el aviso «Reanuda con play».
 //  · Mientras la página está montada y SIN radio, un keydown en window en fase de CAPTURA hace
@@ -15,9 +24,16 @@ import { useToast } from '../components/Toast.jsx';
 //    useMixShortcut, la F en useVideoFullscreenShortcut) escuchan en burbuja y lo primero que miran es
 //    e.defaultPrevented, así que se callan sin tocarlos. No se tapa nada con Ctrl, Alt o Meta (Ctrl+F
 //    busca en la página, Alt+← es el atrás del navegador), ni con el foco en un campo de texto.
+//    La barra de posición de un deck es un <input type="range">: ahí Espacio y las flechas son del
+//    control (los atajos ya ignoran los <input>), pero M y F se siguen tapando, porque
+//    useVideoFullscreenShortcut NO excluye los range y la F abriría la pantalla completa del
+//    reproductor normal.
+//  · El tiempo de cada deck se pinta con requestAnimationFrame leyendo el reloj del AudioContext
+//    (deck.posicion()), escribiendo directo en el DOM: React no se entera de cada frame.
 
 export const TECLAS_TAPADAS = new Set(['Space', 'ArrowLeft', 'ArrowRight', 'KeyM', 'KeyF']);
 const CAMPOS = 'input, textarea, select';
+const TAPADAS_EN_RANGO = new Set(['KeyM', 'KeyF']);
 
 export default function DjPage() {
   const { isPlaying, pause } = usePlayer();
@@ -56,7 +72,11 @@ export default function DjPage() {
       if (!TECLAS_TAPADAS.has(e.code)) return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       const t = e.target;
-      if (t?.closest?.(CAMPOS) || t?.isContentEditable) return;
+      if (t?.tagName === 'INPUT' && t.type === 'range') {
+        if (!TAPADAS_EN_RANGO.has(e.code)) return;
+      } else if (t?.closest?.(CAMPOS) || t?.isContentEditable) {
+        return;
+      }
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey, true);
@@ -77,9 +97,273 @@ export default function DjPage() {
       {/* Sólo se ve por debajo de 900 px (main.css). */}
       <p className="dj-aviso dj-solo-escritorio" role="note">El Modo DJ es solo para escritorio</p>
 
-      {radioActiva && (
-        <p className="dj-aviso dj-aviso-radio" role="status">Sal de la radio para usar el Modo DJ</p>
-      )}
+      {radioActiva
+        ? <p className="dj-aviso dj-aviso-radio" role="status">Sal de la radio para usar el Modo DJ</p>
+        : <ConsolaDj />}
     </div>
   );
 }
+
+// ── Consola: el motor, los dos decks y la biblioteca ─────────────────────────────────────────────
+
+const LADOS = ['A', 'B'];
+const DECK_VACIO = Object.freeze({ cargando: null, aviso: null, confirmar: null });
+
+function mmss(seg) {
+  if (!Number.isFinite(seg) || seg < 0) return '0:00';
+  const s = Math.floor(seg);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+const khz = (hz) => `${String(Math.round(hz / 100) / 10).replace('.', ',')} kHz`;
+
+function ConsolaDj() {
+  const { token } = useAuth();
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+
+  // El motor se crea al montar pero SIN AudioContext (lo crea el primer «Cargar»). Al desmontar se
+  // cierra: para lo que suena, suelta los buffers y cierra el contexto.
+  const motorRef = useRef(null);
+  const [, setVersion] = useState(0);
+  const controlesRef = useRef({ A: null, B: null });   // AbortController de la carga en curso por deck
+  useEffect(() => {
+    const m = crearMotor();
+    motorRef.current = m;
+    const quitar = m.suscribir(() => setVersion((v) => v + 1));
+    setVersion((v) => v + 1);
+    const controles = controlesRef.current;
+    return () => {
+      quitar();
+      for (const lado of LADOS) { controles[lado]?.abort(); controles[lado] = null; }
+      m.cerrar();
+      if (motorRef.current === m) motorRef.current = null;
+    };
+  }, []);
+
+  const [ui, setUi] = useState({ A: DECK_VACIO, B: DECK_VACIO });
+  const ponerUi = useCallback((lado, cambios) => setUi((u) => ({ ...u, [lado]: { ...u[lado], ...cambios } })), []);
+
+  const cargar = useCallback(async (lado, pista, { forzar = false } = {}) => {
+    // El contexto se crea ANTES de revisar la pista, dentro del clic (el gesto que Chrome pide): así
+    // antesDeBajar estima la memoria con su sampleRate REAL (decodeAudioData remuestrea a esa tasa).
+    // Consecuencia: el primer clic en «A»/«B» crea el AudioContext aunque la pista se rechace.
+    const m = motorRef.current;
+    const contexto = m?.asegurarContexto();
+    if (!contexto) return;
+    const pre = antesDeBajar(pista, { tasa: contexto.sampleRate });
+    if (!pre.ok) { ponerUi(lado, { aviso: pre.error.mensaje, confirmar: null }); return; }
+    if (pre.aviso && !forzar) { ponerUi(lado, { aviso: pre.aviso, confirmar: pista }); return; }
+    controlesRef.current[lado]?.abort();
+    const ctrl = new AbortController();
+    controlesRef.current[lado] = ctrl;
+    ponerUi(lado, { cargando: { pista, pct: null }, aviso: null, confirmar: null });
+    let ultimoPct = -1;
+    const r = await cargarPista(pista, {
+      contexto, token: tokenRef.current, signal: ctrl.signal,
+      onProgreso: ({ recibidos, total }) => {
+        const pct = total ? Math.floor((recibidos / total) * 100) : null;
+        if (pct === ultimoPct) return;
+        ultimoPct = pct;
+        ponerUi(lado, { cargando: { pista, pct } });
+      },
+    });
+    if (ctrl.signal.aborted || controlesRef.current[lado] !== ctrl) return;   // otra carga o desmontaje
+    controlesRef.current[lado] = null;
+    // Si falla, el deck queda EXACTAMENTE como estaba (lo cargado antes sigue ahí): sólo sale el aviso.
+    if (!r.ok) { ponerUi(lado, { cargando: null, aviso: r.error.mensaje }); return; }
+    m.decks[lado].cargarBuffer(r.buffer, { pista, registro: r.registro });
+    ponerUi(lado, { cargando: null, aviso: null });
+  }, [ponerUi]);
+
+  const cancelarAviso = useCallback((lado) => ponerUi(lado, { aviso: null, confirmar: null }), [ponerUi]);
+
+  // Tiempo de los decks: un rAF mientras la consola está montada, escribiendo sólo si cambió.
+  const vistasRef = useRef({ A: null, B: null });   // { tiempo, rango, arrastrando, ultimo, ultimoTxt }
+  useEffect(() => {
+    let id = 0;
+    const paso = () => {
+      const m = motorRef.current;
+      for (const lado of LADOS) {
+        const v = vistasRef.current[lado];
+        if (!m || !v?.tiempo || !v.rango) continue;
+        const pos = m.decks[lado].posicion();
+        const txt = mmss(pos);
+        if (txt !== v.ultimoTxt) { v.tiempo.textContent = txt; v.ultimoTxt = txt; }
+        if (!v.arrastrando && pos !== v.ultimo) { v.rango.value = String(pos); v.ultimo = pos; }
+      }
+      id = requestAnimationFrame(paso);
+    };
+    id = requestAnimationFrame(paso);
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const motor = motorRef.current;
+  return (
+    <>
+      <div className="dj-decks">
+        {LADOS.map((lado) => (
+          <Deck key={lado} lado={lado} deck={motor?.decks[lado] ?? null} estado={motor?.decks[lado].estado() ?? null}
+            ui={ui[lado]} vistas={vistasRef.current} onCargar={cargar} onCancelar={cancelarAviso} />
+        ))}
+      </div>
+      <BibliotecaDj onCargar={cargar} />
+    </>
+  );
+}
+
+function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar }) {
+  const cargado = !!estado?.cargado;
+  const pista = estado?.meta?.pista ?? null;
+  const registro = estado?.meta?.registro ?? null;
+  const duracion = estado?.duracion ?? 0;
+  const sonando = !!estado?.sonando;
+
+  // Refs por callback: el rAF de la consola escribe en estos nodos.
+  const vista = (vistas[lado] ??= { tiempo: null, rango: null, arrastrando: false, ultimo: null, ultimoTxt: null });
+  const refTiempo = useCallback((el) => { vista.tiempo = el; vista.ultimoTxt = null; }, [vista]);
+  const refRango = useCallback((el) => { vista.rango = el; vista.ultimo = null; }, [vista]);
+
+  // Barra de posición: arrastrando con el puntero sólo se mueve el número; el seek va al soltar (si
+  // no, cada píxel recrearía la fuente). Con el teclado (flechas) el seek es inmediato.
+  const alMover = (e) => {
+    const v = Number(e.target.value);
+    if (vista.arrastrando) { if (vista.tiempo) vista.tiempo.textContent = mmss(v); return; }
+    deck?.seek(v);
+  };
+  // El fin del arrastre se escucha en window: el puntero puede soltarse fuera de la barra.
+  const alApretar = (e) => {
+    const el = e.currentTarget;
+    vista.arrastrando = true;
+    const fin = () => {
+      window.removeEventListener('pointerup', fin);
+      window.removeEventListener('pointercancel', fin);
+      if (!vista.arrastrando) return;
+      vista.arrastrando = false;
+      deck?.seek(Number(el.value));
+    };
+    window.addEventListener('pointerup', fin);
+    window.addEventListener('pointercancel', fin);
+  };
+
+  const textoEstado = ui.cargando
+    ? `Cargando${ui.cargando.pct != null ? ` ${ui.cargando.pct} %` : '…'}`
+    : !cargado ? 'Vacío' : sonando ? 'Sonando' : 'En pausa';
+  const dataEstado = ui.cargando ? 'cargando' : !cargado ? 'vacio' : sonando ? 'sonando' : 'pausa';
+
+  return (
+    <section className={`dj-deck dj-deck--${lado.toLowerCase()}`} data-lado={lado} data-estado={dataEstado} aria-label={`Deck ${lado}`}>
+      <div className="dj-deck-cabeza">
+        <span className="dj-deck-lado" aria-hidden="true">{lado}</span>
+        <div className="dj-deck-pista">
+          <div className="dj-deck-titulo">{pista ? pista.title : 'Sin pista'}</div>
+          <div className="dj-deck-artista">{pista ? (pista.artist ?? '') : 'Carga una canción con el botón ' + lado}</div>
+        </div>
+        {pista && <QualityChip track={pista} />}
+      </div>
+
+      <div className="dj-deck-tiempos">
+        <span className="dj-deck-transcurrido" ref={refTiempo}>0:00</span>
+        <span className="dj-deck-duracion">{mmss(duracion)}</span>
+      </div>
+      <input
+        type="range" className="dj-deck-seek" ref={refRango}
+        min="0" max={cargado ? duracion : 0} step="any" defaultValue="0"
+        disabled={!cargado} aria-label={`Posición del deck ${lado}`}
+        onPointerDown={alApretar}
+        onChange={alMover}
+      />
+
+      <div className="dj-deck-controles">
+        <button type="button" className="dj-btn dj-play" disabled={!cargado}
+          aria-label={`${sonando ? 'Pausar' : 'Reproducir'} el deck ${lado}`}
+          onClick={() => (sonando ? deck?.pausa() : deck?.play())}>
+          {sonando ? 'Pausa' : 'Play'}
+        </button>
+        <button type="button" className="dj-btn dj-inicio" disabled={!cargado}
+          aria-label={`Volver al inicio del deck ${lado}`} onClick={() => deck?.alInicio()}>
+          Al inicio
+        </button>
+        <span className="dj-deck-estado">{textoEstado}</span>
+      </div>
+
+      {registro && (
+        <p className="dj-deck-registro"
+          data-bytes={registro.bytes} data-ms-bajada={registro.msBajada} data-ms-decodificacion={registro.msDecodificacion}
+          data-duracion={registro.duracion} data-sample-rate={registro.sampleRate} data-canales={registro.canales}
+          data-memoria={registro.memoriaBytes}>
+          Bajada {registro.msBajada} ms · decodificación {registro.msDecodificacion} ms · {khz(registro.sampleRate)} ·{' '}
+          {registro.canales === 1 ? '1 canal' : `${registro.canales} canales`} · {mbTexto(registro.memoriaBytes)} en memoria
+        </p>
+      )}
+
+      {ui.aviso && (
+        <div className="dj-deck-aviso" role="alert">
+          <p>{ui.aviso}</p>
+          {ui.confirmar ? (
+            <div className="dj-deck-aviso-acciones">
+              <button type="button" className="dj-btn dj-confirmar" onClick={() => onCargar(lado, ui.confirmar, { forzar: true })}>Cargar igual</button>
+              <button type="button" className="dj-btn dj-cancelar" onClick={() => onCancelar(lado)}>Cancelar</button>
+            </div>
+          ) : (
+            <button type="button" className="dj-btn dj-cancelar" onClick={() => onCancelar(lado)}>Cerrar</button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── Biblioteca: buscador local + lista con ventana de filas ──────────────────────────────────────
+
+const CAMPOS_BUSQUEDA = ['title', 'artist', 'album'];
+
+const BibliotecaDj = memo(function BibliotecaDj({ onCargar }) {
+  const [lista, setLista] = useState(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    const leer = () => libraryTracks().then((l) => { if (vivo) { setLista(l); setError(false); } }).catch(() => { if (vivo) setError(true); });
+    leer();
+    const quitar = onLibraryChange(leer);
+    return () => { vivo = false; quitar(); };
+  }, []);
+
+  const { query, setQuery, filtered } = useListFilter(lista, CAMPOS_BUSQUEDA);
+  const { listRef, segments, pitch } = useWindowedRows(filtered.length, { overscan: 8, scroller: '.dj-lista-scroll' });
+
+  const filas = [];
+  for (const seg of segments) {
+    if (seg.type === 'gap') {
+      filas.push(<li key={`gap-${seg.from}`} className="dj-gap" aria-hidden="true" style={{ height: (seg.to - seg.from) * pitch }} />);
+      continue;
+    }
+    for (let i = seg.from; i < seg.to; i++) {
+      const t = filtered[i];
+      filas.push(
+        <li key={t.id} className="dj-fila" data-index={i} data-id={t.id}>
+          <div className="dj-fila-texto">
+            <span className="dj-fila-titulo">{t.title}</span>
+            <span className="dj-fila-sub">{t.artist ?? ''}{t.album ? ` · ${t.album}` : ''}</span>
+          </div>
+          <QualityChip track={t} />
+          <span className="dj-fila-dur">{mmss(t.duration)}</span>
+          <button type="button" className="dj-cargar dj-cargar-a" onClick={() => onCargar('A', t)} aria-label={`Cargar «${t.title}» en el deck A`}>A</button>
+          <button type="button" className="dj-cargar dj-cargar-b" onClick={() => onCargar('B', t)} aria-label={`Cargar «${t.title}» en el deck B`}>B</button>
+        </li>,
+      );
+    }
+  }
+
+  return (
+    <section className="dj-biblioteca" aria-label="Biblioteca">
+      <input type="search" className="dj-buscar" placeholder="Buscar en la biblioteca" aria-label="Buscar en la biblioteca"
+        value={query} onChange={(e) => setQuery(e.target.value)} />
+      {error && <p className="dj-aviso">No se pudo cargar la biblioteca.</p>}
+      {lista === null && !error && <p className="dj-biblioteca-nota">Cargando la biblioteca…</p>}
+      {lista !== null && filtered.length === 0 && <p className="dj-biblioteca-nota">Nada coincide con la búsqueda.</p>}
+      <div className="dj-lista-scroll">
+        <ul className="dj-lista" ref={listRef}>{filas}</ul>
+      </div>
+    </section>
+  );
+});

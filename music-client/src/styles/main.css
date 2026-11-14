@@ -6273,3 +6273,124 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   .layout--dj { grid-template-rows: 1fr; }
   .layout--dj .player-bar { display: none; }
 }
+
+/* ── MODO DJ (V1, sub-paso b): decks y biblioteca ─────────────────
+   Dos decks lado a lado y, debajo, la biblioteca con su buscador. La lista de la biblioteca scrollea
+   en su PROPIA caja (.dj-lista-scroll, el scroller de useWindowedRows): los decks quedan siempre a la
+   vista. Las filas tienen alto fijo (lo mide useWindowedRows, no se escribe en JS). */
+.dj-decks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+@media (max-width: 899px) { .dj-decks { grid-template-columns: 1fr; } }
+.dj-deck {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.dj-deck[data-estado="sonando"] { border-color: rgba(167, 139, 250, .55); }
+.dj-deck-cabeza { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.dj-deck-lado {
+  flex: none;
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  font-weight: 700;
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.dj-deck-pista { flex: 1; min-width: 0; }
+.dj-deck-titulo, .dj-deck-artista { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dj-deck-titulo { font-weight: 600; }
+.dj-deck-artista { color: var(--text-muted); font-size: 13px; }
+.dj-deck-tiempos {
+  display: flex; justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-time);
+}
+.dj-deck-transcurrido { color: var(--time-elapsed); }
+.dj-deck-seek { width: 100%; }
+.dj-deck-controles { display: flex; align-items: center; gap: 8px; }
+.dj-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.dj-btn:hover:not(:disabled) { border-color: var(--accent); }
+.dj-btn:disabled { opacity: .45; cursor: default; }
+.dj-play { min-width: 76px; }
+.dj-deck-estado { margin-left: auto; color: var(--text-muted); font-size: 13px; }
+.dj-deck-registro { margin: 0; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dj-deck-aviso {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, .1);
+  border: 1px solid rgba(245, 158, 11, .35);
+  color: #fcd34d;
+  font-size: 14px;
+}
+.dj-deck-aviso p { margin: 0 0 8px; }
+.dj-deck-aviso-acciones { display: flex; gap: 8px; }
+
+.dj-biblioteca { margin-top: 20px; }
+.dj-buscar {
+  width: 100%;
+  max-width: 420px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+.dj-biblioteca-nota { color: var(--text-muted); font-size: 14px; }
+.dj-lista-scroll {
+  margin-top: 10px;
+  height: max(240px, calc(100vh - 470px));
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.dj-lista { list-style: none; margin: 0; padding: 0; }
+.dj-gap { list-style: none; }
+.dj-fila {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+}
+.dj-fila:hover { background: var(--surface-hover); }
+.dj-fila-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dj-fila-titulo, .dj-fila-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dj-fila-sub { color: var(--text-muted); font-size: 13px; }
+.dj-fila-dur { flex: none; width: 44px; text-align: right; color: var(--text-time); font-size: 13px; font-variant-numeric: tabular-nums; }
+.dj-cargar {
+  flex: none;
+  width: 36px; height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dj-cargar:hover { background: var(--accent-dim); border-color: var(--accent); }
