@@ -3,7 +3,9 @@
 // bipolar) y music-client/src/dj/motor/carga.js (antesDeBajar, clasificarRespuesta y cargarPista con
 // un fetch y un decodeAudioData falsos: que nunca lance, que use Bearer y no ?token=, y el registro) y
 // motor.js con un AudioContext falso: la tasa del contexto (TASA_DJ = 44 100) y la mezcla del sub-paso c
-// (grafo, valores iniciales, rampas con TAU sin escribir .value, crossfader, filtro sin cambiar .type).
+// (grafo, valores iniciales, rampas con TAU sin escribir .value, crossfader, filtro sin cambiar .type), y
+// midi.js (sub-paso d): interpretar, 14 bits, solo MSB / solo LSB, duplicados, el mapa del DDJ-400, el
+// colector del retraso y la conexión con un navigator.requestMIDIAccess falso.
 // Uso: node dj-unit.mjs
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
@@ -13,6 +15,7 @@ const desde = (p) => import(pathToFileURL(join(ROOT, p)).href);
 const { potenciaIgual, filtroBipolar, ZONA_MUERTA, PASO_BAJO, PASO_ALTO, gananciaVolumen, filtroFrecuencias, LP_NEUTRA, HP_NEUTRA } = await desde('music-client/src/dj/motor/mezcla.js');
 const { antesDeBajar, clasificarRespuesta, cargarPista, MAX_SEG, MEMORIA_AVISO_B, TASA_PEOR_CASO } = await desde('music-client/src/dj/motor/carga.js');
 const { crearMotor, TASA_DJ, TAU, Q_FILTRO } = await desde('music-client/src/dj/motor/motor.js');
+const { interpretar, crearCombinador, crearDeduplicador, valorParaMotor, aplicar, crearColector, crearConexionMidi, MAPA_DDJ400 } = await desde('music-client/src/dj/motor/midi.js');
 
 const R = {};
 // `ok` va DESPUÉS del detalle: varios detalles son resultados { ok: false, error } y no deben pisar el veredicto.
@@ -406,6 +409,181 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
     } catch (e) { ok('motor_setters_no_lanzan_con_contexto_cerrado', false, { lanzo: String(e) }); }
   } finally {
     globalThis.AudioContext = AC0;
+  }
+}
+
+// ── midi.js (sub-paso d): lo puro ──
+{
+  const cc = [interpretar([0xb0, 19, 64]), interpretar(new Uint8Array([0xb6, 31, 0])), interpretar([0xbf, 63, 127]), interpretar([0xb1, 51, 5, 99])];
+  ok('midi_interpretar_cc_canal_desde_1', JSON.stringify(cc) === JSON.stringify([{ canal: 1, cc: 19, valor: 64 }, { canal: 7, cc: 31, valor: 0 }, { canal: 16, cc: 63, valor: 127 }, { canal: 2, cc: 51, valor: 5 }]), { cc });
+  const otros = [[0x90, 60, 100], [0x80, 60, 0], [0x96, 11, 127], [0xe0, 0, 64], [0xc0, 5, 0], [0xa0, 1, 1], [0xd0, 3, 0], [0xf0, 0x7e, 0xf7], [0xf8, 0, 0], [0xfe],
+    [0xb0, 19], [], null, undefined, [0xb0, 128, 0], [0xb0, 19, 200], [0xaf, 19, 64]];
+  ok('midi_interpretar_ignora_lo_que_no_es_cc', otros.every((b) => interpretar(b) === null));
+}
+{
+  const c = crearCombinador();
+  const r = (b) => c.recibir(interpretar(b));
+  // Volumen A (1:19): MSB cc 19, LSB cc 51.
+  r([0xb0, 19, 0]); const cero = r([0xb0, 51, 0]);
+  r([0xb0, 19, 64]); const centro = r([0xb0, 51, 0]);
+  r([0xb0, 19, 127]); const max = r([0xb0, 51, 127]);
+  r([0xb0, 19, 100]); const medio = r([0xb0, 51, 50]);
+  ok('midi_14_bits', cero.pos === 0 && cero.clave === '1:19' && centro.pos === 8192 / 16383 && Math.abs(centro.pos - 0.50003) < 1e-5 && max.pos === 1
+    && medio.pos === (100 * 128 + 50) / 16383 && medio.modo === '14 bits', { cero, centro, max, medio });
+  // Con 14 bits ya vistos, un MSB solo pone el LSB en 0 (MIDI 1.0) y se aplica ya; el LSB lo completa.
+  const soloMsbEn14 = r([0xb0, 19, 64]);
+  const completa = r([0xb0, 51, 10]);
+  ok('midi_msb_pone_el_lsb_en_0', soloMsbEn14.pos === 8192 / 16383 && completa.pos === 8202 / 16383, { soloMsbEn14, completa });
+  // «Solo MSB»: un control que nunca mandó LSB → MSB / 127.
+  const c2 = crearCombinador();
+  const sm = [c2.recibir(interpretar([0xb1, 19, 64])), c2.recibir(interpretar([0xb1, 19, 127]))];
+  ok('midi_solo_msb_es_msb_entre_127', sm[0].pos === 64 / 127 && sm[1].pos === 1 && sm[0].modo === 'solo MSB' && sm[0].clave === '2:19', { sm });
+  // «Solo LSB»: un control que nunca mandó MSB → LSB / 127, con la clave del MSB (cc − 32).
+  const c3 = crearCombinador();
+  const sl = [c3.recibir(interpretar([0xb6, 63, 64])), c3.recibir(interpretar([0xb6, 63, 127]))];
+  // … y si después llega el MSB, pasa a 14 bits.
+  c3.recibir(interpretar([0xb6, 31, 64])); const despues = c3.recibir(interpretar([0xb6, 63, 1]));
+  ok('midi_solo_lsb_es_lsb_entre_127', sl[0].pos === 64 / 127 && sl[1].pos === 1 && sl[0].modo === 'solo LSB' && sl[0].clave === '7:31'
+    && despues.pos === 8193 / 16383 && despues.modo === '14 bits', { sl, despues });
+  const c4 = crearCombinador();
+  const siete = c4.recibir(interpretar([0xb0, 80, 127]));
+  ok('midi_cc_64_en_adelante_es_7_bits', siete.pos === 1 && siete.clave === '1:80' && siete.modo === '7 bits', siete);
+}
+{
+  const d = crearDeduplicador();
+  const seq = [d.nuevo('1:19', 0.5), d.nuevo('1:19', 0.5), d.nuevo('2:19', 0.5), d.nuevo('1:19', 0.6), d.nuevo('1:19', 0.5)];
+  ok('midi_duplicados_mismo_valor_se_descarta', JSON.stringify(seq) === JSON.stringify([true, false, true, true, true]), { seq });
+}
+// El mapa del DDJ-400 → el setter correcto, con un motor falso que anota las llamadas.
+const motorFalso = (log = []) => ({
+  log,
+  fijarVolumen: (lado, v) => { log.push(['fijarVolumen', lado, v]); return true; },
+  fijarCrossfader: (v) => { log.push(['fijarCrossfader', v]); return true; },
+  fijarFiltro: (v) => { log.push(['fijarFiltro', v]); return true; },
+  contexto: () => ({ state: 'running', sampleRate: 44100, baseLatency: 0.01, outputLatency: 0.04 }),
+  decks: { A: { estado: () => ({ sonando: true }) }, B: { estado: () => ({ sonando: false }) } },
+  opciones: { latencyHint: 'interactive' },
+  _cierre: null,
+  alCerrar(fn) { this._cierre = fn; return () => {}; },
+});
+{
+  const mf = motorFalso();
+  const f = (clave) => MAPA_DDJ400[clave];
+  aplicar(mf, f('1:19'), 0.25); aplicar(mf, f('2:19'), 0.75); aplicar(mf, f('7:31'), 0.1); aplicar(mf, f('7:23'), 1); aplicar(mf, f('7:23'), 0);
+  const sinMapa = aplicar(mf, MAPA_DDJ400['1:7'], 0.5);
+  ok('midi_mapa_ddj400_al_setter_correcto', JSON.stringify(mf.log) === JSON.stringify([['fijarVolumen', 'A', 0.25], ['fijarVolumen', 'B', 0.75], ['fijarCrossfader', 0.1], ['fijarFiltro', 1], ['fijarFiltro', -1]])
+    && sinMapa === false && Object.keys(MAPA_DDJ400).length === 4, { log: mf.log });
+  // El centro de la perilla (MSB 64, LSB 0 = 8192) y su vecino 8191 caen en la zona muerta del filtro.
+  const centro = filtroFrecuencias(valorParaMotor('filtro', 8192 / 16383));
+  const vecino = filtroFrecuencias(valorParaMotor('filtro', 8191 / 16383));
+  ok('midi_centro_del_filtro_en_zona_muerta', centro.lp === LP_NEUTRA && centro.hp === HP_NEUTRA && vecino.lp === LP_NEUTRA && vecino.hp === HP_NEUTRA
+    && Math.abs(valorParaMotor('filtro', 8192 / 16383) - 0.000061) < 1e-6, { f: valorParaMotor('filtro', 8192 / 16383), centro });
+}
+{
+  const col = crearColector();
+  for (let i = 1; i <= 100; i++) col.agregar(101 - i);   // desordenado a propósito
+  const r100 = col.resumen();
+  const circ = crearColector(5000);
+  for (let i = 1; i <= 6000; i++) circ.agregar(i);         // se quedan los últimos 5000: 1001..6000
+  const r6000 = circ.resumen();
+  const impar = crearColector(); [5, 1, 3].forEach((x) => impar.agregar(x));
+  circ.reiniciar();
+  ok('midi_colector_mediana_p95_circular', r100.n === 100 && r100.mediana === 50.5 && r100.p95 === 95 && r100.max === 100
+    && r6000.n === 5000 && r6000.mediana === 3500.5 && r6000.p95 === 5750 && r6000.max === 6000 && impar.resumen().mediana === 3
+    && circ.resumen().n === 0 && circ.resumen().mediana === null, { r100, r6000 });
+}
+
+// ── midi.js: la conexión, con un navigator.requestMIDIAccess falso ──
+{
+  const fake = ({ permiso = 'prompt', nombres = ['Otro teclado', 'PIONEER ddj-400 MIDI 1'], rechazo = null } = {}) => {
+    const n = { pedidos: [], query: [], permiso };
+    class Puerto {
+      constructor(nombre, i) { this.id = `in-${i}`; this.name = nombre; this.state = 'connected'; this.oy = new Set(); this.abiertos = 0; }
+      addEventListener(t, fn) { if (t === 'midimessage') this.oy.add(fn); }
+      removeEventListener(t, fn) { if (t === 'midimessage') this.oy.delete(fn); }
+      open() { this.abiertos++; return Promise.resolve(this); }
+      enviar(bytes, timeStamp = 100) { for (const fn of [...this.oy]) fn({ data: Uint8Array.from(bytes), timeStamp }); }
+    }
+    const entradas = new Map(nombres.map((x, i) => [`in-${i}`, new Puerto(x, i)]));
+    const acc = { inputs: entradas, outputs: new Map(), oy: new Set(),
+      addEventListener(t, fn) { if (t === 'statechange') this.oy.add(fn); }, removeEventListener(t, fn) { if (t === 'statechange') this.oy.delete(fn); },
+      cambio(p) { for (const fn of [...this.oy]) fn({ port: p }); } };
+    n.requestMIDIAccess = (op) => { n.pedidos.push(op); if (rechazo) return Promise.reject(Object.assign(new Error('no'), { name: rechazo })); n.permiso = 'granted'; return Promise.resolve(acc); };
+    n.permissions = { query: async (d) => { n.query.push(d); return { state: n.permiso }; } };
+    return { nav: n, acc, entradas, ddj: [...entradas.values()][1], otro: [...entradas.values()][0] };
+  };
+  const tic = () => new Promise((r) => setTimeout(r, 0));
+
+  // Sin soporte: sin error y con el estado dicho.
+  {
+    let lanzo = null, est = null;
+    try { const cx = crearConexionMidi({ motor: motorFalso(), nav: {} }); est = cx.estado().estado; await cx.conectar(); await cx.autoConectar(); cx.cerrar(); } catch (e) { lanzo = String(e); }
+    ok('midi_conexion_sin_soporte_no_lanza', est === 'sin-soporte' && lanzo === null, { est, lanzo });
+  }
+  // Conectar: un solo requestMIDIAccess({ sysex: false }), la entrada «ddj-400» sin distinguir mayúsculas,
+  // UN oyente en ella y ninguno en la otra; el mensaje llega al setter ANTES de medir.
+  {
+    const F = fake();
+    const orden = [];
+    const mf = motorFalso(orden);
+    const cx = crearConexionMidi({ motor: mf, diag: true, nav: F.nav, ahora: () => { orden.push(['medir']); return 107.75; } });
+    const antes = F.nav.pedidos.length;
+    await cx.autoConectar();   // permiso 'prompt': NO pide nada
+    const trasAuto = F.nav.pedidos.length;
+    const p = cx.conectar(); cx.conectar(); await p; await tic();
+    const est = cx.estado();
+    F.ddj.enviar([0xb0, 19, 64]); F.ddj.enviar([0xb0, 51, 0]);
+    ok('midi_conexion_pide_al_clic_y_elige_ddj400', antes === 0 && trasAuto === 0 && F.nav.pedidos.length === 1 && JSON.stringify(F.nav.pedidos[0]) === JSON.stringify({ sysex: false })
+      && est.estado === 'conectado' && est.nombre === 'PIONEER ddj-400 MIDI 1' && F.ddj.oy.size === 1 && F.otro.oy.size === 0 && F.acc.oy.size === 1 && F.ddj.abiertos === 1,
+    { est, pedidos: F.nav.pedidos, oyentes: [F.ddj.oy.size, F.otro.oy.size, F.acc.oy.size] });
+    ok('midi_manejador_setter_antes_de_medir', JSON.stringify(orden) === JSON.stringify([['fijarVolumen', 'A', 64 / 127], ['medir'], ['fijarVolumen', 'A', 8192 / 16383], ['medir']])
+      && cx.stats().n === 2 && cx.stats().mediana === 7.75 && cx.stats().sampleRate === 44100 && cx.stats().latencyHint === 'interactive'
+      && cx.stats().baseLatency === 0.01 && cx.stats().outputLatency === 0.04, { orden, stats: cx.stats() });
+    // Duplicados: el mismo mensaje dos veces → un solo setter.
+    const n0 = orden.length;
+    F.ddj.enviar([0xb0, 51, 0]); F.ddj.enviar([0xb0, 51, 1]); F.ddj.enviar([0xb0, 51, 1]);
+    ok('midi_manejador_descarta_duplicados', orden.length - n0 === 2 && orden[n0 + 1][0] === 'medir', { nuevos: orden.slice(n0) });
+    // Desconexión y reconexión por statechange.
+    F.ddj.state = 'disconnected'; F.acc.cambio(F.ddj);
+    const desc = { ...cx.estado(), oy: F.ddj.oy.size };
+    const n1 = orden.length; F.ddj.enviar([0xb0, 51, 9]); const trasDesc = orden.length - n1;
+    F.ddj.state = 'connected'; F.acc.cambio(F.ddj);
+    const reco = { ...cx.estado(), oy: F.ddj.oy.size };
+    F.ddj.enviar([0xb0, 51, 9]);
+    ok('midi_conexion_desconecta_y_reconecta', desc.estado === 'desconectado' && desc.oy === 0 && trasDesc === 0 && reco.estado === 'conectado' && reco.oy === 1
+      && orden.at(-2)[0] === 'fijarVolumen', { desc, reco });
+    // Cerrar el MOTOR cierra la conexión (alCerrar): sin oyentes.
+    mf._cierre?.();
+    ok('midi_cerrar_el_motor_quita_los_oyentes', F.ddj.oy.size === 0 && F.acc.oy.size === 0 && typeof mf._cierre === 'function', { oy: [F.ddj.oy.size, F.acc.oy.size] });
+  }
+  // Doble montaje (StrictMode): crear → cerrar → crear, con el permiso ya concedido (autoConectar), y
+  // también con el pedido en vuelo al cerrar: al final hay UN oyente de cada uno.
+  {
+    const F = fake({ permiso: 'granted' });
+    const c0 = crearConexionMidi({ motor: motorFalso(), nav: F.nav });
+    const pedido = c0.conectar();   // requestMIDIAccess en vuelo…
+    c0.cerrar();                    // … y se desmonta antes de que conteste
+    await pedido; await tic();
+    const c1 = crearConexionMidi({ motor: motorFalso(), nav: F.nav });
+    const vuelo = c1.autoConectar();
+    c1.cerrar();
+    await vuelo; await tic();
+    const c2 = crearConexionMidi({ motor: motorFalso(), nav: F.nav });
+    await c2.autoConectar(); await tic();
+    ok('midi_doble_montaje_un_solo_oyente', F.ddj.oy.size === 1 && F.acc.oy.size === 1 && c2.estado().estado === 'conectado' && c1.estado().estado !== 'conectado'
+      && c0.estado().estado !== 'conectado', { oy: [F.ddj.oy.size, F.acc.oy.size], c0: c0.estado(), c1: c1.estado(), c2: c2.estado() });
+    c2.cerrar();
+  }
+  // Permiso denegado y sin DDJ-400; sin diag no hay stats.
+  {
+    const F = fake({ rechazo: 'NotAllowedError' });
+    const cx = crearConexionMidi({ motor: motorFalso(), nav: F.nav });
+    let lanzo = null; try { await cx.conectar(); } catch (e) { lanzo = String(e); }
+    const G = fake({ nombres: ['Otro teclado'] });
+    const cy = crearConexionMidi({ motor: motorFalso(), nav: G.nav });
+    await cy.conectar();
+    ok('midi_denegado_y_sin_ddj400', cx.estado().estado === 'denegado' && lanzo === null && cy.estado().estado === 'esperando' && cx.stats === undefined && cx.reiniciar === undefined,
+      { cx: cx.estado(), cy: cy.estado() });
   }
 }
 

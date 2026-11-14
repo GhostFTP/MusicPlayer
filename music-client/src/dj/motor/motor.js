@@ -1,7 +1,7 @@
 // MODO DJ · motor de audio (Web Audio). Sin React. Independiente del reproductor normal: no toca el
 // <audio> de PlayerContext ni MediaSession.
 //
-// GRAFO (sub-paso c, la mezcla con ratón; sin MIDI todavía):
+// GRAFO (sub-paso c, la mezcla; con ratón y, desde el sub-paso d, con el DDJ-400 por midi.js):
 //   deck A: fuente ─ volA ─ xfA ─┐
 //                                ├─ bus ─ lp ─ hp ─ master ─ destination
 //   deck B: fuente ─ volB ─ xfB ─┘
@@ -171,6 +171,7 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive' }
   let nodos = null;   // { A: { vol, xf }, B: { vol, xf }, bus, lp, hp, master } mientras hay contexto
   let cerrado = false;
   const oyentes = new Set();
+  const alCierre = new Set();   // lo que hay que soltar al cerrar (alCerrar)
   const avisar = () => { for (const fn of oyentes) fn(); };
   const decks = { A: crearDeck(avisar), B: crearDeck(avisar) };
   // Valores OBJETIVO de la mezcla (los del control, no lo que vale el AudioParam en este instante).
@@ -222,6 +223,14 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive' }
     },
     contexto() { return ctx; },
     suscribir(fn) { oyentes.add(fn); return () => { oyentes.delete(fn); }; },
+    // Lo que se pidió al crear el motor (el sampleRate REAL es el del contexto): lo lee la medición MIDI.
+    opciones: Object.freeze({ sampleRate: sampleRate || null, latencyHint }),
+    // `fn` se llama UNA vez al cerrar el motor (sub-paso d: la conexión MIDI quita ahí sus oyentes).
+    alCerrar(fn) {
+      if (cerrado) { fn(); return () => {}; }
+      alCierre.add(fn);
+      return () => { alCierre.delete(fn); };
+    },
 
     // ── Mezcla. Cada setter guarda el valor (recortado a su rango) y, si hay contexto, lo lleva al
     // AudioParam con una rampa. Un valor que no es un número finito se DESCARTA (devuelve false y no
@@ -282,6 +291,8 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive' }
       ctx = null;
       nodos = null;
       if (duenoActual === motor) duenoActual = null;
+      for (const fn of [...alCierre]) { try { fn(); } catch { /* uno que falla no frena a los demás */ } }
+      alCierre.clear();
     },
     get cerrado() { return cerrado; },
   };

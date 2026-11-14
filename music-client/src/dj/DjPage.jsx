@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useRadio } from '../context/RadioContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -10,11 +10,20 @@ import { useWindowedRows } from '../utils/useWindowedRows.js';
 import { crearMotor, MEZCLA_INICIAL } from './motor/motor.js';
 import { antesDeBajar, cargarPista, mbTexto } from './motor/carga.js';
 import { filtroFrecuencias, LP_NEUTRA, HP_NEUTRA } from './motor/mezcla.js';
+import { crearConexionMidi } from './motor/midi.js';
 
 // MODO DJ (V1). Sub-paso a: la página y la CONVIVENCIA con el reproductor normal. Sub-paso b: el motor
 // de audio propio (motor/motor.js, un AudioContext con dos decks) y la carga de una pista en A o B
 // (motor/carga.js). Sub-paso c: la sección «Mezcla» (volumen de cada deck, crossfader y filtro) con el
-// ratón; los valores viven en el motor. Sin MIDI todavía. Nada de esto toca PlayerContext.
+// ratón; los valores viven en el motor. Sub-paso d: el DDJ-400 por Web MIDI (motor/midi.js) mueve esos
+// mismos valores, directo a los setters del motor, sin pasar por React. Nada de esto toca PlayerContext.
+//  · La consola se re-renderiza con los avisos del motor AGRUPADOS por requestAnimationFrame: un fader
+//    del DDJ-400 manda decenas de mensajes por segundo y cada uno llega en su propia tarea, así que sin
+//    agrupar sería un render por mensaje. Con el ratón el render sigue siendo inmediato (el <input> es
+//    controlado: si esperara al cuadro, el navegador lo devolvería a su valor anterior entre medio).
+//  · ?diag=1 (/dj?diag=1): expone window.__djMidi = { stats(), reiniciar() } con el retraso MIDI →
+//    AudioParam. Se lee en el PRIMER render: Layout, al montar, canoniza la URL con replaceState('/dj')
+//    y la query desaparece de la barra (pathToState sólo mira el pathname). Sin ?diag=1 no se mide nada.
 //
 //  · Radio activa (fase distinta de 'sin-radio'): la página sólo pide salir de la radio y NO toma
 //    nada (no pausa, no tapa teclas, NO monta la consola → no crea AudioContext). La barra del
@@ -43,6 +52,8 @@ export default function DjPage() {
   const { fase } = useRadio();
   const toast = useToast();
   const radioActiva = fase !== 'sin-radio';
+  // ?diag=1 se lee en el primer render (antes del replaceState de Layout, que borra la query).
+  const [diag] = useState(leerDiag);
 
   // Se lee por ref: el efecto de la pausa NO depende de isPlaying (si no, volvería a correr al pausar).
   const sonandoRef = useRef(isPlaying);
@@ -102,7 +113,7 @@ export default function DjPage() {
 
       {radioActiva
         ? <p className="dj-aviso dj-aviso-radio" role="status">Sal de la radio para usar el Modo DJ</p>
-        : <ConsolaDj />}
+        : <ConsolaDj diag={diag} />}
     </div>
   );
 }
@@ -110,6 +121,9 @@ export default function DjPage() {
 // ── Consola: el motor, los dos decks y la biblioteca ─────────────────────────────────────────────
 
 const LADOS = ['A', 'B'];
+function leerDiag() {
+  try { return new URLSearchParams(window.location.search).get('diag') === '1'; } catch { return false; }
+}
 const DECK_VACIO = Object.freeze({ cargando: null, aviso: null, confirmar: null });
 
 function mmss(seg) {
@@ -119,29 +133,53 @@ function mmss(seg) {
 }
 const khz = (hz) => `${String(Math.round(hz / 100) / 10).replace('.', ',')} kHz`;
 
-function ConsolaDj() {
+function ConsolaDj({ diag }) {
   const { token } = useAuth();
   const tokenRef = useRef(token);
   tokenRef.current = token;
 
   // El motor se crea al montar pero SIN AudioContext (lo crea el primer «Cargar»). Al desmontar se
-  // cierra: para lo que suena, suelta los buffers y cierra el contexto.
+  // cierra: para lo que suena, suelta los buffers y cierra el contexto, y (alCerrar) la conexión MIDI
+  // quita sus oyentes.
   const motorRef = useRef(null);
+  const midiRef = useRef(null);
+  const [midi, setMidi] = useState({ estado: 'inactivo', nombre: null });
   const [, setVersion] = useState(0);
+  const refrescar = useCallback(() => setVersion((v) => v + 1), []);
+  // Avisos del motor → a lo sumo UN render por cuadro. `pendienteRef` se apaga en cada render ya pintado
+  // (useLayoutEffect de abajo): si el ratón ya forzó el render, el cuadro no repite otro.
+  const pendienteRef = useRef(false);
   const controlesRef = useRef({ A: null, B: null });   // AbortController de la carga en curso por deck
   useEffect(() => {
     const m = crearMotor();
     motorRef.current = m;
-    const quitar = m.suscribir(() => setVersion((v) => v + 1));
+    let cuadro = 0;
+    const quitar = m.suscribir(() => {
+      pendienteRef.current = true;
+      if (cuadro) return;
+      cuadro = requestAnimationFrame(() => { cuadro = 0; if (pendienteRef.current) setVersion((v) => v + 1); });
+    });
+    const conexion = crearConexionMidi({ motor: m, diag, alCambiar: () => setMidi(conexion.estado()) });
+    midiRef.current = conexion;
+    setMidi(conexion.estado());
+    conexion.autoConectar();
+    const expuesto = diag ? { stats: () => conexion.stats(), reiniciar: () => conexion.reiniciar() } : null;
+    if (expuesto) window.__djMidi = expuesto;
     setVersion((v) => v + 1);
     const controles = controlesRef.current;
     return () => {
       quitar();
+      cancelAnimationFrame(cuadro);
       for (const lado of LADOS) { controles[lado]?.abort(); controles[lado] = null; }
-      m.cerrar();
+      m.cerrar();          // también cierra la conexión MIDI (alCerrar)
+      conexion.cerrar();   // idempotente
+      if (expuesto && window.__djMidi === expuesto) delete window.__djMidi;
       if (motorRef.current === m) motorRef.current = null;
+      if (midiRef.current === conexion) midiRef.current = null;
     };
-  }, []);
+  }, [diag]);
+  useLayoutEffect(() => { pendienteRef.current = false; });
+  const conectarMidi = useCallback(() => { midiRef.current?.conectar(); }, []);
 
   const [ui, setUi] = useState({ A: DECK_VACIO, B: DECK_VACIO });
   const ponerUi = useCallback((lado, cambios) => setUi((u) => ({ ...u, [lado]: { ...u[lado], ...cambios } })), []);
@@ -209,7 +247,7 @@ function ConsolaDj() {
             ui={ui[lado]} vistas={vistasRef.current} onCargar={cargar} onCancelar={cancelarAviso} />
         ))}
       </div>
-      <MezclaDj motor={motor} />
+      <MezclaDj motor={motor} refrescar={refrescar} midi={midi} onConectarMidi={conectarMidi} />
       <BibliotecaDj onCargar={cargar} />
     </>
   );
@@ -318,8 +356,9 @@ function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar }) {
 }
 
 // ── Mezcla: volumen A y B, crossfader y filtro ───────────────────────────────────────────────────
-// Los valores se leen del motor en cada render (la consola se re-renderiza con su aviso) y se cambian
-// con sus setters, que llevan cada valor a su AudioParam con una rampa. Antes del primer «Cargar» no
+// Los valores se leen del motor en cada render (la consola se re-renderiza con sus avisos, agrupados por
+// cuadro; con el ratón, al momento) y se cambian con sus setters, que llevan cada valor a su AudioParam
+// con una rampa. El DDJ-400 llama a los mismos setters desde midi.js. Antes del primer «Cargar» no
 // hay AudioContext: el setter sólo guarda el valor. Doble clic vuelve al valor por defecto.
 
 const num = (v) => `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(2).replace('.', ',')}`;
@@ -331,20 +370,43 @@ function textoFiltro(f) {
   return `${num(f)} · plano`;
 }
 
-function MezclaDj({ motor }) {
+// Estado de la conexión MIDI → texto corto. El botón sólo sale cuando hace falta un clic.
+const TEXTO_MIDI = {
+  'sin-soporte': 'Este navegador no tiene Web MIDI',
+  inactivo: '',
+  pidiendo: 'Pidiendo permiso de MIDI…',
+  denegado: 'Permiso de MIDI denegado',
+  error: 'No se pudo abrir MIDI',
+  esperando: 'Esperando el DDJ-400…',
+  desconectado: 'DDJ-400 desconectado',
+};
+const CON_BOTON = new Set(['inactivo', 'denegado', 'error']);
+
+function MezclaDj({ motor, refrescar, midi, onConectarMidi }) {
   const m = motor?.mezcla() ?? MEZCLA_INICIAL;
+  // Con el ratón: el setter y el render en el MISMO evento (ver la cabecera: el <input> es controlado).
+  const con = (fijar) => (v) => { if (motor && fijar(motor, v)) refrescar(); };
+  const textoMidi = midi.estado === 'conectado' ? `Conectado: ${midi.nombre}` : TEXTO_MIDI[midi.estado] ?? '';
   return (
     <section className="dj-mezcla" aria-label="Mezcla">
-      <h2 className="dj-mezcla-titulo">Mezcla</h2>
+      <div className="dj-mezcla-cabeza">
+        <h2 className="dj-mezcla-titulo">Mezcla</h2>
+        <div className="dj-midi" data-estado={midi.estado}>
+          {CON_BOTON.has(midi.estado) && (
+            <button type="button" className="dj-btn dj-midi-conectar" onClick={onConectarMidi}>Conectar DDJ-400</button>
+          )}
+          {textoMidi && <span className="dj-midi-estado" role="status">{textoMidi}</span>}
+        </div>
+      </div>
       <div className="dj-mezcla-controles">
         <ControlMezcla clase="dj-vol-a" etiqueta="Volumen A" min={0} max={1} valor={m.volumen.A} porDefecto={1}
-          texto={num(m.volumen.A)} onCambio={(v) => motor?.fijarVolumen('A', v)} />
+          texto={num(m.volumen.A)} onCambio={con((mo, v) => mo.fijarVolumen('A', v))} />
         <ControlMezcla clase="dj-vol-b" etiqueta="Volumen B" min={0} max={1} valor={m.volumen.B} porDefecto={1}
-          texto={num(m.volumen.B)} onCambio={(v) => motor?.fijarVolumen('B', v)} />
+          texto={num(m.volumen.B)} onCambio={con((mo, v) => mo.fijarVolumen('B', v))} />
         <ControlMezcla clase="dj-crossfader" etiqueta="Crossfader" min={0} max={1} valor={m.crossfader} porDefecto={0.5}
-          texto={num(m.crossfader)} extremos={['A', 'B']} onCambio={(v) => motor?.fijarCrossfader(v)} />
+          texto={num(m.crossfader)} extremos={['A', 'B']} onCambio={con((mo, v) => mo.fijarCrossfader(v))} />
         <ControlMezcla clase="dj-filtro" etiqueta="Filtro" min={-1} max={1} valor={m.filtro} porDefecto={0}
-          texto={textoFiltro(m.filtro)} extremos={['Paso bajo', 'Paso alto']} onCambio={(v) => motor?.fijarFiltro(v)} />
+          texto={textoFiltro(m.filtro)} extremos={['Paso bajo', 'Paso alto']} onCambio={con((mo, v) => mo.fijarFiltro(v))} />
       </div>
     </section>
   );

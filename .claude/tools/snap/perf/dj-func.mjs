@@ -24,6 +24,11 @@
 //         v², crossfader de igual potencia en 5 posiciones, frecuencia de cada biquad); 0 escrituras
 //         directas de .value y 0 cambios de .type mientras se mueve, con setTargetAtTime; doble clic al
 //         valor por defecto; sobreviven a play, seek y cargar otra pista; F y M tapadas en sus range.
+//   · k   (sub-paso d, el DDJ-400 por Web MIDI, con un requestMIDIAccess FALSO del init script) el permiso
+//         se pide con el clic (k0); cada control llega a su AudioParam y la UI lo sigue (k1); 14 bits y el
+//         centro del filtro en la zona muerta (k2); duplicados sin rampas extra (k3); 0 escrituras de .value
+//         (k4); desconexión y reconexión (k5); salir y volver no duplica oyentes (k6); UI agrupada por cuadro
+//         (k10); al final, con recargas: sin Web MIDI (k7), permiso denegado (k8), ?diag=1 (k9, k9b).
 //   · d6  con radio activa (anfitrión de una radio REAL, creada con «Iniciar radio» como radio-func) /dj
 //         no pausa nada (ni isPlaying ni el pause() nativo), muestra «Sal de la radio para usar el Modo
 //         DJ» y deja la barra visible; tampoco tapa teclas: Espacio llega al reproductor normal y lo
@@ -103,6 +108,71 @@ await ctx.addInitScript(() => {
       lp: g.lp.frequency.value, hp: g.hp.frequency.value, lpTipo: g.lp.type, hpTipo: g.hp.type, lpQ: g.lp.Q.value, hpQ: g.hp.Q.value,
     };
   };
+});
+// Web MIDI FALSO (sub-paso d): navigator.requestMIDIAccess y navigator.permissions.query({ name: 'midi' })
+// con dos entradas, «Teclado MIDI» y «DDJ-400»; el test dispara los mensajes del DDJ-400 con
+// window.__fm.enviar. Cuenta los oyentes REALES de cada entrada y del acceso (Set de funciones). Siempre
+// devuelve EL MISMO acceso y las mismas entradas: un oyente que no se quitó al desmontar se acumula y se ve.
+// Configuración por página en sessionStorage '__fmCfg': { soporte: false } quita Web MIDI;
+// { permiso: 'denied' | 'granted' } fija el permiso inicial (por defecto 'prompt').
+await ctx.addInitScript(() => {
+  if (window.__fm) return;
+  let cfg = {};
+  try { cfg = JSON.parse(sessionStorage.getItem('__fmCfg') || '{}') || {}; } catch { cfg = {}; }
+  const fm = { pedidos: [], permiso: cfg.permiso ?? 'prompt', enviados: 0 };
+  window.__fm = fm;
+  if (cfg.soporte === false) {
+    Object.defineProperty(navigator, 'requestMIDIAccess', { configurable: true, value: undefined });
+    return;
+  }
+  const crearPuerto = (id, name) => {
+    const t = new EventTarget();
+    const oy = new Set();
+    const p = {
+      id, name, manufacturer: 'Pioneer DJ', type: 'input', state: 'connected', connection: 'closed', onmidimessage: null,
+      addEventListener(tipo, fn, o) { if (tipo === 'midimessage') oy.add(fn); t.addEventListener(tipo, fn, o); },
+      removeEventListener(tipo, fn, o) { if (tipo === 'midimessage') oy.delete(fn); t.removeEventListener(tipo, fn, o); },
+      open() { p.connection = 'open'; return Promise.resolve(p); },
+      close() { p.connection = 'closed'; return Promise.resolve(p); },
+      get oyentes() { return oy.size; },
+      enviar(bytes) {
+        if (p.state !== 'connected') return;
+        const ev = new Event('midimessage');   // su timeStamp es el instante de creación, como el de un MIDIMessageEvent
+        Object.defineProperty(ev, 'data', { value: Uint8Array.from(bytes) });
+        fm.enviados++;
+        t.dispatchEvent(ev);
+      },
+    };
+    return p;
+  };
+  const otro = crearPuerto('in-otro', 'Teclado MIDI');
+  const ddj = crearPuerto('in-ddj', 'DDJ-400');
+  const oyEstado = new Set();
+  const acceso = {
+    inputs: new Map([[otro.id, otro], [ddj.id, ddj]]), outputs: new Map(), sysexEnabled: false, onstatechange: null,
+    addEventListener(tipo, fn) { if (tipo === 'statechange') oyEstado.add(fn); },
+    removeEventListener(tipo, fn) { if (tipo === 'statechange') oyEstado.delete(fn); },
+  };
+  const cambio = (port) => { for (const fn of [...oyEstado]) fn({ port }); };
+  fm.oyentes = () => ({ ddj: ddj.oyentes, otro: otro.oyentes, estado: oyEstado.size });
+  fm.desconectar = () => { ddj.state = 'disconnected'; cambio(ddj); };
+  fm.reconectar = () => { ddj.state = 'connected'; cambio(ddj); };
+  fm.enviar = (lista) => { for (const b of lista) ddj.enviar(b); };
+  // Cada mensaje en SU tarea (como llegan del driver), todos programados de una vez.
+  fm.enviarEnTareas = (lista) => new Promise((res) => { let k = 0; for (const b of lista) setTimeout(() => { ddj.enviar(b); if (++k === lista.length) res(); }, 0); });
+  Object.defineProperty(navigator, 'requestMIDIAccess', {
+    configurable: true,
+    value: (op) => {
+      fm.pedidos.push(op ?? null);
+      if (fm.permiso === 'denied') return Promise.reject(new DOMException('Permiso denegado', 'NotAllowedError'));
+      fm.permiso = 'granted';
+      return Promise.resolve(acceso);
+    },
+  });
+  if (navigator.permissions) {
+    const q0 = navigator.permissions.query.bind(navigator.permissions);
+    Object.defineProperty(navigator.permissions, 'query', { configurable: true, value: (d) => (d?.name === 'midi' ? Promise.resolve({ state: fm.permiso, onchange: null }) : q0(d)) });
+  }
 });
 await p.reload(); await p.waitForSelector('.player-bar', { timeout: 15000 }).catch(() => {}); await sleep(500);
 // Pedidos a /stream/ de audio (no video): URL y cabecera Authorization.
@@ -485,6 +555,95 @@ try {
   { antes: antesX9, despues: despuesX9, esperado: esperadoX9, ui: ux9, b: dx9?.titulo });
   await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
 
+  // ── k: el DDJ-400 por Web MIDI (sub-paso d), con el requestMIDIAccess FALSO del init script ──
+  // Mensajes: MSB en cc N, LSB en cc N + 32. par(status, N, v14) → [MSB, LSB].
+  const par = (st, n, v14) => [[st, n, v14 >> 7], [st, n + 32, v14 & 127]];
+  const MIDI = { volA: [0xb0, 19], volB: [0xb1, 19], xf: [0xb6, 31], fil: [0xb6, 23] };
+  const midi = (cual, v14) => par(MIDI[cual][0], MIDI[cual][1], v14);
+  const enviarMidi = (lista) => p.evaluate((l) => window.__fm.enviar(l), lista);
+  const oyentesMidi = () => p.evaluate(() => window.__fm.oyentes());
+  const textoMidi = () => p.evaluate(() => ({ estado: document.querySelector('.dj-midi')?.dataset.estado ?? null, texto: document.querySelector('.dj-midi-estado')?.textContent ?? null, boton: !!document.querySelector('.dj-midi-conectar') }));
+  const esperarMidi = (estadoQuerido, ms = 4000) => esperar(async () => { const t = await textoMidi(); return t.estado === estadoQuerido ? t : null; }, ms);
+  const dosCuadros = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const pos14 = (v) => v / 16383;
+
+  // k0: el permiso se pide con el clic, no al cargar: hasta acá, 0 pedidos. Clic → requestMIDIAccess({ sysex: false })
+  // una vez, entrada «DDJ-400» (no la otra), un oyente en ella y uno de statechange en el acceso.
+  const k0antes = await p.evaluate(() => window.__fm.pedidos.length);
+  const t0 = await textoMidi();
+  await p.locator('.dj-midi-conectar').click();
+  const tk0 = await esperarMidi('conectado');
+  const pedidos = await p.evaluate(() => window.__fm.pedidos);
+  const oy0 = await oyentesMidi();
+  ok('k0_conectar_pide_permiso_al_clic', k0antes === 0 && t0.boton && t0.estado === 'inactivo' && pedidos.length === 1 && JSON.stringify(pedidos[0]) === JSON.stringify({ sysex: false })
+    && tk0?.texto === 'Conectado: DDJ-400' && !tk0.boton && oy0.ddj === 1 && oy0.otro === 0 && oy0.estado === 1, { antes: k0antes, t0, tk0, pedidos, oy0 });
+
+  // k1..k3 con los dos decks sonando (el .value de un AudioParam no se actualiza sin audio, ver x).
+  await tocarAmbos(true);
+  const kk0 = await contadores();
+  // k1: cada control llega a SU AudioParam, y la UI lo sigue (data-valor = la posición exacta).
+  await enviarMidi([...midi('volA', 12000), ...midi('volB', 4000), ...midi('xf', 3000), ...midi('fil', 13000)]);
+  const lk1 = await asentarYLeer(); await dosCuadros(); const uk1 = await valoresUi();
+  await enviarMidi(midi('fil', 2000));
+  const lk1b = await asentarYLeer(); await dosCuadros(); const uk1b = await valoresUi();
+  const fA = 2 * pos14(13000) - 1, fB = 2 * pos14(2000) - 1;
+  ok('k1_cada_control_llega_a_su_audioparam', cercaAbs(lk1.volA, pos14(12000) ** 2) && cercaAbs(lk1.volB, pos14(4000) ** 2)
+    && cercaAbs(lk1.xfA, Math.cos(pos14(3000) * Math.PI / 2)) && cercaAbs(lk1.xfB, Math.sin(pos14(3000) * Math.PI / 2))
+    && cercaRel(lk1.hp, hpEsperada(fA)) && cercaRel(lk1.lp, 20000) && cercaRel(lk1b.lp, lpEsperada(fB)) && cercaRel(lk1b.hp, 20)
+    && uk1['dj-vol-a'] === pos14(12000) && uk1['dj-vol-b'] === pos14(4000) && uk1['dj-crossfader'] === pos14(3000) && cercaAbs(uk1['dj-filtro'], fA, 1e-12) && cercaAbs(uk1b['dj-filtro'], fB, 1e-12),
+  { lk1, lk1b, uk1, uk1b, esperado: { volA: pos14(12000) ** 2, volB: pos14(4000) ** 2, hp: hpEsperada(fA), lp: lpEsperada(fB) } });
+  // k2: los 14 bits: 0 → 0, 16383 → 1, (100 << 7 | 50) = 12850; el centro 8192 del crossfader = 0,50003 y
+  // el del filtro cae en la zona muerta (lp 20 000, hp 20).
+  const v = [];
+  for (const [cual, v14] of [['volA', 0], ['volA', 16383], ['volA', 12850]]) { await enviarMidi(midi(cual, v14)); await dosCuadros(); v.push((await valoresUi())['dj-vol-a']); }
+  await enviarMidi([...midi('xf', 8192), ...midi('fil', 8192)]);
+  const lk2 = await asentarYLeer(); await dosCuadros(); const uk2 = await valoresUi();
+  ok('k2_14_bits_y_centro_del_filtro_en_zona_muerta', v[0] === 0 && v[1] === 1 && v[2] === pos14(12850) && uk2['dj-crossfader'] === pos14(8192)
+    && Math.abs(uk2['dj-crossfader'] - 0.50003) < 1e-5 && cercaAbs(uk2['dj-filtro'], 2 * pos14(8192) - 1, 1e-12) && cercaRel(lk2.lp, 20000) && cercaRel(lk2.hp, 20)
+    && cercaAbs(lk2.volA, pos14(12850) ** 2) && cercaAbs(lk2.xfA, Math.cos(pos14(8192) * Math.PI / 2)), { v, uk2, lk2 });
+  // k3: duplicados: MSB, MSB, LSB, LSB idénticos de a pares → 2 setTargetAtTime (uno por valor nuevo), no 4.
+  const r3a = (await contadores()).rampas;
+  await enviarMidi([[0xb0, 19, 90], [0xb0, 19, 90], [0xb0, 51, 33], [0xb0, 51, 33]]);
+  const r3b = (await contadores()).rampas;
+  const lk3 = await asentarYLeer();
+  ok('k3_duplicados_no_generan_rampas_extra', r3b - r3a === 2 && cercaAbs(lk3.volA, pos14(90 * 128 + 33) ** 2), { rampas: r3b - r3a, volA: lk3.volA });
+  // k4: durante todo k1..k3, 0 escrituras directas de .value y 0 cambios de .type; sí setTargetAtTime.
+  const kk1 = await contadores();
+  ok('k4_midi_sin_escrituras_directas_con_setTargetAtTime', kk1.escrituras - kk0.escrituras === 0 && kk1.tipos - kk0.tipos === 0 && kk1.rampas - kk0.rampas >= 20,
+    { escrituras: kk1.escrituras - kk0.escrituras, tipos: kk1.tipos - kk0.tipos, rampas: kk1.rampas - kk0.rampas });
+
+  // k10: avisos agrupados por cuadro: 60 mensajes, cada uno en su tarea → la UI cambia a lo sumo un par de
+  // veces (no 60) y termina en el último valor.
+  await enviarMidi([[0xb0, 19, 50]]);
+  await dosCuadros();
+  const k10 = await p.evaluate(async () => {
+    const el = document.querySelector('.dj-vol-a .dj-control-valor');
+    let cambios = 0;
+    const mo = new MutationObserver((rs) => { cambios += rs.length ? 1 : 0; });
+    mo.observe(el, { attributes: true, attributeFilter: ['data-valor'] });
+    await window.__fm.enviarEnTareas(Array.from({ length: 60 }, (_, i) => [0xb0, 51, i + 1]));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))));
+    mo.disconnect();
+    return { cambios, final: Number(el.dataset.valor) };
+  });
+  ok('k10_ui_agrupada_por_cuadro', k10.cambios >= 1 && k10.cambios <= 4 && k10.final === pos14(50 * 128 + 60), k10);
+
+  // k5: desconexión (statechange) → «desconectado», sin oyente, y un mensaje no mueve nada; vuelve → reconecta.
+  await p.evaluate(() => window.__fm.desconectar());
+  const tk5 = await esperarMidi('desconectado');
+  const oy5 = await oyentesMidi();
+  const r5a = (await contadores()).rampas;
+  await enviarMidi(midi('volA', 1000));
+  const r5b = (await contadores()).rampas;
+  await p.evaluate(() => window.__fm.reconectar());
+  const tk5b = await esperarMidi('conectado');
+  const oy5b = await oyentesMidi();
+  await enviarMidi(midi('volA', 6000));
+  const lk5 = await asentarYLeer();
+  ok('k5_desconecta_y_reconecta', tk5?.texto === 'DDJ-400 desconectado' && oy5.ddj === 0 && r5b === r5a && tk5b?.texto === 'Conectado: DDJ-400' && oy5b.ddj === 1 && oy5b.estado === 1
+    && cercaAbs(lk5.volA, pos14(6000) ** 2), { tk5, oy5, rampasDesconectado: r5b - r5a, tk5b, oy5b, volA: lk5.volA });
+  await tocarAmbos(false);
+
   // 401 y HTML con 200: aviso en pantalla, deck A intacto, sin errores de página.
   const errAntes = errores.length;
   const regA = (await deck('A')).registro;
@@ -506,6 +665,7 @@ try {
   await irA('Biblioteca'); await sleep(400);
   const fuera2 = await ac();
   ok('m14_salir_cierra_el_contexto', fuera2.creados === 1 && fuera2.vivos === 0 && fuera2.estados.every((s) => s === 'closed'), fuera2);
+  const oyFuera = await oyentesMidi();
   await irA('Modo DJ'); await p.waitForSelector('.dj-fila', { timeout: 15000 }).catch(() => {}); await sleep(300);
   const vuelta0 = await ac();
   await cargarEn('A', n1);
@@ -515,6 +675,10 @@ try {
   ok('m15_volver_crea_uno_nuevo_al_cargar', vuelta0.creados === 1 && vuelta0.vivos === 0 && !!dv && vuelta1.creados === 2 && vuelta1.vivos === 1
     && tasa2.opciones?.sampleRate === 44100 && tasa2.tasa === 44100, { vuelta0, vuelta1, tasa2 });
   ok('m16_nunca_dos_contextos_vivos', vuelta1.maxVivos === 1, { maxVivos: vuelta1.maxVivos });
+  // k6: salir de /dj quita los oyentes MIDI; al volver (permiso ya concedido) conecta solo y hay UNO de cada uno.
+  const tk6 = await esperarMidi('conectado');
+  const oyVuelta = await oyentesMidi();
+  ok('k6_salir_y_volver_no_duplica_oyentes', oyFuera.ddj === 0 && oyFuera.estado === 0 && tk6?.texto === 'Conectado: DDJ-400' && oyVuelta.ddj === 1 && oyVuelta.estado === 1 && oyVuelta.otro === 0, { oyFuera, oyVuelta, tk6 });
   await p.locator('.dj-buscar').fill('');
 
   // ── d6: con radio activa /dj no pausa nada ──
@@ -547,6 +711,51 @@ try {
     const fin = await esperar(() => p.evaluate(() => !document.querySelector('.radio-terminar')), 6000);
     REG.radio_terminada = !!fin;
   }
+
+  // ── k (final): recargas con otra configuración del MIDI falso. Van al final porque recargan la página.
+  const recargarDj = async (cfg, ruta = '/dj') => {
+    await p.evaluate((c) => { if (c) sessionStorage.setItem('__fmCfg', JSON.stringify(c)); else sessionStorage.removeItem('__fmCfg'); }, cfg);
+    await p.goto(BASE + ruta);
+    await p.waitForSelector('.dj-mezcla', { timeout: 15000 }).catch(() => {});
+    await sleep(400);
+  };
+  // k7: sin Web MIDI → sin botón, un texto corto y sin errores de página.
+  const errK7 = errores.length;
+  await recargarDj({ soporte: false });
+  const tk7 = await textoMidi();
+  ok('k7_sin_web_midi_sin_boton_ni_error', !tk7.boton && tk7.estado === 'sin-soporte' && tk7.texto === 'Este navegador no tiene Web MIDI' && errores.length === errK7, { tk7, errores: errores.slice(errK7) });
+  // k8: permiso denegado → el aviso (ya al montar, por permissions.query) y, con el clic, sigue el aviso; sin errores.
+  const errK8 = errores.length;
+  await recargarDj({ permiso: 'denied' });
+  const tk8a = await textoMidi();
+  await p.locator('.dj-midi-conectar').click(); await sleep(300);
+  const tk8b = await textoMidi();
+  const ped8 = await p.evaluate(() => window.__fm.pedidos.length);
+  ok('k8_permiso_denegado_avisa_sin_error', tk8a.texto === 'Permiso de MIDI denegado' && tk8b.texto === 'Permiso de MIDI denegado' && tk8b.boton && ped8 === 1 && errores.length === errK8,
+    { tk8a, tk8b, pedidos: ped8, errores: errores.slice(errK8) });
+  // k9: /dj?diag=1 expone window.__djMidi; mide (con un deck sonando) un retraso por cada mensaje que llega al
+  // setter; reiniciar() vacía. Layout canoniza la URL a /dj (la query desaparece de la barra).
+  await recargarDj(null, '/dj?diag=1');
+  const d9 = await p.evaluate(() => ({ hay: typeof window.__djMidi?.stats === 'function' && typeof window.__djMidi?.reiniciar === 'function', url: location.pathname + location.search, stats: window.__djMidi?.stats() ?? null }));
+  await cargarEn('A', n1);
+  await esperarDeck('A', (d) => d.estado === 'pausa');
+  await p.locator(sel('A', '.dj-play')).click();
+  await esperarDeck('A', (d) => d.estado === 'sonando', 2000);
+  await p.locator('.dj-midi-conectar').click();
+  await esperarMidi('conectado');
+  // 5 pares con LSB ≠ 0: cada MSB aplica (con LSB = 0) y cada LSB completa → 10 llamadas al setter = 10 mediciones.
+  await enviarMidi([1000, 2000, 3000, 4000, 5000].flatMap((x) => midi('volA', x)));
+  const s9 = await p.evaluate(() => window.__djMidi.stats());
+  await p.evaluate(() => window.__djMidi.reiniciar());
+  const s9b = await p.evaluate(() => window.__djMidi.stats());
+  ok('k9_diag_expone_y_mide', d9.hay && d9.url === '/dj' && d9.stats?.n === 0 && s9.n === 10 && s9.mediana >= 0 && s9.p95 >= s9.mediana && s9.max >= s9.p95
+    && s9.sampleRate === 44100 && s9.latencyHint === 'interactive' && typeof s9.baseLatency === 'number' && typeof s9.outputLatency === 'number' && s9b.n === 0,
+  { d9, s9, s9b });
+  await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
+  // k9b: sin ?diag=1 no existe.
+  await recargarDj(null, '/dj');
+  const d9b = await p.evaluate(() => ({ existe: '__djMidi' in window, url: location.pathname + location.search }));
+  ok('k9b_sin_diag_no_hay_djMidi', !d9b.existe && d9b.url === '/dj', d9b);
   await p.evaluate(() => window.__player()?.pause());
   ok('d7_sin_errores_de_pagina', errores.length === 0, { errores });
 } catch (e) {

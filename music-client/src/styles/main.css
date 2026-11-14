@@ -6355,6 +6355,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   padding: 12px 16px 14px;
 }
 .dj-mezcla-titulo { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--text-muted); }
+/* Sub-paso d: título de la mezcla y, a la derecha, el botón y el estado del DDJ-400 (Web MIDI). */
+.dj-mezcla-cabeza { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; margin-bottom: 8px; }
+.dj-mezcla-cabeza .dj-mezcla-titulo { margin: 0; }
+.dj-midi { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--text-muted); }
+.dj-midi[data-estado="conectado"] .dj-midi-estado { color: var(--text); }
+.dj-midi-estado { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dj-mezcla-controles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
