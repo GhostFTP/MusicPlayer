@@ -3,6 +3,24 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Sin versión]
+
+### Nuevo
+- **La sesión se renueva.** `POST /api/auth/renovar`: con una sesión vigente devuelve una nueva
+  de 90 días y tus datos (`{ token, me }`, como el login con Google). La app la va a pedir
+  cuando a la suya le queden menos de 60 días: mientras la abras al menos una vez cada tres
+  meses, no vuelves a ver el login. (La app necesita su propio cambio, aparte.)
+
+### Cambiado
+- **La sesión dura 90 días en vez de 7**, al entrar con contraseña, con Google (en la app y en
+  la web) y al cambiar tu nombre o tu contraseña. Las sesiones de 7 días que ya estaban abiertas
+  siguen valiendo hasta su fecha. En la web no cambia nada más: sus sesiones nuevas también
+  duran 90 días.
+
+### Para tener en cuenta
+- Una sesión robada sigue viva mientras alguien la renueve; se corta borrando la cuenta o
+  rotando `JWT_SECRET`, que cierra la sesión de todos.
+
 ## [1.42.0] - 2026-11-04
 
 ### Nuevo
