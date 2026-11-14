@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [Sin versión]
+## [1.43.0] - 2026-11-14
 
 ### Nuevo
 - **La sesión se renueva.** `POST /api/auth/renovar`: con una sesión vigente devuelve una nueva
