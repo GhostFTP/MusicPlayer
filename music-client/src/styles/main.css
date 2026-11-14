@@ -6345,6 +6345,29 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .dj-deck-aviso p { margin: 0 0 8px; }
 .dj-deck-aviso-acciones { display: flex; gap: 8px; }
 
+/* Sub-paso c: la sección «Mezcla» entre los decks y la biblioteca. Mismo panel que un deck; cuatro
+   controles en fila (dos por fila por debajo de 900 px). */
+.dj-mezcla {
+  margin-top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px 14px;
+}
+.dj-mezcla-titulo { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--text-muted); }
+.dj-mezcla-controles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 24px;
+}
+@media (max-width: 899px) { .dj-mezcla-controles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.dj-control { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dj-control-cabeza { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; min-width: 0; }
+.dj-control-nombre { color: var(--text-muted); white-space: nowrap; }
+.dj-control-valor { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dj-control-rango { width: 100%; }
+.dj-control-extremos { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 12px; }
+
 .dj-biblioteca { margin-top: 20px; }
 .dj-buscar {
   width: 100%;
@@ -6361,7 +6384,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .dj-biblioteca-nota { color: var(--text-muted); font-size: 14px; }
 .dj-lista-scroll {
   margin-top: 10px;
-  height: max(240px, calc(100vh - 470px));
+  height: max(240px, calc(100vh - 600px));   /* 600: la sección «Mezcla» ocupa ~130 px más */
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 10px;

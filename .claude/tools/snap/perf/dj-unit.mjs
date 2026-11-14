@@ -2,16 +2,17 @@
 // Prueba lo PURO del motor: music-client/src/dj/motor/mezcla.js (crossfader de igual potencia y filtro
 // bipolar) y music-client/src/dj/motor/carga.js (antesDeBajar, clasificarRespuesta y cargarPista con
 // un fetch y un decodeAudioData falsos: que nunca lance, que use Bearer y no ?token=, y el registro) y
-// motor.js sólo en la tasa del contexto (TASA_DJ = 44 100, con un AudioContext falso).
+// motor.js con un AudioContext falso: la tasa del contexto (TASA_DJ = 44 100) y la mezcla del sub-paso c
+// (grafo, valores iniciales, rampas con TAU sin escribir .value, crossfader, filtro sin cambiar .type).
 // Uso: node dj-unit.mjs
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const desde = (p) => import(pathToFileURL(join(ROOT, p)).href);
-const { potenciaIgual, filtroBipolar, ZONA_MUERTA, PASO_BAJO, PASO_ALTO } = await desde('music-client/src/dj/motor/mezcla.js');
+const { potenciaIgual, filtroBipolar, ZONA_MUERTA, PASO_BAJO, PASO_ALTO, gananciaVolumen, filtroFrecuencias, LP_NEUTRA, HP_NEUTRA } = await desde('music-client/src/dj/motor/mezcla.js');
 const { antesDeBajar, clasificarRespuesta, cargarPista, MAX_SEG, MEMORIA_AVISO_B, TASA_PEOR_CASO } = await desde('music-client/src/dj/motor/carga.js');
-const { crearMotor, TASA_DJ } = await desde('music-client/src/dj/motor/motor.js');
+const { crearMotor, TASA_DJ, TAU, Q_FILTRO } = await desde('music-client/src/dj/motor/motor.js');
 
 const R = {};
 // `ok` va DESPUÉS del detalle: varios detalles son resultados { ok: false, error } y no deben pisar el veredicto.
@@ -224,24 +225,103 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
   { menor: clMenor.r.registro?.bytes, mayor: clMayor.r.registro?.bytes, largoMayor: clMayor.rec?.largo });
 }
 
-// ── motor.js: la tasa del contexto (AudioContext falso que anota con qué opciones se construye) ──
+// ── Volumen (sub-paso c): ganancia = v² ──
+{
+  let monotona = true, salto = 0, prev = gananciaVolumen(0);
+  for (let i = 1; i <= 1000; i++) {
+    const g = gananciaVolumen(i / 1000);
+    if (g < prev) monotona = false;
+    salto = Math.max(salto, g - prev);
+    prev = g;
+  }
+  // Continua: entre vecinos a 0,001 la ganancia no cambia más que la derivada máxima (2v ≤ 2) × 0,001.
+  ok('volumen_curva_cuadratica', gananciaVolumen(0) === 0 && gananciaVolumen(1) === 1 && gananciaVolumen(0.5) === 0.25 && monotona && salto <= 0.002 + 1e-12
+    && gananciaVolumen(-1) === 0 && gananciaVolumen(2) === 1 && gananciaVolumen(NaN) === 1, { salto, monotona });
+}
+
+// ── filtroFrecuencias (sub-paso c): dos biquad fijos, sólo se mueven sus frecuencias ──
+{
+  const cen = filtroFrecuencias(0);
+  const borde = [filtroFrecuencias(-0.04), filtroFrecuencias(0.04)];
+  const fuera = [filtroFrecuencias(-0.041), filtroFrecuencias(0.041)];
+  ok('filtro_frecuencias_centro_y_zona_muerta_neutros', LP_NEUTRA === 20000 && HP_NEUTRA === 20 && cen.lp === 20000 && cen.hp === 20
+    && borde.every((r) => r.lp === 20000 && r.hp === 20) && fuera[0].lp < 20000 && fuera[0].hp === 20 && fuera[1].lp === 20000 && fuera[1].hp > 20
+    && filtroFrecuencias(undefined).lp === 20000 && filtroFrecuencias('0.5').hp === 20, { cen, borde, fuera });
+  const e0 = filtroFrecuencias(-1), e1 = filtroFrecuencias(1);
+  ok('filtro_frecuencias_extremos', e0.lp === 60 && e0.hp === 20 && e1.lp === 20000 && e1.hp === 12000
+    && filtroFrecuencias(-5).lp === 60 && filtroFrecuencias(5).hp === 12000, { e0, e1 });
+  // Nunca «cambia de tipo»: siempre devuelve SÓLO lp y hp, y a lo sumo uno de los dos se aparta de su neutro
+  // (el negativo mueve el lowpass, el positivo el highpass).
+  let unLado = true, saltoLp = 0, saltoHp = 0, prev = null;
+  for (let i = -1000; i <= 1000; i++) {
+    const pos = i / 1000;
+    const r = filtroFrecuencias(pos);
+    const claves = Object.keys(r).sort().join(',');
+    const mueveLp = r.lp !== LP_NEUTRA, mueveHp = r.hp !== HP_NEUTRA;
+    if (claves !== 'hp,lp' || (mueveLp && mueveHp) || (mueveLp && pos >= 0) || (mueveHp && pos <= 0) || r.lp > 20000 || r.lp < 60 || r.hp < 20 || r.hp > 12000) unLado = false;
+    if (prev) { saltoLp = Math.max(saltoLp, Math.abs(Math.log2(r.lp / prev.lp))); saltoHp = Math.max(saltoHp, Math.abs(Math.log2(r.hp / prev.hp))); }
+    prev = r;
+  }
+  ok('filtro_frecuencias_un_solo_biquad_se_mueve', unLado);
+  // Sin saltos: entre posiciones vecinas (0,001) el corte se mueve < 0,02 octavas, también al salir de la
+  // zona muerta (8,4 octavas del lowpass y 9,2 del highpass repartidas en 0,96 de recorrido: ~0,01 por paso).
+  ok('filtro_frecuencias_sin_saltos', saltoLp < 0.02 && saltoHp < 0.02, { saltoLp, saltoHp });
+}
+
+// ── motor.js con un AudioContext falso: anota opciones, nodos, conexiones, escrituras de .value, rampas
+// y cambios de .type ──
 {
   const creados = [];
+  const param = (ini) => {
+    const p = { _v: ini, escrituras: 0, rampas: [] };
+    Object.defineProperty(p, 'value', { get() { return p._v; }, set(v) { p._v = v; p.escrituras++; } });
+    p.setTargetAtTime = (v, t, tau) => { p.rampas.push({ v, t, tau }); };
+    p.objetivo = () => (p.rampas.length ? p.rampas.at(-1).v : p._v);
+    return p;
+  };
+  class Nodo {
+    constructor(ctx, clase) { this.context = ctx; this.clase = clase; this.salidas = []; ctx.nodos.push(this); }
+    connect(d) { this.salidas.push(d); return d; }
+    disconnect() {}
+  }
   class ACFalso {
-    constructor(opciones) { this.opciones = opciones; this.sampleRate = opciones?.sampleRate ?? 96000; this.state = 'running'; this.destination = {}; creados.push(this); }
-    createGain() { return { connect() {}, disconnect() {}, gain: { value: 1 } }; }
+    constructor(opciones) {
+      this.opciones = opciones; this.sampleRate = opciones?.sampleRate ?? 96000; this.state = 'running'; this.currentTime = 1.25;
+      this.nodos = []; this.destination = new Nodo(this, 'destination'); creados.push(this);
+    }
+    createGain() { const n = new Nodo(this, 'gain'); n.gain = param(1); return n; }
+    createBiquadFilter() {
+      const n = new Nodo(this, 'biquad'); let tipo = 'lowpass'; n.tiposEscritos = 0;
+      Object.defineProperty(n, 'type', { get: () => tipo, set: (v) => { tipo = v; n.tiposEscritos++; } });
+      n.frequency = param(350); n.Q = param(1); return n;
+    }
+    createBufferSource() { const n = new Nodo(this, 'fuente'); n.start = () => {}; n.stop = () => {}; return n; }
     resume() { return Promise.resolve(); }
     close() { this.state = 'closed'; return Promise.resolve(); }
   }
   const AC0 = globalThis.AudioContext;
   globalThis.AudioContext = ACFalso;
+  const cerca = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  // El grafo por TOPOLOGÍA (no por orden de creación): el vol de A es al que se conecta la fuente de A.
+  const grafo = (c) => {
+    const entra = (n) => c.nodos.filter((x) => x.salidas.includes(n));
+    const master = entra(c.destination)[0], hp = master && entra(master)[0], lp = hp && entra(hp)[0], bus = lp && entra(lp)[0];
+    const fuentes = c.nodos.filter((n) => n.clase === 'fuente');
+    const volA = fuentes.find((f) => f.deck === 'A')?.salidas[0] ?? null;
+    const xfs = bus ? entra(bus) : [];
+    const volB = xfs.map((x) => entra(x)[0]).find((v) => v && v !== volA) ?? null;
+    const cadena = (n) => { const out = []; for (let x = n, i = 0; x && i < 12; x = x.salidas[0], i++) out.push(x.clase === 'biquad' ? 'biquad:' + x.type : x.clase); return out.join(' → '); };
+    return { master, hp, lp, bus, volA, volB, xfA: volA?.salidas[0], xfB: volB?.salidas[0], cadenaA: volA && cadena(volA), cadenaB: volB && cadena(volB) };
+  };
+  const tocarA = (m, c) => { m.decks.A.cargarBuffer({ duration: 10 }); m.decks.A.play(); const f = c.nodos.filter((n) => n.clase === 'fuente').at(-1); if (f) f.deck = 'A'; };
   try {
-    const m = crearMotor();
+    // Tasa del contexto (sub-paso b).
+    const m0 = crearMotor();
     const sinGesto = creados.length;
-    const c = m.asegurarContexto();
-    ok('motor_por_defecto_44100_interactive', sinGesto === 0 && creados.length === 1 && c.sampleRate === 44100
-      && JSON.stringify(c.opciones) === JSON.stringify({ sampleRate: 44100, latencyHint: 'interactive' }), { opciones: c.opciones, sinGesto });
-    m.cerrar();
+    const c0 = m0.asegurarContexto();
+    ok('motor_por_defecto_44100_interactive', sinGesto === 0 && creados.length === 1 && c0.sampleRate === 44100
+      && JSON.stringify(c0.opciones) === JSON.stringify({ sampleRate: 44100, latencyHint: 'interactive' }), { opciones: c0.opciones, sinGesto });
+    m0.cerrar();
     const m48 = crearMotor({ sampleRate: 48000 });
     const c48 = m48.asegurarContexto();
     m48.cerrar();
@@ -250,6 +330,80 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
     mNat.cerrar();
     ok('motor_sampleRate_se_puede_cambiar', c48.opciones.sampleRate === 48000 && c48.opciones.latencyHint === 'interactive'
       && JSON.stringify(cNat.opciones) === JSON.stringify({ latencyHint: 'interactive' }) && cNat.sampleRate === 96000, { c48: c48.opciones, nativo: cNat.opciones });
+
+    ok('tau_es_0_01', TAU === 0.01 && Q_FILTRO === 0.707, { TAU, Q_FILTRO });
+
+    // Antes del contexto: los setters sólo guardan.
+    const m = crearMotor();
+    const antes = creados.length;
+    const r0 = [m.fijarVolumen('A', 0.8), m.fijarVolumen('B', 0.3), m.fijarCrossfader(0.25), m.fijarFiltro(-0.5)];
+    const mz0 = m.mezcla();
+    ok('motor_mezcla_sin_contexto_solo_guarda', r0.every(Boolean) && creados.length === antes && m.contexto() === null
+      && mz0.volumen.A === 0.8 && mz0.volumen.B === 0.3 && mz0.crossfader === 0.25 && mz0.filtro === -0.5 && cerca(mz0.ganancias.volA, 0.64), mz0);
+
+    // Al crear el contexto, esos valores son los INICIALES de cada nodo.
+    const c = m.asegurarContexto();
+    tocarA(m, c);
+    const g = grafo(c);
+    const pi = potenciaIgual(0.25), fr = filtroFrecuencias(-0.5);
+    ok('motor_valores_guardados_son_iniciales_al_crear', !!g.volA && !!g.volB && cerca(g.volA.gain.value, 0.64) && cerca(g.volB.gain.value, 0.09)
+      && cerca(g.xfA.gain.value, pi.a) && cerca(g.xfB.gain.value, pi.b) && cerca(g.lp.frequency.value, fr.lp) && g.hp.frequency.value === 20
+      && g.lp.type === 'lowpass' && g.hp.type === 'highpass' && g.lp.Q.value === 0.707 && g.hp.Q.value === 0.707 && g.bus.gain.value === 1 && g.master.gain.value === 1,
+    { volA: g.volA?.gain.value, volB: g.volB?.gain.value, lp: g.lp?.frequency.value });
+    const esperada = 'gain → gain → gain → biquad:lowpass → biquad:highpass → gain → destination';
+    ok('motor_grafo_vol_xf_bus_lp_hp_master', g.cadenaA === esperada && g.cadenaB === esperada && g.xfA !== g.xfB
+      && c.nodos.filter((n) => n.clase === 'biquad').length === 2, { A: g.cadenaA, B: g.cadenaB });
+
+    // Con contexto: rampas con TAU y currentTime, ninguna escritura de .value.
+    const params = [g.volA.gain, g.volB.gain, g.xfA.gain, g.xfB.gain, g.lp.frequency, g.hp.frequency, g.lp.Q, g.hp.Q, g.bus.gain, g.master.gain];
+    const escr0 = params.map((p) => p.escrituras);
+    const tipos0 = g.lp.tiposEscritos + g.hp.tiposEscritos;
+    c.currentTime = 3.5;
+    m.fijarVolumen('A', 0.5); m.fijarVolumen('B', 1); m.fijarCrossfader(0.75); m.fijarFiltro(0.6);
+    const ult = (p) => p.rampas.at(-1);
+    const pi75 = potenciaIgual(0.75), fr6 = filtroFrecuencias(0.6);
+    const rampasOk = [[g.volA.gain, 0.25], [g.volB.gain, 1], [g.xfA.gain, pi75.a], [g.xfB.gain, pi75.b], [g.lp.frequency, 20000], [g.hp.frequency, fr6.hp]]
+      .every(([p, v]) => ult(p) && cerca(ult(p).v, v) && ult(p).t === 3.5 && ult(p).tau === TAU);
+    ok('motor_setters_rampa_con_tau_sin_escribir_value', rampasOk && params.every((p, i) => p.escrituras === escr0[i]), { rampasOk, escrituras: params.map((p, i) => p.escrituras - escr0[i]) });
+
+    // Crossfader: igual potencia en 5 posiciones (a² + b² = 1), sobre xfA / xfB.
+    const xs = [0, 0.25, 0.5, 0.75, 1].map((x) => { m.fijarCrossfader(x); const a = g.xfA.gain.objetivo(), b = g.xfB.gain.objetivo(); return { x, a, b, p: a * a + b * b }; });
+    ok('motor_crossfader_potencia_igual', xs.every((r) => cerca(r.p, 1, 1e-12) && cerca(r.a, potenciaIgual(r.x).a) && cerca(r.b, potenciaIgual(r.x).b)) && xs[0].b === 0 && xs[4].a === 0, { xs });
+
+    // Filtro: sólo frecuencias; el .type no se toca después de crear.
+    const fs = [-1, -0.5, 0, 0.5, 1].map((f) => { m.fijarFiltro(f); return { f, lp: g.lp.frequency.objetivo(), hp: g.hp.frequency.objetivo() }; });
+    ok('motor_filtro_mueve_frecuencias_sin_cambiar_tipo', g.lp.tiposEscritos + g.hp.tiposEscritos === tipos0 && g.lp.type === 'lowpass' && g.hp.type === 'highpass'
+      && fs.every((r) => cerca(r.lp, filtroFrecuencias(r.f).lp) && cerca(r.hp, filtroFrecuencias(r.f).hp)) && fs[0].lp === 60 && fs[4].hp === 12000,
+    { fs, tipos: g.lp.tiposEscritos + g.hp.tiposEscritos - tipos0 });
+
+    // Sobreviven a play, seek y cargar otra pista: no se recrean nodos y la fuente nueva va al mismo vol.
+    m.fijarVolumen('A', 0.4); m.fijarVolumen('B', 0.7); m.fijarCrossfader(0.3); m.fijarFiltro(-0.25);
+    const antesMz = JSON.stringify(m.mezcla());
+    const nodosMezcla = c.nodos.filter((n) => n.clase !== 'fuente').length;
+    m.decks.A.pausa(); m.decks.A.play(); m.decks.A.seek(4); m.decks.A.cargarBuffer({ duration: 20 }); m.decks.A.play();
+    m.decks.B.cargarBuffer({ duration: 30 });
+    const fuenteNueva = c.nodos.filter((n) => n.clase === 'fuente').at(-1);
+    ok('motor_valores_sobreviven_play_seek_cargar', JSON.stringify(m.mezcla()) === antesMz && c.nodos.filter((n) => n.clase !== 'fuente').length === nodosMezcla
+      && fuenteNueva.salidas[0] === g.volA && cerca(g.volA.gain.objetivo(), 0.16), { mezcla: m.mezcla() });
+
+    // Valores fuera de rango se recortan; los que no son números se descartan.
+    const rInv = [m.fijarVolumen('A', NaN), m.fijarVolumen('C', 1), m.fijarCrossfader('0.3'), m.fijarFiltro(Infinity), m.fijarVolumen('B', undefined)];
+    const mInv = JSON.stringify(m.mezcla());
+    m.fijarVolumen('A', 2); m.fijarFiltro(-3); m.fijarCrossfader(-1);
+    const mRec = m.mezcla();
+    ok('motor_valores_invalidos_se_descartan_y_se_recortan', rInv.every((r) => r === false) && mInv === antesMz
+      && mRec.volumen.A === 1 && mRec.filtro === -1 && mRec.crossfader === 0, { rInv, mRec });
+
+    // Contexto cerrado (por fuera) y motor cerrado: los setters no lanzan y sólo guardan.
+    try {
+      c.state = 'closed';
+      const n0 = g.volA.gain.rampas.length;
+      m.fijarVolumen('A', 0.2); m.fijarCrossfader(0.6); m.fijarFiltro(0.1);
+      const sinRampa = g.volA.gain.rampas.length === n0;
+      m.cerrar();
+      m.fijarVolumen('B', 0.1); m.fijarCrossfader(0.9); m.fijarFiltro(-0.9);
+      ok('motor_setters_no_lanzan_con_contexto_cerrado', sinRampa && m.mezcla().volumen.A === 0.2 && m.mezcla().volumen.B === 0.1 && m.mezcla().filtro === -0.9, { sinRampa });
+    } catch (e) { ok('motor_setters_no_lanzan_con_contexto_cerrado', false, { lanzo: String(e) }); }
   } finally {
     globalThis.AudioContext = AC0;
   }

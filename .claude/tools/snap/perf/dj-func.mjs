@@ -18,6 +18,12 @@
 //         de bajar; la pista más larga (≤ 900 s) a la tasa del contexto (44 100) queda bajo 400 MB y se
 //         baja sin aviso de memoria (el aviso en sí lo prueba dj-unit con 96 000); 401 y HTML con 200 avisan sin tocar el deck ni dar error de página; salir de /dj
 //         cierra el contexto, volver crea otro sólo al cargar, y nunca hay dos vivos.
+//   · x   (sub-paso c, la mezcla con ratón) mover la mezcla antes de «Cargar» no crea AudioContext y
+//         esos valores son los iniciales de los nodos; grafo vol → xf → bus → lowpass → highpass →
+//         master por deck; cada control llega a SU AudioParam tras ≥ 0,12 s de currentTime (volumen
+//         v², crossfader de igual potencia en 5 posiciones, frecuencia de cada biquad); 0 escrituras
+//         directas de .value y 0 cambios de .type mientras se mueve, con setTargetAtTime; doble clic al
+//         valor por defecto; sobreviven a play, seek y cargar otra pista; F y M tapadas en sus range.
 //   · d6  con radio activa (anfitrión de una radio REAL, creada con «Iniciar radio» como radio-func) /dj
 //         no pausa nada (ni isPlaying ni el pause() nativo), muestra «Sal de la radio para usar el Modo
 //         DJ» y deja la barra visible; tampoco tapa teclas: Espacio llega al reproductor normal y lo
@@ -53,6 +59,49 @@ await ctx.addInitScript(() => {
   window.__ac = reg;
   window.AudioContext = class extends AC {
     constructor(...a) { super(...a); reg.creados++; reg.lista.push(this); reg.opciones.push(a[0] === undefined ? null : JSON.parse(JSON.stringify(a[0]))); reg.maxVivos = Math.max(reg.maxVivos, reg.vivos()); }
+  };
+  // Mezcla (sub-paso c): conexiones entre nodos, escrituras DIRECTAS de AudioParam.value, llamadas a
+  // setTargetAtTime y cambios de BiquadFilterNode.type. Los getters quedan nativos (leer .value da el
+  // valor que el AudioParam tiene en ese momento, con la rampa aplicada).
+  reg.aristas = []; reg.escrituras = 0; reg.rampas = 0; reg.tipos = 0; reg.volA = null;
+  const con = AudioNode.prototype.connect;
+  AudioNode.prototype.connect = function (d, ...r) { reg.aristas.push([this, d]); return con.call(this, d, ...r); };
+  const dv = Object.getOwnPropertyDescriptor(AudioParam.prototype, 'value');
+  Object.defineProperty(AudioParam.prototype, 'value', { configurable: true, enumerable: dv.enumerable, get: dv.get, set(v) { reg.escrituras++; dv.set.call(this, v); } });
+  const sta = AudioParam.prototype.setTargetAtTime;
+  AudioParam.prototype.setTargetAtTime = function (...a) { reg.rampas++; return sta.apply(this, a); };
+  const dt = Object.getOwnPropertyDescriptor(BiquadFilterNode.prototype, 'type');
+  Object.defineProperty(BiquadFilterNode.prototype, 'type', { configurable: true, enumerable: dt.enumerable, get: dt.get, set(v) { reg.tipos++; dt.set.call(this, v); } });
+  // El grafo del contexto vivo por TOPOLOGÍA, no por orden de creación. volA = el nodo al que se conectó
+  // la fuente del deck A (marcarA, llamado justo después del play de A); volB = el otro vol.
+  reg.marcarA = () => {
+    const c = reg.lista.at(-1);
+    const f = reg.aristas.filter(([s]) => s instanceof AudioBufferSourceNode && s.context === c).at(-1);
+    reg.volA = f ? f[1] : null;
+    return !!reg.volA;
+  };
+  reg.grafo = () => {
+    const c = reg.lista.at(-1);
+    if (!c) return null;
+    const ar = reg.aristas.filter(([s]) => s.context === c && !(s instanceof AudioBufferSourceNode));
+    const entra = (n) => [...new Set(ar.filter(([, d]) => d === n).map(([s]) => s))];
+    const uno = (n) => (n ? entra(n)[0] ?? null : null);
+    const master = uno(c.destination), hp = uno(master), lp = uno(hp), bus = uno(lp);
+    const xfs = bus ? entra(bus) : [];
+    const vols = xfs.map((x) => uno(x));
+    const iA = reg.volA ? vols.indexOf(reg.volA) : -1;
+    const iB = iA < 0 ? -1 : 1 - iA;
+    const nombre = (n) => (n instanceof BiquadFilterNode ? `BiquadFilterNode:${n.type}` : n.constructor.name);
+    const cadena = (n) => { const out = []; for (let x = n, i = 0; x && i < 12; i++) { out.push(nombre(x)); x = ar.find(([s]) => s === x)?.[1] ?? null; } return out.join(' → '); };
+    return { c, master, hp, lp, bus, nXf: xfs.length, volA: iA < 0 ? null : vols[iA], volB: vols[iB] ?? null, xfA: xfs[iA] ?? null, xfB: xfs[iB] ?? null, cadena };
+  };
+  reg.leer = () => {
+    const g = reg.grafo();
+    if (!g || !g.volA || !g.volB || !g.lp || !g.hp) return null;
+    return {
+      t: g.c.currentTime, volA: g.volA.gain.value, volB: g.volB.gain.value, xfA: g.xfA.gain.value, xfB: g.xfB.gain.value,
+      lp: g.lp.frequency.value, hp: g.hp.frequency.value, lpTipo: g.lp.type, hpTipo: g.hp.type, lpQ: g.lp.Q.value, hpQ: g.hp.Q.value,
+    };
   };
 });
 await p.reload(); await p.waitForSelector('.player-bar', { timeout: 15000 }).catch(() => {}); await sleep(500);
@@ -229,9 +278,43 @@ try {
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }, { lado, v });
 
+  // ── Mezcla (sub-paso c): helpers ──
+  // Los valores esperados se calculan ACÁ, con la fórmula escrita aparte (no importando mezcla.js): si la
+  // curva del código se rompe, el test no se rompe con ella.
+  const LADOS_X = ['A', 'B'];
+  const MZ = { 'vol-a': '.dj-vol-a input', 'vol-b': '.dj-vol-b input', xf: '.dj-crossfader input', fil: '.dj-filtro input' };
+  const lpEsperada = (f) => (f < -0.04 ? 20000 * Math.pow(60 / 20000, Math.min(1, (-f / 2 - 0.02) / 0.48)) : 20000);
+  const hpEsperada = (f) => (f > 0.04 ? 20 * Math.pow(12000 / 20, Math.min(1, (f / 2 - 0.02) / 0.48)) : 20);
+  const cercaAbs = (a, b, tol = 1e-3) => typeof a === 'number' && Math.abs(a - b) <= tol;
+  const cercaRel = (a, b, tol = 1e-3) => typeof a === 'number' && Math.abs(a - b) <= tol * Math.abs(b);
+  const moverMezcla = (cual, v) => p.evaluate(({ s, v }) => {
+    const el = document.querySelector(s);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, String(v));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, { s: MZ[cual], v });
+  const valoresUi = () => p.evaluate(() => Object.fromEntries([...document.querySelectorAll('.dj-control')].map((c) => [c.classList[1], Number(c.querySelector('.dj-control-valor')?.dataset.valor)])));
+  // Espera ≥ 0,12 s de reloj de AUDIO (currentTime) después del último cambio: 12·TAU, el AudioParam está a
+  // e^−12 ≈ 6e-6 del objetivo. Después lee los AudioParam reales del grafo.
+  const asentarYLeer = () => p.evaluate(async () => {
+    const c = window.__ac.lista.at(-1);
+    const t0 = c.currentTime, w0 = performance.now();
+    while (c.currentTime < t0 + 0.12 && performance.now() - w0 < 3000) await new Promise((r) => setTimeout(r, 20));
+    return { ...window.__ac.leer(), espera: c.currentTime - t0 };
+  });
+  const contadores = () => p.evaluate(() => ({ escrituras: window.__ac.escrituras, rampas: window.__ac.rampas, tipos: window.__ac.tipos }));
+
   await p.waitForSelector('.dj-fila', { timeout: 15000 }).catch(() => {});
   const a0 = await ac();
   ok('m0_sin_audiocontext_al_entrar', a0.creados === 0 && !!(await deck('A')) && (await deck('A')).estado === 'vacio', a0);
+
+  // x0: mover la mezcla ANTES del primer «Cargar» sólo guarda el valor: no crea AudioContext ni da error.
+  // (x1 comprueba que esos valores son los iniciales de los nodos al crearse el contexto.)
+  const errX0 = errores.length;
+  await moverMezcla('vol-a', 0.8); await moverMezcla('fil', -0.5); await sleep(200);
+  const ax0 = await ac(), ux0 = await valoresUi();
+  ok('x0_mezcla_antes_de_cargar_no_crea_contexto', ax0.creados === 0 && ux0['dj-vol-a'] === 0.8 && ux0['dj-filtro'] === -0.5 && errores.length === errX0,
+    { creados: ax0.creados, ui: ux0, errores: errores.slice(errX0) });
+
 
   // Cargar n1 en A: crea EL contexto, muestra duración (la del WAV sintético: 120 s) y el registro.
   const s0 = streams.length;
@@ -262,6 +345,13 @@ try {
   await esperarDeck('A', (d) => d.estado === 'sonando', 2000);
   const v1 = await avance('A');
   ok('m3_play_avanza', v1.p1 - v1.p0 > 0.5 && Math.abs((v1.p1 - v1.p0) - v1.pared) <= TOL_S, { ...v1, delta: v1.p1 - v1.p0 });
+  // x1: con A sonando se identifica su vol (la fuente de A se conecta a él). Los valores de x0 son los
+  // INICIALES de los nodos (nadie movió la mezcla desde que se creó el contexto).
+  const marcado = await p.evaluate(() => window.__ac.marcarA());
+  const iniX1 = await p.evaluate(() => window.__ac.leer());
+  ok('x1_valores_previos_son_iniciales_al_crear', marcado && !!iniX1 && cercaAbs(iniX1.volA, 0.64, 1e-6) && cercaAbs(iniX1.volB, 1, 1e-6)
+    && cercaAbs(iniX1.xfA, Math.SQRT1_2, 1e-6) && cercaAbs(iniX1.xfB, Math.SQRT1_2, 1e-6) && cercaRel(iniX1.lp, lpEsperada(-0.5), 1e-4) && cercaAbs(iniX1.hp, 20, 1e-4)
+    && iniX1.lpTipo === 'lowpass' && iniX1.hpTipo === 'highpass', { marcado, iniX1, lpEsperada: lpEsperada(-0.5) });
   await p.locator(sel('A', '.dj-play')).click();
   const pausado = await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
   const v2 = await avance('A');
@@ -288,6 +378,64 @@ try {
   const tr = await p.evaluate(() => window.__teclasRango);
   ok('m8_en_la_barra_f_y_m_tapadas_flechas_no', JSON.stringify(tr) === JSON.stringify([['KeyF', true], ['KeyM', true], ['ArrowRight', false]]), { tr });
   await p.evaluate(() => document.activeElement?.blur());
+
+  // ── x: la mezcla con el contexto vivo (A en pausa, B con n2) ──
+  // x2: el grafo por deck: vol → xf → bus → lowpass → highpass → master → destination; un xf por deck.
+  const gr = await p.evaluate(() => { const g = window.__ac.grafo(); return g && { A: g.volA && g.cadena(g.volA), B: g.volB && g.cadena(g.volB), nXf: g.nXf, distintos: g.xfA !== g.xfB && g.volA !== g.volB }; });
+  const cadenaEsperada = 'GainNode → GainNode → GainNode → BiquadFilterNode:lowpass → BiquadFilterNode:highpass → GainNode → AudioDestinationNode';
+  ok('x2_grafo_vol_xf_bus_lp_hp_master', !!gr && gr.A === cadenaEsperada && gr.B === cadenaEsperada && gr.nXf === 2 && gr.distintos, gr);
+
+  // Las lecturas van con los DOS decks sonando: Chromium sólo actualiza el .value de un AudioParam cuando
+  // procesa su nodo, y un GainNode sin audio que le llegue (deck en pausa) no se procesa: su .value se queda
+  // en el último valor calculado aunque la rampa ya esté programada (medido: en la 1.ª corrida, con A en
+  // pausa, volA y xfA seguían en su valor inicial y volB, xfB y los filtros sí cambiaban).
+  const tocarAmbos = async (sonar) => { for (const lado of LADOS_X) { const d = await deck(lado); if ((d.estado === 'sonando') !== sonar) { await p.locator(sel(lado, '.dj-play')).click(); await esperarDeck(lado, (x) => x.estado === (sonar ? 'sonando' : 'pausa'), 2000); } } };
+  await tocarAmbos(true);
+  // x3..x6 en una ventana: se cuentan las escrituras directas de .value, las rampas y los cambios de .type.
+  const kx0 = await contadores();
+  await moverMezcla('vol-a', 0.5);
+  const lx3 = await asentarYLeer(), ux3 = await valoresUi();
+  ok('x3_volumen_a_llega_a_su_gain', cercaAbs(lx3.volA, 0.25) && cercaAbs(lx3.volB, 1) && ux3['dj-vol-a'] === 0.5, { leido: lx3, ui: ux3['dj-vol-a'] });
+  await moverMezcla('vol-b', 0.3);
+  const lx4 = await asentarYLeer(), ux4 = await valoresUi();
+  ok('x4_volumen_b_llega_a_su_gain', cercaAbs(lx4.volB, 0.09) && cercaAbs(lx4.volA, 0.25) && ux4['dj-vol-b'] === 0.3, { leido: lx4, ui: ux4['dj-vol-b'] });
+  const xs = [];
+  for (const x of [0, 0.25, 0.5, 0.75, 1]) {
+    await moverMezcla('xf', x);
+    const l = await asentarYLeer();
+    xs.push({ x, a: l.xfA, b: l.xfB, potencia: l.xfA * l.xfA + l.xfB * l.xfB, ui: (await valoresUi())['dj-crossfader'] });
+  }
+  ok('x5_crossfader_igual_potencia_5_posiciones', xs.every((r) => cercaAbs(r.potencia, 1, 2e-3) && cercaAbs(r.a, Math.cos(r.x * Math.PI / 2)) && cercaAbs(r.b, Math.sin(r.x * Math.PI / 2)) && r.ui === r.x), { xs });
+  const filtrosX6 = [];
+  for (const f of [-1, -0.5, -0.03, 0.5, 1, 0]) {
+    await moverMezcla('fil', f);
+    const l = await asentarYLeer();
+    filtrosX6.push({ f, lp: l.lp, hp: l.hp, lpEsp: lpEsperada(f), hpEsp: hpEsperada(f), tipos: [l.lpTipo, l.hpTipo] });
+  }
+  const extremosFiltro = await p.evaluate(() => [...document.querySelectorAll('.dj-filtro .dj-control-extremos span')].map((s) => s.textContent));
+  ok('x6_filtro_mueve_la_frecuencia_de_cada_biquad', filtrosX6.every((r) => cercaRel(r.lp, r.lpEsp) && cercaRel(r.hp, r.hpEsp) && r.tipos[0] === 'lowpass' && r.tipos[1] === 'highpass')
+    && JSON.stringify(extremosFiltro) === JSON.stringify(['Paso bajo', 'Paso alto']), { filtros: filtrosX6, extremosFiltro });
+  const kx1 = await contadores();
+  // 2 (vol) + 5×2 (crossfader) + 6×2 (filtro) = 24 rampas como mínimo.
+  ok('x7_sin_escrituras_directas_y_con_setTargetAtTime', kx1.escrituras - kx0.escrituras === 0 && kx1.rampas - kx0.rampas >= 24 && kx1.tipos - kx0.tipos === 0,
+    { escrituras: kx1.escrituras - kx0.escrituras, rampas: kx1.rampas - kx0.rampas, tipos: kx1.tipos - kx0.tipos });
+
+  // x8: doble clic vuelve al valor por defecto (vol 1, crossfader 0,5, filtro 0).
+  await moverMezcla('vol-a', 0.3); await moverMezcla('vol-b', 0.2); await moverMezcla('xf', 0.9); await moverMezcla('fil', 0.7);
+  for (const s of Object.values(MZ)) await p.locator(s).dispatchEvent('dblclick');
+  const lx8 = await asentarYLeer(), ux8 = await valoresUi();
+  ok('x8_doble_clic_vuelve_al_valor_por_defecto', cercaAbs(lx8.volA, 1) && cercaAbs(lx8.volB, 1) && cercaAbs(lx8.xfA, Math.SQRT1_2) && cercaAbs(lx8.xfB, Math.SQRT1_2)
+    && cercaRel(lx8.lp, 20000) && cercaRel(lx8.hp, 20) && ux8['dj-vol-a'] === 1 && ux8['dj-vol-b'] === 1 && ux8['dj-crossfader'] === 0.5 && ux8['dj-filtro'] === 0, { leido: lx8, ui: ux8 });
+
+  // x10: en un control de la mezcla (range), F y M se tapan y las flechas no (como en la barra de posición).
+  await p.evaluate(() => { window.__teclasRango = []; });
+  await p.locator(MZ.xf).focus();
+  for (const k of ['KeyF', 'KeyM', 'ArrowRight']) { await p.keyboard.press(k); await sleep(120); }
+  const trx = await p.evaluate(() => window.__teclasRango);
+  ok('x10_en_la_mezcla_f_y_m_tapadas_flechas_no', JSON.stringify(trx) === JSON.stringify([['KeyF', true], ['KeyM', true], ['ArrowRight', false]]), { trx });
+  await p.evaluate(() => document.activeElement?.blur());
+  await moverMezcla('xf', 0.5);
+  await tocarAmbos(false);
 
   // Más de 900 s: aviso y NO se baja nada; el deck queda como estaba.
   const s1 = streams.length;
@@ -320,6 +468,22 @@ try {
     { tasaCtx, memEst, duracion: pesada.duration, aviso: dm.aviso, confirmar: dm.confirmar });
   const dmi = await esperarDeck('B', (d) => d.estado === 'pausa' && d.titulo === pesada.title);
   ok('m11c_pesada_se_baja_directo', !!dmi && streams.slice(s3).filter((s) => s.path === `/stream/${pesada.id}`).length === 1, { titulo: dmi?.titulo, registro: dmi?.registro });
+
+  // x9: los valores de la mezcla sobreviven a play, seek y cargar otra pista (los nodos no se recrean).
+  // Con los dos decks sonando (ver tocarAmbos); cargar otra pista en B la deja en pausa, con su gain ya aplicado.
+  await tocarAmbos(true);
+  await moverMezcla('vol-a', 0.5); await moverMezcla('vol-b', 0.3); await moverMezcla('xf', 0.25); await moverMezcla('fil', 0.4);
+  const antesX9 = await asentarYLeer();
+  await fijar('A', 30); await sleep(150);
+  await cargarEn('B', n3);
+  const dx9 = await esperarDeck('B', (d) => d.estado === 'pausa' && d.titulo === n3.title);
+  const despuesX9 = await asentarYLeer(), ux9 = await valoresUi();
+  const esperadoX9 = { volA: 0.25, volB: 0.09, xfA: Math.cos(0.25 * Math.PI / 2), xfB: Math.sin(0.25 * Math.PI / 2), lp: 20000, hp: hpEsperada(0.4) };
+  const igualX9 = (l) => cercaAbs(l.volA, esperadoX9.volA) && cercaAbs(l.volB, esperadoX9.volB) && cercaAbs(l.xfA, esperadoX9.xfA) && cercaAbs(l.xfB, esperadoX9.xfB) && cercaRel(l.lp, esperadoX9.lp) && cercaRel(l.hp, esperadoX9.hp);
+  ok('x9_mezcla_sobrevive_play_seek_cargar', igualX9(antesX9) && igualX9(despuesX9) && !!dx9
+    && ux9['dj-vol-a'] === 0.5 && ux9['dj-vol-b'] === 0.3 && ux9['dj-crossfader'] === 0.25 && ux9['dj-filtro'] === 0.4,
+  { antes: antesX9, despues: despuesX9, esperado: esperadoX9, ui: ux9, b: dx9?.titulo });
+  await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
 
   // 401 y HTML con 200: aviso en pantalla, deck A intacto, sin errores de página.
   const errAntes = errores.length;

@@ -1,5 +1,5 @@
 // MODO DJ · curvas de mezcla. PURO: sin AudioContext ni DOM (lo prueba dj-unit.mjs con node).
-// Todavía no lo usa nadie en la página: el crossfader y el filtro llegan en el sub-paso c.
+// Lo usa motor.js (sub-paso c): volumen, crossfader y filtro de la sección «Mezcla» de DjPage.
 
 const MEDIO_PI = Math.PI / 2;
 
@@ -56,4 +56,35 @@ export function filtroBipolar(v) {
   // En los extremos, el valor exacto de la tabla (sin el error de Math.pow).
   if (dist < 0) return { tipo: 'lowpass', frecuencia: d === 1 ? PASO_BAJO.hasta : exponencial(PASO_BAJO, d) };
   return { tipo: 'highpass', frecuencia: d === 1 ? PASO_ALTO.hasta : exponencial(PASO_ALTO, d) };
+}
+
+// VOLUMEN DE UN DECK: ganancia = v² (v de 0 a 1). Una curva cuadrática se acerca más a cómo se oye el
+// volumen que una lineal: con ganancia = v, casi todo el recorrido del control queda en la parte alta
+// y el silencio se concentra al final. 0 → 0 (mudo de verdad), 1 → 1 (sin cambio), 0,5 → 0,25 (−12 dB).
+// Lo que no es un número finito vale 1: un control que manda basura no debe dejar el deck mudo (el
+// motor igual descarta esos valores antes de llegar acá).
+export function gananciaVolumen(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 1;
+  const x = v < 0 ? 0 : v > 1 ? 1 : v;
+  return x * x;
+}
+
+// FILTRO CON DOS BIQUAD FIJOS. El motor tiene SIEMPRE un 'lowpass' y un 'highpass' en serie y nunca les
+// cambia el .type (cambiarlo con audio sonando da un clic): el control sólo mueve sus frecuencias.
+// pos de −1 a 1 (0 = centro). Se traduce a la perilla de filtroBipolar (0..1, centro 0,5) con
+// (pos + 1) / 2, así que su zona muerta de ±0,02 son ±0,04 en esta escala (el mismo 4 % de cada mitad).
+//   · zona muerta → los dos en su valor NEUTRO (LP_NEUTRA, HP_NEUTRA): transparentes.
+//   · pos < 0 → el lowpass baja de 20 000 a 60 Hz; el highpass queda neutro.
+//   · pos > 0 → el highpass sube de 20 a 12 000 Hz; el lowpass queda neutro.
+// Los neutros son justo donde arranca cada recorrido (PASO_BAJO.desde, PASO_ALTO.desde): al salir de
+// la zona muerta no hay salto. Lo que no es un número finito cae al centro, como en filtroBipolar.
+export const LP_NEUTRA = PASO_BAJO.desde;
+export const HP_NEUTRA = PASO_ALTO.desde;
+
+export function filtroFrecuencias(pos) {
+  const p = typeof pos === 'number' && Number.isFinite(pos) ? pos : 0;
+  const r = filtroBipolar((p + 1) / 2);
+  if (r.tipo === 'lowpass') return { lp: r.frecuencia, hp: HP_NEUTRA };
+  if (r.tipo === 'highpass') return { lp: LP_NEUTRA, hp: r.frecuencia };
+  return { lp: LP_NEUTRA, hp: HP_NEUTRA };
 }

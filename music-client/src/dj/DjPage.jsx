@@ -7,12 +7,14 @@ import QualityChip from '../components/QualityChip.jsx';
 import { libraryTracks, onLibraryChange } from '../utils/viewTracks.js';
 import { useListFilter } from '../utils/useListFilter.js';
 import { useWindowedRows } from '../utils/useWindowedRows.js';
-import { crearMotor } from './motor/motor.js';
+import { crearMotor, MEZCLA_INICIAL } from './motor/motor.js';
 import { antesDeBajar, cargarPista, mbTexto } from './motor/carga.js';
+import { filtroFrecuencias, LP_NEUTRA, HP_NEUTRA } from './motor/mezcla.js';
 
 // MODO DJ (V1). Sub-paso a: la página y la CONVIVENCIA con el reproductor normal. Sub-paso b: el motor
 // de audio propio (motor/motor.js, un AudioContext con dos decks) y la carga de una pista en A o B
-// (motor/carga.js). Sin crossfader, filtro ni MIDI todavía. Nada de esto toca PlayerContext.
+// (motor/carga.js). Sub-paso c: la sección «Mezcla» (volumen de cada deck, crossfader y filtro) con el
+// ratón; los valores viven en el motor. Sin MIDI todavía. Nada de esto toca PlayerContext.
 //
 //  · Radio activa (fase distinta de 'sin-radio'): la página sólo pide salir de la radio y NO toma
 //    nada (no pausa, no tapa teclas, NO monta la consola → no crea AudioContext). La barra del
@@ -24,8 +26,9 @@ import { antesDeBajar, cargarPista, mbTexto } from './motor/carga.js';
 //    useMixShortcut, la F en useVideoFullscreenShortcut) escuchan en burbuja y lo primero que miran es
 //    e.defaultPrevented, así que se callan sin tocarlos. No se tapa nada con Ctrl, Alt o Meta (Ctrl+F
 //    busca en la página, Alt+← es el atrás del navegador), ni con el foco en un campo de texto.
-//    La barra de posición de un deck es un <input type="range">: ahí Espacio y las flechas son del
-//    control (los atajos ya ignoran los <input>), pero M y F se siguen tapando, porque
+//    La barra de posición de un deck y los controles de «Mezcla» son <input type="range">: ahí
+//    Espacio y las flechas son del control (los atajos ya ignoran los <input>), pero M y F se siguen
+//    tapando, porque
 //    useVideoFullscreenShortcut NO excluye los range y la F abriría la pantalla completa del
 //    reproductor normal.
 //  · El tiempo de cada deck se pinta con requestAnimationFrame leyendo el reloj del AudioContext
@@ -206,6 +209,7 @@ function ConsolaDj() {
             ui={ui[lado]} vistas={vistasRef.current} onCargar={cargar} onCancelar={cancelarAviso} />
         ))}
       </div>
+      <MezclaDj motor={motor} />
       <BibliotecaDj onCargar={cargar} />
     </>
   );
@@ -310,6 +314,59 @@ function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar }) {
         </div>
       )}
     </section>
+  );
+}
+
+// ── Mezcla: volumen A y B, crossfader y filtro ───────────────────────────────────────────────────
+// Los valores se leen del motor en cada render (la consola se re-renderiza con su aviso) y se cambian
+// con sus setters, que llevan cada valor a su AudioParam con una rampa. Antes del primer «Cargar» no
+// hay AudioContext: el setter sólo guarda el valor. Doble clic vuelve al valor por defecto.
+
+const num = (v) => `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(2).replace('.', ',')}`;
+const hzTexto = (hz) => (hz >= 1000 ? `${String(Math.round(hz / 100) / 10).replace('.', ',')} kHz` : `${Math.round(hz)} Hz`);
+function textoFiltro(f) {
+  const fr = filtroFrecuencias(f);
+  if (fr.lp < LP_NEUTRA) return `${num(f)} · paso bajo ${hzTexto(fr.lp)}`;
+  if (fr.hp > HP_NEUTRA) return `+${num(f)} · paso alto ${hzTexto(fr.hp)}`;
+  return `${num(f)} · plano`;
+}
+
+function MezclaDj({ motor }) {
+  const m = motor?.mezcla() ?? MEZCLA_INICIAL;
+  return (
+    <section className="dj-mezcla" aria-label="Mezcla">
+      <h2 className="dj-mezcla-titulo">Mezcla</h2>
+      <div className="dj-mezcla-controles">
+        <ControlMezcla clase="dj-vol-a" etiqueta="Volumen A" min={0} max={1} valor={m.volumen.A} porDefecto={1}
+          texto={num(m.volumen.A)} onCambio={(v) => motor?.fijarVolumen('A', v)} />
+        <ControlMezcla clase="dj-vol-b" etiqueta="Volumen B" min={0} max={1} valor={m.volumen.B} porDefecto={1}
+          texto={num(m.volumen.B)} onCambio={(v) => motor?.fijarVolumen('B', v)} />
+        <ControlMezcla clase="dj-crossfader" etiqueta="Crossfader" min={0} max={1} valor={m.crossfader} porDefecto={0.5}
+          texto={num(m.crossfader)} extremos={['A', 'B']} onCambio={(v) => motor?.fijarCrossfader(v)} />
+        <ControlMezcla clase="dj-filtro" etiqueta="Filtro" min={-1} max={1} valor={m.filtro} porDefecto={0}
+          texto={textoFiltro(m.filtro)} extremos={['Paso bajo', 'Paso alto']} onCambio={(v) => motor?.fijarFiltro(v)} />
+      </div>
+    </section>
+  );
+}
+
+function ControlMezcla({ clase, etiqueta, min, max, valor, porDefecto, texto, extremos, onCambio }) {
+  return (
+    <div className={`dj-control ${clase}`}>
+      <div className="dj-control-cabeza">
+        <span className="dj-control-nombre">{etiqueta}</span>
+        <output className="dj-control-valor" data-valor={valor}>{texto}</output>
+      </div>
+      <input
+        type="range" className="dj-control-rango" min={min} max={max} step="0.01" value={valor}
+        aria-label={etiqueta} aria-valuetext={texto} title="Doble clic: valor por defecto"
+        onChange={(e) => onCambio(Number(e.target.value))}
+        onDoubleClick={() => onCambio(porDefecto)}
+      />
+      {extremos && (
+        <div className="dj-control-extremos" aria-hidden="true"><span>{extremos[0]}</span><span>{extremos[1]}</span></div>
+      )}
+    </div>
   );
 }
 
