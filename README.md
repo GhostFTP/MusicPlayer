@@ -214,7 +214,34 @@ manda acá; el servidor lo verifica y devuelve el JWT de siempre.
   con un verificador falso (`GOOGLE_FAKE=1`, que no arranca en producción).
 - El `token` que devuelve es **por comodidad, no una revocación**: el anterior sigue
   siendo válido, porque el servidor decide siempre por el id y nunca por el nombre. Sirve
-  para que el cliente no muestre el nombre viejo durante los siete días que dura la sesión.
+  para que el cliente no muestre el nombre viejo durante los 90 días que dura la sesión.
+
+### Renovar la sesión — `POST /api/auth/renovar`
+
+**La sesión dura 90 días** (antes, 7), la emita quien la emita: `/login`, Cloudflare
+(`/cf`), Google y `PATCH /api/me`. Las de 7 días que ya estaban abiertas siguen valiendo
+hasta su fecha. Con una sesión **vigente**, esta ruta devuelve una nueva de 90 días; la app
+la pide cuando a la suya le quedan menos de 60.
+
+```jsonc
+// POST /api/auth/renovar   (sin cuerpo)
+// Authorization: Bearer <JWT vigente>
+// 200
+{ "token": "<JWT nuevo, 90 días>", "me": { /* lo mismo que GET /api/me */ } }
+```
+
+- **Solo el header `Authorization: Bearer`**, nunca `?token=`: un token en la URL termina
+  en logs, y esta ruta fabrica tokens. Con `?token=` contesta `401`.
+- `401` si no hay token, si es inválido, si **ya venció** (renovar no resucita una sesión:
+  hay que volver a entrar) o si la cuenta fue borrada.
+- El token nuevo se arma con lo que hay **hoy** en la base: si la persona se renombró, sale
+  con el nombre nuevo. El anterior sigue valiendo hasta su fecha.
+- **10 intentos por IP cada 15 minutos**, como Google, contando también los que salen bien;
+  del 11º en adelante, `429` con `Retry-After`. La IP sale de `CF-Connecting-IP`.
+- ⚠️ **Una sesión robada vive mientras alguien la renueve.** Se corta borrando la cuenta o
+  rotando `JWT_SECRET`, que cierra la sesión de todos; cambiar la contraseña no la corta.
+- Prueba: `node scripts/smoke-renovar.mjs` (desde `music-server/`) levanta su propio
+  servidor sobre una base temporal.
 
 ### El avatar
 
@@ -371,6 +398,7 @@ Desde la 1.19.0 el token tiene que ser de una cuenta que **todavía exista**: si
 |--------|------|-------------|
 | POST | `/api/auth/login` | Iniciar sesión → devuelve JWT |
 | POST | `/api/auth/google` | Entrar con Google desde la app: `{ idToken }` → `{ token, me }`. Sin sesión. **No crea cuentas** (`403`); `503` sin `GOOGLE_IOS_CLIENT_ID`; 10 intentos por IP cada 15 min |
+| POST | `/api/auth/renovar` | Con una sesión **vigente** devuelve una nueva de 90 días: `{ token, me }`. **Solo** `Authorization: Bearer` (nunca `?token=`); `401` si no hay token, es inválido, venció o la cuenta fue borrada; 10 intentos por IP cada 15 min (`429`) |
 | GET | `/api/tracks` | Listar canciones (`?search=`, `?artist=`, `?album=`) |
 | GET | `/api/tracks/:id` | Detalle de una canción |
 | GET | `/api/tracks/:id/cover` | Carátula |
