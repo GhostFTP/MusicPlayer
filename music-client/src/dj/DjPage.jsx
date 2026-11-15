@@ -25,7 +25,9 @@ import { crearConexionMidi } from './motor/midi.js';
 //    AudioParam. Se lee en el PRIMER render: Layout, al montar, canoniza la URL con replaceState('/dj')
 //    y la query desaparece de la barra (pathToState sólo mira el pathname). Sin ?diag=1 no se mide nada.
 //    Con ?diag=1 también window.__djCue (sub-paso e2b): el cue a audífonos del motor, para probarlo con
-//    el hardware desde la consola antes de que haya selector.
+//    el hardware desde la consola antes de que haya selector. Desde e2c, fijarSalidaCue(id, nombre,
+//    { canales: '3-4' }) manda el cue a los canales 3-4 (el jack de audífonos de la DDJ-400); sin
+//    opciones, por los 1-2 como siempre.
 //
 //  · Radio activa (fase distinta de 'sin-radio'): la página sólo pide salir de la radio y NO toma
 //    nada (no pausa, no tapa teclas, NO monta la consola → no crea AudioContext). La barra del
@@ -173,8 +175,9 @@ function ConsolaDj({ diag }) {
     // tuvo clics (la activación del usuario queda pegada a la página). Ej.: tras «Cargar» y play en A,
     //   const s = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
     //   await __djCue.fijarSalidaCue(s[1].deviceId, s[1].label); __djCue.fijarCue('A', true); __djCue.diag();
+    // Con la DDJ-400 (audífonos en los canales 3-4): __djCue.fijarSalidaCue(id, nombre, { canales: '3-4' }).
     const expuestoCue = diag ? {
-      fijarSalidaCue: (deviceId, nombre) => m.fijarSalidaCue(deviceId, nombre),
+      fijarSalidaCue: (deviceId, nombre, opciones) => m.fijarSalidaCue(deviceId, nombre, opciones),
       fijarCue: (lado, activo) => m.fijarCue(lado, activo),
       fijarVolumenCue: (v) => m.fijarVolumenCue(v),
       fijarDesfaseCue: (ms) => m.fijarDesfaseCue(ms),

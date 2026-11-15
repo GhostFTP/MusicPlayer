@@ -18,7 +18,7 @@ const { potenciaIgual, filtroBipolar, ZONA_MUERTA, PASO_BAJO, PASO_ALTO, gananci
 const { antesDeBajar, clasificarRespuesta, cargarPista, MAX_SEG, MEMORIA_AVISO_B, TASA_PEOR_CASO } = await desde('music-client/src/dj/motor/carga.js');
 const { crearMotor, TASA_DJ, TAU, Q_FILTRO, GUARDA_CUE } = await desde('music-client/src/dj/motor/motor.js');
 const { interpretar, crearCombinador, crearDeduplicador, valorParaMotor, aplicar, crearColector, crearConexionMidi, MAPA_DDJ400 } = await desde('music-client/src/dj/motor/midi.js');
-const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hayNombres, elegirGuardada, textoAviso, DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL } = await desde('music-client/src/dj/motor/cue.js');
+const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hayNombres, elegirGuardada, textoAviso, validarCanales, DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL } = await desde('music-client/src/dj/motor/cue.js');
 
 const R = {};
 // `ok` va DESPUÉS del detalle: varios detalles son resultados { ok: false, error } y no deben pisar el veredicto.
@@ -434,11 +434,21 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
     p.setTargetAtTime = (v, t, tau) => { p.rampas.push({ v, t, tau }); };
     return p;
   };
+  // e2c: connect(d, salida, entrada) también queda en ctx.conexiones (con los índices); `salidas` sigue igual.
   class Nodo {
     constructor(ctx, clase) { this.context = ctx; this.clase = clase; this.salidas = []; this.desconexiones = 0; ctx.nodos.push(this); }
-    connect(d) { this.salidas.push(d); return d; }
+    connect(d, o = 0, i = 0) {
+      this.salidas.push(d);
+      (this.context.conexiones ??= []).push({ de: this, a: d, o, i });
+      if (d === this.context.destination) this.context.eventos?.push(['conectar-destino', this.clase]);
+      return d;
+    }
     disconnect() { this.desconexiones++; }
   }
+  // e2c: el destination tiene channelCount (2), maxChannelCount (ACCue.maxPorId[sinkId] al aplicar
+  // setSinkId; 2 sin dato) y channelInterpretation ('speakers'). Sus escrituras y los setSinkId quedan en
+  // ctx.eventos, con el estado del contexto. ACCue.setter: 'lanza' (como el navegador: IndexSizeError si
+  // pasa del máximo) | 'recorta' (lo deja en el máximo sin lanzar) | 'lanza-siempre' (lanza con cualquier valor > 2).
   class ACCue {
     constructor(op) {
       this.opciones = op === undefined ? null : JSON.parse(JSON.stringify(op));
@@ -447,8 +457,26 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
       this.nodos = []; this.destination = new Nodo(this, 'destination');
       this.sinks = []; this.pendientes = []; this.oy = {}; this.ots = { contextTime: 0, performanceTime: 0 }; this.cierres = 0;
       this.modo = ACCue.modo;
+      this.eventos = []; this.conexiones = []; this.maxCanales = 2;
+      const yo = this;
+      let cuenta = 2, interp = 'speakers';
+      Object.defineProperties(this.destination, {
+        maxChannelCount: { get: () => yo.maxCanales },
+        channelCount: {
+          get: () => cuenta,
+          set: (v) => {
+            yo.eventos.push(['channelCount', v, yo.state]);
+            if (ACCue.setter === 'lanza-siempre' && v > 2) throw err('IndexSizeError');
+            if (v > yo.maxCanales) { if (ACCue.setter === 'recorta') { cuenta = yo.maxCanales; return; } throw err('IndexSizeError'); }
+            cuenta = v;
+          },
+        },
+        channelInterpretation: { get: () => interp, set: (v) => { yo.eventos.push(['channelInterpretation', v, yo.state]); interp = v; } },
+      });
       creados.push(this);
     }
+    createChannelSplitter(n) { const x = new Nodo(this, 'splitter'); x.n = n; return x; }
+    createChannelMerger(n) { const x = new Nodo(this, 'merger'); x.n = n; return x; }
     addEventListener(t, fn) { (this.oy[t] ??= new Set()).add(fn); }
     removeEventListener(t, fn) { this.oy[t]?.delete(fn); }
     emitir(t) { for (const fn of [...(this.oy[t] ?? [])]) fn({ type: t }); }
@@ -456,11 +484,13 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
     oyentes() { return Object.values(this.oy).reduce((s, x) => s + x.size, 0); }
     setSinkId(id) {
       this.sinks.push(id);
+      this.eventos.push(['setSinkId', id, this.state]);
       const m = this.modo;
       if (this.state === 'closed') return Promise.reject(err('InvalidStateError'));
       if (m.tipo === 'rechaza') return Promise.reject(err(m.name));
       const aplicar = () => {
         this.sinkId = id;
+        this.maxCanales = ACCue.maxPorId[id] ?? 2;
         this.ponerEstado('suspended');
         if (m.vuelve !== false) setTimeout(() => { if (this.state === 'suspended') this.ponerEstado('running'); }, 0);
       };
@@ -481,15 +511,20 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
     close() { this.cierres++; for (const p of this.pendientes.splice(0)) p.rechazar('InvalidStateError'); this.ponerEstado('closed'); return Promise.resolve(); }
   }
   ACCue.modo = { tipo: 'resuelve' };
+  ACCue.setter = 'lanza';
   const AC0 = globalThis.AudioContext;
   globalThis.AudioContext = ACCue;
   const cerca = (a, b, tol = 1e-9) => typeof a === 'number' && Math.abs(a - b) <= tol;
   const ID = 'e21c0e98', NOMBRE = 'Headphones (Elgato Wave:XLR)', ID2 = '9d69141a', NOMBRE2 = 'Altavoces (Sound Blaster AE-7)';
+  // e2c: la DDJ-400 con 4 canales (como la midió Oscar en Edge) y la Sound Blaster con 8; los demás, 2.
+  const ID_DDJ = 'ddj40001', NOMBRE_DDJ = 'Línea (2- DDJ-400)';
+  ACCue.maxPorId = { [ID_DDJ]: 4, [ID2]: 8 };
   const fuentes = (c) => c.nodos.filter((n) => n.clase === 'fuente');
   const gains = (c) => c.nodos.filter((n) => n.clase === 'gain');
   // Un motor con el master creado, una pista en A sonando desde el master t = 10 (cero = 10) y la salida
   // elegida. Relojes: master en 50 (posición 40), cue en 3.
-  const armar = async ({ modo = { tipo: 'resuelve' }, opciones = {}, activar = true } = {}) => {
+  // (e2c: `salida` = [id, nombre, opciones] de fijarSalidaCue; por defecto los auriculares, sin opciones.)
+  const armar = async ({ modo = { tipo: 'resuelve' }, opciones = {}, activar = true, salida = [ID, NOMBRE] } = {}) => {
     ACCue.modo = modo;
     const m = crearMotor(opciones);
     const cm = m.asegurarContexto();
@@ -498,7 +533,7 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
     cm.currentTime = 10;
     m.decks.A.play();
     cm.currentTime = 50; cm.ots = { contextTime: 49.958, performanceTime: 120000 };
-    await m.fijarSalidaCue(ID, NOMBRE);
+    await m.fijarSalidaCue(...salida);
     let cc = null;
     if (activar) {
       m.fijarCue('A', true);
@@ -866,6 +901,170 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
         && d.fuente === 'currentTime' && cerca(d.K, 47, 1e-12) && cerca(d.derivaMs, (47 - 47.018) * 1000, 1e-6), { lanzo, d });
       x.m.cerrar();
     }
+    // ── Canales 3-4 (sub-paso e2c) ──
+    const x34 = (extra = {}) => armar({ salida: [ID_DDJ, NOMBRE_DDJ, { canales: '3-4' }], ...extra });
+    const escrituras = (c) => c.eventos.filter((e) => e[0] === 'channelCount' || e[0] === 'channelInterpretation');
+    // cueVol = el Gain al que se conectan cueA y cueB (dos conexiones desde un Gain).
+    const volDe = (c) => gains(c).find((g) => c.conexiones.filter((k) => k.a === g && k.de.clase === 'gain').length === 2) ?? null;
+    // Sin opciones, o con '1-2' (también null), el cue es el de siempre: cueVol ─ destination, sin
+    // splitter ni merger y SIN una sola escritura en el destination, aunque la salida tenga 4 canales.
+    {
+      const res = [];
+      for (const salida of [[ID, NOMBRE], [ID_DDJ, NOMBRE_DDJ], [ID_DDJ, NOMBRE_DDJ, { canales: '1-2' }], [ID_DDJ, NOMBRE_DDJ, null]]) {
+        const x = await armar({ salida });
+        const v = volDe(x.cc);
+        res.push({
+          canales: x.m.cue().canales, estado: x.m.cue().estado, escr: escrituras(x.cc).length, cuenta: x.cc.destination.channelCount, interp: x.cc.destination.channelInterpretation,
+          volA: v ? v.salidas.map((n) => n.clase).join() : null, aDestino: x.cc.conexiones.filter((k) => k.a === x.cc.destination).map((k) => k.de.clase).join(),
+          clases: [...new Set(x.cc.nodos.map((n) => n.clase))].sort().join(),
+        });
+        x.m.cerrar();
+      }
+      ok('motor_cue_canales_por_defecto_igual', res.every((r) => r.canales === '1-2' && r.estado === 'lista' && r.escr === 0 && r.cuenta === 2 && r.interp === 'speakers'
+        && r.volA === 'destination' && r.aDestino === 'gain' && r.clases === 'destination,fuente,gain'), { res });
+    }
+    // `opciones` inválidas → 'valor-invalido' y no cambia nada (ni canales, ni setSinkId, ni el destination).
+    {
+      const x = await armar({ salida: [ID_DDJ, NOMBRE_DDJ] });
+      const s0 = x.cc.sinks.length;
+      const malas = await Promise.all([{ canales: '5-6' }, { canales: 34 }, { canales: '3-4 ' }, { canales: null }, '3-4', ['3-4'], 7].map((o) => x.m.fijarSalidaCue(ID_DDJ, NOMBRE_DDJ, o)));
+      const e = x.m.cue();
+      ok('motor_cue_canales_valor_invalido', malas.every((r) => r.ok === false && r.error === 'valor-invalido') && e.canales === '1-2' && e.estado === 'lista'
+        && x.cc.sinks.length === s0 && escrituras(x.cc).length === 0 && x.m.contextoCue() === x.cc, { malas, e });
+      x.m.cerrar();
+    }
+    // '3-4' en la DDJ (4 canales): cueVol → adaptador → splitter(2) → merger(4) en las entradas 2 y 3 (0 y 1
+    // vacías) → destination con 4 canales 'discrete'; el orden; el adaptador; y diagCue.
+    {
+      const x = await x34();
+      const c = x.cc, d = c.destination;
+      const vol = volDe(c);
+      const de = (n) => c.conexiones.filter((k) => k.de === n);
+      const ad = vol ? de(vol)[0]?.a : null;
+      const sp = ad ? de(ad)[0]?.a : null;
+      const mg = sp ? de(sp)[0]?.a : null;
+      const spSal = sp ? de(sp).map((k) => [k.a.clase, k.o, k.i]) : [];
+      const alMerger = c.conexiones.filter((k) => k.a === mg).map((k) => k.i).sort();
+      const alDestino = c.conexiones.filter((k) => k.a === d).map((k) => k.de.clase);
+      ok('motor_cue_canales_34_grafo', x.m.cue().estado === 'lista' && x.m.cue().canales === '3-4' && !!vol && de(vol).length === 1 && ad?.clase === 'gain' && sp?.clase === 'splitter' && sp.n === 2
+        && mg?.clase === 'merger' && mg.n === 4 && JSON.stringify(spSal) === JSON.stringify([['merger', 0, 2], ['merger', 1, 3]]) && JSON.stringify(alMerger) === '[2,3]'
+        && JSON.stringify(de(mg).map((k) => [k.a.clase, k.o, k.i])) === JSON.stringify([['destination', 0, 0]]) && JSON.stringify(alDestino) === '["merger"]'
+        && d.channelCount === 4 && d.channelInterpretation === 'discrete' && fuentes(c).length === 1,
+      { spSal, alMerger, alDestino, cuenta: d.channelCount, interp: d.channelInterpretation });
+      // Orden: setSinkId → (running) channelCount 4 y 'discrete' → recién entonces la 1.ª conexión al destination.
+      const ev = c.eventos.map((e) => e.join(':'));
+      const iCuenta = ev.indexOf('channelCount:4:running'), iInterp = ev.indexOf('channelInterpretation:discrete:running');
+      const iCon = ev.findIndex((e) => e.startsWith('conectar-destino'));
+      ok('motor_cue_canales_34_orden', ev[0] === `setSinkId:${ID_DDJ}:running` && iCuenta > 0 && iInterp > 0 && iCon > iCuenta && iCon > iInterp
+        && ev.filter((e) => e.startsWith('conectar-destino')).length === 1, { ev });
+      // El adaptador: 2 canales 'explicit' 'speakers' (una pista mono suena en los dos oídos), sin escribir .value.
+      ok('motor_cue_canales_34_mono_a_los_dos', ad?.clase === 'gain' && !!ad.gain && ad.channelCount === 2 && ad.channelCountMode === 'explicit' && ad.channelInterpretation === 'speakers'
+        && ad.gain.escrituras === 0 && ad.gain.value === 1 && ad.gain.rampas.length === 0, { ad: ad ? { clase: ad.clase, cuenta: ad.channelCount, modo: ad.channelCountMode, interp: ad.channelInterpretation, escr: ad.gain?.escrituras ?? null } : null });
+      const dg = x.m.diagCue();
+      ok('motor_cue_diag_canales', !!dg && dg.canales === '3-4' && dg.contextos.cue.channelCount === 4 && dg.contextos.cue.maxChannelCount === 4 && dg.contextos.cue.channelInterpretation === 'discrete'
+        && dg.contextos.master.channelCount === 2 && dg.contextos.master.maxChannelCount === 2 && dg.contextos.master.channelInterpretation === 'speakers', { dg });
+      x.m.cerrar();
+    }
+    // '3-4' en una salida de 2 canales: fallo controlado ANTES de escribir el destination (con un setter que
+    // recorta sin lanzar, sin el chequeo el cue quedaría «andando» en canales que no existen).
+    {
+      ACCue.setter = 'recorta';
+      const s0 = sinAtrapar;
+      const x = await armar({ salida: [ID, NOMBRE, { canales: '3-4' }], activar: false });
+      const foto = () => JSON.stringify({ mezcla: x.m.mezcla(), nodos: x.cm.nodos.length, state: x.cm.state, sinks: x.cm.sinks.length, escr: escrituras(x.cm).length });
+      const antes = foto();
+      let lanzo = null, act = null;
+      try { act = x.m.fijarCue('A', true); } catch (e) { lanzo = String(e); }
+      const xc = x.m.contextoCue();
+      await listo(); await espera(5);
+      const e = x.m.cue();
+      ACCue.setter = 'lanza';
+      ok('motor_cue_canales_34_sin_4_falla', lanzo === null && act === true && !!xc && e.estado === 'error'
+        && e.aviso === 'La salida «Headphones (Elgato Wave:XLR)» no tiene canales 3-4. Cue apagado; el master sigue igual.' && e.activo.A === false
+        && xc.state === 'closed' && x.m.contextoCue() === null && escrituras(xc).length === 0 && !xc.nodos.some((n) => n.clase === 'merger')
+        && foto() === antes && x.m.decks.A.estado().sonando && sinAtrapar === s0, { e, xc: xc?.state, ev: xc?.eventos.map((v) => v.join(':')), antes, despues: foto() });
+      x.m.cerrar();
+    }
+    // Si el setter lanza aunque maxChannelCount diga 4: aviso genérico con el name (IndexSizeError), cerrado.
+    {
+      ACCue.setter = 'lanza-siempre';
+      const x = await x34();
+      const e = x.m.cue();
+      ACCue.setter = 'lanza';
+      ok('motor_cue_canales_34_setter_lanza', e.estado === 'error' && e.aviso === 'No se pudo abrir la salida de audífonos (IndexSizeError). Cue apagado; el master sigue igual.'
+        && x.cc.state === 'closed' && x.m.contextoCue() === null && x.cm.state === 'running' && escrituras(x.cm).length === 0, { e });
+      x.m.cerrar();
+    }
+    // En caliente sobre la misma salida: '1-2' → '3-4' y vuelta. Sólo se rearma la etapa: sin setSinkId, sin
+    // contexto nuevo, sin fuentes nuevas (no resincroniza) y sin tocar el master.
+    {
+      const x = await armar({ salida: [ID_DDJ, NOMBRE_DDJ] });
+      const c = x.cc, vol = volDe(c);
+      const foto = () => ({ sinks: c.sinks.length, creados: creados.length, fuentes: fuentes(c).length, inicios: JSON.stringify(fuentes(c).map((f) => f.inicios)), cm: x.cm.eventos.length + ':' + x.cm.nodos.length, mezcla: JSON.stringify(x.m.mezcla()) });
+      const antes = foto();
+      const dVol = vol.desconexiones, n0 = c.conexiones.length;
+      const r = await x.m.fijarSalidaCue(ID_DDJ, NOMBRE_DDJ, { canales: '3-4' });
+      const nuevas = c.conexiones.slice(n0).map((k) => [k.de.clase, k.a.clase, k.o, k.i]);
+      ok('motor_cue_canales_caliente_12_a_34', r.ok === true && x.m.cue().canales === '3-4' && x.m.cue().estado === 'lista' && x.m.contextoCue() === c
+        && JSON.stringify(foto()) === JSON.stringify(antes) && vol.desconexiones === dVol + 1
+        && JSON.stringify(nuevas) === JSON.stringify([['gain', 'gain', 0, 0], ['gain', 'splitter', 0, 0], ['splitter', 'merger', 0, 2], ['splitter', 'merger', 1, 3], ['merger', 'destination', 0, 0]])
+        && c.destination.channelCount === 4 && c.destination.channelInterpretation === 'discrete', { r, nuevas, antes, despues: foto() });
+      const ad = c.conexiones[n0 + 1]?.de, sp = c.conexiones[n0 + 2]?.de, mg = c.conexiones[n0 + 4]?.de;
+      const d1 = [ad, sp, mg, vol].map((n) => n?.desconexiones ?? -1);
+      const n1 = c.conexiones.length;
+      const r2 = await x.m.fijarSalidaCue(ID_DDJ, NOMBRE_DDJ);   // sin opciones = '1-2'
+      const nuevas2 = c.conexiones.slice(n1).map((k) => [k.de.clase, k.a.clase]);
+      ok('motor_cue_canales_caliente_34_a_12', r2.ok === true && x.m.cue().canales === '1-2' && x.m.cue().estado === 'lista'
+        && JSON.stringify([ad, sp, mg, vol].map((n) => n?.desconexiones ?? -1)) === JSON.stringify(d1.map((v) => v + 1))
+        && JSON.stringify(nuevas2) === JSON.stringify([['gain', 'destination']]) && c.destination.channelCount === 2 && c.destination.channelInterpretation === 'speakers'
+        && JSON.stringify(foto()) === JSON.stringify(antes), { r2, nuevas2, d1 });
+      x.m.cerrar();
+    }
+    // Con '3-4', cambiar a OTRA salida: el destination vuelve a 2 canales 'speakers' ANTES del setSinkId y se
+    // vuelve a mirar maxChannelCount: unos auriculares de 2 canales fallan; la Sound Blaster (8) arma.
+    {
+      const x = await x34();
+      const c = x.cc;
+      ACCue.setter = 'recorta';
+      const ev0 = c.eventos.length;
+      const r = await x.m.fijarSalidaCue(ID, NOMBRE, { canales: '3-4' });
+      await listo();
+      const ev = c.eventos.slice(ev0).map((e) => e.slice(0, 2).join(':'));
+      const e = x.m.cue();
+      ACCue.setter = 'lanza';
+      x.m.cerrar();
+      const y = await x34();
+      const r2 = await y.m.fijarSalidaCue(ID2, NOMBRE2, { canales: '3-4' });
+      await listo();
+      const e2 = y.m.cue();
+      ok('motor_cue_canales_otra_salida_rechequea', r.ok === false && r.error === 'sin-canales-3-4' && e.estado === 'error'
+        && e.aviso === 'La salida «Headphones (Elgato Wave:XLR)» no tiene canales 3-4. Cue apagado; el master sigue igual.'
+        && JSON.stringify(ev) === JSON.stringify(['channelCount:2', 'channelInterpretation:speakers', `setSinkId:${ID}`]) && c.state === 'closed'
+        && r2.ok === true && e2.estado === 'lista' && e2.salida === ID2 && y.cc.destination.channelCount === 4 && y.cc.destination.channelInterpretation === 'discrete' && y.m.contextoCue() === y.cc,
+      { r, ev, e, r2, e2 });
+      y.m.cerrar();
+    }
+    // K, planCue y la resincronización no cambian con '3-4': mismo start(when, offset) que con '1-2' y que planCue.
+    {
+      const a = await armar({ salida: [ID_DDJ, NOMBRE_DDJ] });
+      const ia = fuentes(a.cc).map((f) => f.inicios);
+      a.m.cerrar();
+      const b = await x34();
+      const ib = fuentes(b.cc).map((f) => f.inicios);
+      const e0 = esperado(0, b.cc, b.cm);
+      ok('motor_cue_canales_planCue_igual', ia.length === 1 && JSON.stringify(ia) === JSON.stringify(ib) && e0.crear && cerca(ib[0][0][0], e0.cuando) && cerca(ib[0][0][1], e0.offset), { ia, ib, e0 });
+      b.m.cerrar();
+    }
+    // fijarSalidaCue(null) vuelve los canales a '1-2'; una salida nueva sin opciones también es '1-2'.
+    {
+      const x = await x34();
+      await x.m.fijarSalidaCue(null);
+      const e1 = x.m.cue();
+      await x.m.fijarSalidaCue(ID_DDJ, NOMBRE_DDJ);
+      const e2 = x.m.cue();
+      ok('motor_cue_canales_null_resetea', e1.canales === '1-2' && e1.estado === 'sin-salida' && e2.canales === '1-2' && e2.estado === 'lista' && x.cc.state === 'closed' && x.m.contextoCue() === null, { e1, e2 });
+      x.m.cerrar();
+    }
     // El master NUNCA recibió setSinkId (todos los contextos sin sinkId en el constructor son masters).
     {
       const masters = creados.filter((c) => !(c.opciones && 'sinkId' in c.opciones));
@@ -1188,6 +1387,12 @@ const motorFalso = (log = []) => ({
   const malosVacio = Object.entries(sinNombre).flatMap(([m, t]) => ['', '   ', undefined, null].filter((n) => textoAviso(m, n) !== t).map((n) => [m, n, textoAviso(m, n)]));
   ok('cue_aviso_nombre_vacio', malosVacio.length === 0
     && textoAviso(undefined, N) === 'No se pudo abrir la salida de audífonos (error desconocido). Cue apagado; el master sigue igual.', { malosVacio });
+  // e2c: los canales del cue y su aviso.
+  const canalesMalos = [null, '', '3-4 ', '5-6', '1-2,3-4', 34, 3, {}, ['3-4']].filter((v) => validarCanales(v) !== null);
+  ok('cue_validar_canales', validarCanales(undefined) === '1-2' && validarCanales('1-2') === '1-2' && validarCanales('3-4') === '3-4' && canalesMalos.length === 0, { canalesMalos });
+  const sin34 = ['', '   ', undefined, null].map((n) => textoAviso('sin-canales-3-4', n));
+  ok('cue_aviso_sin_canales_3_4', textoAviso('sin-canales-3-4', N) === `La salida «${N}» no tiene canales 3-4. Cue apagado; el master sigue igual.`
+    && sin34.every((t) => t === 'La salida de audífonos no tiene canales 3-4. Cue apagado; el master sigue igual.'), { conNombre: textoAviso('sin-canales-3-4', N), sin34 });
 }
 
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));

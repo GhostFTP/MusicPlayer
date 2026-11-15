@@ -53,9 +53,21 @@
 //     inesperado): el cue se apaga, su contexto se cierra, estado 'error' con un aviso (textoAviso) y el
 //     master no se toca. El motor nunca lanza.
 //   · Lo cierra cerrar(), junto con el master; duenoActual no cambia (cerrar un motor cierra los dos).
+//   · CANALES (sub-paso e2c; opt-in con fijarSalidaCue(id, nombre, { canales })). '1-2' (por defecto):
+//     cueVol ─ destination, sin tocar el destination. '3-4' (el jack de audífonos de la DDJ-400):
+//       cueVol ─ adaptador (Gain, 2 canales 'explicit' 'speakers') ─ ChannelSplitter(2) ─┬─ 0 → entrada 2 ─ ChannelMerger(4) ─ destination
+//                                                                                        └─ 1 → entrada 3 ─┘   (entradas 0 y 1 sin conectar = silencio)
+//     destination.channelCount = 4 y channelInterpretation = 'discrete' se ponen con el contexto ya en
+//     'running', después de setSinkId y ANTES de conectar nada al destination; con maxChannelCount < 4 →
+//     fallo 'sin-canales-3-4'. El adaptador NO es opcional: el splitter es 'discrete' y fijo, así que una
+//     pista mono le llegaría sólo al canal 0 (un oído); 'speakers' la copia a los dos (medido en Chromium
+//     con un OfflineAudioContext). La etapa está DESPUÉS de cueA/cueB, donde se conectan las fuentes: no
+//     cambia K, planCue ni cuándo se resincroniza. Cambiar `canales` en la misma salida rearma sólo esta
+//     etapa (sin setSinkId, sin contexto nuevo, sin resincronizar); antes de un setSinkId a otra salida la
+//     etapa '3-4' se desmonta y el destination vuelve a 2 canales 'speakers'.
 
 import { potenciaIgual, gananciaVolumen, filtroFrecuencias } from './mezcla.js';
-import { VOLUMEN_CUE_INICIAL, volumenCue, recortarDesfase, offsetRelojes, planCue, textoAviso } from './cue.js';
+import { VOLUMEN_CUE_INICIAL, volumenCue, recortarDesfase, offsetRelojes, planCue, textoAviso, validarCanales } from './cue.js';
 
 // TASA DEL CONTEXTO DEL MODO DJ: 44 100 Hz, no la nativa de la salida. decodeAudioData remuestrea a la
 // tasa del contexto, así que ésta decide cuánto tarda decodificar y cuánto ocupa cada deck.
@@ -220,6 +232,8 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
     fuentes: { A: null, B: null },
     gen: 0, quitarOyentes: null, cortarEspera: null,
     ultimaSync: null,   // { K, t (performance.now) } de la última fuente de cue creada; sólo lo lee diagCue
+    canales: '1-2',     // los elegidos (e2c)
+    etapa: null,        // { canales, nodos } = la salida armada entre cueVol y el destination
   };
   const ahora = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const decks = { A: crearDeck(avisar, (ev) => alFuenteDeck('A', ev)), B: crearDeck(avisar, (ev) => alFuenteDeck('B', ev)) };
@@ -302,6 +316,7 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
     const c = cue.ctx;
     cue.ctx = null;
     cue.nodos = null;
+    cue.etapa = null;
     cue.pedido = null;
     cue.ultimaSync = null;   // la K de otro contexto no vale para el próximo
     if (c) { try { c.close().catch(() => {}); } catch { /* ya cerrado */ } }
@@ -361,8 +376,55 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
     };
     cue.ctx = c;
   }
+  // La etapa de salida del cue (ver CANALES en la cabecera), entre cueVol y el destination. Con el contexto
+  // en 'running' y los nodos creados. → null si quedó armada; si no, el motivo del fallo (lo atiende quien
+  // llama, con fallaCue: cierra el contexto, así que lo que haya quedado a medias no importa). No lanza.
+  function montarSalidaCue(c) {
+    const vol = cue.nodos.vol;
+    if (cue.canales === '1-2') {
+      vol.connect(c.destination);
+      cue.etapa = { canales: '1-2', nodos: [] };
+      return null;
+    }
+    const d = c.destination;
+    let max = 0;
+    try { max = d.maxChannelCount; } catch { /* sin dato = sin canales */ }
+    if (!(max >= 4)) return 'sin-canales-3-4';
+    try {
+      d.channelCount = 4;
+      d.channelInterpretation = 'discrete';
+      const ad = c.createGain();   // ganancia 1 por defecto: sin escribir .value
+      ad.channelCount = 2;
+      ad.channelCountMode = 'explicit';
+      ad.channelInterpretation = 'speakers';
+      const sp = c.createChannelSplitter(2);
+      const mg = c.createChannelMerger(4);
+      vol.connect(ad);
+      ad.connect(sp);
+      sp.connect(mg, 0, 2);
+      sp.connect(mg, 1, 3);
+      mg.connect(d);
+      cue.etapa = { canales: '3-4', nodos: [ad, sp, mg] };
+      return null;
+    } catch (e) {
+      return e?.name || 'error';
+    }
+  }
+  // Desarma la etapa: desconecta cueVol y sus nodos y, si era '3-4', el destination vuelve a 2 canales
+  // 'speakers' (sus valores por defecto). No lanza.
+  function desmontarSalidaCue(c) {
+    const e = cue.etapa;
+    cue.etapa = null;
+    if (!e || !cue.nodos) return;
+    try { cue.nodos.vol.disconnect(); } catch { /* ya desconectado */ }
+    for (const n of e.nodos) { try { n.disconnect(); } catch { /* ya desconectado */ } }
+    if (e.canales === '3-4') {
+      try { c.destination.channelCount = 2; c.destination.channelInterpretation = 'speakers'; } catch { /* contexto cerrándose */ }
+    }
+  }
   // setSinkId a la salida elegida (creando el contexto si no hay), espera 'running', crea los nodos si
-  // faltan y resincroniza. → { ok, error? }; NUNCA rechaza. Gana la última llamada (gen).
+  // faltan, arma la etapa de salida (canales) y resincroniza. → { ok, error? }; NUNCA rechaza. Gana la
+  // última llamada (gen).
   async function abrirCue() {
     const gen = ++cue.gen;
     const id = cue.salida;
@@ -374,6 +436,9 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
       return { ok: false, error: e?.name || 'error' };
     }
     const c = cue.ctx;
+    // Con la etapa '3-4' armada, el destination vuelve a 2 canales ANTES de cambiar de dispositivo (la
+    // salida nueva puede tener menos). La de '1-2' queda: la salida vieja suena hasta que la nueva esté.
+    if (cue.etapa?.canales === '3-4') desmontarSalidaCue(c);
     cue.pedido = id;
     ponerEstadoCue('abriendo');
     let error = null;
@@ -393,8 +458,12 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
       const A = ganancia(0), B = ganancia(0);
       A.connect(vol);
       B.connect(vol);
-      vol.connect(c.destination);
       cue.nodos = { A, B, vol };
+    }
+    if (!cue.etapa || cue.etapa.canales !== cue.canales) {
+      desmontarSalidaCue(c);
+      const motivo = montarSalidaCue(c);
+      if (motivo) { fallaCue(motivo); return { ok: false, error: motivo }; }
     }
     ponerEstadoCue('lista');
     for (const lado of ['A', 'B']) if (cue.activo[lado]) rampaCue(cue.nodos[lado].gain, 1);
@@ -502,20 +571,36 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
     // audífonos (cierra el contexto de cue y apaga los cues). Con el contexto de cue abierto, cambia la
     // salida con setSinkId y resincroniza; sin contexto sólo la guarda (se abre al activar un cue).
     // → Promise<{ ok, error? }> que NUNCA rechaza: error = el name del error, 'valor-invalido',
-    // 'cerrado' o 'reemplazada' (otra llamada más nueva ganó).
-    fijarSalidaCue(deviceId, nombre = '') {
+    // 'cerrado', 'reemplazada' (otra llamada más nueva ganó) o 'sin-canales-3-4'.
+    // `opciones` (e2c): undefined, null o { canales: '1-2' | '3-4' } (validarCanales; sin canales = '1-2').
+    // Cambiar SÓLO los canales de la salida que ya está lista rearma la etapa de salida: sin setSinkId,
+    // sin contexto nuevo y sin resincronizar (las fuentes de cue están antes de esa etapa).
+    fijarSalidaCue(deviceId, nombre = '', opciones) {
       if (cerrado) return Promise.resolve({ ok: false, error: 'cerrado' });
       if (deviceId === null) {
         cerrarCtxCue();
         cue.salida = null;
         cue.nombre = '';
+        cue.canales = '1-2';
         cue.activo = { A: false, B: false };
         ponerEstadoCue('sin-salida');
         return Promise.resolve({ ok: true });
       }
       if (typeof deviceId !== 'string' || deviceId === '') return Promise.resolve({ ok: false, error: 'valor-invalido' });
+      const op = opciones ?? {};
+      const canales = typeof op === 'object' && !Array.isArray(op) ? validarCanales(op.canales) : null;
+      if (canales === null) return Promise.resolve({ ok: false, error: 'valor-invalido' });
+      const soloCanales = !!cue.ctx && cueListo() && deviceId === cue.salida && canales !== cue.canales;
       cue.salida = deviceId;
       cue.nombre = typeof nombre === 'string' ? nombre : '';
+      cue.canales = canales;
+      if (soloCanales) {
+        desmontarSalidaCue(cue.ctx);
+        const motivo = montarSalidaCue(cue.ctx);
+        if (motivo) { fallaCue(motivo); return Promise.resolve({ ok: false, error: motivo }); }
+        avisar();
+        return Promise.resolve({ ok: true });
+      }
       if (cue.ctx) return abrirCue();
       ponerEstadoCue('lista');
       return Promise.resolve({ ok: true });
@@ -560,7 +645,7 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
     },
     // Copia del estado del cue.
     cue() {
-      return { salida: cue.salida, nombre: cue.nombre, estado: cue.estado, activo: { ...cue.activo }, volumen: cue.volumen, desfaseMs: cue.desfaseMs, aviso: cue.aviso };
+      return { salida: cue.salida, nombre: cue.nombre, canales: cue.canales, estado: cue.estado, activo: { ...cue.activo }, volumen: cue.volumen, desfaseMs: cue.desfaseMs, aviso: cue.aviso };
     },
     contextoCue() { return cue.ctx; },
     // Diagnóstico del cue (sub-paso e2b; lo expone DjPage con ?diag=1 en window.__djCue.diag). null sin
@@ -581,8 +666,11 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
         const datos = (c) => (c ? {
           state: leer(() => c.state), sampleRate: leer(() => c.sampleRate), baseLatency: leer(() => c.baseLatency),
           outputLatency: leer(() => c.outputLatency), sinkId: leer(() => sink(c)),
+          channelCount: leer(() => c.destination.channelCount), maxChannelCount: leer(() => c.destination.maxChannelCount),
+          channelInterpretation: leer(() => c.destination.channelInterpretation),
         } : null);
         return {
+          canales: cue.canales,
           K: k ? k.K : null,
           fuente: k ? k.fuente : null,
           derivaMs: k && u ? (k.K - u.K) * 1000 : null,

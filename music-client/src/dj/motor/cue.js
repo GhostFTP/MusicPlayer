@@ -7,6 +7,7 @@
 //   · recortarDesfase, volumenCue: los dos controles del cue.
 //   · offsetRelojes, planCue: dónde y cuándo arranca una fuente de cue.
 //   · filtrarSalidas, hayNombres, elegirGuardada: la lista de salidas y la salida recordada.
+//   · validarCanales: por qué canales de la salida va el cue ('1-2' o '3-4', sub-paso e2c).
 //   · textoAviso: los avisos cortos de la página.
 
 import { gananciaVolumen } from './mezcla.js';
@@ -136,7 +137,17 @@ export function elegirGuardada(guardada, salidas) {
   return { salida: null, motivo: 'ausente' };
 }
 
-// AVISOS. `motivo`: un caso de la página ('no-conectada', 'desconectada', 'misma-salida') o el name del
+// CANALES DEL CUE (sub-paso e2c). '1-2' = el cue sale por los canales 1-2 de la salida (lo de siempre);
+// '3-4' = por los canales 3-4 (la DDJ-400 tiene ahí su jack de audífonos; los 1-2 son su master). Es
+// OPT-IN: nunca se deduce de maxChannelCount (una Sound Blaster AE-7 reporta 6 u 8 canales y ahí los
+// 3-4 son centro y subwoofer). Sin valor (undefined) → '1-2'; '1-2' o '3-4' → ése; lo demás → null.
+export function validarCanales(v) {
+  if (v === undefined) return '1-2';
+  return v === '1-2' || v === '3-4' ? v : null;
+}
+
+// AVISOS. `motivo`: un caso de la página ('no-conectada', 'desconectada', 'misma-salida'), del motor
+// ('sin-canales-3-4': se pidió '3-4' y la salida tiene menos de 4 canales) o el name del
 // error de setSinkId ('NotFoundError', 'NotAllowedError', 'InvalidStateError', …). `nombre`: el de la
 // salida, entre comillas; SIN nombre, la frase habla de «la salida de audífonos», sin comillas.
 // InvalidStateError → null: sólo pasa con el contexto ya cerrado (el motor se está cerrando), no hay nada
@@ -151,6 +162,7 @@ export function textoAviso(motivo, nombre) {
     case 'NotAllowedError': return `El navegador no dejó usar la salida ${n ? q : 'de audífonos'}. Cue apagado; el master sigue igual.`;
     case 'InvalidStateError': return null;
     case 'misma-salida': return 'Esa salida es la misma del master: el cue sonaría por los mismos altavoces.';
+    case 'sin-canales-3-4': return `${n ? `La salida ${q}` : 'La salida de audífonos'} no tiene canales 3-4. Cue apagado; el master sigue igual.`;
     default: return `No se pudo abrir la salida de audífonos (${texto(motivo) || 'error desconocido'}). Cue apagado; el master sigue igual.`;
   }
 }

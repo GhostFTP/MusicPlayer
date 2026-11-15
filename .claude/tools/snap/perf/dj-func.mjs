@@ -35,6 +35,11 @@
 //         salida que no existe: 2.º contexto, estado 'error' con el aviso exacto, sin contexto de cue
 //         (diag() null) y el master intacto: 'running', A avanza, mezcla igual en la UI y en los AudioParam
 //         (cd3); salir de /dj quita window.__djCue y deja los dos contextos 'closed' (cd4).
+//   · cc  (sub-paso e2c, canales del cue) el envoltorio de __djCue pasa las opciones (cc0); con '3-4' y una
+//         salida que no existe falla igual que cd3 y no toca el destination del master ni el del cue (cc1).
+//         En el Chromium del runner NINGUNA salida acepta setSinkId (medido el 2026-11-14: una sola salida,
+//         sin id; setSinkId('default') → NotFoundError), así que la etapa '3-4' (grafo, orden, adaptador y
+//         el fallo por maxChannelCount < 4) sólo se prueba en dj-unit.
 //   · d6  con radio activa (anfitrión de una radio REAL, creada con «Iniciar radio» como radio-func) /dj
 //         no pausa nada (ni isPlaying ni el pause() nativo), muestra «Sal de la radio para usar el Modo
 //         DJ» y deja la barra visible; tampoco tapa teclas: Espacio llega al reproductor normal y lo
@@ -816,6 +821,43 @@ try {
   // cd0 (2.ª mitad): tras recargar /dj sin ?diag=1, con la consola montada, tampoco hay window.__djCue.
   const cd0b = await p.evaluate(() => ({ existe: '__djCue' in window, consola: !!document.querySelector('.dj-mezcla'), url: location.pathname + location.search }));
   ok('cd0_sin_diag_no_hay_djCue', !cd0a.existe && cd0a.consola && cd0a.url === '/dj' && !cd0b.existe && cd0b.consola && cd0b.url === '/dj', { cd0a, cd0b });
+  // ── cc (sub-paso e2c): con ?diag=1 otra vez, A sonando.
+  await recargarDj(null, '/dj?diag=1');
+  await cargarEn('A', n1);
+  await esperarDeck('A', (d) => d.estado === 'pausa');
+  await p.locator(sel('A', '.dj-play')).click();
+  await esperarDeck('A', (d) => d.estado === 'sonando', 2000);
+  // cc0: el envoltorio pasa `opciones`: '3-4' queda elegido; '5-6' u opciones que no son un objeto →
+  // 'valor-invalido' sin cambiar nada. Sin contexto de cue todavía (sólo se guarda).
+  const cc0 = await p.evaluate(async () => {
+    const c = window.__djCue;
+    const r1 = await c.fijarSalidaCue('no-existe-0123456789abcdef', 'Salida falsa', { canales: '3-4' });
+    const e1 = c.cue();
+    const r2 = await c.fijarSalidaCue('no-existe-0123456789abcdef', 'Salida falsa', { canales: '5-6' });
+    const r3 = await c.fijarSalidaCue('no-existe-0123456789abcdef', 'Salida falsa', '3-4');
+    return { r1, canales1: e1.canales, estado1: e1.estado, r2, r3, canales3: c.cue().canales, creados: window.__ac.creados };
+  });
+  ok('cc0_djCue_pasa_opciones', cc0.r1?.ok === true && cc0.canales1 === '3-4' && cc0.estado1 === 'lista' && cc0.r2?.error === 'valor-invalido'
+    && cc0.r3?.error === 'valor-invalido' && cc0.canales3 === '3-4' && cc0.creados === 1, cc0);
+  // cc1: con '3-4' y la salida que no existe, el fallo es el de setSinkId (NotFoundError, antes de mirar los
+  // canales): mismo aviso que cd3, contexto de cue cerrado, y NINGÚN destination tocado (2 canales 'speakers').
+  const errCc1 = errores.length;
+  const actCc1 = await p.evaluate(() => window.__djCue.fijarCue('A', true));
+  const eCc1 = await esperar(() => p.evaluate(() => { const e = window.__djCue.cue(); return e.estado === 'error' ? e : null; }), 5000);
+  await esperar(() => p.evaluate(() => window.__ac.lista[1]?.state === 'closed'), 3000);
+  const cc1 = await p.evaluate(() => {
+    const dest = (c) => { try { return { cuenta: c.destination.channelCount, interp: c.destination.channelInterpretation }; } catch (e) { return { error: e.name }; } };
+    return { creados: window.__ac.creados, estados: window.__ac.lista.map((c) => c.state), sinks: window.__ac.sinks, master: dest(window.__ac.master()),
+      cue: window.__ac.lista[1] ? dest(window.__ac.lista[1]) : null, diag: window.__djCue.diag(), deck: document.querySelector('.dj-deck[data-lado="A"]')?.dataset.estado ?? null };
+  });
+  const avCc1 = await avance('A');
+  ok('cc1_34_salida_inexistente_falla_igual_y_master_intacto', actCc1 === true && !!eCc1 && eCc1.canales === '3-4'
+    && eCc1.aviso === 'No se encontró la salida «Salida falsa». Cue apagado; el master sigue igual.' && eCc1.activo.A === false
+    && cc1.creados === 2 && cc1.estados[0] === 'running' && cc1.estados[1] === 'closed' && cc1.sinks.length >= 1 && cc1.sinks.every((x) => x.i === 1)
+    && cc1.master?.cuenta === 2 && cc1.master?.interp === 'speakers' && cc1.cue?.cuenta === 2 && cc1.cue?.interp === 'speakers' && cc1.diag === null
+    && cc1.deck === 'sonando' && avCc1.p1 - avCc1.p0 > 0.5 && Math.abs((avCc1.p1 - avCc1.p0) - avCc1.pared) <= TOL_S && errores.length === errCc1,
+  { cue: eCc1, cc1, avance: avCc1, errores: errores.slice(errCc1) });
+  await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
   await p.evaluate(() => window.__player()?.pause());
   ok('d7_sin_errores_de_pagina', errores.length === 0, { errores });
 } catch (e) {
