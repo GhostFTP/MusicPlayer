@@ -79,6 +79,6 @@
     { "nombre": "buscar-func", "archivo": "buscar-func.mjs", "modo": "name-line", "esperado": { "ok": 34, "total": 34 } },
     { "nombre": "teclado-func", "archivo": "teclado-func.mjs", "modo": "name-line", "esperado": { "ok": 39, "total": 39 } },
     { "nombre": "dj-func", "archivo": "dj-func.mjs", "modo": "name-line", "esperado": { "ok": 73, "total": 73 } },
-    { "nombre": "dj-unit", "archivo": "dj-unit.mjs", "modo": "name-line", "esperado": { "ok": 84, "total": 84 } }
+    { "nombre": "dj-unit", "archivo": "dj-unit.mjs", "modo": "name-line", "esperado": { "ok": 116, "total": 116 } }
   ]
 }

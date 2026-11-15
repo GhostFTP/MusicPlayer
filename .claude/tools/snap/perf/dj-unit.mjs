@@ -5,7 +5,9 @@
 // motor.js con un AudioContext falso: la tasa del contexto (TASA_DJ = 44 100) y la mezcla del sub-paso c
 // (grafo, valores iniciales, rampas con TAU sin escribir .value, crossfader, filtro sin cambiar .type), y
 // midi.js (sub-paso d): interpretar, 14 bits, solo MSB / solo LSB, duplicados, el mapa del DDJ-400, el
-// colector del retraso y la conexión con un navigator.requestMIDIAccess falso.
+// colector del retraso y la conexión con un navigator.requestMIDIAccess falso, y cue.js (sub-paso e1, lo
+// puro del cue a audífonos): desfase, volumen, relojes master/cue, plan de una fuente de cue, lista de
+// salidas (con las 8 salidas reales de la máquina de Oscar), salida recordada y avisos.
 // Uso: node dj-unit.mjs
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
@@ -16,6 +18,7 @@ const { potenciaIgual, filtroBipolar, ZONA_MUERTA, PASO_BAJO, PASO_ALTO, gananci
 const { antesDeBajar, clasificarRespuesta, cargarPista, MAX_SEG, MEMORIA_AVISO_B, TASA_PEOR_CASO } = await desde('music-client/src/dj/motor/carga.js');
 const { crearMotor, TASA_DJ, TAU, Q_FILTRO } = await desde('music-client/src/dj/motor/motor.js');
 const { interpretar, crearCombinador, crearDeduplicador, valorParaMotor, aplicar, crearColector, crearConexionMidi, MAPA_DDJ400 } = await desde('music-client/src/dj/motor/midi.js');
+const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hayNombres, elegirGuardada, textoAviso, DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL } = await desde('music-client/src/dj/motor/cue.js');
 
 const R = {};
 // `ok` va DESPUÉS del detalle: varios detalles son resultados { ok: false, error } y no deben pisar el veredicto.
@@ -585,6 +588,132 @@ const motorFalso = (log = []) => ({
     ok('midi_denegado_y_sin_ddj400', cx.estado().estado === 'denegado' && lanzo === null && cy.estado().estado === 'esperando' && cx.stats === undefined && cx.reiniciar === undefined,
       { cx: cx.estado(), cy: cy.estado() });
   }
+}
+
+// ── cue.js (sub-paso e1): lo puro del cue a audífonos ──
+{
+  const cerca = (a, b, tol = 1e-12) => typeof a === 'number' && Math.abs(a - b) <= tol;
+  ok('cue_constantes', DESFASE_MAX_MS === 250 && VOLUMEN_CUE_INICIAL === 0.5, { DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL });
+
+  // recortarDesfase: redondeo al ms, ±250, basura → null.
+  const dentro = [0, 1, -1, 12, -120, 249, -249, 250, -250].map(recortarDesfase);
+  ok('cue_desfase_dentro_del_rango', JSON.stringify(dentro) === JSON.stringify([0, 1, -1, 12, -120, 249, -249, 250, -250]), { dentro });
+  const fuera = [251, 1000, -251, -1e9].map(recortarDesfase);
+  ok('cue_desfase_recorta_a_250', JSON.stringify(fuera) === JSON.stringify([250, 250, -250, -250]), { fuera });
+  const red = [12.4, 12.5, -12.4, -12.6, 0.4, -0.4, 249.6, -249.6].map(recortarDesfase);
+  ok('cue_desfase_redondea_al_ms', JSON.stringify(red) === JSON.stringify([12, 13, -12, -13, 0, 0, 250, -250]) && Object.is(recortarDesfase(-0.4), 0), { red });
+  const basura = [NaN, Infinity, -Infinity, undefined, null, '12', {}, []].map(recortarDesfase);
+  ok('cue_desfase_no_finito_es_null', basura.every((x) => x === null), { basura });
+
+  // volumenCue: v² con recorte a 0..1; basura → null.
+  const vols = [0, 0.5, 1, 0.3, -0.2, 1.7].map(volumenCue);
+  ok('cue_volumen_v2_y_recorte', vols[0] === 0 && vols[1] === 0.25 && vols[2] === 1 && cerca(vols[3], 0.09) && vols[4] === 0 && vols[5] === 1
+    && volumenCue(VOLUMEN_CUE_INICIAL) === 0.25, { vols });
+  const volsMal = [NaN, Infinity, undefined, null, '0.5'].map(volumenCue);
+  ok('cue_volumen_no_finito_es_null', volsMal.every((x) => x === null), { volsMal });
+
+  // offsetRelojes: master en 10,000 s cuando performance.now = 2000 ms; cue en 3,000 s cuando
+  // performance.now = 2500 ms → master a perf 0 = 8,0; cue a perf 0 = 0,5 → K = 7,5.
+  const oM = { contextTime: 10, performanceTime: 2000 }, oC = { contextTime: 3, performanceTime: 2500 };
+  const r1 = offsetRelojes({ salidaMaster: oM, salidaCue: oC, tiempoMaster: 99, tiempoCue: 1 });
+  ok('cue_relojes_por_salida', r1?.fuente === 'salida' && cerca(r1.K, 7.5), r1);
+  const r2 = offsetRelojes({ salidaMaster: oM, salidaCue: { contextTime: 0, performanceTime: 0 }, tiempoMaster: 10.2, tiempoCue: 2.7 });
+  ok('cue_relojes_fallback_performance_cero', r2?.fuente === 'currentTime' && cerca(r2.K, 7.5), r2);
+  const r3 = [
+    offsetRelojes({ salidaMaster: { contextTime: NaN, performanceTime: 5 }, salidaCue: oC, tiempoMaster: 4, tiempoCue: 1 }),
+    offsetRelojes({ salidaMaster: oM, salidaCue: { contextTime: 3, performanceTime: Infinity }, tiempoMaster: 4, tiempoCue: 1 }),
+    offsetRelojes({ salidaCue: oC, tiempoMaster: 4, tiempoCue: 1 }),
+  ];
+  ok('cue_relojes_fallback_dato_no_finito', r3.every((r) => r?.fuente === 'currentTime' && r.K === 3), { r3 });
+  const r4 = [offsetRelojes({}), offsetRelojes(), offsetRelojes({ salidaMaster: oM, tiempoMaster: 4, tiempoCue: NaN }), offsetRelojes({ tiempoMaster: 4 })];
+  ok('cue_relojes_sin_datos_null', r4.every((r) => r === null), { r4 });
+
+  // planCue. Deck que empezó (posición 0) en t = 100 del master; K = 7,5; se quiere arrancar en el cue en
+  // t = 93,025 → en el master es 100,525 → posición 0,525 s.
+  const base = { cero: 100, K: 7.5, desfaseMs: 0, cuandoCue: 93.025, duracion: 240 };
+  const p0 = planCue(base);
+  ok('cue_plan_caso_base', p0.crear === true && p0.cuando === 93.025 && cerca(p0.offset, 0.525, 1e-9), p0);
+  const pMas = planCue({ ...base, desfaseMs: 120 });
+  ok('cue_plan_desfase_positivo_atrasa', pMas.crear && pMas.cuando === p0.cuando && cerca(p0.offset - pMas.offset, 0.12) && pMas.offset < p0.offset, { p0, pMas, dif: p0.offset - pMas.offset });
+  const pMenos = planCue({ ...base, desfaseMs: -80 });
+  ok('cue_plan_desfase_negativo_adelanta', pMenos.crear && pMenos.cuando === p0.cuando && cerca(pMenos.offset - p0.offset, 0.08) && pMenos.offset > p0.offset, { p0, pMenos, dif: pMenos.offset - p0.offset });
+  // Borde: posición 0,525 y desfase +700 ms → offset −0,175: arranca 0,175 s más tarde, desde 0.
+  const pBorde = planCue({ ...base, desfaseMs: 700 });
+  ok('cue_plan_offset_negativo_retrasa_cuando', pBorde.crear && pBorde.offset === 0 && cerca(pBorde.cuando, 93.025 + 0.175, 1e-9), pBorde);
+  // Exactamente en el final (offset = duración, sin error de coma flotante: 2 + 0 − 0 − 0 = 2) también es no crear.
+  const pFin = [planCue({ cero: 0, K: 0, desfaseMs: 0, cuandoCue: 2, duracion: 2 }), planCue({ ...base, duracion: 0.4 }), planCue({ ...base, cuandoCue: 400 })];
+  ok('cue_plan_pasado_el_final_no_crea', pFin.every((p) => p.crear === false && Object.keys(p).length === 1), { pFin });
+  const pMal = ['cero', 'K', 'desfaseMs', 'cuandoCue', 'duracion'].flatMap((k) => [NaN, Infinity, undefined, '1'].map((v) => planCue({ ...base, [k]: v })));
+  ok('cue_plan_datos_no_finitos_no_crea', pMal.length === 20 && pMal.every((p) => p.crear === false) && planCue().crear === false, { n: pMal.length });
+
+  // filtrarSalidas con las 8 salidas REALES de la máquina de Oscar (Edge 157, ids recortados a 8; los
+  // groupId son los medidos).
+  const S = (deviceId, label, groupId) => ({ kind: 'audiooutput', deviceId, label, groupId });
+  const OSCAR = [
+    S('default', 'Predeterminado - Altavoces (Sound Blaster AE-7)', '34ddd597'),
+    S('communications', 'Comunicaciones - Línea (2- DDJ-400) (2b73:0026)', '2c8d69b7'),
+    S('dbc8637d', 'Línea (2- DDJ-400) (2b73:0026)', '2c8d69b7'),
+    S('e21c0e98', 'Headphones (Elgato Wave:XLR)', '7ce09e67'),
+    S('6d69ac2a', 'LG ULTRAWIDE (NVIDIA High Definition Audio)', '6d0c49ac'),
+    S('9d69141a', 'Altavoces (Sound Blaster AE-7)', '34ddd597'),
+    S('f01f9a0d', 'System (Elgato Virtual Audio)', '756a660f'),
+    S('3f2f5763', 'Elgato Wave:XLR (Elgato Virtual Audio)', '494ffa45'),
+  ];
+  const fs8 = filtrarSalidas(OSCAR);
+  ok('cue_salidas_fixture_real_6', fs8.length === 6 && !fs8.some((s) => s.id === 'default' || s.id === 'communications')
+    && JSON.stringify(fs8.map((s) => s.id)) === JSON.stringify(['dbc8637d', 'e21c0e98', '6d69ac2a', '9d69141a', 'f01f9a0d', '3f2f5763'])
+    && fs8.every((s) => Object.keys(s).join() === 'id,nombre,grupo,esMaster'), { ids: fs8.map((s) => s.id) });
+  const masters = fs8.filter((s) => s.esMaster);
+  ok('cue_salidas_esmaster_solo_la_ae7', masters.length === 1 && masters[0].id === '9d69141a' && masters[0].nombre === 'Altavoces (Sound Blaster AE-7)' && masters[0].grupo === '34ddd597'
+    && fs8.find((s) => s.id === 'dbc8637d').esMaster === false, { masters });
+  const sinDefault = filtrarSalidas(OSCAR.slice(1));
+  ok('cue_salidas_sin_default_nadie_es_master', sinDefault.length === 6 && sinDefault.every((s) => s.esMaster === false), { n: sinDefault.length });
+  // Sin permiso de micrófono: una salida sin id ni nombre (así la da el navegador).
+  const sinNombres = [{ kind: 'audiooutput', deviceId: '', label: '', groupId: '' }];
+  const conIdSinNombre = [S('9d69141a', '', '34ddd597'), S('e21c0e98', '   ', '7ce09e67')];
+  ok('cue_salidas_sin_nombres', filtrarSalidas(sinNombres).length === 0 && hayNombres(sinNombres) === false && filtrarSalidas(conIdSinNombre).length === 0 && hayNombres(conIdSinNombre) === false
+    && hayNombres(OSCAR) === true);
+  const mixtos = [{ kind: 'audioinput', deviceId: 'mic1', label: 'Micrófono (Elgato Wave:XLR)', groupId: '7ce09e67' }, { kind: 'videoinput', deviceId: 'cam1', label: 'Cámara', groupId: 'x' },
+    S('e21c0e98', 'Headphones (Elgato Wave:XLR)', '7ce09e67'), null, 42, { deviceId: 'sinkind', label: 'Sin kind' }];
+  const fm = filtrarSalidas(mixtos);
+  ok('cue_salidas_ignora_otros_kind', fm.length === 1 && fm[0].id === 'e21c0e98' && hayNombres([mixtos[0], mixtos[1]]) === false, { fm });
+  const noArr = [undefined, null, 'x', {}, 42].map(filtrarSalidas);
+  ok('cue_salidas_no_arreglo', noArr.every((l) => Array.isArray(l) && l.length === 0) && [undefined, null, {}].every((x) => hayNombres(x) === false));
+
+  // elegirGuardada.
+  const ae7 = fs8.find((s) => s.id === '9d69141a'), elg = fs8.find((s) => s.id === 'e21c0e98');
+  const g1 = elegirGuardada({ id: 'e21c0e98', nombre: 'Headphones (Elgato Wave:XLR)' }, fs8);
+  ok('cue_guardada_por_id', g1.motivo === 'id' && g1.salida === elg, g1);
+  const g1b = elegirGuardada({ id: 'e21c0e98', nombre: 'Otro nombre' }, fs8);
+  ok('cue_guardada_por_id_gana_al_nombre', g1b.motivo === 'id' && g1b.salida === elg, g1b);
+  const g2 = elegirGuardada({ id: 'idviejo1', nombre: 'Altavoces (Sound Blaster AE-7)' }, fs8);
+  ok('cue_guardada_por_nombre_si_cambio_el_id', g2.motivo === 'nombre' && g2.salida === ae7, g2);
+  const dos = [...fs8, { id: 'zz000001', nombre: 'Headphones (Elgato Wave:XLR)', grupo: '11111111', esMaster: false }];
+  const g3 = elegirGuardada({ id: 'idviejo2', nombre: 'Headphones (Elgato Wave:XLR)' }, dos);
+  ok('cue_guardada_nombre_ambiguo', g3.motivo === 'ambigua' && g3.salida === null, g3);
+  const g4 = [elegirGuardada({ id: 'idviejo3', nombre: 'Audífonos Bluetooth' }, fs8), elegirGuardada({ id: 'idviejo3' }, fs8),
+    elegirGuardada({ nombre: 'Headphones (Elgato Wave:XLR)' }, []), elegirGuardada({ id: 'e21c0e98' }, 'no es lista')];
+  ok('cue_guardada_ausente', g4.every((g) => g.motivo === 'ausente' && g.salida === null), { g4 });
+  const g5 = [null, undefined, 'e21c0e98', 42, [], {}, { id: 5, nombre: null }, { id: '', nombre: '  ' }].map((x) => elegirGuardada(x, fs8));
+  ok('cue_guardada_basura_y_sin_guardada', g5.every((g) => g.motivo === 'sin-guardada' && g.salida === null), { g5 });
+
+  // textoAviso.
+  const N = 'Headphones (Elgato Wave:XLR)';
+  const avisos = {
+    'no-conectada': 'La salida de audífonos «Headphones (Elgato Wave:XLR)» no está conectada. Cue apagado.',
+    desconectada: 'Se desconectó «Headphones (Elgato Wave:XLR)». Cue apagado; el master sigue igual.',
+    NotFoundError: 'No se encontró la salida «Headphones (Elgato Wave:XLR)». Cue apagado; el master sigue igual.',
+    NotAllowedError: 'El navegador no dejó usar la salida «Headphones (Elgato Wave:XLR)». Cue apagado; el master sigue igual.',
+    'misma-salida': 'Esa salida es la misma del master: el cue sonaría por los mismos altavoces.',
+    AbortError: 'No se pudo abrir la salida de audífonos (AbortError). Cue apagado; el master sigue igual.',
+  };
+  const malos = Object.entries(avisos).filter(([m, t]) => textoAviso(m, N) !== t).map(([m]) => [m, textoAviso(m, N)]);
+  ok('cue_aviso_textos', malos.length === 0, { malos });
+  ok('cue_aviso_invalidstate_es_null', textoAviso('InvalidStateError', N) === null && textoAviso('InvalidStateError', '') === null);
+  const vacios = ['', '   ', undefined, null].map((n) => textoAviso('desconectada', n));
+  ok('cue_aviso_nombre_vacio', vacios.every((t) => t === 'Se desconectó «esa salida». Cue apagado; el master sigue igual.')
+    && textoAviso('NotFoundError', '') === 'No se encontró la salida «esa salida». Cue apagado; el master sigue igual.'
+    && textoAviso(undefined, N) === 'No se pudo abrir la salida de audífonos (error desconocido). Cue apagado; el master sigue igual.', { vacios });
 }
 
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
