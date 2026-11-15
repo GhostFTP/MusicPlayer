@@ -799,6 +799,73 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
       ok('motor_cue_notifica_por_suscribir', vistos.includes('abriendo') && vistos.includes('lista') && vistos.indexOf('abriendo') < vistos.lastIndexOf('lista') && vistos.length === n1 + 2, { vistos });
       x.m.cerrar();
     }
+    // ── diagCue (sub-paso e2b) ──
+    // Sin contexto de cue → null: motor recién creado, con el master y con la salida elegida (sólo guardada).
+    {
+      const m = crearMotor();
+      const d0 = m.diagCue();
+      m.asegurarContexto();
+      const d1 = m.diagCue();
+      await m.fijarSalidaCue(ID, NOMBRE);
+      const d2 = m.diagCue();
+      ok('motor_cue_diag_sin_contexto_null', d0 === null && d1 === null && d2 === null && m.contextoCue() === null, { d0, d1, d2 });
+      m.cerrar();
+    }
+    // Con el cue lista: K = la de offsetRelojes con los relojes falsos (por getOutputTimestamp), deriva 0
+    // justo tras sincronizar; si el timestamp falso del cue avanza 4 ms más que el del master, deriva −4 ms.
+    // Y lo que dice cada contexto.
+    {
+      const x = await armar();
+      const kEsp = offsetRelojes({ salidaMaster: x.cm.getOutputTimestamp(), salidaCue: x.cc.getOutputTimestamp(), tiempoMaster: x.cm.currentTime, tiempoCue: x.cc.currentTime });
+      const d0 = x.m.diagCue();
+      x.cc.ots = { contextTime: 2.95 + 0.004, performanceTime: 120010 };
+      const d1 = x.m.diagCue();
+      const fuentesAntes = fuentes(x.cc).length;
+      ok('motor_cue_diag_K_y_deriva', !!d0 && d0.fuente === 'salida' && kEsp.fuente === 'salida' && cerca(d0.K, kEsp.K, 1e-12) && cerca(d0.K, 47.018, 1e-9)
+        && cerca(d0.derivaMs, 0, 1e-9) && d0.desdeS >= 0 && d0.desdeS < 1
+        && !!d1 && cerca(d1.K, kEsp.K - 0.004, 1e-9) && cerca(d1.derivaMs, -4, 1e-6) && d1.derivaMs !== 0
+        && d0.contextos.master.state === 'running' && d0.contextos.master.sampleRate === 44100 && d0.contextos.master.sinkId === ''
+        && d0.contextos.cue.state === 'running' && d0.contextos.cue.sampleRate === 44100 && d0.contextos.cue.sinkId === ID
+        && fuentes(x.cc).length === fuentesAntes && x.m.cue().estado === 'lista', { kEsp, d0, d1 });
+      // Después de cerrar() → null.
+      x.m.cerrar();
+      ok('motor_cue_diag_tras_cerrar_null', x.m.diagCue() === null && x.cc.state === 'closed', { cc: x.cc.state });
+    }
+    // Sin ninguna sincronización en ESTE contexto de cue (la del contexto anterior no cuenta): deriva y
+    // desdeS null, K igual.
+    {
+      const x = await armar();
+      const conSync = x.m.diagCue();
+      await x.m.fijarSalidaCue(null);
+      x.m.decks.A.pausa();
+      await x.m.fijarSalidaCue(ID, NOMBRE);
+      x.m.fijarCue('A', true);
+      const yc = x.m.contextoCue();
+      yc.currentTime = 3; yc.ots = { contextTime: 2.95, performanceTime: 120010 };
+      await listo();
+      const d = x.m.diagCue();
+      ok('motor_cue_diag_sin_sincronizar_deriva_null', conSync?.derivaMs === 0 && yc !== x.cc && x.m.cue().estado === 'lista' && fuentes(yc).length === 0
+        && !!d && d.derivaMs === null && d.desdeS === null && cerca(d.K, 47.018, 1e-9) && d.fuente === 'salida', { conSync, d });
+      x.m.cerrar();
+    }
+    // Nunca lanza: con baseLatency/outputLatency/sinkId que lanzan al leerse y getOutputTimestamp roto, el
+    // campo queda en null y K cae al respaldo currentTime (50 − 3).
+    {
+      const x = await armar();
+      const boom = () => { throw new Error('leer en un contexto cerrado'); };
+      for (const c of [x.cm, x.cc]) {
+        Object.defineProperty(c, 'baseLatency', { configurable: true, get: boom });
+        Object.defineProperty(c, 'outputLatency', { configurable: true, get: boom });
+        c.getOutputTimestamp = boom;
+      }
+      Object.defineProperty(x.cc, 'sinkId', { configurable: true, get: boom });
+      let lanzo = null, d = null;
+      try { d = x.m.diagCue(); } catch (e) { lanzo = String(e); }
+      ok('motor_cue_diag_no_lanza', lanzo === null && !!d && d.contextos.cue.baseLatency === null && d.contextos.master.baseLatency === null
+        && d.contextos.cue.outputLatency === null && d.contextos.cue.sinkId === null && d.contextos.cue.state === 'running'
+        && d.fuente === 'currentTime' && cerca(d.K, 47, 1e-12) && cerca(d.derivaMs, (47 - 47.018) * 1000, 1e-6), { lanzo, d });
+      x.m.cerrar();
+    }
     // El master NUNCA recibió setSinkId (todos los contextos sin sinkId en el constructor son masters).
     {
       const masters = creados.filter((c) => !(c.opciones && 'sinkId' in c.opciones));

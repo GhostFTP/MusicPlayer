@@ -29,6 +29,12 @@
 //         centro del filtro en la zona muerta (k2); duplicados sin rampas extra (k3); 0 escrituras de .value
 //         (k4); desconexión y reconexión (k5); salir y volver no duplica oyentes (k6); UI agrupada por cuadro
 //         (k10); al final, con recargas: sin Web MIDI (k7), permiso denegado (k8), ?diag=1 (k9, k9b).
+//   · cd  (sub-paso e2b, la puerta de diagnóstico del cue, sin hardware) sin ?diag=1 no hay window.__djCue,
+//         ni con la consola montada ni tras recargar (cd0); con ?diag=1 está con sus 6 funciones y el cue
+//         'sin-salida' (cd1); cargar en A crea UN contexto sin ningún setSinkId (cd2); con A sonando, una
+//         salida que no existe: 2.º contexto, estado 'error' con el aviso exacto, sin contexto de cue
+//         (diag() null) y el master intacto: 'running', A avanza, mezcla igual en la UI y en los AudioParam
+//         (cd3); salir de /dj quita window.__djCue y deja los dos contextos 'closed' (cd4).
 //   · d6  con radio activa (anfitrión de una radio REAL, creada con «Iniciar radio» como radio-func) /dj
 //         no pausa nada (ni isPlaying ni el pause() nativo), muestra «Sal de la radio para usar el Modo
 //         DJ» y deja la barra visible; tampoco tapa teclas: Espacio llega al reproductor normal y lo
@@ -69,6 +75,13 @@ await ctx.addInitScript(() => {
   // setTargetAtTime y cambios de BiquadFilterNode.type. Los getters quedan nativos (leer .value da el
   // valor que el AudioParam tiene en ese momento, con la rampa aplicada).
   reg.aristas = []; reg.escrituras = 0; reg.rampas = 0; reg.tipos = 0; reg.volA = null;
+  // Cue (sub-paso e2b): cada setSinkId con el índice de SU contexto en reg.lista (el master no debe recibir
+  // ninguno). El master = el último contexto creado SIN sinkId en el constructor (el de cue lo trae: { type:
+  // 'none' }); el grafo y las lecturas de la mezcla son siempre del master.
+  reg.sinks = [];
+  const ss = AC.prototype.setSinkId;
+  if (typeof ss === 'function') AC.prototype.setSinkId = function (id, ...r) { reg.sinks.push({ i: reg.lista.indexOf(this), id: typeof id === 'string' ? id : JSON.stringify(id) }); return ss.call(this, id, ...r); };
+  reg.master = () => reg.lista.filter((c, i) => !(reg.opciones[i] && typeof reg.opciones[i] === 'object' && 'sinkId' in reg.opciones[i])).at(-1) ?? null;
   const con = AudioNode.prototype.connect;
   AudioNode.prototype.connect = function (d, ...r) { reg.aristas.push([this, d]); return con.call(this, d, ...r); };
   const dv = Object.getOwnPropertyDescriptor(AudioParam.prototype, 'value');
@@ -80,13 +93,13 @@ await ctx.addInitScript(() => {
   // El grafo del contexto vivo por TOPOLOGÍA, no por orden de creación. volA = el nodo al que se conectó
   // la fuente del deck A (marcarA, llamado justo después del play de A); volB = el otro vol.
   reg.marcarA = () => {
-    const c = reg.lista.at(-1);
+    const c = reg.master();
     const f = reg.aristas.filter(([s]) => s instanceof AudioBufferSourceNode && s.context === c).at(-1);
     reg.volA = f ? f[1] : null;
     return !!reg.volA;
   };
   reg.grafo = () => {
-    const c = reg.lista.at(-1);
+    const c = reg.master();
     if (!c) return null;
     const ar = reg.aristas.filter(([s]) => s.context === c && !(s instanceof AudioBufferSourceNode));
     const entra = (n) => [...new Set(ar.filter(([, d]) => d === n).map(([s]) => s))];
@@ -366,7 +379,7 @@ try {
   // Espera ≥ 0,12 s de reloj de AUDIO (currentTime) después del último cambio: 12·TAU, el AudioParam está a
   // e^−12 ≈ 6e-6 del objetivo. Después lee los AudioParam reales del grafo.
   const asentarYLeer = () => p.evaluate(async () => {
-    const c = window.__ac.lista.at(-1);
+    const c = window.__ac.master();
     const t0 = c.currentTime, w0 = performance.now();
     while (c.currentTime < t0 + 0.12 && performance.now() - w0 < 3000) await new Promise((r) => setTimeout(r, 20));
     return { ...window.__ac.leer(), espera: c.currentTime - t0 };
@@ -376,6 +389,8 @@ try {
   await p.waitForSelector('.dj-fila', { timeout: 15000 }).catch(() => {});
   const a0 = await ac();
   ok('m0_sin_audiocontext_al_entrar', a0.creados === 0 && !!(await deck('A')) && (await deck('A')).estado === 'vacio', a0);
+  // cd0 (1.ª mitad): la consola montada SIN ?diag=1 no expone el cue. La 2.ª mitad, tras recargar /dj (abajo).
+  const cd0a = await p.evaluate(() => ({ existe: '__djCue' in window, consola: !!document.querySelector('.dj-mezcla'), url: location.pathname + location.search }));
 
   // x0: mover la mezcla ANTES del primer «Cargar» sólo guarda el valor: no crea AudioContext ni da error.
   // (x1 comprueba que esos valores son los iniciales de los nodos al crearse el contexto.)
@@ -737,8 +752,18 @@ try {
   // setter; reiniciar() vacía. Layout canoniza la URL a /dj (la query desaparece de la barra).
   await recargarDj(null, '/dj?diag=1');
   const d9 = await p.evaluate(() => ({ hay: typeof window.__djMidi?.stats === 'function' && typeof window.__djMidi?.reiniciar === 'function', url: location.pathname + location.search, stats: window.__djMidi?.stats() ?? null }));
+  // cd1: con ?diag=1, window.__djCue con sus 6 funciones (y sólo ésas); el cue sin salida y sin contexto.
+  const FN_CUE = ['fijarSalidaCue', 'fijarCue', 'fijarVolumenCue', 'fijarDesfaseCue', 'cue', 'diag'];
+  const cd1 = await p.evaluate((fns) => {
+    const c = window.__djCue;
+    return { claves: c ? Object.keys(c).sort() : null, funciones: c ? fns.every((k) => typeof c[k] === 'function') : false, estado: c?.cue?.().estado ?? null, diag: c ? c.diag() : 'sin-djCue' };
+  }, FN_CUE);
+  ok('cd1_diag_expone_djCue', cd1.funciones && JSON.stringify(cd1.claves) === JSON.stringify([...FN_CUE].sort()) && cd1.estado === 'sin-salida' && cd1.diag === null, cd1);
   await cargarEn('A', n1);
   await esperarDeck('A', (d) => d.estado === 'pausa');
+  // cd2: cargar en A crea UN contexto (el master) y nadie llama a setSinkId.
+  const cd2 = await p.evaluate(() => ({ creados: window.__ac.creados, sinks: window.__ac.sinks.length, opciones: window.__ac.opciones[0] }));
+  ok('cd2_cargar_un_contexto_sin_setSinkId', cd2.creados === 1 && cd2.sinks === 0 && !(cd2.opciones && 'sinkId' in cd2.opciones), cd2);
   await p.locator(sel('A', '.dj-play')).click();
   await esperarDeck('A', (d) => d.estado === 'sonando', 2000);
   await p.locator('.dj-midi-conectar').click();
@@ -751,11 +776,46 @@ try {
   ok('k9_diag_expone_y_mide', d9.hay && d9.url === '/dj' && d9.stats?.n === 0 && s9.n === 10 && s9.mediana >= 0 && s9.p95 >= s9.mediana && s9.max >= s9.p95
     && s9.sampleRate === 44100 && s9.latencyHint === 'interactive' && typeof s9.baseLatency === 'number' && typeof s9.outputLatency === 'number' && s9b.n === 0,
   { d9, s9, s9b });
+  // cd3: con A sonando, una salida de audífonos que NO existe. setSinkId rechaza (NotFoundError) → cue en
+  // 'error' con el aviso exacto y sin contexto de cue; el master no se entera.
+  const mezclaCd3 = async () => { const a = await asentarYLeer(); return { ui: await valoresUi(), audio: a && typeof a.volA === 'number' ? { volA: a.volA, volB: a.volB, xfA: a.xfA, xfB: a.xfB, lp: a.lp, hp: a.hp } : null }; };
+  // Tras la recarga hay que volver a identificar el vol de A (su fuente es la última conectada en el master).
+  const marcadoCd3 = await p.evaluate(() => window.__ac.marcarA());
+  const antesCd3 = await mezclaCd3();
+  const errCd3 = errores.length;
+  const llamadasCd3 = await p.evaluate(async () => {
+    const r1 = await window.__djCue.fijarSalidaCue('no-existe-0123456789abcdef', 'Salida falsa');
+    const r2 = window.__djCue.fijarCue('A', true);
+    return { r1, r2 };
+  });
+  const cueCd3 = await esperar(() => p.evaluate(() => { const e = window.__djCue.cue(); return e.estado === 'error' ? e : null; }), 5000);
+  await esperar(() => p.evaluate(() => window.__ac.lista[1]?.state === 'closed'), 3000);
+  const ctxCd3 = await p.evaluate(() => ({ creados: window.__ac.creados, estados: window.__ac.lista.map((c) => c.state), opciones1: window.__ac.opciones[1] ?? null,
+    sinks: window.__ac.sinks, diag: window.__djCue.diag(), deck: document.querySelector('.dj-deck[data-lado="A"]')?.dataset.estado ?? null }));
+  const avCd3 = await avance('A');
+  const despuesCd3 = await mezclaCd3();
+  const igualAudio = (x, y) => !!x && !!y && Object.keys(x).every((k) => cercaAbs(x[k], y[k], 1e-6 * Math.max(1, Math.abs(y[k]))));
+  ok('cd3_salida_inexistente_error_y_master_intacto', marcadoCd3 && llamadasCd3.r1?.ok === true && llamadasCd3.r2 === true && !!cueCd3
+    && cueCd3.aviso === 'No se encontró la salida «Salida falsa». Cue apagado; el master sigue igual.' && cueCd3.activo.A === false
+    && ctxCd3.creados === 2 && ctxCd3.diag === null && ctxCd3.estados[0] === 'running' && ctxCd3.estados[1] === 'closed'
+    && JSON.stringify(ctxCd3.opciones1?.sinkId) === JSON.stringify({ type: 'none' }) && ctxCd3.sinks.length >= 1 && ctxCd3.sinks.every((x) => x.i === 1)
+    && ctxCd3.deck === 'sonando' && avCd3.p1 - avCd3.p0 > 0.5 && Math.abs((avCd3.p1 - avCd3.p0) - avCd3.pared) <= TOL_S
+    && JSON.stringify(antesCd3.ui) === JSON.stringify(despuesCd3.ui) && igualAudio(despuesCd3.audio, antesCd3.audio) && errores.length === errCd3,
+  { llamadas: llamadasCd3, cue: cueCd3, ctx: ctxCd3, avance: avCd3, antes: antesCd3, despues: despuesCd3, errores: errores.slice(errCd3) });
   await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
+  // cd4: salir de /dj (navegando, sin recargar: los contadores siguen) quita window.__djCue y los contextos
+  // creados quedan 'closed'.
+  await irA('Biblioteca');
+  const leerCd4 = () => p.evaluate(() => ({ existe: '__djCue' in window, ruta: location.pathname, creados: window.__ac.creados, estados: window.__ac.lista.map((c) => c.state) }));
+  const cd4 = await esperar(async () => { const r = await leerCd4(); return !r.existe && r.estados.every((s) => s === 'closed') ? r : null; }, 3000) ?? await leerCd4();
+  ok('cd4_salir_quita_djCue_y_cierra_los_contextos', !cd4.existe && cd4.ruta === '/' && cd4.creados === 2 && cd4.estados.length === 2 && cd4.estados.every((s) => s === 'closed'), cd4);
   // k9b: sin ?diag=1 no existe.
   await recargarDj(null, '/dj');
   const d9b = await p.evaluate(() => ({ existe: '__djMidi' in window, url: location.pathname + location.search }));
   ok('k9b_sin_diag_no_hay_djMidi', !d9b.existe && d9b.url === '/dj', d9b);
+  // cd0 (2.ª mitad): tras recargar /dj sin ?diag=1, con la consola montada, tampoco hay window.__djCue.
+  const cd0b = await p.evaluate(() => ({ existe: '__djCue' in window, consola: !!document.querySelector('.dj-mezcla'), url: location.pathname + location.search }));
+  ok('cd0_sin_diag_no_hay_djCue', !cd0a.existe && cd0a.consola && cd0a.url === '/dj' && !cd0b.existe && cd0b.consola && cd0b.url === '/dj', { cd0a, cd0b });
   await p.evaluate(() => window.__player()?.pause());
   ok('d7_sin_errores_de_pagina', errores.length === 0, { errores });
 } catch (e) {

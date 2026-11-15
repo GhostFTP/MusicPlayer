@@ -219,7 +219,9 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
     volumen: VOLUMEN_CUE_INICIAL, desfaseMs: 0,
     fuentes: { A: null, B: null },
     gen: 0, quitarOyentes: null, cortarEspera: null,
+    ultimaSync: null,   // { K, t (performance.now) } de la última fuente de cue creada; sólo lo lee diagCue
   };
+  const ahora = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const decks = { A: crearDeck(avisar, (ev) => alFuenteDeck('A', ev)), B: crearDeck(avisar, (ev) => alFuenteDeck('B', ev)) };
   // Valores OBJETIVO de la mezcla (los del control, no lo que vale el AudioParam en este instante).
   const mezcla = { volumen: { ...MEZCLA_INICIAL.volumen }, crossfader: MEZCLA_INICIAL.crossfader, filtro: MEZCLA_INICIAL.filtro };
@@ -275,6 +277,7 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
       };
       f.start(plan.cuando, plan.offset);
       cue.fuentes[lado] = f;
+      cue.ultimaSync = { K: k.K, t: ahora() };   // sólo para diagCue
     } catch { /* contexto cerrándose */ }
   }
   const sincronizarCues = () => { for (const lado of ['A', 'B']) sincronizarCue(lado); };
@@ -300,6 +303,7 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
     cue.ctx = null;
     cue.nodos = null;
     cue.pedido = null;
+    cue.ultimaSync = null;   // la K de otro contexto no vale para el próximo
     if (c) { try { c.close().catch(() => {}); } catch { /* ya cerrado */ } }
   }
   // Un fallo del cue: se apaga, se cierra su contexto y queda el aviso. El master no se toca.
@@ -559,6 +563,36 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
       return { salida: cue.salida, nombre: cue.nombre, estado: cue.estado, activo: { ...cue.activo }, volumen: cue.volumen, desfaseMs: cue.desfaseMs, aviso: cue.aviso };
     },
     contextoCue() { return cue.ctx; },
+    // Diagnóstico del cue (sub-paso e2b; lo expone DjPage con ?diag=1 en window.__djCue.diag). null sin
+    // contexto de cue. Si hay: K y fuente de offsetRelojes con los dos relojes leídos AHORA (en la misma
+    // tarea); derivaMs = (K ahora − K de la última sincronización) × 1000 y desdeS = segundos desde esa
+    // sincronización (null los dos si todavía no hubo ninguna en este contexto de cue); y lo que dice cada
+    // contexto (cada campo leído aparte: en un contexto cerrado puede lanzar → null). Sólo lee: no
+    // resincroniza ni cambia nada. Nunca lanza.
+    diagCue() {
+      try {
+        const cc = cue.ctx;
+        if (!cc) return null;
+        const leer = (f) => { try { const v = f(); return v === undefined ? null : v; } catch { return null; } };
+        const salida = (c) => (c ? leer(() => c.getOutputTimestamp?.()) : null);
+        const k = offsetRelojes({ salidaMaster: salida(ctx), salidaCue: salida(cc), tiempoMaster: ctx ? leer(() => ctx.currentTime) : null, tiempoCue: leer(() => cc.currentTime) });
+        const u = cue.ultimaSync;
+        const sink = (c) => { const s = c.sinkId; return s && typeof s === 'object' ? { type: s.type } : s; };
+        const datos = (c) => (c ? {
+          state: leer(() => c.state), sampleRate: leer(() => c.sampleRate), baseLatency: leer(() => c.baseLatency),
+          outputLatency: leer(() => c.outputLatency), sinkId: leer(() => sink(c)),
+        } : null);
+        return {
+          K: k ? k.K : null,
+          fuente: k ? k.fuente : null,
+          derivaMs: k && u ? (k.K - u.K) * 1000 : null,
+          desdeS: u ? (ahora() - u.t) / 1000 : null,
+          contextos: { master: datos(ctx), cue: datos(cc) },
+        };
+      } catch {
+        return null;
+      }
+    },
 
     // Para todo, suelta los buffers y cierra LOS DOS contextos (master y cue; un setSinkId pendiente del
     // cue rechaza con InvalidStateError y se descarta). Idempotente; después el motor no suena más (los

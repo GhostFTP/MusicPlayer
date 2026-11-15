@@ -24,6 +24,8 @@ import { crearConexionMidi } from './motor/midi.js';
 //  · ?diag=1 (/dj?diag=1): expone window.__djMidi = { stats(), reiniciar() } con el retraso MIDI →
 //    AudioParam. Se lee en el PRIMER render: Layout, al montar, canoniza la URL con replaceState('/dj')
 //    y la query desaparece de la barra (pathToState sólo mira el pathname). Sin ?diag=1 no se mide nada.
+//    Con ?diag=1 también window.__djCue (sub-paso e2b): el cue a audífonos del motor, para probarlo con
+//    el hardware desde la consola antes de que haya selector.
 //
 //  · Radio activa (fase distinta de 'sin-radio'): la página sólo pide salir de la radio y NO toma
 //    nada (no pausa, no tapa teclas, NO monta la consola → no crea AudioContext). La barra del
@@ -165,6 +167,21 @@ function ConsolaDj({ diag }) {
     conexion.autoConectar();
     const expuesto = diag ? { stats: () => conexion.stats(), reiniciar: () => conexion.reiniciar() } : null;
     if (expuesto) window.__djMidi = expuesto;
+    // Sub-paso e2b: el cue a audífonos desde la consola, antes de que exista el selector. Envoltorios finos
+    // del motor; sólo con ?diag=1. fijarCue(lado, true) crea el contexto de cue y NECESITA UN GESTO DEL
+    // USUARIO (si no, el contexto nace 'suspended'): desde la consola de Edge sirve porque la página ya
+    // tuvo clics (la activación del usuario queda pegada a la página). Ej.: tras «Cargar» y play en A,
+    //   const s = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
+    //   await __djCue.fijarSalidaCue(s[1].deviceId, s[1].label); __djCue.fijarCue('A', true); __djCue.diag();
+    const expuestoCue = diag ? {
+      fijarSalidaCue: (deviceId, nombre) => m.fijarSalidaCue(deviceId, nombre),
+      fijarCue: (lado, activo) => m.fijarCue(lado, activo),
+      fijarVolumenCue: (v) => m.fijarVolumenCue(v),
+      fijarDesfaseCue: (ms) => m.fijarDesfaseCue(ms),
+      cue: () => m.cue(),
+      diag: () => m.diagCue(),
+    } : null;
+    if (expuestoCue) window.__djCue = expuestoCue;
     setVersion((v) => v + 1);
     const controles = controlesRef.current;
     return () => {
@@ -174,6 +191,7 @@ function ConsolaDj({ diag }) {
       m.cerrar();          // también cierra la conexión MIDI (alCerrar)
       conexion.cerrar();   // idempotente
       if (expuesto && window.__djMidi === expuesto) delete window.__djMidi;
+      if (expuestoCue && window.__djCue === expuestoCue) delete window.__djCue;
       if (motorRef.current === m) motorRef.current = null;
       if (midiRef.current === conexion) midiRef.current = null;
     };
