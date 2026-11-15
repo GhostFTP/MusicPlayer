@@ -16,7 +16,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..
 const desde = (p) => import(pathToFileURL(join(ROOT, p)).href);
 const { potenciaIgual, filtroBipolar, ZONA_MUERTA, PASO_BAJO, PASO_ALTO, gananciaVolumen, filtroFrecuencias, LP_NEUTRA, HP_NEUTRA } = await desde('music-client/src/dj/motor/mezcla.js');
 const { antesDeBajar, clasificarRespuesta, cargarPista, MAX_SEG, MEMORIA_AVISO_B, TASA_PEOR_CASO } = await desde('music-client/src/dj/motor/carga.js');
-const { crearMotor, TASA_DJ, TAU, Q_FILTRO } = await desde('music-client/src/dj/motor/motor.js');
+const { crearMotor, TASA_DJ, TAU, Q_FILTRO, GUARDA_CUE } = await desde('music-client/src/dj/motor/motor.js');
 const { interpretar, crearCombinador, crearDeduplicador, valorParaMotor, aplicar, crearColector, crearConexionMidi, MAPA_DDJ400 } = await desde('music-client/src/dj/motor/midi.js');
 const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hayNombres, elegirGuardada, textoAviso, DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL } = await desde('music-client/src/dj/motor/cue.js');
 
@@ -415,6 +415,406 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
   }
 }
 
+// ── motor.js · cue a audífonos (sub-paso e2), con AudioContext falsos ──
+// ACCue: como ACFalso, más sinkId en el constructor, setSinkId configurable (ACCue.modo: resuelve |
+// rechaza con un name | pendiente; vuelve: false = se queda en 'suspended'), getOutputTimestamp (ots),
+// start(when, offset) y stop(t) registrados, estados con statechange y oyentes contados. Como Chromium,
+// al resolver setSinkId el contexto pasa por 'suspended' y vuelve a 'running' en la tarea siguiente.
+{
+  const creados = [];
+  const err = (name) => Object.assign(new Error(name), { name });
+  const espera = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+  const listo = async () => { await espera(); await espera(); };
+  let sinAtrapar = 0;
+  const alRechazo = () => { sinAtrapar++; };
+  process.on('unhandledRejection', alRechazo);
+  const param = (ini) => {
+    const p = { _v: ini, escrituras: 0, rampas: [] };
+    Object.defineProperty(p, 'value', { get() { return p._v; }, set(v) { p._v = v; p.escrituras++; } });
+    p.setTargetAtTime = (v, t, tau) => { p.rampas.push({ v, t, tau }); };
+    return p;
+  };
+  class Nodo {
+    constructor(ctx, clase) { this.context = ctx; this.clase = clase; this.salidas = []; this.desconexiones = 0; ctx.nodos.push(this); }
+    connect(d) { this.salidas.push(d); return d; }
+    disconnect() { this.desconexiones++; }
+  }
+  class ACCue {
+    constructor(op) {
+      this.opciones = op === undefined ? null : JSON.parse(JSON.stringify(op));
+      this.sampleRate = op?.sampleRate ?? 96000; this.state = 'running'; this.currentTime = 1.25;
+      this.sinkId = op && 'sinkId' in op ? op.sinkId : '';
+      this.nodos = []; this.destination = new Nodo(this, 'destination');
+      this.sinks = []; this.pendientes = []; this.oy = {}; this.ots = { contextTime: 0, performanceTime: 0 }; this.cierres = 0;
+      this.modo = ACCue.modo;
+      creados.push(this);
+    }
+    addEventListener(t, fn) { (this.oy[t] ??= new Set()).add(fn); }
+    removeEventListener(t, fn) { this.oy[t]?.delete(fn); }
+    emitir(t) { for (const fn of [...(this.oy[t] ?? [])]) fn({ type: t }); }
+    ponerEstado(s) { this.state = s; this.emitir('statechange'); }
+    oyentes() { return Object.values(this.oy).reduce((s, x) => s + x.size, 0); }
+    setSinkId(id) {
+      this.sinks.push(id);
+      const m = this.modo;
+      if (this.state === 'closed') return Promise.reject(err('InvalidStateError'));
+      if (m.tipo === 'rechaza') return Promise.reject(err(m.name));
+      const aplicar = () => {
+        this.sinkId = id;
+        this.ponerEstado('suspended');
+        if (m.vuelve !== false) setTimeout(() => { if (this.state === 'suspended') this.ponerEstado('running'); }, 0);
+      };
+      if (m.tipo === 'pendiente') return new Promise((res, rej) => this.pendientes.push({ id, resolver: () => { aplicar(); res(); }, rechazar: (n) => rej(err(n)) }));
+      aplicar();
+      return Promise.resolve();
+    }
+    getOutputTimestamp() { return { ...this.ots }; }
+    createGain() { const n = new Nodo(this, 'gain'); n.gain = param(1); return n; }
+    createBiquadFilter() { const n = new Nodo(this, 'biquad'); n.type = 'lowpass'; n.frequency = param(350); n.Q = param(1); return n; }
+    createBufferSource() {
+      const n = new Nodo(this, 'fuente'); n.inicios = []; n.paradas = [];
+      n.start = (when, offset) => { n.inicios.push([when, offset]); };
+      n.stop = (t) => { n.paradas.push(t); };
+      return n;
+    }
+    resume() { this.resumes = (this.resumes ?? 0) + 1; return Promise.resolve(); }
+    close() { this.cierres++; for (const p of this.pendientes.splice(0)) p.rechazar('InvalidStateError'); this.ponerEstado('closed'); return Promise.resolve(); }
+  }
+  ACCue.modo = { tipo: 'resuelve' };
+  const AC0 = globalThis.AudioContext;
+  globalThis.AudioContext = ACCue;
+  const cerca = (a, b, tol = 1e-9) => typeof a === 'number' && Math.abs(a - b) <= tol;
+  const ID = 'e21c0e98', NOMBRE = 'Headphones (Elgato Wave:XLR)', ID2 = '9d69141a', NOMBRE2 = 'Altavoces (Sound Blaster AE-7)';
+  const fuentes = (c) => c.nodos.filter((n) => n.clase === 'fuente');
+  const gains = (c) => c.nodos.filter((n) => n.clase === 'gain');
+  // Un motor con el master creado, una pista en A sonando desde el master t = 10 (cero = 10) y la salida
+  // elegida. Relojes: master en 50 (posición 40), cue en 3.
+  const armar = async ({ modo = { tipo: 'resuelve' }, opciones = {}, activar = true } = {}) => {
+    ACCue.modo = modo;
+    const m = crearMotor(opciones);
+    const cm = m.asegurarContexto();
+    const buf = { duration: 240 };
+    m.decks.A.cargarBuffer(buf);
+    cm.currentTime = 10;
+    m.decks.A.play();
+    cm.currentTime = 50; cm.ots = { contextTime: 49.958, performanceTime: 120000 };
+    await m.fijarSalidaCue(ID, NOMBRE);
+    let cc = null;
+    if (activar) {
+      m.fijarCue('A', true);
+      cc = m.contextoCue();
+      if (cc) { cc.currentTime = 3; cc.ots = { contextTime: 2.95, performanceTime: 120010 }; }
+      await listo();
+    }
+    return { m, cm, cc, buf };
+  };
+  // Lo que tiene que dar planCue con esos relojes (cue.js, probado en e1).
+  const esperado = (desfaseMs, cc, cm, cero = 10, duracion = 240) => {
+    const k = offsetRelojes({ salidaMaster: cm.getOutputTimestamp(), salidaCue: cc.getOutputTimestamp(), tiempoMaster: cm.currentTime, tiempoCue: cc.currentTime });
+    return planCue({ cero, K: k.K, desfaseMs, cuandoCue: cc.currentTime + GUARDA_CUE, duracion });
+  };
+  try {
+    // Antes de activar un cue no hay contexto de cue: 0 al crear el motor, 1 (el master) al cargar,
+    // y elegir la salida sólo la guarda.
+    {
+      ACCue.modo = { tipo: 'resuelve' };
+      const n0 = creados.length;
+      const m = crearMotor();
+      const alCrear = creados.length - n0;
+      m.asegurarContexto();
+      const alCargar = creados.length - n0;
+      const r = await m.fijarSalidaCue(ID, NOMBRE);
+      const e = m.cue();
+      ok('motor_cue_sin_contexto_antes_de_activar', alCrear === 0 && alCargar === 1 && creados.length - n0 === 1 && r.ok === true && m.contextoCue() === null
+        && e.estado === 'lista' && e.salida === ID && e.nombre === NOMBRE && e.activo.A === false && e.volumen === 0.5 && e.desfaseMs === 0 && e.aviso === null, { alCrear, alCargar, r, e });
+      m.cerrar();
+    }
+    // fijarSalidaCue sólo acepta un string no vacío (o null); fijarCue sin salida o con otro lado → false.
+    {
+      const n0 = creados.length;
+      const m = crearMotor();
+      m.asegurarContexto();
+      const sinSalida = m.fijarCue('A', true);
+      const malas = await Promise.all(['', 42, undefined, {}, ['x']].map((v) => m.fijarSalidaCue(v)));
+      const tras = m.cue();
+      await m.fijarSalidaCue(ID, NOMBRE);
+      const otroLado = m.fijarCue('C', true);
+      const rNull = await m.fijarSalidaCue(null);
+      const e = m.cue();
+      ok('motor_cue_fijar_salida_valida', sinSalida === false && malas.every((r) => r.ok === false && r.error === 'valor-invalido') && tras.estado === 'sin-salida' && tras.salida === null
+        && otroLado === false && rNull.ok === true && e.estado === 'sin-salida' && e.salida === null && e.nombre === '' && creados.length - n0 === 1 && m.contextoCue() === null, { malas, e });
+      m.cerrar();
+    }
+    // Al activar: el 2.º contexto se crea EN EL MISMO clic con sinkId { type: 'none' }, 44 100 e
+    // 'interactive'; setSinkId con el id elegido; NO crea nodos hasta que vuelve a 'running'.
+    {
+      const { m, cm } = await armar({ modo: { tipo: 'resuelve', vuelve: false }, activar: false });
+      const n0 = creados.length;
+      const act = m.fijarCue('A', true);
+      const cc = m.contextoCue();
+      const enElClic = { creados: creados.length - n0, estado: m.cue().estado };
+      await listo();
+      const antesDeRunning = { estado: m.cue().estado, state: cc?.state, gains: cc ? gains(cc).length : null, fuentes: cc ? fuentes(cc).length : null };
+      cc?.ponerEstado('running');
+      await listo();
+      ok('motor_cue_none_y_setSinkId', act === true && enElClic.creados === 1 && enElClic.estado === 'abriendo' && !!cc && cc !== cm
+        && JSON.stringify(cc.opciones) === JSON.stringify({ sampleRate: 44100, latencyHint: 'interactive', sinkId: { type: 'none' } })
+        && JSON.stringify(cc.sinks) === JSON.stringify([ID]) && antesDeRunning.estado === 'abriendo' && antesDeRunning.state === 'suspended' && antesDeRunning.gains === 0
+        && antesDeRunning.fuentes === 0 && m.cue().estado === 'lista' && gains(cc).length === 3 && fuentes(cc).length === 1, { opciones: cc?.opciones, sinks: cc?.sinks, enElClic, antesDeRunning, estado: m.cue().estado });
+      m.cerrar();
+    }
+    // Grafo del cue: fuente ─ cueA ─ cueVol ─ destination, todo en el contexto de cue, sin biquad y sin
+    // ninguna conexión con el master (PRE-fader); la fuente usa el MISMO AudioBuffer del deck.
+    const { m, cm, cc, buf } = await armar();
+    {
+      const f = fuentes(cc).at(-1);
+      const cadena = []; for (let x = f, i = 0; x && i < 6; x = x.salidas[0], i++) cadena.push(x);
+      const cruzadas = [...cc.nodos.flatMap((n) => n.salidas.filter((d) => d.context !== cc)), ...cm.nodos.flatMap((n) => n.salidas.filter((d) => d.context !== cm))];
+      ok('motor_cue_pre_fader', !!f && cadena.map((x) => x.clase).join(' → ') === 'fuente → gain → gain → destination' && cadena.every((x) => x.context === cc)
+        && cadena[3] === cc.destination && cc.nodos.every((n) => n.clase !== 'biquad') && cruzadas.length === 0 && gains(cc).length === 3,
+      { cadena: cadena.map((x) => `${x.clase}@${x.context === cc ? 'cue' : 'master'}`), cruzadas: cruzadas.length });
+      ok('motor_cue_mismo_buffer', !!f && f.buffer === buf && fuentes(cm).at(-1).buffer === buf, {});
+      // start(when, offset) = planCue con los relojes falsos: K por getOutputTimestamp.
+      const e0 = esperado(0, cc, cm);
+      ok('motor_cue_start_segun_planCue', !!f && f.inicios.length === 1 && e0.crear && cerca(f.inicios[0][0], e0.cuando) && cerca(f.inicios[0][1], e0.offset)
+        && cerca(e0.offset, 40.043, 1e-9) && cerca(e0.cuando, 3.025), { inicio: f?.inicios, e0 });
+    }
+    // Desfase: + atrasa (offset menor), − adelanta; mismo instante; se resincroniza YA.
+    {
+      const base = esperado(0, cc, cm);
+      const n0 = fuentes(cc).length;
+      const r1 = m.fijarDesfaseCue(100);
+      const f1 = fuentes(cc).at(-1).inicios[0];
+      const r2 = m.fijarDesfaseCue(-100);
+      const f2 = fuentes(cc).at(-1).inicios[0];
+      ok('motor_cue_desfase_mas_atrasa_menos_adelanta', r1 && r2 && fuentes(cc).length === n0 + 2 && cerca(f1[0], base.cuando) && cerca(f2[0], base.cuando)
+        && cerca(base.offset - f1[1], 0.1) && cerca(f2[1] - base.offset, 0.1) && m.cue().desfaseMs === -100, { base, f1, f2 });
+      const rec = [m.fijarDesfaseCue(400), m.cue().desfaseMs, m.fijarDesfaseCue(-999), m.cue().desfaseMs, m.fijarDesfaseCue(12.6), m.cue().desfaseMs];
+      const n1 = fuentes(cc).length;
+      const malas = [m.fijarDesfaseCue(NaN), m.fijarDesfaseCue('12'), m.fijarDesfaseCue(undefined), m.fijarDesfaseCue(Infinity)];
+      ok('motor_cue_desfase_recorte_y_basura', JSON.stringify(rec) === JSON.stringify([true, 250, true, -250, true, 13]) && malas.every((x) => x === false)
+        && m.cue().desfaseMs === 13 && fuentes(cc).length === n1 && cerca(fuentes(cc).at(-1).inicios[0][1], base.offset - 0.013), { rec, malas });
+      m.fijarDesfaseCue(0);
+    }
+    // Volumen de cue: v², 0,25 inicial (la única escritura de .value), rampas con TAU; basura → false.
+    const [cueA, , cueVol] = (() => { const g = gains(cc); const vol = g.find((x) => x.salidas[0] === cc.destination); const ab = g.filter((x) => x !== vol); return [ab[0], ab[1], vol]; })();
+    {
+      const ini = { v: cueVol.gain.value, escr: cueVol.gain.escrituras };
+      cc.currentTime = 4;
+      const r = [m.fijarVolumenCue(0.8), m.fijarVolumenCue(NaN), m.fijarVolumenCue('1'), m.fijarVolumenCue(2)];
+      const rampas = cueVol.gain.rampas.slice(-2);
+      ok('motor_cue_volumen_v2', ini.v === 0.25 && ini.escr === 1 && JSON.stringify(r) === JSON.stringify([true, false, false, true]) && cerca(rampas[0].v, 0.64) && rampas[0].t === 4
+        && rampas[0].tau === TAU && rampas[1].v === 1 && m.cue().volumen === 1, { ini, r, rampas });
+      m.fijarVolumenCue(0.5);
+    }
+    // Apagar: rampa a 0 con TAU y stop(currentTime + 6·TAU); volver a activar: rampa a 1 y fuente nueva
+    // (la vieja se para de golpe).
+    {
+      cc.currentTime = 7;
+      const fAntes = fuentes(cc).at(-1);
+      const n0 = fuentes(cc).length;
+      const r = m.fijarCue('A', false);
+      const rOff = cueA.gain.rampas.at(-1);
+      const tras = { n: fuentes(cc).length, paradas: [...fAntes.paradas] };
+      const r2 = m.fijarCue('A', true);
+      const rOn = cueA.gain.rampas.at(-1);
+      ok('motor_cue_apagar_rampa_y_stop', r && rOff.v === 0 && rOff.t === 7 && rOff.tau === TAU && tras.n === n0 && tras.paradas.length === 1 && cerca(tras.paradas[0], 7 + 6 * TAU)
+        && m.cue().activo.A === true && r2 && rOn.v === 1 && rOn.tau === TAU && fuentes(cc).length === n0 + 1 && fAntes.paradas.length === 2 && fAntes.paradas[1] === undefined && fAntes.desconexiones >= 1,
+      { rOff, tras, rOn, paradas: fAntes.paradas });
+    }
+    // Resincroniza (una fuente nueva por evento) en play, seek, «Al inicio», activar, desfase, cambio de
+    // salida y vuelta a 'running'; pausa no crea.
+    {
+      const n = () => fuentes(cc).length;
+      const pasos = {};
+      let k = n();
+      const paso = (nombre) => { pasos[nombre] = n() - k; k = n(); };
+      m.decks.A.pausa(); paso('pausa');
+      m.decks.A.play(); paso('play');
+      m.decks.A.seek(30); paso('seek');
+      m.decks.A.alInicio(); paso('alInicio');
+      m.fijarCue('A', false); m.fijarCue('A', true); paso('activar');
+      m.fijarDesfaseCue(5); paso('desfase');
+      const rs = await m.fijarSalidaCue(ID2, NOMBRE2); await listo(); paso('salida');
+      cc.ponerEstado('suspended'); paso('suspended');
+      cc.ponerEstado('running'); paso('running');
+      ok('motor_cue_resincroniza_en_eventos', JSON.stringify(pasos) === JSON.stringify({ pausa: 0, play: 1, seek: 1, alInicio: 1, activar: 1, desfase: 1, salida: 1, suspended: 0, running: 1 })
+        && rs.ok === true && JSON.stringify(cc.sinks) === JSON.stringify([ID, ID2]) && m.contextoCue() === cc && m.cue().salida === ID2 && m.cue().nombre === NOMBRE2, { pasos, rs, sinks: cc.sinks });
+      m.fijarDesfaseCue(0);
+    }
+    // NUNCA en continuo: pasa el tiempo, se mueven los relojes y la mezcla, y no aparece ninguna fuente.
+    {
+      const n0 = fuentes(cc).length;
+      await espera(40);
+      cm.currentTime = 80; cc.currentTime = 33;
+      m.fijarVolumen('A', 0.3); m.fijarCrossfader(0.9); m.fijarFiltro(0.4); m.fijarVolumen('B', 0.2);
+      await espera(40);
+      ok('motor_cue_sin_resincronizacion_continua', fuentes(cc).length === n0, { n0, n: fuentes(cc).length });
+    }
+    // Pausa y fin del deck: la fuente de cue se para de golpe y no se crea otra; con el deck en pausa,
+    // activar el cue no crea fuente.
+    {
+      const f0 = fuentes(cc).at(-1);
+      m.decks.A.pausa();
+      const n0 = fuentes(cc).length;
+      m.fijarCue('A', false); m.fijarCue('A', true);
+      const enPausa = fuentes(cc).length - n0;
+      m.decks.A.play();
+      const f1 = fuentes(cc).at(-1);
+      fuentes(cm).at(-1).onended();   // la fuente del master llega al final
+      ok('motor_cue_pausa_y_fin_quitan_la_fuente', f0.paradas.includes(undefined) && f0.desconexiones >= 1 && enPausa === 0 && f1 !== f0 && f1.paradas.includes(undefined)
+        && f1.desconexiones >= 1 && fuentes(cc).length === n0 + 1 && m.decks.A.estado().sonando === false, { enPausa, p0: f0.paradas, p1: f1.paradas });
+      cm.currentTime = 50; m.decks.A.seek(40); m.decks.A.play();
+    }
+    // Los nodos del cue no reciben escrituras de .value después de crearlos.
+    {
+      const ps = gains(cc).map((g) => g.gain.escrituras);
+      ok('motor_cue_sin_escrituras_value_tras_crear', ps.length === 3 && ps.every((x) => x === 1), { ps });
+    }
+    // Cerrar: los DOS contextos cerrados, sin oyentes en el de cue.
+    {
+      m.cerrar();
+      ok('motor_cue_cerrar_cierra_los_dos', cm.state === 'closed' && cc.state === 'closed' && cc.cierres === 1 && m.contextoCue() === null && cc.oyentes() === 0, { cm: cm.state, cc: cc.state, oy: cc.oyentes() });
+    }
+    // Con el volumen elegido ANTES de abrir el cue, ése es el inicial del nodo. (Cada motor nuevo que crea
+    // su contexto cierra al anterior —duenoActual—, así que estos van después de cerrar el principal.)
+    {
+      const otro = await armar({ activar: false });
+      otro.m.fijarVolumenCue(0.6);
+      otro.m.fijarCue('A', true); await listo();
+      const occ = otro.m.contextoCue();
+      const ovol = gains(occ).find((x) => x.salidas[0] === occ.destination);
+      ok('motor_cue_volumen_guardado_es_el_inicial', cerca(ovol.gain.value, 0.36, 1e-12) && ovol.gain.escrituras === 1 && ovol.gain.rampas.length === 0, { v: ovol.gain.value });
+      otro.m.cerrar();
+    }
+    // setSinkId que rechaza (NotFoundError): estado 'error', aviso exacto, contexto de cue cerrado, y el
+    // master igual (estado, nodos, mezcla, deck sonando).
+    {
+      const x = await armar({ modo: { tipo: 'rechaza', name: 'NotFoundError' }, activar: false });
+      const antes = { state: x.cm.state, nodos: x.cm.nodos.length, mezcla: JSON.stringify(x.m.mezcla()), sonando: x.m.decks.A.estado().sonando, rampas: x.cm.nodos.filter((n) => n.gain).reduce((s, n) => s + n.gain.rampas.length, 0) };
+      const act = x.m.fijarCue('A', true);
+      const xc = x.m.contextoCue();
+      await listo();
+      const e = x.m.cue();
+      const despues = { state: x.cm.state, nodos: x.cm.nodos.length, mezcla: JSON.stringify(x.m.mezcla()), sonando: x.m.decks.A.estado().sonando, rampas: x.cm.nodos.filter((n) => n.gain).reduce((s, n) => s + n.gain.rampas.length, 0) };
+      ok('motor_cue_rechazo_apaga_y_no_toca_master', act === true && !!xc && JSON.stringify(xc.opciones?.sinkId) === JSON.stringify({ type: 'none' }) && e.estado === 'error'
+        && e.aviso === 'No se encontró la salida «Headphones (Elgato Wave:XLR)». Cue apagado; el master sigue igual.' && xc.state === 'closed' && x.m.contextoCue() === null
+        && e.activo.A === false && e.activo.B === false && xc.oyentes() === 0 && gains(xc).length === 0 && JSON.stringify(antes) === JSON.stringify(despues) && x.cm.sinks.length === 0,
+      { e, xc: xc?.state, antes, despues });
+      // Volver a activar con la salida aún elegida: otro intento (contexto nuevo).
+      ACCue.modo = { tipo: 'resuelve' };
+      const n0 = creados.length;
+      x.m.fijarCue('A', true); await listo();
+      ok('motor_cue_tras_error_se_puede_reintentar', creados.length - n0 === 1 && x.m.cue().estado === 'lista' && x.m.cue().aviso === null && x.m.contextoCue() !== xc, { e: x.m.cue() });
+      x.m.cerrar();
+    }
+    // No vuelve a 'running' dentro del tope → error genérico (TimeoutError), contexto cerrado.
+    {
+      const x = await armar({ modo: { tipo: 'resuelve', vuelve: false }, opciones: { esperaCueMs: 30 }, activar: false });
+      x.m.fijarCue('A', true);
+      const xc = x.m.contextoCue();
+      await espera(80);
+      const e = x.m.cue();
+      ok('motor_cue_no_llega_a_running', e.estado === 'error' && e.aviso === 'No se pudo abrir la salida de audífonos (TimeoutError). Cue apagado; el master sigue igual.'
+        && xc.state === 'closed' && x.m.contextoCue() === null && gains(xc).length === 0 && x.cm.state === 'running', { e, xc: xc.state });
+      x.m.cerrar();
+    }
+    // Dos setSinkId seguidos: gana el ÚLTIMO aunque el primero conteste después de pedido el segundo.
+    {
+      const x = await armar({ modo: { tipo: 'pendiente' }, activar: false });
+      const n0 = creados.length;
+      x.m.fijarCue('A', true);
+      const xc = x.m.contextoCue();
+      const p2 = x.m.fijarSalidaCue(ID2, NOMBRE2);
+      const sinks = [...xc.sinks];
+      xc.pendientes[0].resolver();
+      await listo();
+      const trasPrimero = { estado: x.m.cue().estado, gains: gains(xc).length };
+      xc.pendientes[1].resolver();
+      await listo();
+      const r2 = await p2;
+      ok('motor_cue_dos_setSinkId_gana_el_ultimo', creados.length - n0 === 1 && JSON.stringify(sinks) === JSON.stringify([ID, ID2]) && trasPrimero.estado === 'abriendo' && trasPrimero.gains === 0
+        && r2.ok === true && x.m.cue().estado === 'lista' && x.m.cue().salida === ID2 && gains(xc).length === 3 && fuentes(xc).length === 1, { sinks, trasPrimero, r2, e: x.m.cue() });
+      x.m.cerrar();
+    }
+    // cerrar() con un setSinkId pendiente: el contexto de cue se cierra y no queda ningún rechazo sin atrapar.
+    {
+      const x = await armar({ modo: { tipo: 'pendiente' }, activar: false });
+      const s0 = sinAtrapar;
+      x.m.fijarCue('A', true);
+      const xc = x.m.contextoCue();
+      let lanzo = null;
+      try { x.m.cerrar(); } catch (e) { lanzo = String(e); }
+      await espera(20);
+      ok('motor_cue_cerrar_con_setSinkId_pendiente', lanzo === null && xc.state === 'closed' && x.cm.state === 'closed' && sinAtrapar === s0 && xc.pendientes.length === 0 && xc.oyentes() === 0,
+        { lanzo, xc: xc.state, sinAtrapar: sinAtrapar - s0 });
+    }
+    // Un motor nuevo que crea su contexto cierra los DOS del anterior (duenoActual).
+    {
+      const x = await armar();
+      const xc = x.m.contextoCue();
+      const m2 = crearMotor();
+      m2.asegurarContexto();
+      ok('motor_cue_dueno_nuevo_cierra_los_dos', x.cm.state === 'closed' && xc.state === 'closed' && x.m.contextoCue() === null && m2.contexto().state === 'running', { cm: x.cm.state, cc: xc.state });
+      m2.cerrar();
+    }
+    // sinkchange que no se pidió → cue apagado ('desconectada'); el de nuestro setSinkId se ignora.
+    {
+      const x = await armar();
+      const xc = x.m.contextoCue();
+      xc.emitir('sinkchange');   // sinkId === el pedido: es el nuestro
+      const sigue = x.m.cue().estado;
+      xc.sinkId = 'otro-id';
+      xc.emitir('sinkchange');
+      const e = x.m.cue();
+      ok('motor_cue_sinkchange_no_pedido_apaga', sigue === 'lista' && e.estado === 'error' && e.aviso === 'Se desconectó «Headphones (Elgato Wave:XLR)». Cue apagado; el master sigue igual.'
+        && xc.state === 'closed' && e.activo.A === false && x.cm.state === 'running' && x.m.decks.A.estado().sonando, { sigue, e });
+      x.m.cerrar();
+    }
+    // 'error' y 'closed' inesperados → cue apagado con el mismo aviso; el master sigue.
+    {
+      const x = await armar();
+      const xc = x.m.contextoCue();
+      xc.emitir('error');
+      const e1 = x.m.cue();
+      ACCue.modo = { tipo: 'resuelve' };
+      x.m.fijarCue('A', true); await listo();
+      const yc = x.m.contextoCue();
+      yc.ponerEstado('closed');
+      const e2 = x.m.cue();
+      const txt = 'Se desconectó «Headphones (Elgato Wave:XLR)». Cue apagado; el master sigue igual.';
+      ok('motor_cue_error_y_closed_inesperados', e1.estado === 'error' && e1.aviso === txt && xc.state === 'closed' && yc !== xc && e2.estado === 'error' && e2.aviso === txt
+        && x.m.contextoCue() === null && x.cm.state === 'running', { e1, e2 });
+      x.m.cerrar();
+    }
+    // Los cambios de estado del cue avisan por suscribir(): abriendo → lista, activar, volumen, desfase.
+    {
+      const x = await armar({ activar: false });
+      const vistos = [];
+      x.m.suscribir(() => vistos.push(x.m.cue().estado));
+      x.m.fijarCue('A', true);
+      await listo();
+      const n1 = vistos.length;
+      x.m.fijarVolumenCue(0.3); x.m.fijarDesfaseCue(10);
+      ok('motor_cue_notifica_por_suscribir', vistos.includes('abriendo') && vistos.includes('lista') && vistos.indexOf('abriendo') < vistos.lastIndexOf('lista') && vistos.length === n1 + 2, { vistos });
+      x.m.cerrar();
+    }
+    // El master NUNCA recibió setSinkId (todos los contextos sin sinkId en el constructor son masters).
+    {
+      const masters = creados.filter((c) => !(c.opciones && 'sinkId' in c.opciones));
+      const cues = creados.filter((c) => c.opciones && 'sinkId' in c.opciones);
+      ok('motor_cue_master_nunca_recibe_setSinkId', masters.length >= 10 && masters.every((c) => c.sinks.length === 0) && cues.length >= 8 && cues.every((c) => c.opciones.sinkId?.type === 'none'),
+        { masters: masters.length, cues: cues.length, conSink: masters.filter((c) => c.sinks.length).length });
+    }
+  } catch (e) {
+    ok('motor_cue_sin_excepciones', false, { lanzo: String(e?.stack ?? e) });
+  } finally {
+    globalThis.AudioContext = AC0;
+    await espera(5);
+    process.off('unhandledRejection', alRechazo);
+  }
+}
+
 // ── midi.js (sub-paso d): lo puro ──
 {
   const cc = [interpretar([0xb0, 19, 64]), interpretar(new Uint8Array([0xb6, 31, 0])), interpretar([0xbf, 63, 127]), interpretar([0xb1, 51, 5, 99])];
@@ -710,10 +1110,17 @@ const motorFalso = (log = []) => ({
   const malos = Object.entries(avisos).filter(([m, t]) => textoAviso(m, N) !== t).map(([m]) => [m, textoAviso(m, N)]);
   ok('cue_aviso_textos', malos.length === 0, { malos });
   ok('cue_aviso_invalidstate_es_null', textoAviso('InvalidStateError', N) === null && textoAviso('InvalidStateError', '') === null);
-  const vacios = ['', '   ', undefined, null].map((n) => textoAviso('desconectada', n));
-  ok('cue_aviso_nombre_vacio', vacios.every((t) => t === 'Se desconectó «esa salida». Cue apagado; el master sigue igual.')
-    && textoAviso('NotFoundError', '') === 'No se encontró la salida «esa salida». Cue apagado; el master sigue igual.'
-    && textoAviso(undefined, N) === 'No se pudo abrir la salida de audífonos (error desconocido). Cue apagado; el master sigue igual.', { vacios });
+  // Sin nombre: la frase habla de «la salida de audífonos», sin comillas ni «esa salida».
+  const sinNombre = {
+    'no-conectada': 'La salida de audífonos no está conectada. Cue apagado.',
+    desconectada: 'Se desconectó la salida de audífonos. Cue apagado; el master sigue igual.',
+    NotFoundError: 'No se encontró la salida de audífonos. Cue apagado; el master sigue igual.',
+    NotAllowedError: 'El navegador no dejó usar la salida de audífonos. Cue apagado; el master sigue igual.',
+    AbortError: 'No se pudo abrir la salida de audífonos (AbortError). Cue apagado; el master sigue igual.',
+  };
+  const malosVacio = Object.entries(sinNombre).flatMap(([m, t]) => ['', '   ', undefined, null].filter((n) => textoAviso(m, n) !== t).map((n) => [m, n, textoAviso(m, n)]));
+  ok('cue_aviso_nombre_vacio', malosVacio.length === 0
+    && textoAviso(undefined, N) === 'No se pudo abrir la salida de audífonos (error desconocido). Cue apagado; el master sigue igual.', { malosVacio });
 }
 
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));

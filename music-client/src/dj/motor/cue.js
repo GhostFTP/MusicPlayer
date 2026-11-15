@@ -138,16 +138,17 @@ export function elegirGuardada(guardada, salidas) {
 
 // AVISOS. `motivo`: un caso de la página ('no-conectada', 'desconectada', 'misma-salida') o el name del
 // error de setSinkId ('NotFoundError', 'NotAllowedError', 'InvalidStateError', …). `nombre`: el de la
-// salida; vacío → «esa salida» (en el lugar del nombre, con las mismas comillas). InvalidStateError →
-// null: sólo pasa con el contexto ya cerrado (el motor se está cerrando), no hay nada que avisar. Un
-// motivo desconocido va entre paréntesis en el aviso genérico.
+// salida, entre comillas; SIN nombre, la frase habla de «la salida de audífonos», sin comillas.
+// InvalidStateError → null: sólo pasa con el contexto ya cerrado (el motor se está cerrando), no hay nada
+// que avisar. Un motivo desconocido va entre paréntesis en el aviso genérico.
 export function textoAviso(motivo, nombre) {
-  const cual = `«${texto(nombre) || 'esa salida'}»`;
+  const n = texto(nombre);
+  const q = `«${n}»`;
   switch (motivo) {
-    case 'no-conectada': return `La salida de audífonos ${cual} no está conectada. Cue apagado.`;
-    case 'desconectada': return `Se desconectó ${cual}. Cue apagado; el master sigue igual.`;
-    case 'NotFoundError': return `No se encontró la salida ${cual}. Cue apagado; el master sigue igual.`;
-    case 'NotAllowedError': return `El navegador no dejó usar la salida ${cual}. Cue apagado; el master sigue igual.`;
+    case 'no-conectada': return n ? `La salida de audífonos ${q} no está conectada. Cue apagado.` : 'La salida de audífonos no está conectada. Cue apagado.';
+    case 'desconectada': return `Se desconectó ${n ? q : 'la salida de audífonos'}. Cue apagado; el master sigue igual.`;
+    case 'NotFoundError': return `No se encontró la salida ${n ? q : 'de audífonos'}. Cue apagado; el master sigue igual.`;
+    case 'NotAllowedError': return `El navegador no dejó usar la salida ${n ? q : 'de audífonos'}. Cue apagado; el master sigue igual.`;
     case 'InvalidStateError': return null;
     case 'misma-salida': return 'Esa salida es la misma del master: el cue sonaría por los mismos altavoces.';
     default: return `No se pudo abrir la salida de audífonos (${texto(motivo) || 'error desconocido'}). Cue apagado; el master sigue igual.`;

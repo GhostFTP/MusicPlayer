@@ -33,8 +33,29 @@
 // sonando crean uno nuevo; pausar es pararlo y recordar dónde iba.
 // posicion() = context.currentTime − (momento en que «empezó» la posición 0), recortada a [0, duración].
 // Es la posición en el GRAFO; lo que se OYE va atrasado en context.outputLatency (no se descuenta).
+//
+// CUE A AUDÍFONOS (sub-paso e2). Un SEGUNDO AudioContext, sólo para los audífonos; el master no cambia
+// (sigue en la salida predeterminada y NUNCA se le llama setSinkId):
+//   deck A: fuenteCueA ─ cueA (Gain 0|1) ─┐
+//                                          ├─ cueVol (Gain v², volumenCue) ─ destination (audífonos)
+//   deck B: fuenteCueB ─ cueB (Gain 0|1) ─┘
+//   · PRE-fader: el cue no pasa por vol, xf ni el filtro, y no se conecta a ningún nodo del master.
+//     fuenteCue.buffer es el MISMO AudioBuffer del deck (decodificado una vez, con el master).
+//   · PEREZOSO: se crea al activar el primer cue (fijarCue, dentro de un clic) con sinkId { type: 'none' }
+//     (no abre ningún dispositivo), después setSinkId(id) y se espera 'running' (tope ESPERA_CUE_MS).
+//     Recién entonces se crean los nodos. Si setSinkId falla, el contexto queda en 'none' (mudo) y se
+//     cierra: nunca suena por la salida predeterminada, que es la del master. (Un contexto creado SIN
+//     sinkId que falla setSinkId se queda en la predeterminada: medido en Chromium, ver cue.js.)
+//   · SINCRONÍA: cada fuente de cue se crea con planCue (cue.js) en play, seek, «Al inicio», al activar
+//     el cue, al cambiar el desfase o la salida y cuando el contexto de cue vuelve a 'running'. NUNCA en
+//     continuo (recrear la fuente se oye). Deck en pausa o terminado → sin fuente de cue.
+//   · FALLOS (setSinkId que rechaza, no llega a 'running', 'error', sinkchange que no se pidió, 'closed'
+//     inesperado): el cue se apaga, su contexto se cierra, estado 'error' con un aviso (textoAviso) y el
+//     master no se toca. El motor nunca lanza.
+//   · Lo cierra cerrar(), junto con el master; duenoActual no cambia (cerrar un motor cierra los dos).
 
 import { potenciaIgual, gananciaVolumen, filtroFrecuencias } from './mezcla.js';
+import { VOLUMEN_CUE_INICIAL, volumenCue, recortarDesfase, offsetRelojes, planCue, textoAviso } from './cue.js';
 
 // TASA DEL CONTEXTO DEL MODO DJ: 44 100 Hz, no la nativa de la salida. decodeAudioData remuestrea a la
 // tasa del contexto, así que ésta decide cuánto tarda decodificar y cuánto ocupa cada deck.
@@ -55,13 +76,21 @@ export const TAU = 0.01;
 export const Q_FILTRO = 0.707;
 // Valores de mezcla de un motor nuevo: volumen al máximo, crossfader al centro, filtro plano.
 export const MEZCLA_INICIAL = Object.freeze({ volumen: Object.freeze({ A: 1, B: 1 }), crossfader: 0.5, filtro: 0 });
+// Cue: cada fuente de cue arranca GUARDA_CUE s después de programarla (así el instante no queda en el
+// pasado del reloj del cue), y el contexto de cue tiene ESPERA_CUE_MS para volver a 'running' después
+// de setSinkId (en Chromium pasa ~5 ms por 'suspended'); si no vuelve, es un error.
+export const GUARDA_CUE = 0.025;
+export const ESPERA_CUE_MS = 2000;
 
 let duenoActual = null;   // el motor que tiene un AudioContext abierto ahora (a lo sumo uno)
 
 const recortar = (x, min, max) => (x < min ? min : x > max ? max : x);
 const finito = (v) => typeof v === 'number' && Number.isFinite(v);
 
-function crearDeck(avisar) {
+// `alFuente(evento)`: el cue se entera cuando el deck arranca una fuente ('arranco': play, seek sonando)
+// y cuando la suelta o termina ('solto': pausa, seek, cargar, descargar, fin). No cambia nada del master.
+function crearDeck(avisar, alFuente = () => {}) {
+  const avisarCue = (evento) => { try { alFuente(evento); } catch { /* el cue nunca frena al master */ } };
   let ctx = null;
   let entrada = null;   // el GainNode de volumen del deck: cada fuente nueva se conecta acá
   let buffer = null;
@@ -78,6 +107,7 @@ function crearDeck(avisar) {
     f.onended = null;
     try { f.stop(); } catch { /* ya parada */ }
     f.disconnect();
+    avisarCue('solto');
   }
 
   function arrancar(desde) {
@@ -90,12 +120,14 @@ function crearDeck(avisar) {
       fuente = null;
       sonando = false;
       parado = buffer ? buffer.duration : 0;
+      avisarCue('solto');
       avisar();
     };
     f.start(0, desde);
     fuente = f;
     cero = ctx.currentTime - desde;
     sonando = true;
+    avisarCue('arranco');
   }
 
   const deck = {
@@ -104,6 +136,9 @@ function crearDeck(avisar) {
       entrada = nodoEntrada;
     },
     _soltar() { soltarFuente(); sonando = false; buffer = null; meta = null; parado = 0; ctx = null; entrada = null; },
+    // Para el cue: el buffer (el MISMO que suena en el master), si suena y su `cero` (el currentTime DEL
+    // MASTER que corresponde a la posición 0 mientras suena).
+    _reloj() { return { buffer, sonando, cero }; },
 
     // Reemplaza lo cargado (lo que sonaba se para). `meta`: lo que la página quiera guardar (pista, registro).
     cargarBuffer(b, m = null) {
@@ -165,15 +200,27 @@ function crearDeck(avisar) {
 }
 
 // `sampleRate`: TASA_DJ si no se pasa. Para volver a la nativa de la salida, pasar null o 0 (el
-// AudioContext se crea sin sampleRate).
-export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive' } = {}) {
+// AudioContext se crea sin sampleRate). `esperaCueMs`: el tope para que el contexto de cue vuelva a
+// 'running' después de setSinkId (ESPERA_CUE_MS; las pruebas lo bajan).
+export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', esperaCueMs = ESPERA_CUE_MS } = {}) {
   let ctx = null;
   let nodos = null;   // { A: { vol, xf }, B: { vol, xf }, bus, lp, hp, master } mientras hay contexto
   let cerrado = false;
   const oyentes = new Set();
   const alCierre = new Set();   // lo que hay que soltar al cerrar (alCerrar)
   const avisar = () => { for (const fn of oyentes) fn(); };
-  const decks = { A: crearDeck(avisar), B: crearDeck(avisar) };
+  // Estado del cue (ver la cabecera). `gen` crece con cada apertura/setSinkId y con cada cierre o fallo:
+  // un resultado de setSinkId que llega con otra generación es viejo y se descarta (gana el último).
+  const cue = {
+    ctx: null, nodos: null,              // nodos = { A: Gain, B: Gain, vol: Gain } con el contexto en 'running'
+    salida: null, nombre: '', pedido: null,   // pedido = el id del último setSinkId
+    estado: 'sin-salida', aviso: null,
+    activo: { A: false, B: false },
+    volumen: VOLUMEN_CUE_INICIAL, desfaseMs: 0,
+    fuentes: { A: null, B: null },
+    gen: 0, quitarOyentes: null, cortarEspera: null,
+  };
+  const decks = { A: crearDeck(avisar, (ev) => alFuenteDeck('A', ev)), B: crearDeck(avisar, (ev) => alFuenteDeck('B', ev)) };
   // Valores OBJETIVO de la mezcla (los del control, no lo que vale el AudioParam en este instante).
   const mezcla = { volumen: { ...MEZCLA_INICIAL.volumen }, crossfader: MEZCLA_INICIAL.crossfader, filtro: MEZCLA_INICIAL.filtro };
 
@@ -182,6 +229,173 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive' }
   const vivo = () => !!ctx && !!nodos && ctx.state !== 'closed';
   function rampa(param, v) {
     try { param.setTargetAtTime(v, ctx.currentTime, TAU); } catch { /* contexto cerrándose */ }
+  }
+
+  // ── Cue (ver la cabecera) ──
+  const cueListo = () => !!cue.ctx && !!cue.nodos && cue.estado === 'lista' && cue.ctx.state === 'running';
+  function rampaCue(param, v) {
+    try { param.setTargetAtTime(v, cue.ctx.currentTime, TAU); } catch { /* contexto cerrándose */ }
+  }
+  // Para la fuente de cue de un deck. `enRampa`: apagar el cue (la ganancia ya baja con TAU; la fuente
+  // se para en 6·TAU, cuando ya no se oye). Si no, de golpe (resincronizar, pausa, fin, cierre).
+  function pararFuenteCue(lado, enRampa = false) {
+    const f = cue.fuentes[lado];
+    if (!f) return;
+    if (enRampa && cue.ctx) {
+      try { f.stop(cue.ctx.currentTime + 6 * TAU); } catch { /* ya parada */ }
+      return;   // sigue en cue.fuentes hasta su onended (o hasta que se pare de golpe)
+    }
+    cue.fuentes[lado] = null;
+    f.onended = null;
+    try { f.stop(); } catch { /* ya parada */ }
+    try { f.disconnect(); } catch { /* ya desconectada */ }
+  }
+  // Crea la fuente de cue de un deck en la posición que el deck tiene en el master (planCue). Sólo con el
+  // cue de ese deck activo, el contexto de cue en 'running' y el deck sonando.
+  function sincronizarCue(lado) {
+    pararFuenteCue(lado);
+    if (cerrado || !cue.activo[lado] || !cueListo() || !ctx || ctx.state === 'closed') return;
+    const r = decks[lado]._reloj();
+    if (!r.sonando || !r.buffer) return;
+    const cc = cue.ctx;
+    const salida = (c) => { try { return c.getOutputTimestamp?.() ?? null; } catch { return null; } };
+    // Los dos relojes en la MISMA tarea.
+    const k = offsetRelojes({ salidaMaster: salida(ctx), salidaCue: salida(cc), tiempoMaster: ctx.currentTime, tiempoCue: cc.currentTime });
+    if (!k) return;
+    const plan = planCue({ cero: r.cero, K: k.K, desfaseMs: cue.desfaseMs, cuandoCue: cc.currentTime + GUARDA_CUE, duracion: r.buffer.duration });
+    if (!plan.crear) return;
+    try {
+      const f = cc.createBufferSource();
+      f.buffer = r.buffer;
+      f.connect(cue.nodos[lado]);
+      f.onended = () => {
+        if (cue.fuentes[lado] !== f) return;
+        cue.fuentes[lado] = null;
+        try { f.disconnect(); } catch { /* ya desconectada */ }
+      };
+      f.start(plan.cuando, plan.offset);
+      cue.fuentes[lado] = f;
+    } catch { /* contexto cerrándose */ }
+  }
+  const sincronizarCues = () => { for (const lado of ['A', 'B']) sincronizarCue(lado); };
+  function alFuenteDeck(lado, evento) {
+    if (cerrado) return;
+    if (evento === 'arranco') sincronizarCue(lado);
+    else pararFuenteCue(lado);
+  }
+  function ponerEstadoCue(estado, aviso = null) {
+    cue.estado = estado;
+    cue.aviso = aviso;
+    avisar();
+  }
+  // Cierra el contexto de cue (sin aviso). Invalida lo que esté en vuelo (gen) y corta la espera de 'running'.
+  function cerrarCtxCue() {
+    cue.gen++;
+    cue.cortarEspera?.();
+    cue.cortarEspera = null;
+    for (const lado of ['A', 'B']) pararFuenteCue(lado);
+    cue.quitarOyentes?.();
+    cue.quitarOyentes = null;
+    const c = cue.ctx;
+    cue.ctx = null;
+    cue.nodos = null;
+    cue.pedido = null;
+    if (c) { try { c.close().catch(() => {}); } catch { /* ya cerrado */ } }
+  }
+  // Un fallo del cue: se apaga, se cierra su contexto y queda el aviso. El master no se toca.
+  function fallaCue(motivo) {
+    if (cue.nodos) rampaCue(cue.nodos.vol.gain, 0);
+    cerrarCtxCue();
+    cue.activo = { A: false, B: false };
+    ponerEstadoCue('error', textoAviso(motivo, cue.nombre));
+  }
+  // Espera a que el contexto esté en 'running' (tope esperaCueMs). Rechaza con { name }.
+  function esperarRunning(c) {
+    if (c.state === 'running') return Promise.resolve();
+    if (c.state === 'closed') return Promise.reject({ name: 'desconectada' });
+    try { c.resume().catch(() => {}); } catch { /* sin resume */ }
+    return new Promise((res, rej) => {
+      let t = 0;
+      const f = () => { if (c.state === 'running') fin(); else if (c.state === 'closed') fin({ name: 'desconectada' }); };
+      const fin = (err) => {
+        clearTimeout(t);
+        c.removeEventListener('statechange', f);
+        if (cue.cortarEspera === cortar) cue.cortarEspera = null;
+        if (err) rej(err); else res();
+      };
+      const cortar = () => fin({ name: 'InvalidStateError' });
+      cue.cortarEspera = cortar;
+      t = setTimeout(() => fin({ name: 'TimeoutError' }), esperaCueMs);
+      c.addEventListener('statechange', f);
+    });
+  }
+  // Crea el contexto de cue (perezoso, DENTRO DEL GESTO): con sinkId { type: 'none' }, sin abrir ningún
+  // dispositivo. Sus oyentes vigilan lo que no se pidió. Lanza si el navegador no puede (lo atrapa abrirCue).
+  function crearCtxCue() {
+    if (typeof AudioContext !== 'function' || typeof AudioContext.prototype.setSinkId !== 'function') {
+      throw Object.assign(new Error('setSinkId no existe'), { name: 'NotSupportedError' });
+    }
+    const c = new AudioContext({ sampleRate: TASA_DJ, latencyHint: 'interactive', sinkId: { type: 'none' } });
+    const alEstado = () => {
+      if (cue.ctx !== c) return;
+      if (c.state === 'closed') fallaCue('desconectada');
+      else if (c.state === 'running' && cue.estado === 'lista') sincronizarCues();   // volvió a 'running'
+    };
+    const alError = () => { if (cue.ctx === c) fallaCue('desconectada'); };
+    const alSink = () => {
+      if (cue.ctx !== c || cue.estado === 'abriendo') return;
+      if (typeof c.sinkId === 'string' && c.sinkId === cue.pedido) return;   // es el nuestro (tarde)
+      fallaCue('desconectada');
+    };
+    c.addEventListener('statechange', alEstado);
+    c.addEventListener('error', alError);
+    c.addEventListener('sinkchange', alSink);
+    cue.quitarOyentes = () => {
+      c.removeEventListener('statechange', alEstado);
+      c.removeEventListener('error', alError);
+      c.removeEventListener('sinkchange', alSink);
+    };
+    cue.ctx = c;
+  }
+  // setSinkId a la salida elegida (creando el contexto si no hay), espera 'running', crea los nodos si
+  // faltan y resincroniza. → { ok, error? }; NUNCA rechaza. Gana la última llamada (gen).
+  async function abrirCue() {
+    const gen = ++cue.gen;
+    const id = cue.salida;
+    try {
+      if (!cue.ctx) crearCtxCue();
+    } catch (e) {
+      cue.ctx = null;
+      fallaCue(e?.name || 'error');
+      return { ok: false, error: e?.name || 'error' };
+    }
+    const c = cue.ctx;
+    cue.pedido = id;
+    ponerEstadoCue('abriendo');
+    let error = null;
+    try {
+      await c.setSinkId(id);
+      if (gen === cue.gen && cue.ctx === c) await esperarRunning(c);
+    } catch (e) {
+      error = e?.name || 'error';
+    }
+    if (cerrado || gen !== cue.gen || cue.ctx !== c) return { ok: false, error: 'reemplazada' };
+    if (error) { fallaCue(error); return { ok: false, error }; }
+    if (!cue.nodos) {
+      // Los valores iniciales son la ÚNICA escritura de .value: cueA/cueB en 0 (suben con rampa al
+      // activarse), cueVol en la ganancia del volumen de cue.
+      const ganancia = (v) => { const g = c.createGain(); g.gain.value = v; return g; };
+      const vol = ganancia(volumenCue(cue.volumen));
+      const A = ganancia(0), B = ganancia(0);
+      A.connect(vol);
+      B.connect(vol);
+      vol.connect(c.destination);
+      cue.nodos = { A, B, vol };
+    }
+    ponerEstadoCue('lista');
+    for (const lado of ['A', 'B']) if (cue.activo[lado]) rampaCue(cue.nodos[lado].gain, 1);
+    sincronizarCues();
+    return { ok: true };
   }
 
   const motor = {
@@ -279,14 +493,83 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive' }
       };
     },
 
-    // Para todo, suelta los buffers y cierra el contexto. Idempotente; después el motor no suena más
-    // (los setters de mezcla siguen sin lanzar: sólo guardan).
+    // ── Cue a audífonos (sub-paso e2; ver la cabecera). Nada de esto lanza ni toca el master.
+    // La salida de audífonos: un deviceId (string no vacío) y su nombre (para los avisos); null = sin
+    // audífonos (cierra el contexto de cue y apaga los cues). Con el contexto de cue abierto, cambia la
+    // salida con setSinkId y resincroniza; sin contexto sólo la guarda (se abre al activar un cue).
+    // → Promise<{ ok, error? }> que NUNCA rechaza: error = el name del error, 'valor-invalido',
+    // 'cerrado' o 'reemplazada' (otra llamada más nueva ganó).
+    fijarSalidaCue(deviceId, nombre = '') {
+      if (cerrado) return Promise.resolve({ ok: false, error: 'cerrado' });
+      if (deviceId === null) {
+        cerrarCtxCue();
+        cue.salida = null;
+        cue.nombre = '';
+        cue.activo = { A: false, B: false };
+        ponerEstadoCue('sin-salida');
+        return Promise.resolve({ ok: true });
+      }
+      if (typeof deviceId !== 'string' || deviceId === '') return Promise.resolve({ ok: false, error: 'valor-invalido' });
+      cue.salida = deviceId;
+      cue.nombre = typeof nombre === 'string' ? nombre : '';
+      if (cue.ctx) return abrirCue();
+      ponerEstadoCue('lista');
+      return Promise.resolve({ ok: true });
+    },
+    // Activa o apaga el cue de un deck (se pueden los dos). LLAMAR DENTRO DE UN GESTO: el primero crea el
+    // contexto de cue. Sin salida elegida → false. Activar: la ganancia del deck sube con rampa y se crea
+    // su fuente de cue; apagar: rampa a 0 y la fuente se para en 6·TAU.
+    fijarCue(lado, activo) {
+      if (cerrado || !(lado in decks) || !cue.salida) return false;
+      const on = !!activo;
+      cue.activo[lado] = on;
+      if (on) {
+        if (!cue.ctx) abrirCue();   // nunca rechaza; al quedar lista activa y sincroniza
+        else if (cueListo()) { rampaCue(cue.nodos[lado].gain, 1); sincronizarCue(lado); }
+      } else if (cue.nodos && cue.ctx) {
+        rampaCue(cue.nodos[lado].gain, 0);
+        pararFuenteCue(lado, true);
+      } else {
+        pararFuenteCue(lado);
+      }
+      avisar();
+      return true;
+    },
+    // Volumen de los audífonos, 0..1 con curva v² (volumenCue). No finito → false (no cambia nada).
+    fijarVolumenCue(v) {
+      const g = volumenCue(v);
+      if (g === null) return false;
+      cue.volumen = recortar(v, 0, 1);
+      if (cue.nodos && cue.ctx) rampaCue(cue.nodos.vol.gain, g);
+      avisar();
+      return true;
+    },
+    // Desfase de los audífonos en ms (+ = suenan más tarde), recortado a ±250 (recortarDesfase). Se aplica
+    // y se resincroniza YA (el debounce al arrastrar es de la página). No finito → false.
+    fijarDesfaseCue(ms) {
+      const d = recortarDesfase(ms);
+      if (d === null) return false;
+      cue.desfaseMs = d;
+      if (!cerrado) sincronizarCues();
+      avisar();
+      return true;
+    },
+    // Copia del estado del cue.
+    cue() {
+      return { salida: cue.salida, nombre: cue.nombre, estado: cue.estado, activo: { ...cue.activo }, volumen: cue.volumen, desfaseMs: cue.desfaseMs, aviso: cue.aviso };
+    },
+    contextoCue() { return cue.ctx; },
+
+    // Para todo, suelta los buffers y cierra LOS DOS contextos (master y cue; un setSinkId pendiente del
+    // cue rechaza con InvalidStateError y se descarta). Idempotente; después el motor no suena más (los
+    // setters de mezcla siguen sin lanzar: sólo guardan).
     cerrar() {
       if (cerrado) return;
       cerrado = true;
       oyentes.clear();
       decks.A._soltar();
       decks.B._soltar();
+      cerrarCtxCue();
       if (ctx) ctx.close().catch(() => {});
       ctx = null;
       nodos = null;
