@@ -11,12 +11,14 @@ import { crearMotor, MEZCLA_INICIAL } from './motor/motor.js';
 import { antesDeBajar, cargarPista, mbTexto } from './motor/carga.js';
 import { filtroFrecuencias, LP_NEUTRA, HP_NEUTRA } from './motor/mezcla.js';
 import { crearConexionMidi } from './motor/midi.js';
+import CueDj from './CueDj.jsx';
 
 // MODO DJ (V1). Sub-paso a: la página y la CONVIVENCIA con el reproductor normal. Sub-paso b: el motor
 // de audio propio (motor/motor.js, un AudioContext con dos decks) y la carga de una pista en A o B
 // (motor/carga.js). Sub-paso c: la sección «Mezcla» (volumen de cada deck, crossfader y filtro) con el
 // ratón; los valores viven en el motor. Sub-paso d: el DDJ-400 por Web MIDI (motor/midi.js) mueve esos
-// mismos valores, directo a los setters del motor, sin pasar por React. Nada de esto toca PlayerContext.
+// mismos valores, directo a los setters del motor, sin pasar por React. Sub-paso e3a: la sección
+// «Audífonos (cue)» (CueDj.jsx) elige la salida de audífonos y sus canales. Nada de esto toca PlayerContext.
 //  · La consola se re-renderiza con los avisos del motor AGRUPADOS por requestAnimationFrame: un fader
 //    del DDJ-400 manda decenas de mensajes por segundo y cada uno llega en su propia tarea, así que sin
 //    agrupar sería un render por mensaje. Con el ratón el render sigue siendo inmediato (el <input> es
@@ -27,7 +29,9 @@ import { crearConexionMidi } from './motor/midi.js';
 //    Con ?diag=1 también window.__djCue (sub-paso e2b): el cue a audífonos del motor, para probarlo con
 //    el hardware desde la consola antes de que haya selector. Desde e2c, fijarSalidaCue(id, nombre,
 //    { canales: '3-4' }) manda el cue a los canales 3-4 (el jack de audífonos de la DDJ-400); sin
-//    opciones, por los 1-2 como siempre.
+//    opciones, por los 1-2 como siempre. Desde e3a, { abrir: true } (lo que usa el «Usar» de CueDj)
+//    abre el contexto de cue al elegir la salida, sin activar ningún cue; sin `abrir`, perezoso como
+//    antes (se abre al activar un cue). `abrir` que no es booleano → 'valor-invalido'.
 //
 //  · Radio activa (fase distinta de 'sin-radio'): la página sólo pide salir de la radio y NO toma
 //    nada (no pausa, no tapa teclas, NO monta la consola → no crea AudioContext). La barra del
@@ -176,6 +180,7 @@ function ConsolaDj({ diag }) {
     //   const s = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
     //   await __djCue.fijarSalidaCue(s[1].deviceId, s[1].label); __djCue.fijarCue('A', true); __djCue.diag();
     // Con la DDJ-400 (audífonos en los canales 3-4): __djCue.fijarSalidaCue(id, nombre, { canales: '3-4' }).
+    // Abrir la salida sin activar un cue (e3a): __djCue.fijarSalidaCue(id, nombre, { canales: '3-4', abrir: true }).
     const expuestoCue = diag ? {
       fijarSalidaCue: (deviceId, nombre, opciones) => m.fijarSalidaCue(deviceId, nombre, opciones),
       fijarCue: (lado, activo) => m.fijarCue(lado, activo),
@@ -269,6 +274,7 @@ function ConsolaDj({ diag }) {
         ))}
       </div>
       <MezclaDj motor={motor} refrescar={refrescar} midi={midi} onConectarMidi={conectarMidi} />
+      <CueDj motor={motor} refrescar={refrescar} />
       <BibliotecaDj onCargar={cargar} />
     </>
   );

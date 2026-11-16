@@ -43,6 +43,8 @@
 //     fuenteCue.buffer es el MISMO AudioBuffer del deck (decodificado una vez, con el master).
 //   · PEREZOSO: se crea al activar el primer cue (fijarCue, dentro de un clic) con sinkId { type: 'none' }
 //     (no abre ningún dispositivo), después setSinkId(id) y se espera 'running' (tope ESPERA_CUE_MS).
+//     Desde e3a también al ELEGIR la salida con fijarSalidaCue(id, nombre, { abrir: true }) (el «Usar» de
+//     la página, otro clic): se abre sin activar ningún cue y queda abierto y en silencio (cueA/cueB en 0).
 //     Recién entonces se crean los nodos. Si setSinkId falla, el contexto queda en 'none' (mudo) y se
 //     cierra: nunca suena por la salida predeterminada, que es la del master. (Un contexto creado SIN
 //     sinkId que falla setSinkId se queda en la predeterminada: medido en Chromium, ver cue.js.)
@@ -572,9 +574,14 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
     // salida con setSinkId y resincroniza; sin contexto sólo la guarda (se abre al activar un cue).
     // → Promise<{ ok, error? }> que NUNCA rechaza: error = el name del error, 'valor-invalido',
     // 'cerrado', 'reemplazada' (otra llamada más nueva ganó) o 'sin-canales-3-4'.
-    // `opciones` (e2c): undefined, null o { canales: '1-2' | '3-4' } (validarCanales; sin canales = '1-2').
-    // Cambiar SÓLO los canales de la salida que ya está lista rearma la etapa de salida: sin setSinkId,
-    // sin contexto nuevo y sin resincronizar (las fuentes de cue están antes de esa etapa).
+    // `opciones` (e2c): undefined, null o { canales: '1-2' | '3-4', abrir: boolean } (validarCanales; sin
+    // canales = '1-2'). Cambiar SÓLO los canales de la salida que ya está lista rearma la etapa de salida:
+    // sin setSinkId, sin contexto nuevo y sin resincronizar (las fuentes de cue están antes de esa etapa).
+    // `abrir: true` (e3a, el botón «Usar» de la página; LLAMAR DENTRO DEL GESTO): sin contexto de cue, lo
+    // abre YA (setSinkId, 'running' y la etapa de canales) sin activar ningún cue, así un error de la
+    // salida se ve al elegirla y no al primer cue en plena sesión; la promesa resuelve con la salida
+    // 'lista' con contexto, o con el error. Sin `abrir` (o false), perezoso como en e2. `abrir` que no es
+    // booleano → 'valor-invalido' sin cambiar nada.
     fijarSalidaCue(deviceId, nombre = '', opciones) {
       if (cerrado) return Promise.resolve({ ok: false, error: 'cerrado' });
       if (deviceId === null) {
@@ -590,6 +597,8 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
       const op = opciones ?? {};
       const canales = typeof op === 'object' && !Array.isArray(op) ? validarCanales(op.canales) : null;
       if (canales === null) return Promise.resolve({ ok: false, error: 'valor-invalido' });
+      const abrir = op.abrir;
+      if (abrir !== undefined && typeof abrir !== 'boolean') return Promise.resolve({ ok: false, error: 'valor-invalido' });
       const soloCanales = !!cue.ctx && cueListo() && deviceId === cue.salida && canales !== cue.canales;
       cue.salida = deviceId;
       cue.nombre = typeof nombre === 'string' ? nombre : '';
@@ -601,7 +610,7 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
         avisar();
         return Promise.resolve({ ok: true });
       }
-      if (cue.ctx) return abrirCue();
+      if (cue.ctx || abrir) return abrirCue();
       ponerEstadoCue('lista');
       return Promise.resolve({ ok: true });
     },

@@ -18,7 +18,9 @@ const { potenciaIgual, filtroBipolar, ZONA_MUERTA, PASO_BAJO, PASO_ALTO, gananci
 const { antesDeBajar, clasificarRespuesta, cargarPista, MAX_SEG, MEMORIA_AVISO_B, TASA_PEOR_CASO } = await desde('music-client/src/dj/motor/carga.js');
 const { crearMotor, TASA_DJ, TAU, Q_FILTRO, GUARDA_CUE } = await desde('music-client/src/dj/motor/motor.js');
 const { interpretar, crearCombinador, crearDeduplicador, valorParaMotor, aplicar, crearColector, crearConexionMidi, MAPA_DDJ400 } = await desde('music-client/src/dj/motor/midi.js');
-const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hayNombres, elegirGuardada, textoAviso, validarCanales, DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL } = await desde('music-client/src/dj/motor/cue.js');
+const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hayNombres, elegirGuardada, textoAviso, validarCanales, DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL,
+  nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue } = await desde('music-client/src/dj/motor/cue.js');
+const { crearListaSalidas } = await desde('music-client/src/dj/motor/salidas.js');
 
 const R = {};
 // `ok` va DESPUÉS del detalle: varios detalles son resultados { ok: false, error } y no deben pisar el veredicto.
@@ -1065,6 +1067,97 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
       ok('motor_cue_canales_null_resetea', e1.canales === '1-2' && e1.estado === 'sin-salida' && e2.canales === '1-2' && e2.estado === 'lista' && x.cc.state === 'closed' && x.m.contextoCue() === null, { e1, e2 });
       x.m.cerrar();
     }
+    // ── e3a: fijarSalidaCue(id, nombre, { abrir: true }) abre el contexto de cue al ELEGIR la salida ──
+    // Un motor con el master creado y A sonando (como armar, sin elegir salida todavía).
+    const conMaster = () => {
+      const m = crearMotor();
+      const cm = m.asegurarContexto();
+      m.decks.A.cargarBuffer({ duration: 240 });
+      cm.currentTime = 10;
+      m.decks.A.play();
+      cm.currentTime = 50;
+      return { m, cm };
+    };
+    // Lo que el cue NO debe tocar del master: sus setSinkId, estado y cada AudioParam (valor, escrituras y rampas).
+    const fotoMaster = (cm) => JSON.stringify({ sinks: cm.sinks, state: cm.state, params: cm.nodos.map((n) => [n.clase, ...['gain', 'frequency', 'Q'].map((k) => (n[k] ? [n[k].value, n[k].escrituras, n[k].rampas.length] : null))]) });
+    // abrir: el contexto de cue se crea EN LA LLAMADA (dentro del clic) con sinkId { type: 'none' }, UN setSinkId
+    // con el id, y la promesa resuelve con 'lista' y el contexto abierto; ningún cue activo, sin fuentes de cue,
+    // cueA/cueB en 0 (sin rampas) y cueVol al destination.
+    {
+      ACCue.modo = { tipo: 'resuelve' };
+      const n0 = creados.length;
+      const { m, cm } = conMaster();
+      const p = m.fijarSalidaCue(ID, NOMBRE, { abrir: true });
+      const cc = m.contextoCue();
+      const enLaLlamada = { creados: creados.length - n0, estado: m.cue().estado };
+      const r = await p;
+      const e = m.cue();
+      const g = cc ? gains(cc) : [];
+      const vol = g.find((n) => n.salidas.includes(cc?.destination));
+      const AB = g.filter((n) => n !== vol);
+      ok('motor_cue_abrir_crea_contexto', r.ok === true && enLaLlamada.creados === 2 && enLaLlamada.estado === 'abriendo' && !!cc && cc !== cm
+        && JSON.stringify(cc.opciones) === JSON.stringify({ sampleRate: 44100, latencyHint: 'interactive', sinkId: { type: 'none' } })
+        && JSON.stringify(cc.sinks) === JSON.stringify([ID]) && cc.state === 'running' && m.contextoCue() === cc && e.estado === 'lista' && e.salida === ID && e.nombre === NOMBRE
+        && e.canales === '1-2' && e.activo.A === false && e.activo.B === false && e.aviso === null && fuentes(cc).length === 0 && g.length === 3 && !!vol
+        && AB.length === 2 && AB.every((n) => n.gain.value === 0 && n.gain.rampas.length === 0) && cm.sinks.length === 0,
+      { r, enLaLlamada, sinks: cc?.sinks, e, fuentes: cc ? fuentes(cc).length : null, gains: g.length, AB: AB.map((n) => [n.gain.value, n.gain.rampas.length]) });
+      m.cerrar();
+    }
+    // abrir con '3-4' en la DDJ-400: la etapa se arma ya (destination a 4 canales 'discrete'), con un solo setSinkId.
+    {
+      ACCue.modo = { tipo: 'resuelve' };
+      const { m } = conMaster();
+      const r = await m.fijarSalidaCue(ID_DDJ, NOMBRE_DDJ, { canales: '3-4', abrir: true });
+      const cc = m.contextoCue();
+      ok('motor_cue_abrir_34_arma_la_etapa', r.ok === true && !!cc && m.cue().estado === 'lista' && m.cue().canales === '3-4' && JSON.stringify(cc.sinks) === JSON.stringify([ID_DDJ])
+        && cc.destination.channelCount === 4 && cc.destination.channelInterpretation === 'discrete' && fuentes(cc).length === 0,
+      { r, sinks: cc?.sinks, cuenta: cc?.destination.channelCount, interp: cc?.destination.channelInterpretation });
+      m.cerrar();
+    }
+    // abrir con una salida que falla (NotFoundError): 'error' con el aviso de textoAviso, contexto de cue cerrado
+    // y el master intacto (sin setSinkId, mismo estado, mismos AudioParam, A sigue sonando). Nunca rechaza.
+    {
+      const { m, cm } = conMaster();
+      const antes = fotoMaster(cm);
+      ACCue.modo = { tipo: 'rechaza', name: 'NotFoundError' };
+      let lanzo = null, r = null;
+      try { r = await m.fijarSalidaCue(ID, NOMBRE, { abrir: true }); } catch (x) { lanzo = String(x); }
+      ACCue.modo = { tipo: 'resuelve' };
+      const cc = creados.at(-1);
+      const e = m.cue();
+      ok('motor_cue_abrir_falla_error_y_master_intacto', lanzo === null && r?.ok === false && r.error === 'NotFoundError' && e.estado === 'error'
+        && e.aviso === 'No se encontró la salida «Headphones (Elgato Wave:XLR)». Cue apagado; el master sigue igual.' && e.salida === ID
+        && m.contextoCue() === null && cc !== cm && cc.state === 'closed' && JSON.stringify(cc.sinks) === JSON.stringify([ID])
+        && fotoMaster(cm) === antes && cm.state === 'running' && m.decks.A.estado().sonando === true,
+      { lanzo, r, e, cc: cc?.state, master: fotoMaster(cm) === antes });
+      m.cerrar();
+    }
+    // Sin `abrir` (o con false), perezoso como hasta e2c: elegir sólo guarda, ningún contexto de cue.
+    {
+      ACCue.modo = { tipo: 'resuelve' };
+      const n0 = creados.length;
+      const { m } = conMaster();
+      const rs = [await m.fijarSalidaCue(ID, NOMBRE), await m.fijarSalidaCue(ID2, NOMBRE2, { abrir: false }), await m.fijarSalidaCue(ID_DDJ, NOMBRE_DDJ, { canales: '3-4' })];
+      const e = m.cue();
+      ok('motor_cue_sin_abrir_igual_que_antes', rs.every((r) => r.ok === true) && creados.length - n0 === 1 && m.contextoCue() === null && e.estado === 'lista'
+        && e.salida === ID_DDJ && e.canales === '3-4', { rs, creados: creados.length - n0, e });
+      m.cerrar();
+    }
+    // `abrir` que no es booleano → 'valor-invalido' y NADA cambia (ni la salida, ni los canales, ni el estado),
+    // sin contexto de cue.
+    {
+      ACCue.modo = { tipo: 'resuelve' };
+      const n0 = creados.length;
+      const { m } = conMaster();
+      await m.fijarSalidaCue(ID, NOMBRE);
+      const antes = JSON.stringify(m.cue());
+      const malos = ['si', 'true', 1, 0, null, {}, []];
+      const rs = [];
+      for (const v of malos) rs.push(await m.fijarSalidaCue(ID2, NOMBRE2, { canales: '3-4', abrir: v }));
+      ok('motor_cue_abrir_no_booleano_valor_invalido', rs.every((r) => r.ok === false && r.error === 'valor-invalido') && JSON.stringify(m.cue()) === antes
+        && creados.length - n0 === 1 && m.contextoCue() === null, { rs, antes, despues: m.cue() });
+      m.cerrar();
+    }
     // El master NUNCA recibió setSinkId (todos los contextos sin sinkId en el constructor son masters).
     {
       const masters = creados.filter((c) => !(c.opciones && 'sinkId' in c.opciones));
@@ -1393,6 +1486,219 @@ const motorFalso = (log = []) => ({
   const sin34 = ['', '   ', undefined, null].map((n) => textoAviso('sin-canales-3-4', n));
   ok('cue_aviso_sin_canales_3_4', textoAviso('sin-canales-3-4', N) === `La salida «${N}» no tiene canales 3-4. Cue apagado; el master sigue igual.`
     && sin34.every((t) => t === 'La salida de audífonos no tiene canales 3-4. Cue apagado; el master sigue igual.'), { conNombre: textoAviso('sin-canales-3-4', N), sin34 });
+}
+
+// ── cue.js (sub-paso e3a): lo puro del selector de audífonos ──
+{
+  // Repetidos: la 1.ª conserva el nombre, las siguientes « (2)», « (3)» en el orden dado; un sufijo que choca
+  // con otra salida salta al número siguiente; el nombre se recorta como en filtrarSalidas.
+  const sal = (...ns) => ns.map((nombre, i) => ({ id: `id${i}`, nombre }));
+  const v1 = nombresVisibles(sal('Altavoces', 'Headphones', 'Headphones', 'Línea (2- DDJ-400)', 'Headphones'));
+  const v2 = nombresVisibles(sal('X', 'X (2)', 'X', 'X'));
+  const v3 = nombresVisibles(sal(' Y ', 'Y'));
+  ok('cue_nombres_visibles_repetidos', JSON.stringify(v1) === JSON.stringify(['Altavoces', 'Headphones', 'Headphones (2)', 'Línea (2- DDJ-400)', 'Headphones (3)'])
+    && JSON.stringify(v2) === JSON.stringify(['X', 'X (2)', 'X (3)', 'X (4)']) && JSON.stringify(v3) === JSON.stringify(['Y', 'Y (2)'])
+    && JSON.stringify(nombresVisibles(sal('A', 'B'))) === JSON.stringify(['A', 'B']) && nombresVisibles(null).length === 0 && nombresVisibles('x').length === 0, { v1, v2, v3 });
+  // Misma salida que el master: con '1-2' se confirma; con '3-4' (la DDJ) no; una salida que no es la del master, no.
+  const master = { id: 'sb', nombre: 'Altavoces', esMaster: true }, otra = { id: 'w', nombre: 'Headphones', esMaster: false };
+  const dec = [decidirEleccion(master, '1-2'), decidirEleccion(master, undefined), decidirEleccion(master, '3-4'), decidirEleccion(otra, '1-2'), decidirEleccion(otra, '3-4'),
+    decidirEleccion(null, '1-2'), decidirEleccion(master, '5-6'), decidirEleccion('sb', '1-2')];
+  ok('cue_decidir_misma_salida', JSON.stringify(dec) === JSON.stringify(['confirmar-misma-salida', 'confirmar-misma-salida', 'ok', 'ok', 'ok', null, null, null]), { dec });
+  // Los textos de la lista, exactos.
+  const esperados = {
+    inactivo: 'Para mostrar los nombres de las salidas de audio, el navegador pide permiso de micrófono. No se graba nada: el micrófono se cierra al instante.',
+    pidiendo: 'Pidiendo permiso de micrófono…',
+    denegado: 'Permiso de micrófono denegado. Sin él, el navegador no muestra los nombres de las salidas. Puedes permitirlo desde el candado de la barra de direcciones.',
+    'sin-microfono': 'No hay ningún micrófono conectado, y sin micrófono el navegador no muestra los nombres de las salidas.',
+    'sin-nombres': 'El navegador no dio los nombres de las salidas aunque hay permiso. Prueba a recargar la página.',
+    vacia: 'No se encontró ninguna salida de audio.',
+  };
+  const malosLista = Object.entries(esperados).filter(([e, t]) => textoListaSalidas(e) !== t).map(([e]) => e);
+  ok('cue_textos_lista_salidas', malosLista.length === 0 && textoListaSalidas('error', 'NotReadableError') === 'No se pudo pedir el permiso de micrófono (NotReadableError).'
+    && textoListaSalidas('error') === 'No se pudo pedir el permiso de micrófono (error desconocido).' && textoListaSalidas('lista') === null && textoListaSalidas('otra') === null,
+  { malosLista, error: textoListaSalidas('error', 'NotReadableError') });
+  ok('cue_texto_sin_soporte', textoListaSalidas('sin-soporte') === 'Este navegador no puede mandar el cue a otra salida.', { t: textoListaSalidas('sin-soporte') });
+  // La línea de estado del cue: 'lista' con o sin contexto; 'error' → null (el aviso del motor va aparte).
+  const est = [textoEstadoCue('sin-salida', '', '1-2', false), textoEstadoCue('abriendo', 'Línea (2- DDJ-400)', '3-4', true), textoEstadoCue('lista', 'Línea (2- DDJ-400)', '3-4', true),
+    textoEstadoCue('lista', 'Headphones', '1-2', false), textoEstadoCue('error', 'Headphones', '1-2', false), textoEstadoCue('otro', 'x', '1-2', true)];
+  ok('cue_texto_estado_cue', JSON.stringify(est) === JSON.stringify(['Sin salida de audífonos.', 'Abriendo «Línea (2- DDJ-400)»…', 'Listo: «Línea (2- DDJ-400)» · canales 3-4.',
+    '«Headphones» · canales 1-2. Se abre al activar un cue.', null, null]), { est });
+}
+
+// ── salidas.js (sub-paso e3a): la lista de salidas con mediaDevices y permissions FALSOS ──
+// El falso: getUserMedia cuenta sus llamadas y da 2 pistas que cuentan sus stop() (o rechaza con `gum`, un
+// name); enumerateDevices da la lista con nombres sólo con permiso ('granted') y `nombres`; sin permiso, como
+// Chromium: una entrada por tipo, sin id ni nombre. devicechange con disparar(); oyentes contados.
+{
+  const err = (name) => Object.assign(new Error(name), { name });
+  const espera = () => new Promise((r) => setTimeout(r, 0));
+  const LISTA = [
+    { kind: 'audioinput', deviceId: 'default', label: 'Predeterminado - Micrófono (Wave:XLR)', groupId: 'gw' },
+    { kind: 'audiooutput', deviceId: 'default', label: 'Predeterminado - Altavoces (Sound Blaster AE-7)', groupId: 'gsb' },
+    { kind: 'audiooutput', deviceId: 'communications', label: 'Comunicaciones - Headphones (Elgato Wave:XLR)', groupId: 'gw' },
+    { kind: 'audiooutput', deviceId: 'sb1', label: 'Altavoces (Sound Blaster AE-7)', groupId: 'gsb' },
+    { kind: 'audiooutput', deviceId: 'w1', label: 'Headphones (Elgato Wave:XLR)', groupId: 'gw' },
+    { kind: 'audiooutput', deviceId: 'ddj1', label: 'Línea (2- DDJ-400)', groupId: 'gddj' },
+  ];
+  const SIN_PERMISO = [{ kind: 'audioinput', deviceId: '', label: '', groupId: '' }, { kind: 'audiooutput', deviceId: '', label: '', groupId: '' }];
+  const falso = ({ permiso = 'prompt', gum = 'ok', nombres = true, lista = LISTA } = {}) => {
+    const f = { permiso, lista, gum, gumLlamadas: [], pistas: [], enumeraciones: 0, oy: new Set(), consultas: [] };
+    f.getUserMedia = (c) => {
+      f.gumLlamadas.push(c);
+      if (f.gum !== 'ok') return Promise.reject(err(f.gum));
+      f.permiso = 'granted';
+      const t = [0, 1].map(() => ({ stops: 0, stop() { this.stops++; } }));
+      f.pistas.push(...t);
+      return Promise.resolve({ getTracks: () => t });
+    };
+    f.enumerateDevices = () => { f.enumeraciones++; return Promise.resolve(f.permiso === 'granted' && nombres ? f.lista.map((d) => ({ ...d })) : SIN_PERMISO.map((d) => ({ ...d }))); };
+    f.addEventListener = (t, fn) => { if (t === 'devicechange') f.oy.add(fn); };
+    f.removeEventListener = (t, fn) => { if (t === 'devicechange') f.oy.delete(fn); };
+    f.disparar = () => { for (const fn of [...f.oy]) fn({ type: 'devicechange' }); };
+    f.permisos = { query: (d) => { f.consultas.push(d); return Promise.resolve({ state: f.permiso }); } };
+    return f;
+  };
+  const crear = (f, extra = {}) => {
+    const cambios = [];
+    const l = crearListaSalidas({ medios: f, permisos: f?.permisos, puedeSink: () => true, alCambiar: () => cambios.push(l.estado().estado), ...extra });
+    return { l, cambios };
+  };
+  const ids = (l) => l.estado().salidas.map((s) => s.id);
+  try {
+    // Sin mediaDevices, o sin setSinkId: 'sin-soporte', y pedir/autoListar no hacen nada.
+    {
+      const sin = crearListaSalidas({ medios: undefined, permisos: undefined, puedeSink: () => true });
+      const f = falso({ permiso: 'granted' });
+      const { l } = crear(f, { puedeSink: () => false });
+      await l.pedir(); await l.autoListar(); await sin.pedir(); await sin.autoListar();
+      ok('salidas_sin_soporte', sin.estado().estado === 'sin-soporte' && l.estado().estado === 'sin-soporte' && f.gumLlamadas.length === 0 && f.enumeraciones === 0 && f.oy.size === 0,
+        { sin: sin.estado().estado, l: l.estado().estado, gum: f.gumLlamadas.length, enumeraciones: f.enumeraciones });
+      l.cerrar(); sin.cerrar();
+    }
+    // Permiso ya dado: autoListar enumera SIN getUserMedia; filtra los alias; esMaster por el groupId de 'default'.
+    {
+      const f = falso({ permiso: 'granted' });
+      const { l } = crear(f);
+      await l.autoListar();
+      const s = l.estado().salidas;
+      ok('salidas_granted_lista_sin_getUserMedia', l.estado().estado === 'lista' && f.gumLlamadas.length === 0 && JSON.stringify(f.consultas) === JSON.stringify([{ name: 'microphone' }])
+        && JSON.stringify(ids(l)) === JSON.stringify(['sb1', 'w1', 'ddj1']) && JSON.stringify(s.map((x) => x.esMaster)) === JSON.stringify([true, false, false]),
+      { estado: l.estado().estado, gum: f.gumLlamadas.length, ids: ids(l) });
+      l.cerrar();
+    }
+    // 'prompt': autoListar no pide ni enumera; 'denied': 'denegado' sin pedir nada.
+    {
+      const f = falso();
+      const { l } = crear(f);
+      await l.autoListar();
+      const fd = falso({ permiso: 'denied' });
+      const { l: ld } = crear(fd);
+      await ld.autoListar();
+      ok('salidas_prompt_no_hace_nada_hasta_pedir', l.estado().estado === 'inactivo' && f.gumLlamadas.length === 0 && f.enumeraciones === 0
+        && ld.estado().estado === 'denegado' && fd.gumLlamadas.length === 0 && fd.enumeraciones === 0, { prompt: l.estado().estado, denied: ld.estado().estado });
+      l.cerrar(); ld.cerrar();
+    }
+    // pedir(): getUserMedia UNA vez, en la llamada (síncrono, dentro del clic), con { audio: true }; un 2.º pedir
+    // en vuelo no pide otra vez; cada pista se para UNA vez; después la lista.
+    {
+      const f = falso();
+      const { l, cambios } = crear(f);
+      const p1 = l.pedir();
+      const enLaLlamada = { gum: f.gumLlamadas.length, estado: l.estado().estado };
+      const p2 = l.pedir();
+      await p1; await p2;
+      ok('salidas_pedir_una_vez_y_para_las_pistas', enLaLlamada.gum === 1 && enLaLlamada.estado === 'pidiendo' && p1 === p2 && f.gumLlamadas.length === 1
+        && JSON.stringify(f.gumLlamadas[0]) === JSON.stringify({ audio: true }) && f.pistas.length === 2 && f.pistas.every((t) => t.stops === 1)
+        && l.estado().estado === 'lista' && JSON.stringify(ids(l)) === JSON.stringify(['sb1', 'w1', 'ddj1']) && JSON.stringify(cambios) === JSON.stringify(['pidiendo', 'lista']),
+      { enLaLlamada, gum: f.gumLlamadas, stops: f.pistas.map((t) => t.stops), cambios });
+      l.cerrar();
+    }
+    // NotAllowedError → 'denegado' (sin lista); se puede volver a pedir.
+    {
+      const f = falso({ gum: 'NotAllowedError' });
+      const { l } = crear(f);
+      await l.pedir();
+      const e1 = l.estado();
+      await l.pedir();
+      ok('salidas_not_allowed', e1.estado === 'denegado' && e1.salidas.length === 0 && f.gumLlamadas.length === 2 && l.estado().estado === 'denegado', { e1, gum: f.gumLlamadas.length });
+      l.cerrar();
+    }
+    // NotFoundError (sin micrófono) → 'sin-microfono'.
+    {
+      const f = falso({ gum: 'NotFoundError' });
+      const { l } = crear(f);
+      await l.pedir();
+      ok('salidas_not_found', l.estado().estado === 'sin-microfono' && l.estado().salidas.length === 0, { e: l.estado() });
+      l.cerrar();
+    }
+    // Un error con los nombres ya disponibles (permiso dado, micrófono ocupado) da la lista sin aviso; sin
+    // nombres, 'error' con el name.
+    {
+      const f = falso({ permiso: 'granted', gum: 'NotReadableError' });
+      const { l } = crear(f);
+      await l.pedir();
+      const f2 = falso({ gum: 'NotReadableError' });
+      const { l: l2 } = crear(f2);
+      await l2.pedir();
+      ok('salidas_error_con_nombres_da_lista', l.estado().estado === 'lista' && l.estado().error === null && JSON.stringify(ids(l)) === JSON.stringify(['sb1', 'w1', 'ddj1'])
+        && l2.estado().estado === 'error' && l2.estado().error === 'NotReadableError' && l2.estado().salidas.length === 0, { l: l.estado().estado, l2: l2.estado() });
+      l.cerrar(); l2.cerrar();
+    }
+    // Permiso dado pero las salidas vienen sin nombre → 'sin-nombres', sin lista.
+    {
+      const f = falso({ nombres: false });
+      const { l } = crear(f);
+      await l.pedir();
+      ok('salidas_sin_nombres', l.estado().estado === 'sin-nombres' && l.estado().salidas.length === 0 && f.permiso === 'granted', { e: l.estado() });
+      l.cerrar();
+    }
+    // Lista vacía: sólo los alias (nada que elegir) o ninguna salida.
+    {
+      const f = falso({ lista: LISTA.slice(0, 3) });
+      const { l } = crear(f);
+      await l.pedir();
+      const f2 = falso({ lista: [LISTA[0]] });
+      const { l: l2 } = crear(f2);
+      await l2.pedir();
+      ok('salidas_vacia', l.estado().estado === 'vacia' && l.estado().salidas.length === 0 && l2.estado().estado === 'vacia', { l: l.estado().estado, l2: l2.estado().estado });
+      l.cerrar(); l2.cerrar();
+    }
+    // devicechange: con la lista leída vuelve a enumerar (sin pedir) y avisa; antes del permiso no enumera;
+    // cerrar() quita el oyente (había UNO) y después nada.
+    {
+      const f0 = falso();
+      const { l: l0 } = crear(f0);
+      f0.disparar(); await espera();
+      const antesDelPermiso = f0.enumeraciones;
+      l0.cerrar();
+      const f = falso();
+      const { l, cambios } = crear(f);
+      const oyAlCrear = f.oy.size;
+      await l.pedir();
+      const e0 = f.enumeraciones;
+      f.lista = LISTA.filter((d) => d.deviceId !== 'w1');
+      f.disparar(); await espera(); await espera();
+      const tras = { enumeraciones: f.enumeraciones - e0, ids: ids(l), cambios: cambios.length };
+      l.cerrar();
+      const oyTrasCerrar = f.oy.size;
+      f.disparar(); await espera();
+      ok('salidas_devicechange_reenumera_y_cerrar_quita', antesDelPermiso === 0 && oyAlCrear === 1 && tras.enumeraciones === 1 && JSON.stringify(tras.ids) === JSON.stringify(['sb1', 'ddj1'])
+        && tras.cambios === 3 && f.gumLlamadas.length === 1 && oyTrasCerrar === 0 && f.enumeraciones - e0 === 1,
+      { antesDelPermiso, oyAlCrear, tras, oyTrasCerrar });
+    }
+    // cerrar() con el permiso en vuelo (doble montaje de StrictMode): las pistas igual se paran; no enumera ni avisa.
+    {
+      const f = falso();
+      const { l, cambios } = crear(f);
+      const p = l.pedir();
+      l.cerrar();
+      await p;
+      ok('salidas_cerrar_en_vuelo', f.pistas.length === 2 && f.pistas.every((t) => t.stops === 1) && f.enumeraciones === 0 && JSON.stringify(cambios) === JSON.stringify(['pidiendo']),
+        { stops: f.pistas.map((t) => t.stops), enumeraciones: f.enumeraciones, cambios });
+    }
+  } catch (e) {
+    ok('salidas_sin_excepciones', false, { lanzo: String(e?.stack ?? e) });
+  }
 }
 
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));

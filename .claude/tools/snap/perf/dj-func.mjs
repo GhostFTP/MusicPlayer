@@ -40,6 +40,18 @@
 //         En el Chromium del runner NINGUNA salida acepta setSinkId (medido el 2026-11-14: una sola salida,
 //         sin id; setSinkId('default') → NotFoundError), así que la etapa '3-4' (grafo, orden, adaptador y
 //         el fallo por maxChannelCount < 4) sólo se prueba en dj-unit.
+//   · cs  (sub-paso e3a, «Audífonos (cue)», con un mediaDevices FALSO y un setSinkId FALSO sólo para sus ids)
+//         al montar no se pide el micrófono (cs0); el clic pide UNA vez y para la pista; la lista sin alias,
+//         con los repetidos desambiguados y la marca del master (cs1); «Usar» abre el contexto de cue y otra
+//         salida reusa el contexto (cs3); misma salida que el master: confirma con 1-2, no con 3-4 (cs4);
+//         la etapa '3-4' armada sobre el destination REAL y el cambio de canales en caliente sin setSinkId
+//         (cs10); las teclas y el selector no aplican nada (cs6); quitar (cs5); el error del motor con el
+//         master intacto (cs9, cs9b); devicechange sin la salida con contexto abierto → null + aviso (cs7) y
+//         en 'error' sin duplicar (cs7b); salir quita el oyente de devicechange (cs11); permiso ya dado al
+//         montar (cs8); denegado y sin micrófono (cs2). Con el setSinkId falso NO se prueba: que el audio
+//         salga por otro dispositivo, los sinkchange/error/'closed' reales al desenchufar, el maxChannelCount
+//         real de la DDJ-400 (acá es el del destination por defecto, 6), el aviso de permisos de Edge, los
+//         nombres y groupId reales.
 //   · d6  con radio activa (anfitrión de una radio REAL, creada con «Iniciar radio» como radio-func) /dj
 //         no pausa nada (ni isPlaying ni el pause() nativo), muestra «Sal de la radio para usar el Modo
 //         DJ» y deja la barra visible; tampoco tapa teclas: Espacio llega al reproductor normal y lo
@@ -85,7 +97,17 @@ await ctx.addInitScript(() => {
   // 'none' }); el grafo y las lecturas de la mezcla son siempre del master.
   reg.sinks = [];
   const ss = AC.prototype.setSinkId;
-  if (typeof ss === 'function') AC.prototype.setSinkId = function (id, ...r) { reg.sinks.push({ i: reg.lista.indexOf(this), id: typeof id === 'string' ? id : JSON.stringify(id) }); return ss.call(this, id, ...r); };
+  // e3a: setSinkId FALSO sólo para los ids del mediaDevices falso (abajo): resuelve sin llamar al nativo (el
+  // contexto de cue, creado con sinkId { type: 'none' }, sigue 'running' y su destination real tiene
+  // maxChannelCount 6, medido en e2c), así que la etapa '3-4' se arma DE VERDAD en este Chromium. 'hp-0002'
+  // rechaza con NotFoundError (una salida que falla al abrirla). Cualquier otro id va al nativo, como antes
+  // (cd3 y cc1 usan uno que no existe y esperan el NotFoundError real).
+  const SINK_FALSO = { 'sb-0001': null, 'wave-0001': null, 'hp-0001': null, 'hp-0002': 'NotFoundError', 'ddj-0001': null };
+  if (typeof ss === 'function') AC.prototype.setSinkId = function (id, ...r) {
+    reg.sinks.push({ i: reg.lista.indexOf(this), id: typeof id === 'string' ? id : JSON.stringify(id) });
+    if (typeof id === 'string' && Object.hasOwn(SINK_FALSO, id)) return SINK_FALSO[id] ? Promise.reject(new DOMException('setSinkId falso', SINK_FALSO[id])) : Promise.resolve();
+    return ss.call(this, id, ...r);
+  };
   reg.master = () => reg.lista.filter((c, i) => !(reg.opciones[i] && typeof reg.opciones[i] === 'object' && 'sinkId' in reg.opciones[i])).at(-1) ?? null;
   const con = AudioNode.prototype.connect;
   AudioNode.prototype.connect = function (d, ...r) { reg.aristas.push([this, d]); return con.call(this, d, ...r); };
@@ -190,6 +212,63 @@ await ctx.addInitScript(() => {
   if (navigator.permissions) {
     const q0 = navigator.permissions.query.bind(navigator.permissions);
     Object.defineProperty(navigator.permissions, 'query', { configurable: true, value: (d) => (d?.name === 'midi' ? Promise.resolve({ state: fm.permiso, onchange: null }) : q0(d)) });
+  }
+});
+// mediaDevices FALSO (sub-paso e3a, el selector de audífonos): el runner no tiene salidas con nombre. Sólo el
+// permiso de micrófono destapa los nombres (como en Edge): sin él, enumerateDevices da una entrada por tipo,
+// sin id ni nombre. Salidas: los alias 'default' y 'communications', la Sound Blaster (mismo groupId que
+// 'default' = la del master), unos audífonos Elgato, DOS «Headphones» con el mismo nombre y la DDJ-400 con el
+// groupId de 'default' también (master y audífonos en la misma salida: con '3-4' no se confirma nada).
+// getUserMedia cuenta sus llamadas y da una pista que cuenta sus stop(); devicechange con __fd.quitar(id) /
+// __fd.poner(id); oyentes de devicechange contados. permissions.query({ name: 'microphone' }) da __fd.permiso.
+// Configuración por página en sessionStorage '__fdCfg': { permiso: 'prompt' | 'granted' | 'denied' } (por
+// defecto 'prompt'), { gum: '<name>' } hace rechazar getUserMedia, { nombres: false } = sin nombres aun con permiso.
+await ctx.addInitScript(() => {
+  if (window.__fd) return;
+  let cfg = {};
+  try { cfg = JSON.parse(sessionStorage.getItem('__fdCfg') || '{}') || {}; } catch { cfg = {}; }
+  const fd = { gum: [], pistas: [], enumeraciones: 0, permiso: cfg.permiso ?? 'prompt' };
+  window.__fd = fd;
+  const LISTA = [
+    { kind: 'audioinput', deviceId: 'default', label: 'Predeterminado - Micrófono (Elgato Wave:XLR)', groupId: 'g-wave' },
+    { kind: 'audioinput', deviceId: 'mic-0001', label: 'Micrófono (Elgato Wave:XLR)', groupId: 'g-wave' },
+    { kind: 'audiooutput', deviceId: 'default', label: 'Predeterminado - Altavoces (Sound Blaster AE-7)', groupId: 'g-sb' },
+    { kind: 'audiooutput', deviceId: 'communications', label: 'Comunicaciones - Headphones (Elgato Wave:XLR)', groupId: 'g-wave' },
+    { kind: 'audiooutput', deviceId: 'sb-0001', label: 'Altavoces (Sound Blaster AE-7)', groupId: 'g-sb' },
+    { kind: 'audiooutput', deviceId: 'wave-0001', label: 'Headphones (Elgato Wave:XLR)', groupId: 'g-wave' },
+    { kind: 'audiooutput', deviceId: 'hp-0001', label: 'Headphones', groupId: 'g-hp1' },
+    { kind: 'audiooutput', deviceId: 'hp-0002', label: 'Headphones', groupId: 'g-hp2' },
+    { kind: 'audiooutput', deviceId: 'ddj-0001', label: 'Línea (2- DDJ-400)', groupId: 'g-sb' },
+  ];
+  const quitados = new Set();
+  const t = new EventTarget();
+  const oy = new Set();
+  const medios = {
+    getUserMedia(c) {
+      fd.gum.push(JSON.parse(JSON.stringify(c ?? null)));
+      const g = cfg.gum ?? 'ok';
+      if (g !== 'ok') { if (g === 'NotAllowedError') fd.permiso = 'denied'; return Promise.reject(new DOMException('getUserMedia falso', g)); }
+      fd.permiso = 'granted';
+      const pista = { stops: 0, stop() { this.stops++; } };
+      fd.pistas.push(pista);
+      return Promise.resolve({ getTracks: () => [pista] });
+    },
+    enumerateDevices() {
+      fd.enumeraciones++;
+      const conNombres = fd.permiso === 'granted' && cfg.nombres !== false;
+      return Promise.resolve(conNombres ? LISTA.filter((d) => !quitados.has(d.deviceId)).map((d) => ({ ...d }))
+        : [{ kind: 'audioinput', deviceId: '', label: '', groupId: '' }, { kind: 'audiooutput', deviceId: '', label: '', groupId: '' }]);
+    },
+    addEventListener(tipo, fn, o) { if (tipo === 'devicechange') oy.add(fn); t.addEventListener(tipo, fn, o); },
+    removeEventListener(tipo, fn, o) { if (tipo === 'devicechange') oy.delete(fn); t.removeEventListener(tipo, fn, o); },
+  };
+  fd.oyentes = () => oy.size;
+  fd.quitar = (id) => { quitados.add(id); t.dispatchEvent(new Event('devicechange')); };
+  fd.poner = (id) => { quitados.delete(id); t.dispatchEvent(new Event('devicechange')); };
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: medios });
+  if (navigator.permissions) {
+    const q0 = navigator.permissions.query.bind(navigator.permissions);   // ya envuelto por el MIDI falso
+    Object.defineProperty(navigator.permissions, 'query', { configurable: true, value: (d) => (d?.name === 'microphone' ? Promise.resolve({ state: fd.permiso, onchange: null }) : q0(d)) });
   }
 });
 await p.reload(); await p.waitForSelector('.player-bar', { timeout: 15000 }).catch(() => {}); await sleep(500);
@@ -429,6 +508,42 @@ try {
   const dB = await esperarDeck('B', (d) => d.estado === 'pausa');
   const a2 = await ac();
   ok('m2_carga_b_mismo_contexto', !!dB && dB.titulo === n2.title && dB.duracionTxt === '2:00' && a2.creados === 1 && a2.vivos === 1, { titulo: dB?.titulo, ...a2 });
+
+  // cf1 (mini-paso c-fix): las perillas de los sliders de /dj se ven SIN hover (main.css, sección DJ:
+  // .dj-page input[type="range"]::-webkit-slider-thumb { opacity: 1 }; la regla global las deja en 0 hasta el
+  // :hover). getComputedStyle(el, '::-webkit-slider-thumb') NO sirve en este Chromium: ignora el pseudo y da el
+  // estilo del <input> (opacity 1 y el ancho del input, con la regla o sin ella; medido el 2026-11-15). Se lee por
+  // CDP: la perilla es el div#thumb del shadow root 'user-agent' del input (DOM.getDocument con pierce y
+  // CSS.getComputedStyleForNode). Se exige UNA perilla por input y de 12 px, para no medir otra cosa si Chromium
+  // cambia ese árbol interno.
+  const pulgar = async (selector) => {
+    await p.evaluate((s) => document.querySelector(s)?.setAttribute('data-pulgar', '1'), selector);
+    const cdp = await p.context().newCDPSession(p);
+    try {
+      await cdp.send('DOM.enable'); await cdp.send('CSS.enable');
+      const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+      const hijos = (n) => [...(n.children ?? []), ...(n.shadowRoots ?? [])];
+      const buscar = (n, f) => (f(n) ? n : hijos(n).reduce((x, c) => x ?? buscar(c, f), null));
+      const attr = (n, k) => { const a = n.attributes ?? []; const i = a.indexOf(k); return i >= 0 && i % 2 === 0 ? a[i + 1] : null; };
+      const input = buscar(root, (n) => attr(n, 'data-pulgar') === '1');
+      if (!input) return { error: 'sin input' };
+      const ua = (input.shadowRoots ?? []).find((r) => r.shadowRootType === 'user-agent');
+      const pulgares = [];
+      const juntar = (n) => { if (n.localName === 'div' && attr(n, 'id') === 'thumb') pulgares.push(n); hijos(n).forEach(juntar); };
+      if (ua) juntar(ua);
+      if (pulgares.length !== 1) return { error: `perillas: ${pulgares.length}` };
+      const { computedStyle } = await cdp.send('CSS.getComputedStyleForNode', { nodeId: pulgares[0].nodeId });
+      const v = (k) => computedStyle.find((x) => x.name === k)?.value ?? null;
+      return { opacity: v('opacity'), width: v('width') };
+    } finally {
+      await cdp.detach().catch(() => {});
+      await p.evaluate((s) => document.querySelector(s)?.removeAttribute('data-pulgar'), selector);
+    }
+  };
+  await p.mouse.move(2, 2); await sleep(250);   // el puntero fuera de los sliders (y la transición de .15 s, terminada)
+  const hover = await p.evaluate(() => document.querySelectorAll('input[type="range"]:hover').length);
+  const pulgares = { mezcla: await pulgar('.dj-crossfader input'), seekA: await pulgar(sel('A', '.dj-deck-seek')) };
+  ok('cf1_perillas_visibles_sin_hover', hover === 0 && Object.values(pulgares).every((x) => x.opacity === '1' && x.width === '12px'), { hover, pulgares });
 
   // play / pausa / seek / al inicio en A
   await p.locator(sel('A', '.dj-play')).click();
@@ -858,6 +973,249 @@ try {
     && cc1.deck === 'sonando' && avCc1.p1 - avCc1.p0 > 0.5 && Math.abs((avCc1.p1 - avCc1.p0) - avCc1.pared) <= TOL_S && errores.length === errCc1,
   { cue: eCc1, cc1, avance: avCc1, errores: errores.slice(errCc1) });
   await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
+
+  // ── cs (sub-paso e3a): «Audífonos (cue)», con el mediaDevices y el setSinkId FALSOS de los init scripts ──
+  // Los textos esperados se escriben acá, no se importan de cue.js: si el código cambia uno, el test lo ve.
+  const TXT = {
+    inactivo: 'Para mostrar los nombres de las salidas de audio, el navegador pide permiso de micrófono. No se graba nada: el micrófono se cierra al instante.',
+    denegado: 'Permiso de micrófono denegado. Sin él, el navegador no muestra los nombres de las salidas. Puedes permitirlo desde el candado de la barra de direcciones.',
+    sinMicro: 'No hay ningún micrófono conectado, y sin micrófono el navegador no muestra los nombres de las salidas.',
+    misma: 'Esa salida es la misma del master: el cue sonaría por los mismos altavoces.',
+  };
+  const OPCIONES = [['', 'Elige una salida…'], ['sb-0001', 'Altavoces (Sound Blaster AE-7) · la misma del master'], ['wave-0001', 'Headphones (Elgato Wave:XLR)'],
+    ['hp-0001', 'Headphones'], ['hp-0002', 'Headphones (2)'], ['ddj-0001', 'Línea (2- DDJ-400) · la misma del master']];
+  const recargarCue = async (cfg, ruta = '/dj') => {
+    await p.evaluate((c) => { sessionStorage.removeItem('__fmCfg'); if (c) sessionStorage.setItem('__fdCfg', JSON.stringify(c)); else sessionStorage.removeItem('__fdCfg'); }, cfg);
+    await p.goto(BASE + ruta);
+    await p.waitForSelector('.dj-cue', { timeout: 15000 }).catch(() => {});
+    await sleep(400);
+    await instrumentar();
+  };
+  const cueUi = () => p.evaluate(() => {
+    const s = document.querySelector('.dj-cue');
+    if (!s) return null;
+    const q = (x) => s.querySelector(x)?.textContent ?? null;
+    return {
+      estado: s.dataset.estado, lista: s.dataset.lista, salida: s.dataset.salida, canales: s.dataset.canales, contexto: s.dataset.contexto,
+      textoEstado: q('.dj-cue-estado'), textoLista: q('.dj-cue-lista-texto'), boton: !!s.querySelector('.dj-cue-ver'),
+      opciones: [...s.querySelectorAll('.dj-cue-salida option')].map((o) => [o.value, o.textContent]),
+      sel: s.querySelector('.dj-cue-salida')?.value ?? null, radio: s.querySelector('.dj-cue-canales input:checked')?.value ?? null,
+      ojo: !!s.querySelector('.dj-cue-ojo'), quitar: !!s.querySelector('.dj-cue-quitar'),
+      confirmacion: q('.dj-cue-confirmacion p'), avisoMotor: q('.dj-cue-aviso-motor p'), avisoUi: q('.dj-cue-aviso-ui p'),
+      alertas: s.querySelectorAll('[role="alert"]').length, foco: document.activeElement?.tagName ?? null,
+    };
+  });
+  // Un clic sólo si el control está: donde su AUSENCIA es lo que se prueba (una mutación no debe convertir el caso
+  // en una excepción que corta el bloque). El resto de las acciones del bloque esperan a lo sumo 8 s.
+  const clicSiHay = async (s) => { if (await p.locator(s).count()) await p.locator(s).click(); };
+  p.setDefaultTimeout(8000);
+  const esperarCue = (cond, ms = 4000) => esperar(async () => { const u = await cueUi(); return u && cond(u) ? u : null; }, ms);
+  const fdEstado = () => p.evaluate(() => ({ gum: window.__fd.gum, stops: window.__fd.pistas.map((t) => t.stops), oyentes: window.__fd.oyentes(), enumeraciones: window.__fd.enumeraciones }));
+  // Los contextos de cue (los que se crean con sinkId en las opciones) y los setSinkId pedidos.
+  const cueCtx = () => p.evaluate(() => {
+    const r = window.__ac;
+    const cues = r.lista.filter((c, i) => r.opciones[i] && typeof r.opciones[i] === 'object' && 'sinkId' in r.opciones[i]);
+    const c = cues.at(-1);
+    const m = r.master();
+    return { sinks: r.sinks.map((s) => s.id), sinksMaster: r.sinks.filter((s) => s.i === r.lista.indexOf(m)).length, cues: cues.length, master: m?.state ?? null,
+      cue: c ? { state: c.state, cuenta: c.destination.channelCount, interp: c.destination.channelInterpretation, max: c.destination.maxChannelCount } : null };
+  });
+  const elegir = async (id, canales) => {
+    await p.locator('.dj-cue-salida').selectOption(id);
+    await p.locator(`.dj-cue-canales input[value="${canales}"]`).check();
+  };
+  const usar = async (id, canales) => { await elegir(id, canales); await p.locator('.dj-cue-usar').click(); };
+  // Lo que ocupa la página fuera de la lista de la biblioteca: X tal que con height = calc(100vh − X) la lista
+  // llena el alto sin scroll exterior (X = alto de la ventana − alto visible de .main-content + todo lo demás).
+  const medirAlto = () => p.evaluate(() => {
+    const l = document.querySelector('.dj-lista-scroll');
+    const sc = document.querySelector('.main-content');
+    if (!l || !sc) return null;
+    const lista = l.getBoundingClientRect().height;
+    // hueco: del borde inferior de la lista al de .main-content, con el scroll arriba (los paddings de abajo
+    // si la página entra justo; más, si sobra alto).
+    sc.scrollTop = 0;
+    const hueco = Math.round(sc.getBoundingClientRect().bottom - l.getBoundingClientRect().bottom);
+    return { vh: innerHeight, lista: Math.round(lista), scrollH: sc.scrollHeight, clientH: sc.clientHeight, X: Math.round(innerHeight - sc.clientHeight + (sc.scrollHeight - lista)), hueco,
+      cue: Math.round(document.querySelector('.dj-cue')?.getBoundingClientRect().height ?? 0) };
+  });
+
+  // cs0: el bloque, la frase y el botón; al montar NO se pide el micrófono (0 getUserMedia) ni se enumera.
+  await recargarCue(null);
+  const u0 = await cueUi(), f0 = await fdEstado();
+  REG.alto_inicial = await medirAlto();
+  ok('cs0_bloque_frase_y_boton_sin_pedir', !!u0 && u0.lista === 'inactivo' && u0.textoLista === TXT.inactivo && u0.boton && u0.estado === 'sin-salida'
+    && u0.textoEstado === 'Sin salida de audífonos.' && u0.opciones.length === 0 && f0.gum.length === 0 && f0.enumeraciones === 0 && f0.oyentes === 1, { u0, f0 });
+  // Para «master intacto» (cs9): A cargada y sonando; B cargada.
+  await cargarEn('A', n1); await esperarDeck('A', (d) => d.estado === 'pausa');
+  await cargarEn('B', n2); await esperarDeck('B', (d) => d.estado === 'pausa');
+  await p.locator('.dj-buscar').fill('');
+  await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'sonando', 2000);
+
+  // cs1: el clic → UNA getUserMedia({ audio: true }) y su pista parada; la lista sin los alias, con los dos
+  // «Headphones» desambiguados y la marca del master (la Sound Blaster y la DDJ comparten el groupId de 'default').
+  await clicSiHay('.dj-cue-ver');
+  const u1 = await esperarCue((u) => u.lista === 'lista') ?? await cueUi();
+  const f1 = await fdEstado();
+  ok('cs1_lista_con_permiso_y_pista_parada', u1.lista === 'lista' && !u1.boton && JSON.stringify(u1.opciones) === JSON.stringify(OPCIONES) && u1.sel === ''
+    && f1.gum.length === 1 && JSON.stringify(f1.gum[0]) === JSON.stringify({ audio: true }) && f1.stops.length === 1 && f1.stops[0] === 1 && u1.estado === 'sin-salida',
+  { u1, f1 });
+
+  // cs3: «Usar» con 1-2 → el motor tiene la salida, el nombre visible y los canales, y el contexto de cue QUEDA
+  // ABIERTO (abrir: true) con un setSinkId; el foco sale del botón. Otra salida → UN setSinkId más en el MISMO
+  // contexto (sin llamar a null antes: si no, sería un contexto nuevo).
+  const q3 = await cueCtx();
+  await usar('wave-0001', '1-2');
+  const u3 = await esperarCue((u) => u.estado === 'lista' && u.contexto === '1') ?? await cueUi();
+  const q3a = await cueCtx();
+  await usar('hp-0001', '1-2');
+  const u3b = await esperarCue((u) => u.salida === 'hp-0001' && u.estado === 'lista' && u.contexto === '1') ?? await cueUi();
+  const q3b = await cueCtx();
+  ok('cs3_usar_abre_y_otra_salida_mismo_contexto', u3.salida === 'wave-0001' && u3.canales === '1-2' && u3.textoEstado === 'Listo: «Headphones (Elgato Wave:XLR)» · canales 1-2.' && u3.quitar
+    && u3.foco === 'BODY' && q3a.cues - q3.cues === 1 && JSON.stringify(q3a.sinks.slice(q3.sinks.length)) === JSON.stringify(['wave-0001']) && q3a.cue?.state === 'running'
+    && u3b.textoEstado === 'Listo: «Headphones» · canales 1-2.' && q3b.cues === q3a.cues && JSON.stringify(q3b.sinks.slice(q3a.sinks.length)) === JSON.stringify(['hp-0001'])
+    && q3b.cue?.state === 'running' && q3b.sinksMaster === 0,
+  { u3, u3b, q3, q3a, q3b });
+
+  // cs4: la salida del master con 1-2 pide confirmación y NO llama al motor hasta «Usarla igual»; con 3-4 (la DDJ,
+  // también del master) no pide nada. El aviso de «Ojo» sale con 3-4 marcado.
+  const q4 = await cueCtx();
+  await usar('sb-0001', '1-2');
+  const u4a = await esperarCue((u) => !!u.confirmacion, 2000) ?? await cueUi();
+  const q4a = await cueCtx();
+  await clicSiHay('.dj-cue-confirmar');
+  const u4b = await esperarCue((u) => u.salida === 'sb-0001' && u.estado === 'lista') ?? await cueUi();
+  const q4b = await cueCtx();
+  await elegir('ddj-0001', '3-4');
+  const ojo = (await cueUi()).ojo;
+  await p.locator('.dj-cue-usar').click();
+  const u4c = await esperarCue((u) => u.salida === 'ddj-0001' && u.estado === 'lista') ?? await cueUi();
+  ok('cs4_misma_salida_confirma_con_12_y_no_con_34', u4a.confirmacion === TXT.misma && u4a.salida === 'hp-0001' && q4a.sinks.length === q4.sinks.length
+    && u4b.confirmacion === null && JSON.stringify(q4b.sinks.slice(q4.sinks.length)) === JSON.stringify(['sb-0001']) && ojo
+    && u4c.confirmacion === null && u4c.canales === '3-4' && u4c.alertas === 0,
+  { u4a: { confirmacion: u4a.confirmacion, salida: u4a.salida }, u4b: u4b.salida, ojo, u4c: { salida: u4c.salida, canales: u4c.canales, confirmacion: u4c.confirmacion } });
+
+  // cs10: la etapa '3-4' armada DE VERDAD (destination 4 canales 'discrete'); cambiar los canales en caliente
+  // en la misma salida: 0 setSinkId nuevos y el mismo contexto, ida y vuelta.
+  const q10 = await cueCtx();
+  // La DDJ comparte el groupId de 'default' (es «la del master»): con 1-2 se confirma, como en cs4.
+  await elegir('ddj-0001', '1-2'); await p.locator('.dj-cue-usar').click();
+  await esperarCue((u) => !!u.confirmacion, 2000);
+  await clicSiHay('.dj-cue-confirmar');
+  const u10a = await esperarCue((u) => u.canales === '1-2' && u.estado === 'lista') ?? await cueUi();
+  const q10a = await cueCtx();
+  await elegir('ddj-0001', '3-4'); await p.locator('.dj-cue-usar').click();
+  const u10b = await esperarCue((u) => u.canales === '3-4' && u.estado === 'lista') ?? await cueUi();
+  const q10b = await cueCtx();
+  ok('cs10_34_real_y_cambio_en_caliente_sin_setSinkId', q10.cue?.cuenta === 4 && q10.cue?.interp === 'discrete' && q10.cue?.max >= 4 && q10.cue?.state === 'running'
+    && u10a.textoEstado === 'Listo: «Línea (2- DDJ-400)» · canales 1-2.' && q10a.cue?.cuenta === 2 && q10a.cue?.interp === 'speakers'
+    && u10b.textoEstado === 'Listo: «Línea (2- DDJ-400)» · canales 3-4.' && q10b.cue?.cuenta === 4 && q10b.cue?.interp === 'discrete'
+    && q10a.sinks.length === q10.sinks.length && q10b.sinks.length === q10.sinks.length && q10a.cues === q10.cues && q10b.cues === q10.cues,
+  { q10, q10a, q10b, u10a: u10a.textoEstado, u10b: u10b.textoEstado });
+  REG.alto_en_sesion = await medirAlto();
+  // cs12: el alto de la biblioteca (main.css, .dj-lista-scroll = calc(100vh − 704px), medido en este mismo estado:
+  // decks cargados con su registro, «Mezcla» y «Audífonos (cue)» con una salida lista y el aviso de 3-4). A
+  // 1280×1080 la lista mide 1080 − 704 = 376 px, la página no scrollea por fuera y debajo de la lista sólo
+  // quedan los paddings de abajo (el hueco a 800 px de alto, donde la lista está en su mínimo y la página
+  // desborda, es el mismo: lo que hay debajo de la lista no depende del alto).
+  await p.setViewportSize({ width: 1280, height: 1080 }); await sleep(300);
+  const alto12 = await medirAlto();
+  await p.setViewportSize({ width: 1280, height: 800 }); await sleep(300);
+  const pie = REG.alto_en_sesion ? REG.alto_en_sesion.scrollH - (REG.alto_en_sesion.clientH - REG.alto_en_sesion.hueco) : null;   // lo que hay debajo de la lista, a 800
+  ok('cs12_biblioteca_llena_el_alto_sin_scroll_exterior', !!alto12 && alto12.lista === 1080 - 704 && alto12.scrollH <= alto12.clientH && pie !== null && Math.abs(alto12.hueco - pie) <= 1,
+    { alto12, pie });
+
+  // cs6: con el foco en el selector, M, F, flechas y Espacio (y elegir otra opción) NO cambian la salida del
+  // motor ni disparan atajos (ni play del reproductor normal ni pantalla completa); en los botones de opción,
+  // una flecha cambia la marca pero no los canales del motor.
+  const u6a = await cueUi(), q6a = await cueCtx(), e6a = await estado();
+  await p.locator('.dj-cue-salida').focus();
+  for (const k of ['KeyM', 'KeyF', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Space']) { await p.keyboard.press(k); await sleep(120); }
+  await p.evaluate(() => document.activeElement?.blur());
+  await p.locator('.dj-cue-salida').selectOption('wave-0001'); await sleep(200);
+  await p.locator('.dj-cue-canales input[value="3-4"]').focus();
+  await p.keyboard.press('ArrowLeft'); await sleep(150);
+  const radio6 = (await cueUi()).radio;
+  await p.evaluate(() => document.activeElement?.blur());
+  const u6b = await cueUi(), q6b = await cueCtx(), e6b = await estado();
+  ok('cs6_teclas_y_selector_no_aplican', u6b.salida === u6a.salida && u6b.canales === u6a.canales && u6b.estado === u6a.estado && u6b.sel === 'wave-0001' && radio6 === '1-2'
+    && q6b.sinks.length === q6a.sinks.length && q6b.cues === q6a.cues && q6b.cue?.cuenta === q6a.cue?.cuenta && e6b.plays === e6a.plays && e6b.fullscreen === false && e6b.ruta === '/dj',
+  { antes: { salida: u6a.salida, canales: u6a.canales }, despues: { salida: u6b.salida, canales: u6b.canales, sel: u6b.sel }, radio6, plays: e6b.plays - e6a.plays, fullscreen: e6b.fullscreen });
+
+  // cs5: «Quitar» → 'sin-salida' y el contexto de cue cerrado.
+  await clicSiHay('.dj-cue-quitar');
+  const u5 = await esperarCue((u) => u.estado === 'sin-salida') ?? await cueUi();
+  const q5 = await cueCtx();
+  ok('cs5_quitar_sin_salida_y_cierra', u5.estado === 'sin-salida' && u5.salida === '' && u5.canales === '1-2' && !u5.quitar && u5.textoEstado === 'Sin salida de audífonos.'
+    && q5.cue?.state === 'closed' && u5.alertas === 0, { u5, q5 });
+
+  // cs9: una salida que falla al abrir (setSinkId → NotFoundError): el aviso del motor tal cual, 'error', sin
+  // contexto de cue, y el master intacto ('running', A avanza, sin setSinkId, la mezcla igual). «Quitar salida».
+  const mezcla9 = await valoresUi();
+  await usar('hp-0002', '1-2');
+  const u9 = await esperarCue((u) => u.estado === 'error') ?? await cueUi();
+  const q9 = await cueCtx();
+  const av9 = await avance('A');
+  const d9a = await deck('A');
+  ok('cs9_error_del_motor_y_master_intacto', u9.estado === 'error' && u9.avisoMotor === 'No se encontró la salida «Headphones (2)». Cue apagado; el master sigue igual.'
+    && u9.contexto === '0' && u9.textoEstado === null && u9.alertas === 1 && q9.cue?.state === 'closed' && q9.master === 'running' && q9.sinksMaster === 0
+    && d9a.estado === 'sonando' && av9.p1 - av9.p0 > 0.5 && Math.abs((av9.p1 - av9.p0) - av9.pared) <= TOL_S && JSON.stringify(await valoresUi()) === JSON.stringify(mezcla9),
+  { u9, q9, av9 });
+  await clicSiHay('.dj-cue-quitar-error');
+  const u9b = await esperarCue((u) => u.estado === 'sin-salida') ?? await cueUi();
+  ok('cs9b_quitar_salida_tras_error', u9b.estado === 'sin-salida' && u9b.alertas === 0 && u9b.avisoMotor === null, { u9b });
+
+  // cs7: devicechange SIN la salida elegida, con el contexto de cue ABIERTO: la página llama a null igual y
+  // avisa 'no-conectada'; la lista se vuelve a leer sin pedir el micrófono.
+  await usar('hp-0001', '1-2');
+  await esperarCue((u) => u.salida === 'hp-0001' && u.estado === 'lista' && u.contexto === '1');
+  const f7 = await fdEstado();
+  await p.evaluate(() => window.__fd.quitar('hp-0001'));
+  const u7 = await esperarCue((u) => u.estado === 'sin-salida') ?? await cueUi();
+  const q7 = await cueCtx(), f7b = await fdEstado();
+  ok('cs7_devicechange_con_contexto_quita_y_avisa', u7.estado === 'sin-salida' && u7.avisoUi === 'La salida de audífonos «Headphones» no está conectada. Cue apagado.'
+    && u7.alertas === 1 && q7.cue?.state === 'closed' && !u7.opciones.some(([id]) => id === 'hp-0001') && f7b.enumeraciones - f7.enumeraciones >= 1 && f7b.gum.length === f7.gum.length,
+  { u7: { estado: u7.estado, avisoUi: u7.avisoUi, alertas: u7.alertas, opciones: u7.opciones.map(([id]) => id) }, q7: q7.cue, enumeraciones: f7b.enumeraciones - f7.enumeraciones });
+  // cs7b: con el cue en 'error', desaparecer la salida NO duplica el aviso: queda sólo el del motor.
+  await p.evaluate(() => window.__fd.poner('hp-0001'));
+  await esperarCue((u) => u.opciones.some(([id]) => id === 'hp-0001'));
+  await clicSiHay('.dj-cue-cerrar');
+  await usar('hp-0002', '1-2');
+  await esperarCue((u) => u.estado === 'error');
+  await p.evaluate(() => window.__fd.quitar('hp-0002'));
+  await esperarCue((u) => !u.opciones.some(([id]) => id === 'hp-0002'));
+  await sleep(300);
+  const u7b = await cueUi();
+  ok('cs7b_devicechange_en_error_sin_duplicar', u7b.estado === 'error' && u7b.salida === 'hp-0002' && u7b.avisoMotor === 'No se encontró la salida «Headphones (2)». Cue apagado; el master sigue igual.'
+    && u7b.avisoUi === null && u7b.alertas === 1, { u7b });
+  await clicSiHay('.dj-cue-quitar-error');
+  await p.evaluate(() => window.__fd.poner('hp-0002'));
+  await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
+
+  // cs11: salir de /dj quita el oyente de devicechange; volver pone UNO.
+  const oy11a = (await fdEstado()).oyentes;
+  await irA('Biblioteca');
+  const oy11b = await p.evaluate(() => window.__fd.oyentes());
+  await irA('Modo DJ'); await p.waitForSelector('.dj-cue', { timeout: 15000 }).catch(() => {});
+  const oy11c = await p.evaluate(() => window.__fd.oyentes());
+  ok('cs11_salir_quita_el_oyente_de_devicechange', oy11a === 1 && oy11b === 0 && oy11c === 1, { oy11a, oy11b, oy11c });
+
+  // cs8: permiso ya dado al montar → la lista sin botón y sin getUserMedia.
+  await recargarCue({ permiso: 'granted' });
+  const u8 = await esperarCue((u) => u.lista === 'lista') ?? await cueUi();
+  const f8 = await fdEstado();
+  ok('cs8_granted_al_montar_lista_sin_boton', u8.lista === 'lista' && !u8.boton && JSON.stringify(u8.opciones) === JSON.stringify(OPCIONES) && f8.gum.length === 0, { u8, f8 });
+  // cs2: denegado (el botón queda para reintentar) y sin micrófono, con recargas.
+  await recargarCue({ gum: 'NotAllowedError' });
+  await clicSiHay('.dj-cue-ver');
+  const u2a = await esperarCue((u) => u.lista === 'denegado') ?? await cueUi();
+  await recargarCue({ gum: 'NotFoundError' });
+  await clicSiHay('.dj-cue-ver');
+  const u2b = await esperarCue((u) => u.lista === 'sin-microfono') ?? await cueUi();
+  ok('cs2_denegado_y_sin_microfono', u2a.lista === 'denegado' && u2a.textoLista === TXT.denegado && u2a.boton && u2a.opciones.length === 0
+    && u2b.lista === 'sin-microfono' && u2b.textoLista === TXT.sinMicro && u2b.opciones.length === 0, { u2a, u2b });
+  await p.evaluate(() => sessionStorage.removeItem('__fdCfg'));
+
   await p.evaluate(() => window.__player()?.pause());
   ok('d7_sin_errores_de_pagina', errores.length === 0, { errores });
 } catch (e) {

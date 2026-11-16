@@ -6334,7 +6334,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .dj-play { min-width: 76px; }
 .dj-deck-estado { margin-left: auto; color: var(--text-muted); font-size: 13px; }
 .dj-deck-registro { margin: 0; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.dj-deck-aviso {
+.dj-deck-aviso, .dj-cue-aviso {
   padding: 10px 12px;
   border-radius: 10px;
   background: rgba(245, 158, 11, .1);
@@ -6342,12 +6342,12 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   color: #fcd34d;
   font-size: 14px;
 }
-.dj-deck-aviso p { margin: 0 0 8px; }
+.dj-deck-aviso p, .dj-cue-aviso p { margin: 0 0 8px; }
 .dj-deck-aviso-acciones { display: flex; gap: 8px; }
 
 /* Sub-paso c: la sección «Mezcla» entre los decks y la biblioteca. Mismo panel que un deck; cuatro
    controles en fila (dos por fila por debajo de 900 px). */
-.dj-mezcla {
+.dj-mezcla, .dj-cue {
   margin-top: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -6372,7 +6372,37 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .dj-control-nombre { color: var(--text-muted); white-space: nowrap; }
 .dj-control-valor { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dj-control-rango { width: 100%; }
+.dj-page input[type="range"]::-webkit-slider-thumb { opacity: 1; }
 .dj-control-extremos { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 12px; }
+
+/* Sub-paso e3a: «Audífonos (cue)», entre la mezcla y la biblioteca. El panel es el de .dj-mezcla y los
+   avisos, el ámbar de .dj-deck-aviso (los dos por selector agregado arriba). Una sola fila compacta
+   (salida, canales, «Usar», «Quitar») que se parte sola cuando no entra. Sin colores nuevos ni animación. */
+.dj-cue-cabeza { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; margin-bottom: 8px; }
+.dj-cue-titulo { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-muted); }
+.dj-cue-estado { min-width: 0; font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dj-cue[data-contexto="1"] .dj-cue-estado { color: var(--text); }
+.dj-cue-fila { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.dj-cue-salida {
+  flex: 1 1 260px;
+  max-width: 420px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.dj-cue-canales { display: flex; align-items: center; gap: 12px; margin: 0; padding: 0; border: 0; min-width: 0; font-size: 14px; }
+.dj-cue-leyenda { float: left; padding: 0; margin-right: 4px; color: var(--text-muted); font-size: 13px; }
+.dj-cue-canal { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+.dj-cue-ayuda { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; }
+.dj-cue-fila .dj-cue-ayuda { margin: 0; font-size: 13px; flex: 1 1 320px; }
+.dj-cue-ojo { color: #fcd34d; }
+.dj-cue-aviso { margin-top: 10px; }
 
 .dj-biblioteca { margin-top: 20px; }
 .dj-buscar {
@@ -6390,7 +6420,9 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .dj-biblioteca-nota { color: var(--text-muted); font-size: 14px; }
 .dj-lista-scroll {
   margin-top: 10px;
-  height: max(240px, calc(100vh - 600px));   /* 600: la sección «Mezcla» ocupa ~130 px más */
+  /* 704: medido con dj-func (cs12) a 1280 px de ancho, con los decks cargados (con su registro), «Mezcla» y
+     «Audífonos (cue)» con una salida lista y el aviso de 3-4: es lo que ocupa la página fuera de la lista. */
+  height: max(240px, calc(100vh - 704px));
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 10px;

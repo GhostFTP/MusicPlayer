@@ -9,6 +9,8 @@
 //   · filtrarSalidas, hayNombres, elegirGuardada: la lista de salidas y la salida recordada.
 //   · validarCanales: por qué canales de la salida va el cue ('1-2' o '3-4', sub-paso e2c).
 //   · textoAviso: los avisos cortos de la página.
+//   · nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue: el selector de audífonos de la
+//     página (sub-paso e3a, CueDj.jsx); la parte de navegador de la lista está en salidas.js.
 
 import { gananciaVolumen } from './mezcla.js';
 
@@ -164,5 +166,69 @@ export function textoAviso(motivo, nombre) {
     case 'misma-salida': return 'Esa salida es la misma del master: el cue sonaría por los mismos altavoces.';
     case 'sin-canales-3-4': return `${n ? `La salida ${q}` : 'La salida de audífonos'} no tiene canales 3-4. Cue apagado; el master sigue igual.`;
     default: return `No se pudo abrir la salida de audífonos (${texto(motivo) || 'error desconocido'}). Cue apagado; el master sigue igual.`;
+  }
+}
+
+// ── Selector de audífonos (sub-paso e3a) ──
+
+// NOMBRES REPETIDOS. Dos o más salidas con el mismo nombre (dos audífonos iguales) tienen ids distintos,
+// pero en el selector se verían iguales. La 1.ª se queda con su nombre y las siguientes llevan « (2)»,
+// « (3)»… en el orden del navegador (que puede cambiar entre sesiones). Un sufijo que choque con el
+// nombre de otra salida salta al número siguiente: las etiquetas salen siempre distintas.
+// → un nombre por salida, en el mismo orden. Lo que no es un arreglo → [].
+export function nombresVisibles(salidas) {
+  if (!Array.isArray(salidas)) return [];
+  const originales = new Set(salidas.map((s) => texto(s?.nombre)));
+  const usados = new Set();
+  return salidas.map((s) => {
+    const n = texto(s?.nombre);
+    let v = n;
+    if (usados.has(v)) {
+      let k = 2;
+      while (usados.has(`${n} (${k})`) || originales.has(`${n} (${k})`)) k++;
+      v = `${n} (${k})`;
+    }
+    usados.add(v);
+    return v;
+  });
+}
+
+// ¿Hay que confirmar antes de usar esta salida? Con '1-2' en la salida del master (esMaster) el cue
+// sonaría por los mismos altavoces → 'confirmar-misma-salida' (NO se bloquea: el mismo groupId es la misma
+// tarjeta, no siempre el mismo jack). Con '3-4' no se pregunta: es el caso de la DDJ-400, cuyo master y
+// audífonos son la misma salida. Lo demás → 'ok'. Sin salida o con canales inválidos → null.
+export function decidirEleccion(salida, canales) {
+  const c = validarCanales(canales);
+  if (!salida || typeof salida !== 'object' || c === null) return null;
+  return salida.esMaster === true && c === '1-2' ? 'confirmar-misma-salida' : 'ok';
+}
+
+// Lo que dice el bloque según el estado de la LISTA de salidas (salidas.js). 'lista' → null (se ve el
+// selector). `nombreError`: el name del error de getUserMedia, sólo para 'error'. Estado desconocido → null.
+export function textoListaSalidas(estado, nombreError) {
+  switch (estado) {
+    case 'sin-soporte': return 'Este navegador no puede mandar el cue a otra salida.';
+    case 'inactivo': return 'Para mostrar los nombres de las salidas de audio, el navegador pide permiso de micrófono. No se graba nada: el micrófono se cierra al instante.';
+    case 'pidiendo': return 'Pidiendo permiso de micrófono…';
+    case 'denegado': return 'Permiso de micrófono denegado. Sin él, el navegador no muestra los nombres de las salidas. Puedes permitirlo desde el candado de la barra de direcciones.';
+    case 'sin-microfono': return 'No hay ningún micrófono conectado, y sin micrófono el navegador no muestra los nombres de las salidas.';
+    case 'error': return `No se pudo pedir el permiso de micrófono (${texto(nombreError) || 'error desconocido'}).`;
+    case 'sin-nombres': return 'El navegador no dio los nombres de las salidas aunque hay permiso. Prueba a recargar la página.';
+    case 'vacia': return 'No se encontró ninguna salida de audio.';
+    default: return null;
+  }
+}
+
+// La línea de estado del cue (motor.cue()). `conContexto`: si el motor ya abrió el contexto de cue
+// (motor.contextoCue()); 'lista' sin contexto = elegida, se abre al activar un cue. 'error' → null: el
+// aviso del motor se muestra aparte, tal cual. Estado desconocido → null.
+export function textoEstadoCue(estado, nombre, canales, conContexto) {
+  const q = `«${texto(nombre) || 'la salida de audífonos'}»`;
+  const c = `canales ${validarCanales(canales) ?? '1-2'}`;
+  switch (estado) {
+    case 'sin-salida': return 'Sin salida de audífonos.';
+    case 'abriendo': return `Abriendo ${q}…`;
+    case 'lista': return conContexto ? `Listo: ${q} · ${c}.` : `${q} · ${c}. Se abre al activar un cue.`;
+    default: return null;
   }
 }
