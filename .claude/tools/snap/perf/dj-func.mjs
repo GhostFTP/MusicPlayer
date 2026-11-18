@@ -52,6 +52,15 @@
 //         salga por otro dispositivo, los sinkchange/error/'closed' reales al desenchufar, el maxChannelCount
 //         real de la DDJ-400 (acá es el del destination por defecto, 6), el aviso de permisos de Edge, los
 //         nombres y groupId reales.
+//   · ce  (sub-paso e3b, botones «Cue», volumen y desfase) el Cue deshabilitado sin salida y en 'error' con su title
+//         (ce1); activo en pausa: nota y sin fuente de cue (ce2); play crea UNA con el buffer del master (ce3); los dos
+//         a la vez (ce4); cargar otra pista conserva el cue (ce5); volumen v al motor y doble clic (ce6); desfase: 5
+//         flechas → una aplicación diferida en < 700 ms (ce7), ratón al soltar (ce8), ±1 juntos y doble clic al
+//         instante (ce9), ±250 (ce13); teclas sobre Cue y los controles (ce10); otra salida conserva, quitar apaga
+//         (ce11); sin desborde a 1024/1280/1366 (ce12) y a 900 (ce12b); la salida que vuelve quita el aviso de la página (ce14) y el
+//         'error' del motor (ce15) sin armar nada, y un error con la salida siempre presente no se toca (ce16); la
+//         pista DDJ sólo con 1-2 (ce17); con el deck vacío, la otra nota (ce18). El cue se cuenta por sus
+//         AudioBufferSourceNode en el contexto de cue. NO se prueba: el sonido, el corte al resincronizar, clics.
 //   · d6  con radio activa (anfitrión de una radio REAL, creada con «Iniciar radio» como radio-func) /dj
 //         no pausa nada (ni isPlaying ni el pause() nativo), muestra «Sal de la radio para usar el Modo
 //         DJ» y deja la barra visible; tampoco tapa teclas: Espacio llega al reproductor normal y lo
@@ -1113,16 +1122,16 @@ try {
     && q10a.sinks.length === q10.sinks.length && q10b.sinks.length === q10.sinks.length && q10a.cues === q10.cues && q10b.cues === q10.cues,
   { q10, q10a, q10b, u10a: u10a.textoEstado, u10b: u10b.textoEstado });
   REG.alto_en_sesion = await medirAlto();
-  // cs12: el alto de la biblioteca (main.css, .dj-lista-scroll = calc(100vh − 704px), medido en este mismo estado:
-  // decks cargados con su registro, «Mezcla» y «Audífonos (cue)» con una salida lista y el aviso de 3-4). A
-  // 1280×1080 la lista mide 1080 − 704 = 376 px, la página no scrollea por fuera y debajo de la lista sólo
+  // cs12: el alto de la biblioteca (main.css, .dj-lista-scroll = calc(100vh − 807px), medido en este mismo estado:
+  // decks cargados con su registro, «Mezcla» y «Audífonos (cue)» con una salida lista, el aviso de 3-4 y, desde e3b,
+  // la fila de volumen y desfase). A 1280×1080 la lista mide 1080 − 807 = 273 px, la página no scrollea por fuera y debajo de la lista sólo
   // quedan los paddings de abajo (el hueco a 800 px de alto, donde la lista está en su mínimo y la página
   // desborda, es el mismo: lo que hay debajo de la lista no depende del alto).
   await p.setViewportSize({ width: 1280, height: 1080 }); await sleep(300);
   const alto12 = await medirAlto();
   await p.setViewportSize({ width: 1280, height: 800 }); await sleep(300);
   const pie = REG.alto_en_sesion ? REG.alto_en_sesion.scrollH - (REG.alto_en_sesion.clientH - REG.alto_en_sesion.hueco) : null;   // lo que hay debajo de la lista, a 800
-  ok('cs12_biblioteca_llena_el_alto_sin_scroll_exterior', !!alto12 && alto12.lista === 1080 - 704 && alto12.scrollH <= alto12.clientH && pie !== null && Math.abs(alto12.hueco - pie) <= 1,
+  ok('cs12_biblioteca_llena_el_alto_sin_scroll_exterior', !!alto12 && alto12.lista === 1080 - 807 && alto12.scrollH <= alto12.clientH && pie !== null && Math.abs(alto12.hueco - pie) <= 1,
     { alto12, pie });
 
   // cs6: con el foco en el selector, M, F, flechas y Espacio (y elegir otra opción) NO cambian la salida del
@@ -1192,6 +1201,305 @@ try {
   await p.evaluate(() => window.__fd.poner('hp-0002'));
   await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
 
+  // ── ce (sub-paso e3b): botones «Cue», volumen y desfase; la salida que vuelve (i.1) y la pista DDJ (i.2) ──
+  // Estado de entrada: A y B cargadas y en pausa, sin salida de cue, la lista completa. Los textos van escritos acá.
+  const TXT_E = {
+    sin: 'Elige la salida de audífonos en «Audífonos (cue)»', err: 'La salida falló: quítala o elige otra',
+    vacio: 'Cue activo: carga una canción y dale play para oírla en los audífonos.',
+    pausa: 'Cue activo: dale play para preescuchar. En esta versión el cue no suena en pausa: baja el volumen del deck o el crossfader para que no salga por el master.',
+    pista: 'Parece una mezcladora DJ: sus audífonos suelen ir por los canales 3-4.',
+    noEncontro2: 'No se encontró la salida «Headphones (2)». Cue apagado; el master sigue igual.',
+  };
+  const botones = () => p.evaluate(() => Object.fromEntries(['A', 'B'].map((l) => {
+    const d = document.querySelector(`.dj-deck[data-lado="${l}"]`);
+    const b = d?.querySelector('.dj-cue-btn');
+    return [l, b ? { pressed: b.getAttribute('aria-pressed'), disabled: b.disabled, title: b.title, cue: d.dataset.cue,
+      nota: d.querySelector('.dj-deck-cue-nota')?.textContent ?? null, foco: document.activeElement === b } : null];
+  })));
+  const ajustes = () => p.evaluate(() => {
+    const s = document.querySelector('.dj-cue');
+    const a = s?.querySelector('.dj-cue-ajustes');
+    const q = (x) => a?.querySelector(x) ?? null;
+    return { hay: !!a, activo: s?.dataset.activo ?? null, volumen: s ? Number(s.dataset.volumen) : null, desfase: s ? Number(s.dataset.desfase) : null,
+      volTxt: q('.dj-cue-vol .dj-control-valor')?.textContent ?? null, desTxt: q('.dj-cue-desfase .dj-control-valor')?.textContent ?? null,
+      desValor: q('.dj-cue-desfase input') ? Number(q('.dj-cue-desfase input').value) : null,
+      pista: s?.querySelector('.dj-cue-pista')?.textContent ?? null, volvio: s?.querySelector('.dj-cue-volvio')?.textContent ?? null };
+  });
+  // Fuentes de cue creadas (AudioBufferSourceNode conectadas en el ÚLTIMO contexto de cue: una por resincronización)
+  // y si la última usa el MISMO AudioBuffer que la última fuente del master.
+  const fuentesCue = () => p.evaluate(() => {
+    const r = window.__ac;
+    const cues = r.lista.filter((c, i) => r.opciones[i] && typeof r.opciones[i] === 'object' && 'sinkId' in r.opciones[i]);
+    const c = cues.at(-1), m = r.master();
+    const fc = r.aristas.filter(([s]) => s instanceof AudioBufferSourceNode && s.context === c).map(([s]) => s);
+    const fm = r.aristas.filter(([s]) => s instanceof AudioBufferSourceNode && s.context === m).map(([s]) => s);
+    return { n: fc.length, mismoBuffer: !!fc.at(-1) && fc.at(-1).buffer === fm.at(-1)?.buffer };
+  });
+  const moverCue = (s, v) => p.evaluate(({ s, v }) => {
+    const el = document.querySelector(s);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, String(v));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, { s, v });
+  const conDesfase = (n) => esperar(async () => { const a = await ajustes(); return a.desfase === n ? a : null; }, 1500);
+  const txtDes = (n) => (n > 0 ? `+${n} ms` : n < 0 ? `−${-n} ms` : '0 ms');
+
+  {   // los casos ce en su propio bloque: sus nombres no chocan con los del resto
+    // ce1: el botón Cue de cada deck, deshabilitado sin salida y en 'error' (cada uno con su title) y habilitado con
+    // la salida lista; volumen (0,50) y desfase (0 ms) sólo con la salida elegida y sin error.
+    const b1a = await botones();
+    await usar('hp-0002', '1-2');
+    await esperarCue((u) => u.estado === 'error');
+    const b1b = await botones(), a1b = await ajustes();
+    await clicSiHay('.dj-cue-quitar-error');
+    await usar('wave-0001', '1-2');
+    await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
+    const b1c = await botones(), a1c = await ajustes();
+    ok('ce1_cue_deshabilitado_sin_salida_y_en_error', ['A', 'B'].every((l) => b1a[l]?.disabled === true && b1a[l].title === TXT_E.sin && b1a[l].pressed === 'false'
+        && b1b[l]?.disabled === true && b1b[l].title === TXT_E.err && b1c[l]?.disabled === false && b1c[l].pressed === 'false' && b1c[l].title === `Preescuchar el deck ${l} en los audífonos`)
+      && a1b.hay === false && a1c.hay === true && a1c.volumen === 0.5 && a1c.volTxt === '0,50' && a1c.desfase === 0 && a1c.desTxt === '0 ms',
+    { b1a, b1b, b1c, a1b: a1b.hay, a1c });
+
+    // ce2: Cue A con A en pausa → activo (aria-pressed, data-cue, la línea de estado), la nota de V1 y NINGUNA fuente de
+    // cue (en pausa no hay); el foco queda en el botón (sin blur).
+    const s2 = await fuentesCue();
+    await p.locator(sel('A', '.dj-cue-btn')).click();
+    const b2 = await botones(), a2 = await ajustes(), u2 = await cueUi(), s2b = await fuentesCue();
+    ok('ce2_cue_a_en_pausa_con_nota_y_sin_fuente', b2.A.pressed === 'true' && b2.A.cue === '1' && b2.A.nota === TXT_E.pausa && b2.A.foco && b2.B.pressed === 'false' && b2.B.nota === null
+      && a2.activo === 'A' && u2.textoEstado === 'Listo: «Headphones (Elgato Wave:XLR)» · canales 1-2 · cue A.' && s2b.n === s2.n, { b2, activo: a2.activo, estado: u2.textoEstado, s2: s2.n, s2b: s2b.n });
+
+    // ce3: play en A → UNA fuente de cue con el MISMO buffer del master, y la nota se va.
+    await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'sonando', 2000);
+    const s3 = await esperar(async () => { const s = await fuentesCue(); return s.n >= s2.n + 1 ? s : null; }, 2000) ?? await fuentesCue();
+    await sleep(150);
+    const s3b = await fuentesCue(), b3 = await botones();
+    ok('ce3_play_crea_la_fuente_de_cue_y_quita_la_nota', s3b.n === s2.n + 1 && s3.mismoBuffer && b3.A.nota === null && b3.A.pressed === 'true', { s2: s2.n, s3b, nota: b3.A.nota });
+
+    // ce4: los dos cues a la vez: «cue A y B»; Cue B en pausa no crea fuente; play en B, una.
+    const s4 = await fuentesCue();
+    await p.locator(sel('B', '.dj-cue-btn')).click();
+    const b4 = await botones(), a4 = await ajustes(), u4 = await cueUi(), s4b = await fuentesCue();
+    await p.locator(sel('B', '.dj-play')).click(); await esperarDeck('B', (d) => d.estado === 'sonando', 2000); await sleep(150);
+    const s4c = await fuentesCue();
+    await p.locator(sel('B', '.dj-play')).click(); await esperarDeck('B', (d) => d.estado === 'pausa', 2000);
+    ok('ce4_cue_a_y_b_a_la_vez', b4.A.pressed === 'true' && b4.B.pressed === 'true' && a4.activo === 'AB' && b4.B.nota === TXT_E.pausa
+      && u4.textoEstado === 'Listo: «Headphones (Elgato Wave:XLR)» · canales 1-2 · cue A y B.' && s4b.n === s4.n && s4c.n === s4.n + 1 && s4c.mismoBuffer,
+    { b4, activo: a4.activo, estado: u4.textoEstado, s4: s4.n, s4b: s4b.n, s4c });
+
+    // ce5 (ajuste del prompt): CARGAR OTRA PISTA en A con su cue activo y A sonando → el cue SIGUE activo (botón y
+    // motor), sin fuente de cue hasta el play; al dar play, una fuente de cue con el buffer NUEVO (el del master).
+    const s5 = await fuentesCue();
+    await cargarEn('A', n3); await esperarDeck('A', (d) => d.titulo === n3.title && d.estado === 'pausa');
+    await p.locator('.dj-buscar').fill('');
+    const b5 = await botones(), a5 = await ajustes(), s5b = await fuentesCue();
+    await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'sonando', 2000); await sleep(150);
+    const s5c = await fuentesCue();
+    ok('ce5_cargar_otra_pista_conserva_el_cue', b5.A.pressed === 'true' && b5.A.nota === TXT_E.pausa && a5.activo === 'AB' && s5b.n === s5.n && s5c.n === s5.n + 1 && s5c.mismoBuffer,
+      { b5: b5.A, activo: a5.activo, s5: s5.n, s5b: s5b.n, s5c });
+
+    // ce6: el volumen llega al motor como v (el motor aplica v²): 0,25 → 0,25; doble clic → 0,50.
+    await moverCue('.dj-cue-vol input', 0.25); await sleep(150);
+    const a6 = await ajustes();
+    await p.locator('.dj-cue-vol input').dispatchEvent('dblclick'); await sleep(150);
+    const a6b = await ajustes();
+    ok('ce6_volumen_v_al_motor_y_doble_clic', a6.volumen === 0.25 && a6.volTxt === '0,25' && a6b.volumen === 0.5 && a6b.volTxt === '0,50', { a6, a6b });
+
+    // ce7: cinco flechas seguidas sobre el desfase → «+5 ms» al instante, el motor sigue en 0 (diferido) y después
+    // UNA sola aplicación (una fuente de cue nueva: sólo A suena con su cue).
+    const s7 = await fuentesCue(), a7 = await ajustes();
+    await p.locator('.dj-cue-desfase input').focus();
+    const huecos7 = []; let t7 = Date.now();
+    for (let i = 0; i < 5; i++) { await p.keyboard.press('ArrowRight'); huecos7.push(Date.now() - t7); t7 = Date.now(); }
+    const tUlt7 = Date.now();
+    const a7a = await ajustes();
+    const a7c = await conDesfase(5) ?? await ajustes();
+    const tAp7 = Date.now() - tUlt7;
+    await sleep(400);
+    const s7b = await fuentesCue();
+    await p.evaluate(() => document.activeElement?.blur());
+    ok('ce7_desfase_flechas_una_sola_aplicacion', a7.desfase === 0 && a7a.desTxt === '+5 ms' && a7a.desfase === 0 && a7c.desfase === 5 && a7c.desTxt === '+5 ms' && s7b.n === s7.n + 1 && tAp7 < 700,
+      { a7a: [a7a.desTxt, a7a.desfase], a7c: [a7c.desTxt, a7c.desfase], fuentes: s7b.n - s7.n, huecos7, tAp7 });
+
+    // ce8: arrastre con el ratón → mientras se arrastra (con pausas de 300 ms, más que el diferido) se mueve el número y
+    // NO se aplica; al soltar, UNA aplicación con el valor final.
+    const caja = await p.locator('.dj-cue-desfase input').boundingBox();
+    const yM = caja.y + caja.height / 2;
+    const xDe = (v) => caja.x + 6 + (caja.width - 12) * ((v + 250) / 500);
+    const s8 = await fuentesCue(), a8 = await ajustes();
+    await p.mouse.move(xDe(a8.desfase), yM); await p.mouse.down();
+    await p.mouse.move(xDe(60), yM, { steps: 5 }); await sleep(300);
+    const a8a = await ajustes(), s8a = await fuentesCue();
+    await p.mouse.move(xDe(110), yM, { steps: 5 }); await sleep(300);
+    const a8b = await ajustes();
+    await p.mouse.up();
+    const a8c = await conDesfase(a8b.desValor) ?? await ajustes();
+    await sleep(300);
+    const s8c = await fuentesCue();
+    ok('ce8_desfase_raton_se_aplica_al_soltar', a8a.desfase === a8.desfase && a8a.desValor > a8.desfase && s8a.n === s8.n && a8b.desfase === a8.desfase && a8b.desValor > a8a.desValor
+      && a8c.desfase === a8b.desValor && a8c.desTxt === txtDes(a8b.desValor) && s8c.n === s8.n + 1,
+    { antes: a8.desfase, durante: [a8a.desValor, a8a.desfase, a8b.desValor, a8b.desfase], tras: [a8c.desfase, a8c.desTxt], fuentes: [s8a.n - s8.n, s8c.n - s8.n] });
+
+    // ce9: +1 tres veces y −1 una, seguidos → el número cambia al instante, UNA aplicación (+2); doble clic → 0 al
+    // instante (sin diferido) y una aplicación más.
+    const s9 = await fuentesCue(), a9 = await ajustes();
+    for (const b of ['.dj-cue-mas', '.dj-cue-mas', '.dj-cue-mas', '.dj-cue-menos']) await p.locator(b).click();
+    const a9a = await ajustes();
+    const a9b = await conDesfase(a9.desfase + 2) ?? await ajustes();
+    await sleep(400);
+    const s9b = await fuentesCue();
+    await p.locator('.dj-cue-desfase input').dispatchEvent('dblclick');
+    const a9c = await ajustes();
+    await sleep(300);
+    const s9c = await fuentesCue();
+    ok('ce9_desfase_mas_menos_juntan_y_doble_clic_inmediato', a9a.desTxt === txtDes(a9.desfase + 2) && a9a.desfase === a9.desfase && a9b.desfase === a9.desfase + 2 && s9b.n === s9.n + 1
+      && a9c.desfase === 0 && a9c.desTxt === '0 ms' && s9c.n === s9b.n + 1,
+    { a9: a9.desfase, a9a: [a9a.desTxt, a9a.desfase], a9b: a9b.desfase, a9c: [a9c.desTxt, a9c.desfase], fuentes: [s9b.n - s9.n, s9c.n - s9b.n] });
+
+    // ce13: Fin e Inicio sobre el desfase → ±250 (el recorte del control y del motor); vuelve a 0 con doble clic.
+    await p.locator('.dj-cue-desfase input').focus(); await p.keyboard.press('End');
+    const a13a = await conDesfase(250) ?? await ajustes();
+    await p.keyboard.press('Home');
+    const a13b = await conDesfase(-250) ?? await ajustes();
+    await p.evaluate(() => document.activeElement?.blur());
+    await p.locator('.dj-cue-desfase input').dispatchEvent('dblclick'); await sleep(150);
+    ok('ce13_desfase_extremos_250', a13a.desfase === 250 && a13a.desTxt === '+250 ms' && a13b.desfase === -250 && a13b.desTxt === '−250 ms' && a13b.desValor === -250 && (await ajustes()).desfase === 0,
+      { a13a: [a13a.desfase, a13a.desTxt], a13b: [a13b.desfase, a13b.desTxt, a13b.desValor] });
+
+    // ce10: teclas. Con el foco en Cue A: Espacio NO lo conmuta (el keydown de captura lo tapa) y las flechas, M y F
+    // tampoco hacen nada; Enter SÍ (dos veces: vuelve). M y F sobre volumen y desfase: tapadas (ni mix ni pantalla
+    // completa), sin cambiar valores. Registro: Espacio sobre Play de A (el mismo filtro).
+    const e10a = await estado(), a10a = await ajustes(), b10a = await botones();
+    await p.locator(sel('A', '.dj-cue-btn')).focus();
+    await p.keyboard.press('Space'); await sleep(150);
+    const b10b = await botones();
+    for (const k of ['ArrowRight', 'ArrowLeft', 'KeyM', 'KeyF']) { await p.keyboard.press(k); await sleep(120); }
+    const b10c = await botones(), a10c = await ajustes();
+    await p.keyboard.press('Enter'); await sleep(150);
+    const b10d = await botones();
+    await p.keyboard.press('Enter'); await sleep(150);
+    const b10e = await botones();
+    for (const s of ['.dj-cue-vol input', '.dj-cue-desfase input']) { await p.locator(s).focus(); for (const k of ['KeyM', 'KeyF']) { await p.keyboard.press(k); await sleep(120); } }
+    await p.evaluate(() => document.activeElement?.blur());
+    await sleep(300);
+    const e10b = await estado(), a10b = await ajustes();
+    const dA0 = await deck('A');
+    await p.locator(sel('A', '.dj-play')).focus(); await p.keyboard.press('Space'); await sleep(200);
+    const dA1 = await deck('A');
+    await p.evaluate(() => document.activeElement?.blur());
+    REG.espacio_sobre_play = { antes: dA0.estado, despues: dA1.estado };
+    ok('ce10_teclas_en_cue_y_controles', b10a.A.pressed === 'true' && b10b.A.pressed === 'true' && b10c.A.pressed === 'true' && a10c.desfase === a10a.desfase
+      && b10d.A.pressed === 'false' && b10e.A.pressed === 'true' && e10b.plays === e10a.plays && e10b.fullscreen === false && e10b.ruta === '/dj' && e10b.cola === e10a.cola
+      && a10b.volumen === a10a.volumen && a10b.desfase === a10a.desfase,
+    { pressed: [b10a.A.pressed, b10b.A.pressed, b10c.A.pressed, b10d.A.pressed, b10e.A.pressed], plays: e10b.plays - e10a.plays, fullscreen: e10b.fullscreen, espacioPlay: REG.espacio_sobre_play });
+
+    // ce11: «Usar» con OTRA salida y los dos cues activos → siguen activos (el motor los conserva) y la línea lo dice;
+    // «Quitar» → los dos apagados y deshabilitados, sin volumen ni desfase en pantalla.
+    await usar('hp-0001', '1-2');
+    const u11a = await esperarCue((u) => u.salida === 'hp-0001' && u.estado === 'lista' && u.contexto === '1') ?? await cueUi();
+    const b11a = await botones(), a11a = await ajustes();
+    await clicSiHay('.dj-cue-quitar');
+    await esperarCue((u) => u.estado === 'sin-salida');
+    const b11b = await botones(), a11b = await ajustes();
+    ok('ce11_cambiar_salida_conserva_y_quitar_apaga', b11a.A.pressed === 'true' && b11a.B.pressed === 'true' && a11a.activo === 'AB' && u11a.textoEstado === 'Listo: «Headphones» · canales 1-2 · cue A y B.'
+      && ['A', 'B'].every((l) => b11b[l].pressed === 'false' && b11b[l].disabled === true && b11b[l].title === TXT_E.sin && b11b[l].nota === null) && a11b.activo === '' && a11b.hay === false,
+    { b11a, a11a: a11a.activo, estado: u11a.textoEstado, b11b, a11b: [a11b.activo, a11b.hay] });
+
+    // ce14 (i.1): la salida desaparece con el cue A activo → apagado y deshabilitado, aviso de la página; VUELVE (mismo
+    // id) → el aviso se quita solo, la salida queda preseleccionada con «… volvió: pulsa «Usar»…» y NO se arma nada
+    // (ni setSinkId ni contexto de cue nuevos; el motor sigue sin salida).
+    await usar('wave-0001', '1-2');
+    await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
+    await p.locator(sel('A', '.dj-cue-btn')).click();
+    await p.evaluate(() => window.__fd.quitar('wave-0001'));
+    const u14a = await esperarCue((u) => u.estado === 'sin-salida' && !!u.avisoUi) ?? await cueUi();
+    const b14a = await botones(), q14 = await cueCtx();
+    await p.evaluate(() => window.__fd.poner('wave-0001'));
+    const u14b = await esperarCue((u) => u.opciones.some(([id]) => id === 'wave-0001') && u.avisoUi === null) ?? await cueUi();
+    await sleep(200);
+    const a14b = await ajustes(), q14b = await cueCtx(), b14b = await botones();
+    ok('ce14_volvio_quita_el_aviso_de_la_pagina', u14a.avisoUi === 'La salida de audífonos «Headphones (Elgato Wave:XLR)» no está conectada. Cue apagado.' && b14a.A.pressed === 'false' && b14a.A.disabled === true
+      && u14b.avisoUi === null && a14b.volvio === '«Headphones (Elgato Wave:XLR)» volvió: pulsa «Usar» para activarla.' && u14b.sel === 'wave-0001' && u14b.estado === 'sin-salida' && u14b.salida === ''
+      && u14b.alertas === 0 && q14b.sinks.length === q14.sinks.length && q14b.cues === q14.cues && b14b.A.disabled === true && b14b.A.pressed === 'false',
+    { u14a: u14a.avisoUi, u14b: { avisoUi: u14b.avisoUi, sel: u14b.sel, estado: u14b.estado, alertas: u14b.alertas }, volvio: a14b.volvio, sinks: q14b.sinks.length - q14.sinks.length, cues: q14b.cues - q14.cues });
+
+    // ce15 (i.1): 'error' del motor con la salida que DESPUÉS falta y vuelve → el error se limpia (fijarSalidaCue(null)),
+    // queda preseleccionada con el texto y no se arma nada.
+    await usar('hp-0002', '1-2');
+    await esperarCue((u) => u.estado === 'error');
+    const q15 = await cueCtx();
+    await p.evaluate(() => window.__fd.quitar('hp-0002'));
+    const u15a = await esperarCue((u) => !u.opciones.some(([id]) => id === 'hp-0002')) ?? await cueUi();
+    await p.evaluate(() => window.__fd.poner('hp-0002'));
+    const u15b = await esperarCue((u) => u.estado === 'sin-salida') ?? await cueUi();
+    await sleep(200);
+    const a15b = await ajustes(), q15b = await cueCtx();
+    ok('ce15_volvio_quita_el_error_del_motor', u15a.estado === 'error' && u15a.avisoMotor === TXT_E.noEncontro2 && u15b.estado === 'sin-salida' && u15b.avisoMotor === null && u15b.alertas === 0
+      && a15b.volvio === '«Headphones (2)» volvió: pulsa «Usar» para activarla.' && u15b.sel === 'hp-0002' && q15b.sinks.length === q15.sinks.length && q15b.cues === q15.cues,
+    { u15a: [u15a.estado, u15a.avisoMotor], u15b: [u15b.estado, u15b.avisoMotor, u15b.sel, u15b.alertas], volvio: a15b.volvio, sinks: q15b.sinks.length - q15.sinks.length });
+
+    // ce16 (i.1): un 'error' con la salida que NUNCA faltó (cambia OTRA de la lista) no se toca.
+    await usar('hp-0002', '1-2');
+    await esperarCue((u) => u.estado === 'error');
+    await p.evaluate(() => window.__fd.quitar('hp-0001'));
+    await esperarCue((u) => !u.opciones.some(([id]) => id === 'hp-0001'));
+    await p.evaluate(() => window.__fd.poner('hp-0001'));
+    await esperarCue((u) => u.opciones.some(([id]) => id === 'hp-0001'));
+    await sleep(300);
+    const u16 = await cueUi(), a16 = await ajustes();
+    ok('ce16_error_sin_faltar_no_se_toca', u16.estado === 'error' && u16.salida === 'hp-0002' && u16.avisoMotor === TXT_E.noEncontro2 && a16.volvio === null && u16.alertas === 1,
+      { u16: [u16.estado, u16.salida, u16.avisoMotor, u16.alertas], volvio: a16.volvio });
+    await clicSiHay('.dj-cue-quitar-error');
+    await esperarCue((u) => u.estado === 'sin-salida');
+
+    // ce17 (i.2): la pista DDJ sólo con «DDJ» en el nombre y 1-2 marcado; nunca junto al «Ojo»; no cambia nada.
+    // Con 1-2 ya marcado, cambiar SÓLO el selector a la DDJ: la pista sale y los canales NO se mueven (no elige nada).
+    await elegir('wave-0001', '1-2');
+    await p.locator('.dj-cue-salida').selectOption('ddj-0001'); await sleep(100);
+    const a17a = await ajustes(), u17a = await cueUi();
+    await elegir('ddj-0001', '3-4'); await sleep(100);
+    const a17b = await ajustes(), u17b = await cueUi();
+    await elegir('wave-0001', '1-2'); await sleep(100);
+    const a17c = await ajustes(), u17c = await cueUi();
+    ok('ce17_pista_ddj_solo_con_12', a17a.pista === TXT_E.pista && !u17a.ojo && u17a.radio === '1-2' && u17a.sel === 'ddj-0001' && a17b.pista === null && u17b.ojo
+      && a17c.pista === null && !u17c.ojo && u17c.salida === '' && u17c.estado === 'sin-salida',
+    { a: [a17a.pista, u17a.ojo], b: [a17b.pista, u17b.ojo], c: [a17c.pista, u17c.ojo, u17c.salida] });
+
+    // ce12: sin desborde a 1024, 1280 y 1366 px (800 de alto), en el peor caso: salida lista con volumen y desfase,
+    // los dos Cue activos y los dos decks en pausa (con su nota). Nada de .dj-page pasa del borde derecho del contenido
+    // de .main-content, .main-content no scrollea en horizontal y los controles de cada deck no salen de su tarjeta.
+    await usar('wave-0001', '1-2');
+    await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
+    for (const l of ['A', 'B']) if ((await botones())[l].pressed !== 'true') await p.locator(sel(l, '.dj-cue-btn')).click();
+    if ((await deck('A')).estado === 'sonando') { await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000); }
+    const medirAncho = () => p.evaluate(() => {
+      const sc = document.querySelector('.main-content'), pg = document.querySelector('.dj-page');
+      const der = sc.getBoundingClientRect().left + sc.clientLeft + sc.clientWidth - parseFloat(getComputedStyle(sc).paddingRight);
+      const fuera = [...pg.querySelectorAll('*')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > der + 0.5; })
+        .map((e) => (typeof e.className === 'string' && e.className ? e.className : e.tagName)).slice(0, 8);
+      const decks = [...document.querySelectorAll('.dj-deck')].map((d) => {
+        const r = d.getBoundingClientRect(), pr = parseFloat(getComputedStyle(d).paddingRight);
+        const hijos = [...d.querySelectorAll('.dj-deck-controles > *')];
+        const centro = (h) => { const q = h.getBoundingClientRect(); return Math.round((q.top + q.bottom) / 2); };   // align-items: center
+      return { fuera: hijos.filter((h) => h.getBoundingClientRect().right > r.right - pr + 0.5).length, filas: new Set(hijos.map(centro)).size, ancho: Math.round(r.width) };
+      });
+      return { vw: innerWidth, scrollW: sc.scrollWidth, clientW: sc.clientWidth, fuera, decks };
+    });
+    const anchos12 = {};
+    for (const w of [1024, 1280, 1366]) { await p.setViewportSize({ width: w, height: 800 }); await sleep(300); anchos12[w] = await medirAncho(); }
+    // ce12b: 900 px, el ancho mínimo con los decks lado a lado (por debajo van uno sobre otro y sale el aviso).
+    await p.setViewportSize({ width: 900, height: 800 }); await sleep(300);
+    const a900 = await medirAncho();
+    REG.controles_deck_filas_900 = a900.decks.map((d) => d.filas);
+    ok('ce12b_sin_desborde_a_900', a900.scrollW <= a900.clientW && a900.fuera.length === 0 && a900.decks.length === 2 && a900.decks.every((d) => d.fuera === 0), { a900 });
+    await p.setViewportSize({ width: 1280, height: 800 }); await sleep(300);
+    REG.alto_con_notas_y_ajustes = await medirAlto();
+    REG.controles_deck_filas = Object.fromEntries(Object.entries(anchos12).map(([w, m]) => [w, m.decks.map((d) => d.filas)]));
+    ok('ce12_sin_desborde_a_1024_1280_1366', Object.values(anchos12).every((m) => m.scrollW <= m.clientW && m.fuera.length === 0 && m.decks.length === 2 && m.decks.every((d) => d.fuera === 0)),
+      { anchos12 });
+    await clicSiHay('.dj-cue-quitar');
+    await esperarCue((u) => u.estado === 'sin-salida');
+
+  }
+
   // cs11: salir de /dj quita el oyente de devicechange; volver pone UNO.
   const oy11a = (await fdEstado()).oyentes;
   await irA('Biblioteca');
@@ -1199,6 +1507,18 @@ try {
   await irA('Modo DJ'); await p.waitForSelector('.dj-cue', { timeout: 15000 }).catch(() => {});
   const oy11c = await p.evaluate(() => window.__fd.oyentes());
   ok('cs11_salir_quita_el_oyente_de_devicechange', oy11a === 1 && oy11b === 0 && oy11c === 1, { oy11a, oy11b, oy11c });
+
+  {
+    // ce18 (e3b): con el motor NUEVO (decks vacíos), Cue A activo → la nota «carga una canción…»; B sin nota.
+    await clicSiHay('.dj-cue-ver');
+    await esperarCue((u) => u.lista === 'lista');
+    await usar('wave-0001', '1-2');
+    await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
+    await p.locator(sel('A', '.dj-cue-btn')).click();
+    const b18 = await botones();
+    ok('ce18_cue_con_el_deck_vacio_nota', b18.A.pressed === 'true' && b18.A.nota === TXT_E.vacio && b18.B.pressed === 'false' && b18.B.nota === null, { b18 });
+    await clicSiHay('.dj-cue-quitar');
+  }
 
   // cs8: permiso ya dado al montar → la lista sin botón y sin getUserMedia.
   await recargarCue({ permiso: 'granted' });

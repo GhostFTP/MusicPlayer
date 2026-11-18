@@ -19,7 +19,8 @@ const { antesDeBajar, clasificarRespuesta, cargarPista, MAX_SEG, MEMORIA_AVISO_B
 const { crearMotor, TASA_DJ, TAU, Q_FILTRO, GUARDA_CUE } = await desde('music-client/src/dj/motor/motor.js');
 const { interpretar, crearCombinador, crearDeduplicador, valorParaMotor, aplicar, crearColector, crearConexionMidi, MAPA_DDJ400 } = await desde('music-client/src/dj/motor/midi.js');
 const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hayNombres, elegirGuardada, textoAviso, validarCanales, DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL,
-  nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue } = await desde('music-client/src/dj/motor/cue.js');
+  nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue,
+  textoCuesActivos, estadoBotonCue, textoNotaCue, textoDesfase, crearDiferido, buscarVuelta, pistaMezcladora } = await desde('music-client/src/dj/motor/cue.js');
 const { crearListaSalidas } = await desde('music-client/src/dj/motor/salidas.js');
 
 const R = {};
@@ -1158,6 +1159,34 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
         && creados.length - n0 === 1 && m.contextoCue() === null, { rs, antes, despues: m.cue() });
       m.cerrar();
     }
+    // e3b · cargar OTRA pista en un deck con su cue activo: el cue SIGUE activo, la fuente de cue vieja se para
+    // (de golpe, con la del master: cargarBuffer → 'solto') y no se crea otra hasta el play; al dar play, la
+    // fuente de cue nueva usa el buffer NUEVO (el mismo objeto que el master).
+    {
+      const { m, cc } = await armar();
+      const f0 = fuentes(cc).at(-1);
+      const n0 = fuentes(cc).length;
+      const buf2 = { duration: 180 };
+      m.decks.A.cargarBuffer(buf2);
+      const tras = { activo: m.cue().activo.A, nuevas: fuentes(cc).length - n0, paradaVieja: f0.paradas.includes(undefined), sonando: m.decks.A.estado().sonando };
+      m.decks.A.play();
+      const f1 = fuentes(cc).at(-1);
+      ok('motor_cue_cargar_otra_pista_conserva_activo', tras.activo === true && tras.nuevas === 0 && tras.paradaVieja && tras.sonando === false
+        && fuentes(cc).length === n0 + 1 && f1 !== f0 && f1.buffer === buf2 && m.cue().activo.A === true && m.cue().estado === 'lista',
+      { tras, nuevaConBuf2: f1?.buffer === buf2 });
+      m.cerrar();
+    }
+    // e3b · cambiar de salida («Usar» otra) con cues activos: el motor los CONSERVA (la UI deja los botones
+    // activos); mismo contexto, un setSinkId más, 'lista'.
+    {
+      const { m, cc } = await armar();
+      m.fijarCue('B', true);
+      const r = await m.fijarSalidaCue(ID2, NOMBRE2, { abrir: true }); await listo();
+      const e = m.cue();
+      ok('motor_cue_activo_se_conserva_al_cambiar_salida', r.ok === true && e.activo.A === true && e.activo.B === true && e.estado === 'lista' && e.salida === ID2
+        && m.contextoCue() === cc && JSON.stringify(cc.sinks) === JSON.stringify([ID, ID2]), { r, e, sinks: cc.sinks });
+      m.cerrar();
+    }
     // El master NUNCA recibió setSinkId (todos los contextos sin sinkId en el constructor son masters).
     {
       const masters = creados.filter((c) => !(c.opciones && 'sinkId' in c.opciones));
@@ -1523,6 +1552,73 @@ const motorFalso = (log = []) => ({
     textoEstadoCue('lista', 'Headphones', '1-2', false), textoEstadoCue('error', 'Headphones', '1-2', false), textoEstadoCue('otro', 'x', '1-2', true)];
   ok('cue_texto_estado_cue', JSON.stringify(est) === JSON.stringify(['Sin salida de audífonos.', 'Abriendo «Línea (2- DDJ-400)»…', 'Listo: «Línea (2- DDJ-400)» · canales 3-4.',
     '«Headphones» · canales 1-2. Se abre al activar un cue.', null, null]), { est });
+}
+
+// ── cue.js (sub-paso e3b): botones Cue, volumen y desfase; la vuelta de una salida y la pista DDJ ──
+// Los textos esperados se escriben acá, no se importan.
+{
+  const act = [textoCuesActivos({ A: true, B: false }), textoCuesActivos({ A: false, B: true }), textoCuesActivos({ A: true, B: true }), textoCuesActivos({ A: false, B: false }),
+    textoCuesActivos(null), textoCuesActivos({ A: 1, B: 'si' })];
+  const est = [textoEstadoCue('lista', 'Línea (2- DDJ-400)', '3-4', true, { A: true, B: true }), textoEstadoCue('lista', 'Headphones', '1-2', false, { A: false, B: true }),
+    textoEstadoCue('lista', 'Headphones', '1-2', true, { A: false, B: false }), textoEstadoCue('abriendo', 'Headphones', '1-2', true, { A: true, B: false })];
+  ok('cue_texto_cues_activos_y_estado', JSON.stringify(act) === JSON.stringify(['cue A', 'cue B', 'cue A y B', '', '', ''])
+    && JSON.stringify(est) === JSON.stringify(['Listo: «Línea (2- DDJ-400)» · canales 3-4 · cue A y B.', '«Headphones» · canales 1-2 · cue B. Se abre al activar un cue.',
+      'Listo: «Headphones» · canales 1-2.', 'Abriendo «Headphones»…']), { act, est });
+  const SIN = 'Elige la salida de audífonos en «Audífonos (cue)»', ERR = 'La salida falló: quítala o elige otra';
+  const bot = ['sin-salida', 'abriendo', 'lista', 'error', null, 'otro'].map((e) => estadoBotonCue(e));
+  ok('cue_boton_cue_estados', JSON.stringify(bot) === JSON.stringify([{ habilitado: false, titulo: SIN }, { habilitado: true, titulo: null }, { habilitado: true, titulo: null },
+    { habilitado: false, titulo: ERR }, { habilitado: false, titulo: SIN }, { habilitado: false, titulo: SIN }]), { bot });
+  const VACIO = 'Cue activo: carga una canción y dale play para oírla en los audífonos.';
+  const PAUSA = 'Cue activo: dale play para preescuchar. En esta versión el cue no suena en pausa: baja el volumen del deck o el crossfader para que no salga por el master.';
+  const notas = [textoNotaCue({ activo: true, cargado: false, sonando: false }), textoNotaCue({ activo: true, cargado: true, sonando: false }),
+    textoNotaCue({ activo: true, cargado: true, sonando: true }), textoNotaCue({ activo: false, cargado: true, sonando: false }), textoNotaCue({ activo: false, cargado: false, sonando: false }),
+    textoNotaCue(), textoNotaCue({ activo: 1, cargado: true })];
+  ok('cue_nota_cue', JSON.stringify(notas) === JSON.stringify([VACIO, PAUSA, null, null, null, null, null]), { notas });
+  const des = [12, -8, 0, -0, 0.4, -0.4, 2.5, -2.5, 300, -300, 250, -250, NaN, '12', null, Infinity].map((v) => textoDesfase(v));
+  ok('cue_texto_desfase', JSON.stringify(des) === JSON.stringify(['+12 ms', '−8 ms', '0 ms', '0 ms', '0 ms', '0 ms', '+3 ms', '−2 ms', '+250 ms', '−250 ms', '+250 ms', '−250 ms', '', '', '', '']), { des });
+  // El diferido con timers FALSOS: una ráfaga → UNA llamada con el último valor, a los ms pedidos.
+  {
+    const timers = new Map(); let sig = 1; const quitados = [];
+    const t = { poner: (f, ms) => { const id = sig++; timers.set(id, { f, ms }); return id; }, quitar: (id) => { quitados.push(id); timers.delete(id); } };
+    const llamadas = [];
+    const d = crearDiferido((v) => llamadas.push(v), 150, t);
+    d.pedir(1); d.pedir(2); d.pedir(3);
+    const antes = { llamadas: llamadas.length, vivos: timers.size, ms: [...timers.values()].map((x) => x.ms), pendiente: d.pendiente() };
+    for (const [id, x] of [...timers]) { timers.delete(id); x.f(); }
+    const tras = { llamadas: [...llamadas], pendiente: d.pendiente() };
+    d.pedir(7); d.cancelar();
+    const cancelado = { vivos: timers.size, pendiente: d.pendiente(), llamadas: llamadas.length };
+    const malo = crearDiferido(() => { throw new Error('x'); }, 10, t);
+    malo.pedir(1);
+    let lanzo = false;
+    try { for (const [id, x] of [...timers]) { timers.delete(id); x.f(); } } catch { lanzo = true; }
+    ok('cue_diferido_junta_la_rafaga', antes.llamadas === 0 && antes.vivos === 1 && antes.ms[0] === 150 && antes.pendiente === true && quitados.length >= 2
+      && JSON.stringify(tras.llamadas) === JSON.stringify([3]) && tras.pendiente === false, { antes, tras, quitados: quitados.length });
+    ok('cue_diferido_cancelar_y_fn_que_lanza', cancelado.vivos === 0 && cancelado.pendiente === false && cancelado.llamadas === 1 && lanzo === false && malo.pendiente() === false, { cancelado, lanzo });
+  }
+  // El diferido con los timers REALES (los de la página): a 50 ms nada; a los ~150, una vez.
+  {
+    const llamadas = [];
+    const d = crearDiferido((v) => llamadas.push([v, Date.now()]), 150);
+    const t0 = Date.now();
+    d.pedir(4); await new Promise((r) => setTimeout(r, 30)); d.pedir(5);
+    await new Promise((r) => setTimeout(r, 50));
+    const a50 = llamadas.length;
+    await new Promise((r) => setTimeout(r, 250));
+    const dt = llamadas[0] ? llamadas[0][1] - t0 : null;
+    ok('cue_diferido_timers_reales', a50 === 0 && llamadas.length === 1 && llamadas[0][0] === 5 && dt >= 170 && dt < 330, { a50, llamadas: llamadas.length, dt });
+  }
+  const LISTA_V = [{ id: 'hp-1', nombre: 'Headphones' }, { id: 'hp-2', nombre: 'Headphones' }, { id: 'ddj', nombre: 'Línea (2- DDJ-400)' }];
+  const vu = [buscarVuelta({ id: 'hp-2', nombre: 'Headphones (2)' }, LISTA_V), buscarVuelta({ id: 'otro-id', nombre: 'Línea (2- DDJ-400)' }, LISTA_V),
+    buscarVuelta({ id: 'nuevo', nombre: 'Headphones (2)' }, LISTA_V), buscarVuelta({ id: 'x', nombre: 'Headphones (3)' }, LISTA_V), buscarVuelta({ id: 'x', nombre: '' }, LISTA_V),
+    buscarVuelta(null, LISTA_V), buscarVuelta({ id: 'hp-1' }, 'no'), buscarVuelta({ id: 'x', nombre: 'línea (2- ddj-400)' }, LISTA_V)];
+  ok('cue_buscar_vuelta', JSON.stringify(vu) === JSON.stringify(['hp-2', 'ddj', 'hp-2', null, null, null, null, null]), { vu });
+  ok('cue_aviso_volvio', textoAviso('volvio', 'Headphones') === '«Headphones» volvió: pulsa «Usar» para activarla.'
+    && textoAviso('volvio', '') === 'La salida de audífonos volvió: pulsa «Usar» para activarla.', { t: textoAviso('volvio', 'Headphones') });
+  const PISTA = 'Parece una mezcladora DJ: sus audífonos suelen ir por los canales 3-4.';
+  const pis = [pistaMezcladora('Línea (2- DDJ-400)', '1-2'), pistaMezcladora('Línea (2- DDJ-400)', '3-4'), pistaMezcladora('Headphones', '1-2'), pistaMezcladora('mi ddj', '1-2'),
+    pistaMezcladora(null, '1-2'), pistaMezcladora('DDJ-FLX4', '5-6')];
+  ok('cue_pista_mezcladora', JSON.stringify(pis) === JSON.stringify([PISTA, null, null, null, null, null]), { pis });
 }
 
 // ── salidas.js (sub-paso e3a): la lista de salidas con mediaDevices y permissions FALSOS ──

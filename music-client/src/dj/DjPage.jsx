@@ -12,13 +12,18 @@ import { antesDeBajar, cargarPista, mbTexto } from './motor/carga.js';
 import { filtroFrecuencias, LP_NEUTRA, HP_NEUTRA } from './motor/mezcla.js';
 import { crearConexionMidi } from './motor/midi.js';
 import CueDj from './CueDj.jsx';
+import ControlDj, { num } from './ControlDj.jsx';
+import { estadoBotonCue, textoNotaCue } from './motor/cue.js';
 
 // MODO DJ (V1). Sub-paso a: la página y la CONVIVENCIA con el reproductor normal. Sub-paso b: el motor
 // de audio propio (motor/motor.js, un AudioContext con dos decks) y la carga de una pista en A o B
 // (motor/carga.js). Sub-paso c: la sección «Mezcla» (volumen de cada deck, crossfader y filtro) con el
 // ratón; los valores viven en el motor. Sub-paso d: el DDJ-400 por Web MIDI (motor/midi.js) mueve esos
 // mismos valores, directo a los setters del motor, sin pasar por React. Sub-paso e3a: la sección
-// «Audífonos (cue)» (CueDj.jsx) elige la salida de audífonos y sus canales. Nada de esto toca PlayerContext.
+// «Audífonos (cue)» (CueDj.jsx) elige la salida de audífonos y sus canales. Sub-paso e3b: el botón «Cue» de
+// cada deck (motor.fijarCue; deshabilitado sin salida y en 'error'; con el deck vacío o en pausa, una nota:
+// en V1 el cue sólo suena con el deck sonando) y, en «Audífonos (cue)», el volumen y el desfase. El control
+// deslizante de la Mezcla y del cue es ControlDj.jsx. Nada de esto toca PlayerContext.
 //  · La consola se re-renderiza con los avisos del motor AGRUPADOS por requestAnimationFrame: un fader
 //    del DDJ-400 manda decenas de mensajes por segundo y cada uno llega en su propia tarea, así que sin
 //    agrupar sería un render por mensaje. Con el ratón el render sigue siendo inmediato (el <input> es
@@ -47,7 +52,9 @@ import CueDj from './CueDj.jsx';
 //    Espacio y las flechas son del control (los atajos ya ignoran los <input>), pero M y F se siguen
 //    tapando, porque
 //    useVideoFullscreenShortcut NO excluye los range y la F abriría la pantalla completa del
-//    reproductor normal.
+//    reproductor normal. Los botones (Play, «Al inicio», «Cue», los ±1 del desfase) no son campos: con el
+//    foco en uno, las cinco se tapan (Espacio incluido: no lo activa, lo mide dj-func ce10) y Enter sí lo
+//    activa. No se les hace blur.
 //  · El tiempo de cada deck se pinta con requestAnimationFrame leyendo el reloj del AudioContext
 //    (deck.posicion()), escribiendo directo en el DOM: React no se entera de cada frame.
 
@@ -243,6 +250,11 @@ function ConsolaDj({ diag }) {
   }, [ponerUi]);
 
   const cancelarAviso = useCallback((lado) => ponerUi(lado, { aviso: null, confirmar: null }), [ponerUi]);
+  // Sub-paso e3b: el botón «Cue» de un deck. Dentro del clic (el primer cue puede crear el contexto de cue).
+  const alternarCue = useCallback((lado) => {
+    const m = motorRef.current;
+    if (m && m.fijarCue(lado, !m.cue().activo[lado])) refrescar();
+  }, [refrescar]);
 
   // Tiempo de los decks: un rAF mientras la consola está montada, escribiendo sólo si cambió.
   const vistasRef = useRef({ A: null, B: null });   // { tiempo, rango, arrastrando, ultimo, ultimoTxt }
@@ -265,12 +277,14 @@ function ConsolaDj({ diag }) {
   }, []);
 
   const motor = motorRef.current;
+  const cue = motor?.cue() ?? null;
   return (
     <>
       <div className="dj-decks">
         {LADOS.map((lado) => (
           <Deck key={lado} lado={lado} deck={motor?.decks[lado] ?? null} estado={motor?.decks[lado].estado() ?? null}
-            ui={ui[lado]} vistas={vistasRef.current} onCargar={cargar} onCancelar={cancelarAviso} />
+            ui={ui[lado]} vistas={vistasRef.current} onCargar={cargar} onCancelar={cancelarAviso}
+            cueActivo={!!cue?.activo[lado]} cueEstado={cue?.estado ?? null} onCue={alternarCue} />
         ))}
       </div>
       <MezclaDj motor={motor} refrescar={refrescar} midi={midi} onConectarMidi={conectarMidi} />
@@ -280,7 +294,7 @@ function ConsolaDj({ diag }) {
   );
 }
 
-function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar }) {
+function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar, cueActivo, cueEstado, onCue }) {
   const cargado = !!estado?.cargado;
   const pista = estado?.meta?.pista ?? null;
   const registro = estado?.meta?.registro ?? null;
@@ -318,9 +332,12 @@ function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar }) {
     ? `Cargando${ui.cargando.pct != null ? ` ${ui.cargando.pct} %` : '…'}`
     : !cargado ? 'Vacío' : sonando ? 'Sonando' : 'En pausa';
   const dataEstado = ui.cargando ? 'cargando' : !cargado ? 'vacio' : sonando ? 'sonando' : 'pausa';
+  // Sub-paso e3b: el botón «Cue» (estadoBotonCue) y la nota del límite de V1 (sin fuente de cue en pausa).
+  const botonCue = estadoBotonCue(cueEstado);
+  const notaCue = textoNotaCue({ activo: cueActivo, cargado, sonando });
 
   return (
-    <section className={`dj-deck dj-deck--${lado.toLowerCase()}`} data-lado={lado} data-estado={dataEstado} aria-label={`Deck ${lado}`}>
+    <section className={`dj-deck dj-deck--${lado.toLowerCase()}`} data-lado={lado} data-estado={dataEstado} data-cue={cueActivo ? '1' : '0'} aria-label={`Deck ${lado}`}>
       <div className="dj-deck-cabeza">
         <span className="dj-deck-lado" aria-hidden="true">{lado}</span>
         <div className="dj-deck-pista">
@@ -352,8 +369,14 @@ function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar }) {
           aria-label={`Volver al inicio del deck ${lado}`} onClick={() => deck?.alInicio()}>
           Al inicio
         </button>
+        <button type="button" className="dj-btn dj-cue-btn" aria-pressed={cueActivo} disabled={!botonCue.habilitado}
+          aria-label={`Cue del deck ${lado}`} title={botonCue.titulo ?? `Preescuchar el deck ${lado} en los audífonos`}
+          onClick={() => onCue(lado)}>
+          Cue
+        </button>
         <span className="dj-deck-estado">{textoEstado}</span>
       </div>
+      {notaCue && <p className="dj-deck-cue-nota" role="status">{notaCue}</p>}
 
       {registro && (
         <p className="dj-deck-registro"
@@ -388,7 +411,6 @@ function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar }) {
 // con una rampa. El DDJ-400 llama a los mismos setters desde midi.js. Antes del primer «Cargar» no
 // hay AudioContext: el setter sólo guarda el valor. Doble clic vuelve al valor por defecto.
 
-const num = (v) => `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(2).replace('.', ',')}`;
 const hzTexto = (hz) => (hz >= 1000 ? `${String(Math.round(hz / 100) / 10).replace('.', ',')} kHz` : `${Math.round(hz)} Hz`);
 function textoFiltro(f) {
   const fr = filtroFrecuencias(f);
@@ -426,36 +448,16 @@ function MezclaDj({ motor, refrescar, midi, onConectarMidi }) {
         </div>
       </div>
       <div className="dj-mezcla-controles">
-        <ControlMezcla clase="dj-vol-a" etiqueta="Volumen A" min={0} max={1} valor={m.volumen.A} porDefecto={1}
+        <ControlDj clase="dj-vol-a" etiqueta="Volumen A" min={0} max={1} valor={m.volumen.A} porDefecto={1}
           texto={num(m.volumen.A)} onCambio={con((mo, v) => mo.fijarVolumen('A', v))} />
-        <ControlMezcla clase="dj-vol-b" etiqueta="Volumen B" min={0} max={1} valor={m.volumen.B} porDefecto={1}
+        <ControlDj clase="dj-vol-b" etiqueta="Volumen B" min={0} max={1} valor={m.volumen.B} porDefecto={1}
           texto={num(m.volumen.B)} onCambio={con((mo, v) => mo.fijarVolumen('B', v))} />
-        <ControlMezcla clase="dj-crossfader" etiqueta="Crossfader" min={0} max={1} valor={m.crossfader} porDefecto={0.5}
+        <ControlDj clase="dj-crossfader" etiqueta="Crossfader" min={0} max={1} valor={m.crossfader} porDefecto={0.5}
           texto={num(m.crossfader)} extremos={['A', 'B']} onCambio={con((mo, v) => mo.fijarCrossfader(v))} />
-        <ControlMezcla clase="dj-filtro" etiqueta="Filtro" min={-1} max={1} valor={m.filtro} porDefecto={0}
+        <ControlDj clase="dj-filtro" etiqueta="Filtro" min={-1} max={1} valor={m.filtro} porDefecto={0}
           texto={textoFiltro(m.filtro)} extremos={['Paso bajo', 'Paso alto']} onCambio={con((mo, v) => mo.fijarFiltro(v))} />
       </div>
     </section>
-  );
-}
-
-function ControlMezcla({ clase, etiqueta, min, max, valor, porDefecto, texto, extremos, onCambio }) {
-  return (
-    <div className={`dj-control ${clase}`}>
-      <div className="dj-control-cabeza">
-        <span className="dj-control-nombre">{etiqueta}</span>
-        <output className="dj-control-valor" data-valor={valor}>{texto}</output>
-      </div>
-      <input
-        type="range" className="dj-control-rango" min={min} max={max} step="0.01" value={valor}
-        aria-label={etiqueta} aria-valuetext={texto} title="Doble clic: valor por defecto"
-        onChange={(e) => onCambio(Number(e.target.value))}
-        onDoubleClick={() => onCambio(porDefecto)}
-      />
-      {extremos && (
-        <div className="dj-control-extremos" aria-hidden="true"><span>{extremos[0]}</span><span>{extremos[1]}</span></div>
-      )}
-    </div>
   );
 }
 

@@ -11,6 +11,9 @@
 //   · textoAviso: los avisos cortos de la página.
 //   · nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue: el selector de audífonos de la
 //     página (sub-paso e3a, CueDj.jsx); la parte de navegador de la lista está en salidas.js.
+//   · textoCuesActivos, estadoBotonCue, textoNotaCue, textoDesfase, crearDiferido, buscarVuelta,
+//     pistaMezcladora: los botones Cue de los decks, el volumen y el desfase (sub-paso e3b). crearDiferido
+//     usa setTimeout sólo si no se le inyectan timers.
 
 import { gananciaVolumen } from './mezcla.js';
 
@@ -165,6 +168,7 @@ export function textoAviso(motivo, nombre) {
     case 'InvalidStateError': return null;
     case 'misma-salida': return 'Esa salida es la misma del master: el cue sonaría por los mismos altavoces.';
     case 'sin-canales-3-4': return `${n ? `La salida ${q}` : 'La salida de audífonos'} no tiene canales 3-4. Cue apagado; el master sigue igual.`;
+    case 'volvio': return `${n ? q : 'La salida de audífonos'} volvió: pulsa «Usar» para activarla.`;   // e3b: no es un fallo
     default: return `No se pudo abrir la salida de audífonos (${texto(motivo) || 'error desconocido'}). Cue apagado; el master sigue igual.`;
   }
 }
@@ -222,13 +226,93 @@ export function textoListaSalidas(estado, nombreError) {
 // La línea de estado del cue (motor.cue()). `conContexto`: si el motor ya abrió el contexto de cue
 // (motor.contextoCue()); 'lista' sin contexto = elegida, se abre al activar un cue. 'error' → null: el
 // aviso del motor se muestra aparte, tal cual. Estado desconocido → null.
-export function textoEstadoCue(estado, nombre, canales, conContexto) {
+// e3b: `activo` ({ A, B } de motor.cue()) suma los cues activos a la línea de 'lista' («· cue A y B»); sin
+// ninguno (o sin `activo`), el texto es el de e3a.
+export function textoEstadoCue(estado, nombre, canales, conContexto, activo) {
   const q = `«${texto(nombre) || 'la salida de audífonos'}»`;
   const c = `canales ${validarCanales(canales) ?? '1-2'}`;
+  const a = textoCuesActivos(activo);
+  const cues = a ? ` · ${a}` : '';
   switch (estado) {
     case 'sin-salida': return 'Sin salida de audífonos.';
     case 'abriendo': return `Abriendo ${q}…`;
-    case 'lista': return conContexto ? `Listo: ${q} · ${c}.` : `${q} · ${c}. Se abre al activar un cue.`;
+    case 'lista': return conContexto ? `Listo: ${q} · ${c}${cues}.` : `${q} · ${c}${cues}. Se abre al activar un cue.`;
     default: return null;
   }
+}
+
+// ── Botones Cue, volumen y desfase (sub-paso e3b) ──
+
+// Los cues activos en texto: 'cue A', 'cue B', 'cue A y B'; ninguno (o basura) → ''.
+export function textoCuesActivos(activo) {
+  const a = activo && typeof activo === 'object' && activo.A === true;
+  const b = activo && typeof activo === 'object' && activo.B === true;
+  return a && b ? 'cue A y B' : a ? 'cue A' : b ? 'cue B' : '';
+}
+
+// El botón «Cue» de un deck según el estado del cue (motor.cue().estado): habilitado con 'abriendo' y 'lista'
+// (en 'abriendo' el motor guarda el pedido y lo aplica al quedar lista). Sin salida o en 'error' (el motor
+// reintentaría abrir la salida sin avisar: el reintento es con «Usar»), deshabilitado con su explicación.
+// Lo demás (sin motor, estado desconocido) → deshabilitado como sin salida.
+export const TITULO_CUE_SIN_SALIDA = 'Elige la salida de audífonos en «Audífonos (cue)»';
+export const TITULO_CUE_ERROR = 'La salida falló: quítala o elige otra';
+export function estadoBotonCue(estado) {
+  if (estado === 'abriendo' || estado === 'lista') return { habilitado: true, titulo: null };
+  if (estado === 'error') return { habilitado: false, titulo: TITULO_CUE_ERROR };
+  return { habilitado: false, titulo: TITULO_CUE_SIN_SALIDA };
+}
+
+// La nota bajo los controles de un deck con su cue activo: en V1 el cue sólo suena con el deck sonando (sin
+// fuente en pausa). Cue apagado o deck sonando → null.
+export const NOTA_CUE_VACIO = 'Cue activo: carga una canción y dale play para oírla en los audífonos.';
+export const NOTA_CUE_PAUSA = 'Cue activo: dale play para preescuchar. En esta versión el cue no suena en pausa: baja el volumen del deck o el crossfader para que no salga por el master.';
+export function textoNotaCue({ activo, cargado, sonando } = {}) {
+  if (activo !== true || sonando === true) return null;
+  return cargado === true ? NOTA_CUE_PAUSA : NOTA_CUE_VACIO;
+}
+
+// El desfase en pantalla: «+12 ms», «−8 ms» (signo menos tipográfico, como num() de los controles), «0 ms».
+// Recortado y redondeado como lo aplica el motor (recortarDesfase); lo que no es un número finito → ''.
+export function textoDesfase(ms) {
+  const d = recortarDesfase(ms);
+  if (d === null) return '';
+  return d > 0 ? `+${d} ms` : d < 0 ? `−${-d} ms` : '0 ms';
+}
+
+// DIFERIDO (debounce al final de la ráfaga): pedir(v) guarda v y reinicia la espera; a los `ms` sin otro
+// pedido llama fn(v) UNA vez con el último valor. cancelar() descarta lo pendiente; pendiente() dice si hay.
+// Los timers se inyectan (dj-unit los prueba con unos falsos). fn que lanza no rompe el diferido.
+export function crearDiferido(fn, ms, { poner = (f, t) => setTimeout(f, t), quitar = (id) => clearTimeout(id) } = {}) {
+  let id = null;
+  let valor;
+  return {
+    pedir(v) {
+      valor = v;
+      if (id !== null) quitar(id);
+      id = poner(() => { id = null; try { fn(valor); } catch { /* el control sigue vivo */ } }, ms);
+    },
+    cancelar() { if (id !== null) { quitar(id); id = null; } },
+    pendiente: () => id !== null,
+  };
+}
+
+// ¿Volvió la salida que faltaba? `faltante` = { id, nombre } (el nombre VISIBLE con que se eligió); `salidas`
+// = la lista nueva (filtrarSalidas). Primero por id; si no, por el nombre visible exacto (nombresVisibles: un
+// nombre repetido lleva « (2)», así que el visible es único). → el id de la salida que volvió, o null.
+export function buscarVuelta(faltante, salidas) {
+  if (!faltante || typeof faltante !== 'object' || !Array.isArray(salidas)) return null;
+  const id = typeof faltante.id === 'string' ? faltante.id : '';
+  if (id && salidas.some((s) => s?.id === id)) return id;
+  const n = texto(faltante.nombre);
+  if (!n) return null;
+  const vis = nombresVisibles(salidas);
+  const i = vis.indexOf(n);
+  return i >= 0 ? salidas[i].id : null;
+}
+
+// La pista de canales: con 1-2 marcado y una salida cuyo nombre contiene «DDJ» (la DDJ-400 es la única
+// mezcladora probada). No elige nada; con 3-4 marcado no sale (ahí está el «Ojo» de la Sound Blaster).
+export const PISTA_MEZCLADORA = 'Parece una mezcladora DJ: sus audífonos suelen ir por los canales 3-4.';
+export function pistaMezcladora(nombre, canales) {
+  return typeof nombre === 'string' && nombre.includes('DDJ') && canales === '1-2' ? PISTA_MEZCLADORA : null;
 }

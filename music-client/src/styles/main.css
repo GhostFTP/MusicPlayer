@@ -6318,7 +6318,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 }
 .dj-deck-transcurrido { color: var(--time-elapsed); }
 .dj-deck-seek { width: 100%; }
-.dj-deck-controles { display: flex; align-items: center; gap: 8px; }
+.dj-deck-controles { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dj-btn {
   min-height: 36px;
   padding: 0 14px;
@@ -6334,6 +6334,11 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .dj-play { min-width: 76px; }
 .dj-deck-estado { margin-left: auto; color: var(--text-muted); font-size: 13px; }
 .dj-deck-registro { margin: 0; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Sub-paso e3b: el botón «Cue» de cada deck. Activo = la identidad del deck (la letra A/B): fondo accent-dim,
+   borde y texto accent. Inactivo, el .dj-btn de siempre; deshabilitado, su opacity. La nota del límite de V1
+   va con el gris del registro. Sin colores nuevos ni animación. */
+.dj-cue-btn[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+.dj-deck-cue-nota { margin: 0; color: var(--text-muted); font-size: 12px; }
 .dj-deck-aviso, .dj-cue-aviso {
   padding: 10px 12px;
   border-radius: 10px;
@@ -6367,7 +6372,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
   gap: 12px 24px;
 }
 @media (max-width: 899px) { .dj-mezcla-controles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.dj-control { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dj-control, .dj-cue-control { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .dj-control-cabeza { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; min-width: 0; }
 .dj-control-nombre { color: var(--text-muted); white-space: nowrap; }
 .dj-control-valor { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -6403,6 +6408,13 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .dj-cue-fila .dj-cue-ayuda { margin: 0; font-size: 13px; flex: 1 1 320px; }
 .dj-cue-ojo { color: #fcd34d; }
 .dj-cue-aviso { margin-top: 10px; }
+/* Sub-paso e3b: volumen y desfase del cue, con el grid de la Mezcla (dos columnas). Los ±1 y la ayuda del
+   desfase en una fila debajo de su control. */
+.dj-cue-ajustes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; margin-top: 12px; }
+.dj-cue-desfase-caja { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dj-cue-pasos { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dj-cue-paso { min-height: 28px; padding: 0 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.dj-cue-ayuda-desfase { min-width: 0; color: var(--text-muted); font-size: 12px; }
 
 .dj-biblioteca { margin-top: 20px; }
 .dj-buscar {
@@ -6420,9 +6432,10 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
 .dj-biblioteca-nota { color: var(--text-muted); font-size: 14px; }
 .dj-lista-scroll {
   margin-top: 10px;
-  /* 704: medido con dj-func (cs12) a 1280 px de ancho, con los decks cargados (con su registro), «Mezcla» y
-     «Audífonos (cue)» con una salida lista y el aviso de 3-4: es lo que ocupa la página fuera de la lista. */
-  height: max(240px, calc(100vh - 704px));
+  /* 807: medido con dj-func (cs12) a 1280 px de ancho, con los decks cargados (con su registro), «Mezcla» y
+     «Audífonos (cue)» con una salida lista, el aviso de 3-4 y la fila de volumen y desfase (e3b): es lo que
+     ocupa la página fuera de la lista. Sin las notas de cue de los decks (con ellas, 825: ver dj-func). */
+  height: max(240px, calc(100vh - 807px));
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
