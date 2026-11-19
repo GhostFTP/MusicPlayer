@@ -45,6 +45,8 @@
 //     (no abre ningún dispositivo), después setSinkId(id) y se espera 'running' (tope ESPERA_CUE_MS).
 //     Desde e3a también al ELEGIR la salida con fijarSalidaCue(id, nombre, { abrir: true }) (el «Usar» de
 //     la página, otro clic): se abre sin activar ningún cue y queda abierto y en silencio (cueA/cueB en 0).
+//     Desde e4a también con abrirSalidaCue() (el primer «Cargar» de la página) cuando la salida quedó elegida sin
+//     contexto (restaurada de localStorage, o la que volvió con el mismo id).
 //     Recién entonces se crean los nodos. Si setSinkId falla, el contexto queda en 'none' (mudo) y se
 //     cierra: nunca suena por la salida predeterminada, que es la del master. (Un contexto creado SIN
 //     sinkId que falla setSinkId se queda en la predeterminada: medido en Chromium, ver cue.js.)
@@ -613,6 +615,16 @@ export function crearMotor({ sampleRate = TASA_DJ, latencyHint = 'interactive', 
       if (cue.ctx || abrir) return abrirCue();
       ponerEstadoCue('lista');
       return Promise.resolve({ ok: true });
+    },
+    // Sub-paso e4a: abre YA la salida de cue que quedó elegida SIN contexto (la restaurada de localStorage o la que
+    // volvió con el mismo id: las dos se fijan sin `abrir`). LLAMAR DENTRO DE UN GESTO (DjPage lo llama en el clic de
+    // «Cargar», justo después de asegurarContexto). Sólo actúa con salida, estado 'lista' y SIN contexto de cue; si no
+    // (sin salida, ya abierta o abriéndose, en 'error'), no hace nada → { ok: false, error: 'nada' }. Con fijarCue no
+    // se pisan: los dos miran cue.ctx, que abrirCue crea de forma SÍNCRONA (crearCtxCue, antes del primer await), así
+    // que el que llega segundo encuentra el contexto y no abre otro. → Promise<{ ok, error? }> que NUNCA rechaza.
+    abrirSalidaCue() {
+      if (cerrado || cue.ctx || !cue.salida || cue.estado !== 'lista') return Promise.resolve({ ok: false, error: 'nada' });
+      return abrirCue();
     },
     // Activa o apaga el cue de un deck (se pueden los dos). LLAMAR DENTRO DE UN GESTO: el primero crea el
     // contexto de cue. Sin salida elegida → false. Activar: la ganancia del deck sube con rampa y se crea

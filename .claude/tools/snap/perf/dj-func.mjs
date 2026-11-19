@@ -61,6 +61,16 @@
 //         'error' del motor (ce15) sin armar nada, y un error con la salida siempre presente no se toca (ce16); la
 //         pista DDJ sólo con 1-2 (ce17); con el deck vacío, la otra nota (ce18). El cue se cuenta por sus
 //         AudioBufferSourceNode en el contexto de cue. NO se prueba: el sonido, el corte al resincronizar, clics.
+//         e4a cambió ce14 y ce15 (decisión 2): la que vuelve con el MISMO id se rearma sola, sin abrir y con los cues apagados.
+//   · cr  (sub-paso e4a, recordar el cue en localStorage 'djCue') restaura sin abrir nada (cr1) y el primer «Cargar»
+//         la abre (cr2); id cambiado → por nombre crudo único y el id se actualiza (cr3); nombre repetido (cr4) y
+//         desenchufada (cr5) → aviso y lo guardado idéntico, y la desenchufada que vuelve con el mismo id se rearma
+//         (cr5) y con otro id pide «Usar» (cr5b); sin permiso no restaura hasta el botón (cr6) ni denegado (cr7); la
+//         del master con 1-2 confirma y la DDJ con 3-4 no (cr8); ilegible → ignorada sin borrar (cr10); ida y vuelta
+//         con «Usar», desfase, un «Usar» que falla y «Quitar» (cr11); ni el cue encendido ni el volumen (cr12);
+//         localStorage bloqueado para 'djCue' (cr9). Se cuentan setSinkId y contextos de cue (el runner no deja
+//         contextos 'suspended': --autoplay-policy=no-user-gesture-required). NO se prueba: el getter de
+//         window.localStorage que lanza (sólo dj-unit), dos pestañas, el permiso «sólo esta vez» de Edge.
 //   · d6  con radio activa (anfitrión de una radio REAL, creada con «Iniciar radio» como radio-func) /dj
 //         no pausa nada (ni isPlaying ni el pause() nativo), muestra «Sal de la radio para usar el Modo
 //         DJ» y deja la barra visible; tampoco tapa teclas: Espacio llega al reproductor normal y lo
@@ -249,7 +259,8 @@ await ctx.addInitScript(() => {
     { kind: 'audiooutput', deviceId: 'hp-0002', label: 'Headphones', groupId: 'g-hp2' },
     { kind: 'audiooutput', deviceId: 'ddj-0001', label: 'Línea (2- DDJ-400)', groupId: 'g-sb' },
   ];
-  const quitados = new Set();
+  const quitados = new Set(Array.isArray(cfg.quitados) ? cfg.quitados : []);   // e4a: { quitados: [id] } = desenchufadas al cargar
+  const nuevosIds = new Map();   // e4a: __fd.cambiarId(id, nuevo) → la salida se enumera con OTRO id (mismo nombre)
   const t = new EventTarget();
   const oy = new Set();
   const medios = {
@@ -265,7 +276,7 @@ await ctx.addInitScript(() => {
     enumerateDevices() {
       fd.enumeraciones++;
       const conNombres = fd.permiso === 'granted' && cfg.nombres !== false;
-      return Promise.resolve(conNombres ? LISTA.filter((d) => !quitados.has(d.deviceId)).map((d) => ({ ...d }))
+      return Promise.resolve(conNombres ? LISTA.filter((d) => !quitados.has(d.deviceId)).map((d) => ({ ...d, deviceId: nuevosIds.get(d.deviceId) ?? d.deviceId }))
         : [{ kind: 'audioinput', deviceId: '', label: '', groupId: '' }, { kind: 'audiooutput', deviceId: '', label: '', groupId: '' }]);
     },
     addEventListener(tipo, fn, o) { if (tipo === 'devicechange') oy.add(fn); t.addEventListener(tipo, fn, o); },
@@ -274,11 +285,27 @@ await ctx.addInitScript(() => {
   fd.oyentes = () => oy.size;
   fd.quitar = (id) => { quitados.add(id); t.dispatchEvent(new Event('devicechange')); };
   fd.poner = (id) => { quitados.delete(id); t.dispatchEvent(new Event('devicechange')); };
+  fd.cambiarId = (id, nuevo) => { nuevosIds.set(id, nuevo); };   // sin devicechange: lo dispara el próximo poner/quitar
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: medios });
   if (navigator.permissions) {
     const q0 = navigator.permissions.query.bind(navigator.permissions);   // ya envuelto por el MIDI falso
     Object.defineProperty(navigator.permissions, 'query', { configurable: true, value: (d) => (d?.name === 'microphone' ? Promise.resolve({ state: fd.permiso, onchange: null }) : q0(d)) });
   }
+});
+// localStorage BLOQUEADO sólo para la clave del cue (sub-paso e4a, cr9): con sessionStorage '__lsCfg' = { bloquear: true },
+// getItem('djCue') lanza SecurityError y setItem('djCue') lanza QuotaExceededError; el resto de las claves (el token de
+// la sesión) sigue igual, si no la página ni entra. window.__ls cuenta los intentos. Que el GETTER de window.localStorage
+// lance se prueba sólo en dj-unit (con el token ahí, la app no arrancaría).
+await ctx.addInitScript(() => {
+  if (window.__ls) return;
+  let cfg = {};
+  try { cfg = JSON.parse(sessionStorage.getItem('__lsCfg') || '{}') || {}; } catch { cfg = {}; }
+  const ls = { lecturas: 0, escrituras: 0 };
+  window.__ls = ls;
+  if (!cfg.bloquear) return;
+  const S = Storage.prototype, get0 = S.getItem, set0 = S.setItem;
+  S.getItem = function (k, ...r) { if (this === window.localStorage && k === 'djCue') { ls.lecturas++; throw new DOMException('bloqueado', 'SecurityError'); } return get0.call(this, k, ...r); };
+  S.setItem = function (k, ...r) { if (this === window.localStorage && k === 'djCue') { ls.escrituras++; throw new DOMException('lleno', 'QuotaExceededError'); } return set0.call(this, k, ...r); };
 });
 await p.reload(); await p.waitForSelector('.player-bar', { timeout: 15000 }).catch(() => {}); await sleep(500);
 // Pedidos a /stream/ de audio (no video): URL y cabecera Authorization.
@@ -1403,9 +1430,9 @@ try {
       && ['A', 'B'].every((l) => b11b[l].pressed === 'false' && b11b[l].disabled === true && b11b[l].title === TXT_E.sin && b11b[l].nota === null) && a11b.activo === '' && a11b.hay === false,
     { b11a, a11a: a11a.activo, estado: u11a.textoEstado, b11b, a11b: [a11b.activo, a11b.hay] });
 
-    // ce14 (i.1): la salida desaparece con el cue A activo → apagado y deshabilitado, aviso de la página; VUELVE (mismo
-    // id) → el aviso se quita solo, la salida queda preseleccionada con «… volvió: pulsa «Usar»…» y NO se arma nada
-    // (ni setSinkId ni contexto de cue nuevos; el motor sigue sin salida).
+    // ce14 (i.1, decisión 2 de e4a): la salida desaparece con el cue A activo → apagado y deshabilitado, aviso de la página;
+    // VUELVE con el MISMO id → se rearma SOLA, sin abrir: el aviso se quita, «Volvió «X». Cue listo (apagado).», el motor
+    // con la salida en 'lista' SIN contexto (ni setSinkId ni contexto de cue nuevos) y los cues apagados (Cue habilitado).
     await usar('wave-0001', '1-2');
     await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
     await p.locator(sel('A', '.dj-cue-btn')).click();
@@ -1413,28 +1440,31 @@ try {
     const u14a = await esperarCue((u) => u.estado === 'sin-salida' && !!u.avisoUi) ?? await cueUi();
     const b14a = await botones(), q14 = await cueCtx();
     await p.evaluate(() => window.__fd.poner('wave-0001'));
-    const u14b = await esperarCue((u) => u.opciones.some(([id]) => id === 'wave-0001') && u.avisoUi === null) ?? await cueUi();
+    const u14b = await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista') ?? await cueUi();
     await sleep(200);
     const a14b = await ajustes(), q14b = await cueCtx(), b14b = await botones();
-    ok('ce14_volvio_quita_el_aviso_de_la_pagina', u14a.avisoUi === 'La salida de audífonos «Headphones (Elgato Wave:XLR)» no está conectada. Cue apagado.' && b14a.A.pressed === 'false' && b14a.A.disabled === true
-      && u14b.avisoUi === null && a14b.volvio === '«Headphones (Elgato Wave:XLR)» volvió: pulsa «Usar» para activarla.' && u14b.sel === 'wave-0001' && u14b.estado === 'sin-salida' && u14b.salida === ''
-      && u14b.alertas === 0 && q14b.sinks.length === q14.sinks.length && q14b.cues === q14.cues && b14b.A.disabled === true && b14b.A.pressed === 'false',
-    { u14a: u14a.avisoUi, u14b: { avisoUi: u14b.avisoUi, sel: u14b.sel, estado: u14b.estado, alertas: u14b.alertas }, volvio: a14b.volvio, sinks: q14b.sinks.length - q14.sinks.length, cues: q14b.cues - q14.cues });
+    ok('ce14_volvio_mismo_id_se_rearma_sin_abrir', u14a.avisoUi === 'La salida de audífonos «Headphones (Elgato Wave:XLR)» no está conectada. Cue apagado.' && b14a.A.pressed === 'false' && b14a.A.disabled === true
+      && u14b.avisoUi === null && a14b.volvio === 'Volvió «Headphones (Elgato Wave:XLR)». Cue listo (apagado).' && u14b.sel === 'wave-0001' && u14b.estado === 'lista' && u14b.salida === 'wave-0001'
+      && u14b.contexto === '0' && u14b.alertas === 0 && q14b.sinks.length === q14.sinks.length && q14b.cues === q14.cues && a14b.activo === ''
+      && ['A', 'B'].every((l) => b14b[l].disabled === false && b14b[l].pressed === 'false'),
+    { u14a: u14a.avisoUi, u14b: { avisoUi: u14b.avisoUi, sel: u14b.sel, estado: u14b.estado, contexto: u14b.contexto, alertas: u14b.alertas }, volvio: a14b.volvio, activo: a14b.activo,
+      sinks: q14b.sinks.length - q14.sinks.length, cues: q14b.cues - q14.cues, b14b });
 
-    // ce15 (i.1): 'error' del motor con la salida que DESPUÉS falta y vuelve → el error se limpia (fijarSalidaCue(null)),
-    // queda preseleccionada con el texto y no se arma nada.
+    // ce15 (i.1 + decisión 2): 'error' del motor con la salida que DESPUÉS falta y vuelve con el mismo id → el error se
+    // limpia (fijarSalidaCue(null)) y se rearma sin abrir, con el mismo texto; ni setSinkId ni contexto nuevos.
     await usar('hp-0002', '1-2');
     await esperarCue((u) => u.estado === 'error');
     const q15 = await cueCtx();
     await p.evaluate(() => window.__fd.quitar('hp-0002'));
     const u15a = await esperarCue((u) => !u.opciones.some(([id]) => id === 'hp-0002')) ?? await cueUi();
     await p.evaluate(() => window.__fd.poner('hp-0002'));
-    const u15b = await esperarCue((u) => u.estado === 'sin-salida') ?? await cueUi();
+    const u15b = await esperarCue((u) => u.estado === 'lista' && u.salida === 'hp-0002') ?? await cueUi();
     await sleep(200);
     const a15b = await ajustes(), q15b = await cueCtx();
-    ok('ce15_volvio_quita_el_error_del_motor', u15a.estado === 'error' && u15a.avisoMotor === TXT_E.noEncontro2 && u15b.estado === 'sin-salida' && u15b.avisoMotor === null && u15b.alertas === 0
-      && a15b.volvio === '«Headphones (2)» volvió: pulsa «Usar» para activarla.' && u15b.sel === 'hp-0002' && q15b.sinks.length === q15.sinks.length && q15b.cues === q15.cues,
-    { u15a: [u15a.estado, u15a.avisoMotor], u15b: [u15b.estado, u15b.avisoMotor, u15b.sel, u15b.alertas], volvio: a15b.volvio, sinks: q15b.sinks.length - q15.sinks.length });
+    ok('ce15_volvio_quita_el_error_y_se_rearma', u15a.estado === 'error' && u15a.avisoMotor === TXT_E.noEncontro2 && u15b.estado === 'lista' && u15b.salida === 'hp-0002' && u15b.contexto === '0'
+      && u15b.avisoMotor === null && u15b.alertas === 0 && a15b.volvio === 'Volvió «Headphones (2)». Cue listo (apagado).' && u15b.sel === 'hp-0002'
+      && q15b.sinks.length === q15.sinks.length && q15b.cues === q15.cues,
+    { u15a: [u15a.estado, u15a.avisoMotor], u15b: [u15b.estado, u15b.contexto, u15b.avisoMotor, u15b.sel, u15b.alertas], volvio: a15b.volvio, sinks: q15b.sinks.length - q15.sinks.length });
 
     // ce16 (i.1): un 'error' con la salida que NUNCA faltó (cambia OTRA de la lista) no se toca.
     await usar('hp-0002', '1-2');
@@ -1535,6 +1565,216 @@ try {
   ok('cs2_denegado_y_sin_microfono', u2a.lista === 'denegado' && u2a.textoLista === TXT.denegado && u2a.boton && u2a.opciones.length === 0
     && u2b.lista === 'sin-microfono' && u2b.textoLista === TXT.sinMicro && u2b.opciones.length === 0, { u2a, u2b });
   await p.evaluate(() => sessionStorage.removeItem('__fdCfg'));
+
+  // ── cr (sub-paso e4a): recordar el cue entre recargas (localStorage 'djCue') ──
+  // El runner lanza Chromium con --autoplay-policy=no-user-gesture-required: un contexto creado sin gesto NO queda
+  // 'suspended' acá, así que «no se abrió nada» se mide CONTANDO setSinkId y contextos de cue (cueCtx), no por estados.
+  {
+    const WAVE = 'Headphones (Elgato Wave:XLR)';
+    const TXT_R = {
+      ambigua: 'Hay más de una salida llamada «Headphones». Elige cuál y pulsa «Usar».',
+      ausente: `La salida de audífonos guardada «${WAVE}» no está conectada. Conéctala o elige otra.`,
+      volvioLista: `Volvió «${WAVE}». Cue listo (apagado).`,
+      volvioUsar: `«${WAVE}» volvió: pulsa «Usar» para activarla.`,
+      sinAbrir: `«${WAVE}» · canales 1-2. Se abre al activar un cue.`,
+    };
+    const G = (actual, salidas = []) => JSON.stringify({ v: 1, actual, salidas });
+    // Recarga /dj con lo guardado (el texto tal cual; null = sin la clave), la config del mediaDevices falso y la del
+    // bloqueo de localStorage (null = sin bloqueo). Se escribe en la página ACTUAL, antes de navegar.
+    const recargarCr = async (guardado, cfg = { permiso: 'granted' }, ls = null) => {
+      await p.evaluate(({ g, ls }) => {
+        if (g === null) localStorage.removeItem('djCue'); else localStorage.setItem('djCue', g);
+        if (ls) sessionStorage.setItem('__lsCfg', JSON.stringify(ls)); else sessionStorage.removeItem('__lsCfg');
+      }, { g: guardado, ls });
+      await recargarCue(cfg);
+    };
+    const guardadoAhora = () => p.evaluate(() => localStorage.getItem('djCue'));
+    const leido = async () => { try { return JSON.parse(await guardadoAhora()); } catch { return null; } };
+    const nada = (q) => q.sinks.length === 0 && q.cues === 0;
+
+    // cr1: guardada y presente, permiso dado → preseleccionada (salida y canales), 'lista' SIN contexto, con su desfase;
+    // 0 setSinkId y 0 contextos de cue; cues apagados (Cue habilitado) y volumen 0,50.
+    await recargarCr(G({ id: 'wave-0001', nombre: WAVE, canales: '1-2' }, [{ id: 'wave-0001', nombre: WAVE, desfaseMs: 17, usada: 1 }]));
+    await esperarCue((u) => u.lista === 'lista' && u.salida === 'wave-0001');
+    await sleep(300);
+    const u1 = await cueUi(), q1 = await cueCtx(), a1 = await ajustes(), b1 = await botones();
+    ok('cr1_restaura_sin_abrir_nada', u1.salida === 'wave-0001' && u1.estado === 'lista' && u1.contexto === '0' && u1.sel === 'wave-0001' && u1.radio === '1-2' && u1.canales === '1-2'
+      && u1.textoEstado === TXT_R.sinAbrir && u1.alertas === 0 && nada(q1) && a1.volumen === 0.5 && a1.desfase === 17 && a1.activo === ''
+      && ['A', 'B'].every((l) => b1[l].pressed === 'false' && b1[l].disabled === false),
+    { u1: [u1.salida, u1.estado, u1.contexto, u1.sel, u1.radio, u1.textoEstado, u1.alertas], q1, a1: [a1.volumen, a1.desfase, a1.activo], b1 });
+
+    // cr2: el PRIMER «Cargar» abre la salida restaurada: UN setSinkId (al id guardado) y UN contexto de cue; el segundo
+    // «Cargar» no abre otro. El master no recibe setSinkId.
+    await cargarEn('A', n1);
+    const u2 = await esperarCue((u) => u.contexto === '1' && u.estado === 'lista') ?? await cueUi();
+    await esperarDeck('A', (d) => d.estado === 'pausa');
+    const q2a = await cueCtx();
+    await cargarEn('B', n2); await esperarDeck('B', (d) => d.estado === 'pausa');
+    await sleep(200);
+    const q2b = await cueCtx();
+    ok('cr2_el_primer_cargar_abre_la_salida', u2.contexto === '1' && u2.estado === 'lista' && u2.salida === 'wave-0001' && JSON.stringify(q2a.sinks) === JSON.stringify(['wave-0001'])
+      && q2a.cues === 1 && q2a.sinksMaster === 0 && JSON.stringify(q2b.sinks) === JSON.stringify(['wave-0001']) && q2b.cues === 1,
+    { u2: [u2.contexto, u2.estado], q2a, q2b });
+
+    // cr3: el id cambió → se restaura por el nombre crudo ÚNICO, con su desfase, y lo guardado pasa al id nuevo (la salida y
+    // su entrada de desfase). Sin abrir nada.
+    await recargarCr(G({ id: 'wave-viejo', nombre: WAVE, canales: '1-2' }, [{ id: 'wave-viejo', nombre: WAVE, desfaseMs: -9, usada: 1 }]));
+    const u3 = await esperarCue((u) => u.lista === 'lista' && u.salida === 'wave-0001') ?? await cueUi();
+    await sleep(200);
+    const a3 = await ajustes(), q3 = await cueCtx(), g3 = await leido();
+    ok('cr3_id_cambiado_restaura_por_nombre_y_actualiza_el_id', u3.salida === 'wave-0001' && u3.contexto === '0' && a3.desfase === -9 && nada(q3)
+      && g3?.actual?.id === 'wave-0001' && g3.actual.nombre === WAVE && g3.actual.canales === '1-2' && g3.salidas.length === 1 && g3.salidas[0].id === 'wave-0001' && g3.salidas[0].desfaseMs === -9,
+    { u3: [u3.salida, u3.contexto], desfase: a3.desfase, q3, g3 });
+
+    // cr4: el nombre guardado está DOS veces (los dos «Headphones») y el id no → no se adivina: aviso, nada elegido, nada
+    // abierto y lo guardado IDÉNTICO.
+    const g4 = G({ id: 'hp-viejo', nombre: 'Headphones', canales: '1-2' });
+    await recargarCr(g4);
+    await esperarCue((u) => u.lista === 'lista' && !!u.avisoUi);
+    await sleep(200);
+    const u4 = await cueUi(), q4 = await cueCtx(), s4 = await guardadoAhora();
+    ok('cr4_nombre_repetido_no_restaura_y_conserva', u4.avisoUi === TXT_R.ambigua && u4.estado === 'sin-salida' && u4.salida === '' && u4.sel === '' && nada(q4) && s4 === g4,
+      { u4: [u4.avisoUi, u4.estado, u4.sel], q4, igual: s4 === g4 });
+
+    // cr5: guardada pero DESENCHUFADA al abrir → aviso y lo guardado idéntico; vuelve con el MISMO id → se rearma sola sin
+    // abrir (decisión 2): 'lista' sin contexto, «Volvió… Cue listo (apagado).», cues apagados; lo guardado sigue igual.
+    const g5 = G({ id: 'wave-0001', nombre: WAVE, canales: '1-2' });
+    await recargarCr(g5, { permiso: 'granted', quitados: ['wave-0001'] });
+    const u5a = await esperarCue((u) => u.lista === 'lista' && !!u.avisoUi) ?? await cueUi();
+    const s5a = await guardadoAhora(), q5a = await cueCtx();
+    await p.evaluate(() => window.__fd.poner('wave-0001'));
+    const u5b = await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista') ?? await cueUi();
+    await sleep(200);
+    const a5 = await ajustes(), q5b = await cueCtx(), b5 = await botones(), s5b = await guardadoAhora();
+    ok('cr5_ausente_avisa_conserva_y_se_rearma_al_volver', u5a.avisoUi === TXT_R.ausente && u5a.estado === 'sin-salida' && u5a.salida === '' && s5a === g5 && nada(q5a)
+      && u5b.avisoUi === null && u5b.contexto === '0' && u5b.sel === 'wave-0001' && a5.volvio === TXT_R.volvioLista && nada(q5b) && a5.activo === ''
+      && ['A', 'B'].every((l) => b5[l].pressed === 'false') && s5b === g5,
+    { u5a: [u5a.avisoUi, u5a.estado], u5b: [u5b.avisoUi, u5b.contexto, u5b.sel], volvio: a5.volvio, q5a, q5b, igual: [s5a === g5, s5b === g5] });
+
+    // cr5b: se desenchufa y vuelve con OTRO id y el mismo nombre crudo (único) → no se rearma: preseleccionada y «pulsa
+    // Usar» (como en e3b). Una desconexión nunca toca lo guardado.
+    await p.evaluate(() => window.__fd.quitar('wave-0001'));
+    await esperarCue((u) => u.estado === 'sin-salida' && !!u.avisoUi);
+    await p.evaluate(() => { window.__fd.cambiarId('wave-0001', 'wave-0009'); window.__fd.poner('wave-0001'); });
+    const u5c = await esperarCue((u) => u.opciones.some(([id]) => id === 'wave-0009')) ?? await cueUi();
+    await sleep(250);
+    const u5d = await cueUi(), a5d = await ajustes(), q5d = await cueCtx(), s5d = await guardadoAhora();
+    ok('cr5b_vuelve_solo_por_nombre_pide_usar', !!u5c && u5d.estado === 'sin-salida' && u5d.salida === '' && u5d.sel === 'wave-0009' && u5d.avisoUi === null && a5d.volvio === TXT_R.volvioUsar
+      && nada(q5d) && s5d === g5, { u5d: [u5d.estado, u5d.sel, u5d.avisoUi], volvio: a5d.volvio, q5d, igual: s5d === g5 });
+
+    // cr6: permiso 'prompt' → no restaura (sin nombres): el botón como siempre y lo guardado intacto; al pulsarlo (y dar
+    // el permiso) restaura, sin abrir.
+    const g6 = G({ id: 'wave-0001', nombre: WAVE, canales: '1-2' });
+    await recargarCr(g6, { permiso: 'prompt' });
+    await sleep(300);
+    const u6a = await cueUi(), q6a = await cueCtx(), s6a = await guardadoAhora();
+    await clicSiHay('.dj-cue-ver');
+    const u6b = await esperarCue((u) => u.lista === 'lista' && u.salida === 'wave-0001') ?? await cueUi();
+    const q6b = await cueCtx();
+    ok('cr6_sin_permiso_no_restaura_hasta_el_boton', u6a.lista === 'inactivo' && u6a.boton && u6a.estado === 'sin-salida' && u6a.salida === '' && nada(q6a) && s6a === g6
+      && u6b.salida === 'wave-0001' && u6b.estado === 'lista' && u6b.contexto === '0' && nada(q6b), { u6a: [u6a.lista, u6a.boton, u6a.estado], u6b: [u6b.salida, u6b.contexto], q6a, q6b });
+
+    // cr7: permiso denegado → no restaura, sin aviso de la guardada, lo guardado intacto.
+    await recargarCr(g6, { permiso: 'denied' });
+    await esperarCue((u) => u.lista === 'denegado');
+    await sleep(250);
+    const u7 = await cueUi(), q7 = await cueCtx(), s7 = await guardadoAhora();
+    ok('cr7_permiso_denegado_no_restaura', u7.lista === 'denegado' && u7.boton && u7.estado === 'sin-salida' && u7.salida === '' && u7.avisoUi === null && nada(q7) && s7 === g6,
+      { u7: [u7.lista, u7.estado, u7.avisoUi], q7 });
+
+    // cr8: la guardada es la salida del master con '1-2' → la confirmación de siempre y NO se aplica nada; la DDJ con '3-4'
+    // (también del master) se restaura sin preguntar.
+    await recargarCr(G({ id: 'sb-0001', nombre: 'Altavoces (Sound Blaster AE-7)', canales: '1-2' }));
+    await esperarCue((u) => u.lista === 'lista' && !!u.confirmacion);
+    await sleep(250);
+    const u8 = await cueUi(), q8 = await cueCtx();
+    await recargarCr(G({ id: 'ddj-0001', nombre: 'Línea (2- DDJ-400)', canales: '3-4' }));
+    await esperarCue((u) => u.lista === 'lista' && u.salida === 'ddj-0001');
+    await sleep(250);
+    const u8b = await cueUi(), q8b = await cueCtx();
+    ok('cr8_master_con_12_confirma_y_34_no', u8.confirmacion === TXT.misma && u8.estado === 'sin-salida' && u8.salida === '' && u8.sel === 'sb-0001' && u8.radio === '1-2' && nada(q8)
+      && u8b.salida === 'ddj-0001' && u8b.canales === '3-4' && u8b.radio === '3-4' && u8b.estado === 'lista' && u8b.contexto === '0' && u8b.confirmacion === null && nada(q8b),
+    { u8: [u8.confirmacion, u8.estado, u8.sel], u8b: [u8b.salida, u8b.canales, u8b.estado, u8b.contexto], q8, q8b });
+
+    // cr10: lo guardado ilegible (JSON roto, otra versión, canales inválidos) → la página como sin nada guardado: sin
+    // restaurar ni avisar, y SIN borrarlo.
+    const ilegibles = ['{roto', JSON.stringify({ v: 2, actual: { id: 'wave-0001', nombre: WAVE, canales: '1-2' }, salidas: [] }), G({ id: 'wave-0001', nombre: WAVE, canales: 'x' })];
+    const r10 = [];
+    for (const g of ilegibles) {
+      await recargarCr(g);
+      await esperarCue((u) => u.lista === 'lista');
+      await sleep(250);
+      const u = await cueUi(), q = await cueCtx(), s = await guardadoAhora();
+      r10.push({ estado: u.estado, salida: u.salida, sel: u.sel, aviso: u.avisoUi, alertas: u.alertas, nada: nada(q), igual: s === g });
+    }
+    ok('cr10_guardado_ilegible_se_ignora_sin_borrar', r10.every((x) => x.estado === 'sin-salida' && x.salida === '' && x.sel === '' && x.aviso === null && x.alertas === 0 && x.nada && x.igual), { r10 });
+
+    // cr11: ida y vuelta con la interfaz. «Usar» → se guarda (id, nombre crudo, canales); el desfase al aplicarse; un «Usar»
+    // que FALLA no pisa lo guardado; recargar → restaurada con su desfase; «Quitar» → olvida la salida y conserva el desfase;
+    // recargar → nada restaurado.
+    await recargarCr(null);
+    await esperarCue((u) => u.lista === 'lista');
+    await usar('wave-0001', '1-2');
+    await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
+    await sleep(150);
+    const s11a = await leido();
+    await p.locator('.dj-cue-mas').click(); await p.locator('.dj-cue-mas').click();
+    await conDesfase(2); await sleep(150);
+    await usar('hp-0002', '1-2'); await esperarCue((u) => u.estado === 'error');
+    await sleep(150);
+    const s11b = await leido();
+    await recargarCue({ permiso: 'granted' });
+    const u11 = await esperarCue((u) => u.lista === 'lista' && u.salida === 'wave-0001') ?? await cueUi();
+    await sleep(200);
+    const a11 = await ajustes(), q11 = await cueCtx();
+    await clicSiHay('.dj-cue-quitar');
+    await esperarCue((u) => u.estado === 'sin-salida');
+    const s11c = await leido();
+    await recargarCue({ permiso: 'granted' });
+    await esperarCue((u) => u.lista === 'lista'); await sleep(250);
+    const u11b = await cueUi(), q11b = await cueCtx();
+    ok('cr11_usar_recargar_y_quitar_ida_y_vuelta', s11a?.actual?.id === 'wave-0001' && s11a.actual.nombre === WAVE && s11a.actual.canales === '1-2'
+      && s11b?.actual?.id === 'wave-0001' && s11b.salidas.some((s) => s.id === 'wave-0001' && s.desfaseMs === 2)
+      && u11.salida === 'wave-0001' && u11.contexto === '0' && a11.desfase === 2 && nada(q11)
+      && s11c?.actual === null && s11c.salidas.some((s) => s.id === 'wave-0001' && s.desfaseMs === 2)
+      && u11b.estado === 'sin-salida' && u11b.salida === '' && u11b.avisoUi === null && nada(q11b),
+    { s11a, s11b, u11: [u11.salida, u11.contexto], desfase: a11.desfase, s11c, u11b: [u11b.estado, u11b.salida] });
+
+    // cr12: el cue ENCENDIDO y el volumen no se guardan: con Cue A activo y el volumen en 0,80, recargar → los cues
+    // apagados y el volumen en 0,50; en lo guardado no aparecen.
+    await usar('wave-0001', '1-2');
+    await esperarCue((u) => u.salida === 'wave-0001' && u.contexto === '1');
+    await p.locator(sel('A', '.dj-cue-btn')).click();
+    await moverCue('.dj-cue-vol input', 0.8);
+    await esperar(async () => ((await ajustes()).volumen === 0.8 ? true : null), 1500);
+    const a12a = await ajustes(), b12a = await botones(), s12 = await guardadoAhora();
+    await recargarCue({ permiso: 'granted' });
+    await esperarCue((u) => u.lista === 'lista' && u.salida === 'wave-0001');
+    await sleep(250);
+    const u12 = await cueUi(), a12 = await ajustes(), b12 = await botones(), q12 = await cueCtx();
+    ok('cr12_cue_encendido_y_volumen_no_se_restauran', b12a.A.pressed === 'true' && a12a.volumen === 0.8 && typeof s12 === 'string' && !/activo|volumen/.test(s12)
+      && u12.salida === 'wave-0001' && u12.contexto === '0' && a12.activo === '' && a12.volumen === 0.5 && ['A', 'B'].every((l) => b12[l].pressed === 'false') && nada(q12),
+    { antes: [b12a.A.pressed, a12a.volumen], s12, despues: [a12.activo, a12.volumen, b12.A.pressed, b12.B.pressed], q12 });
+
+    // cr9: localStorage BLOQUEADO para 'djCue' (leer lanza SecurityError, escribir QuotaExceededError) → la página funciona
+    // igual que sin nada guardado: «Usar», el desfase y «Quitar» andan, y no hay errores de página. Se intentó leer y escribir.
+    const e9 = errores.length;
+    await recargarCr(null, { permiso: 'granted' }, { bloquear: true });
+    await esperarCue((u) => u.lista === 'lista'); await sleep(250);
+    const u9a = await cueUi();
+    await usar('wave-0001', '1-2');
+    const u9b = await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1') ?? await cueUi();
+    await p.locator('.dj-cue-mas').click(); const a9 = await conDesfase(1);
+    await sleep(200);
+    await clicSiHay('.dj-cue-quitar');
+    const u9c = await esperarCue((u) => u.estado === 'sin-salida') ?? await cueUi();
+    const ls9 = await p.evaluate(() => ({ ...window.__ls }));
+    ok('cr9_localstorage_bloqueado_la_pagina_funciona', u9a.estado === 'sin-salida' && u9a.avisoUi === null && u9b.contexto === '1' && !!a9 && u9c.estado === 'sin-salida'
+      && ls9.lecturas >= 1 && ls9.escrituras >= 3 && errores.length === e9, { u9a: [u9a.estado, u9a.avisoUi], u9b: [u9b.salida, u9b.contexto], ls9, errores: errores.slice(e9) });
+
+    await recargarCr(null, { permiso: 'granted' }, null);   // sin bloqueo y sin nada guardado
+    await p.evaluate(() => sessionStorage.removeItem('__fdCfg'));
+  }
 
   await p.evaluate(() => window.__player()?.pause());
   ok('d7_sin_errores_de_pagina', errores.length === 0, { errores });

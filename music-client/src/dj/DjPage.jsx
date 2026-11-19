@@ -220,10 +220,14 @@ function ConsolaDj({ diag }) {
   const cargar = useCallback(async (lado, pista, { forzar = false } = {}) => {
     // El contexto se crea ANTES de revisar la pista, dentro del clic (el gesto que Chrome pide): así
     // antesDeBajar estima la memoria con su sampleRate REAL (decodeAudioData remuestrea a esa tasa).
-    // Consecuencia: el primer clic en «A»/«B» crea el AudioContext aunque la pista se rechace.
+    // Consecuencia: el primer clic en «A»/«B» crea el AudioContext aunque la pista se rechace (y, desde e4a,
+    // abre la salida de cue restaurada aunque la pista se rechace).
     const m = motorRef.current;
     const contexto = m?.asegurarContexto();
     if (!contexto) return;
+    // Sub-paso e4a: la salida de audífonos restaurada (elegida sin contexto) se abre en este mismo clic, así un error
+    // de la salida se ve al cargar y no al primer Cue en plena mezcla. Sin salida pendiente no hace nada; no espera.
+    m.abrirSalidaCue();
     const pre = antesDeBajar(pista, { tasa: contexto.sampleRate });
     if (!pre.ok) { ponerUi(lado, { aviso: pre.error.mensaje, confirmar: null }); return; }
     if (pre.aviso && !forzar) { ponerUi(lado, { aviso: pre.aviso, confirmar: pista }); return; }

@@ -14,6 +14,10 @@
 //   · textoCuesActivos, estadoBotonCue, textoNotaCue, textoDesfase, crearDiferido, buscarVuelta,
 //     pistaMezcladora: los botones Cue de los decks, el volumen y el desfase (sub-paso e3b). crearDiferido
 //     usa setTimeout sólo si no se le inyectan timers.
+//   · crearAlmacen, leerCueGuardado, serializarCue, recordarActual, olvidarActual, recordarDesfase, migrarId,
+//     desfaseGuardado, decidirRestauracion, decidirVuelta: recordar el cue entre recargas (sub-paso e4a). El
+//     almacén recibe una función que DEVUELVE el storage (la página pasa () => window.localStorage): así
+//     también el acceso a window.localStorage, que puede lanzar, queda dentro del try.
 
 import { gananciaVolumen } from './mezcla.js';
 
@@ -169,6 +173,10 @@ export function textoAviso(motivo, nombre) {
     case 'misma-salida': return 'Esa salida es la misma del master: el cue sonaría por los mismos altavoces.';
     case 'sin-canales-3-4': return `${n ? `La salida ${q}` : 'La salida de audífonos'} no tiene canales 3-4. Cue apagado; el master sigue igual.`;
     case 'volvio': return `${n ? q : 'La salida de audífonos'} volvió: pulsa «Usar» para activarla.`;   // e3b: no es un fallo
+    // e4a: la salida recordada (guardada en localStorage) al abrir /dj, y la que vuelve con el MISMO id.
+    case 'guardada-ausente': return `La salida de audífonos guardada${n ? ` ${q}` : ''} no está conectada. Conéctala o elige otra.`;
+    case 'guardada-ambigua': return n ? `Hay más de una salida llamada ${q}. Elige cuál y pulsa «Usar».` : 'Hay más de una salida con ese nombre. Elige cuál y pulsa «Usar».';
+    case 'volvio-lista': return `Volvió ${n ? q : 'la salida de audífonos'}. Cue listo (apagado).`;
     default: return `No se pudo abrir la salida de audífonos (${texto(motivo) || 'error desconocido'}). Cue apagado; el master sigue igual.`;
   }
 }
@@ -315,4 +323,176 @@ export function buscarVuelta(faltante, salidas) {
 export const PISTA_MEZCLADORA = 'Parece una mezcladora DJ: sus audífonos suelen ir por los canales 3-4.';
 export function pistaMezcladora(nombre, canales) {
   return typeof nombre === 'string' && nombre.includes('DDJ') && canales === '1-2' ? PISTA_MEZCLADORA : null;
+}
+
+// ── Recordar el cue entre recargas (sub-paso e4a) ──
+//
+// QUÉ SE GUARDA, en UNA clave de localStorage (CLAVE_CUE), como JSON con versión de formato:
+//   { v: 1, actual: { id, nombre, canales } | null, salidas: [{ id, nombre, desfaseMs, usada }] }
+//   · actual: la salida elegida con «Usar» (sólo si terminó bien). `nombre` es el CRUDO de filtrarSalidas, NO el
+//     visible de nombresVisibles: el visible de un repetido («Headphones (2)») depende del orden del navegador.
+//     `canales` es lo que eligió el usuario: nunca se deduce de maxChannelCount (opt-in, ver validarCanales).
+//   · salidas: el desfase de cada salida usada, buscado por id y, si el id cambió, por nombre crudo ÚNICO. A lo
+//     sumo TOPE_SALIDAS: se van las de `usada` (Date.now() de la última escritura) más vieja.
+//   · NUNCA se guarda ni se lee: el cue encendido por deck (siempre arranca apagado), el volumen del cue (por
+//     seguridad auditiva siempre VOLUMEN_CUE_INICIAL) ni maxChannelCount. serializarCue escribe SÓLO los campos de
+//     arriba y leerCueGuardado sólo los lee: lo demás que haya en el JSON se ignora.
+//   · Lo que no se puede leer (sin storage, JSON roto, v distinta de 1) es «nada guardado»: se ignora sin borrarlo.
+export const CLAVE_CUE = 'djCue';
+export const VERSION_CUE = 1;
+export const TOPE_SALIDAS = 8;
+
+// El almacén: leer(clave) → string | null y escribir(clave, valor) → true | false. NUNCA lanza: ni al obtener el
+// storage (en Chromium, con las cookies del sitio bloqueadas, leer window.localStorage lanza SecurityError), ni en
+// getItem, ni en setItem (QuotaExceededError con el almacenamiento lleno: la escritura se pierde en silencio).
+export function crearAlmacen(obtener = () => globalThis.localStorage) {
+  const storage = () => {
+    try {
+      const s = obtener();
+      return s && typeof s.getItem === 'function' && typeof s.setItem === 'function' ? s : null;
+    } catch { return null; }
+  };
+  return {
+    leer(clave) {
+      try {
+        const s = storage();
+        if (!s) return null;
+        const v = s.getItem(clave);
+        return typeof v === 'string' ? v : null;
+      } catch { return null; }
+    },
+    escribir(clave, valor) {
+      try {
+        const s = storage();
+        if (!s) return false;
+        s.setItem(clave, valor);
+        return true;
+      } catch { return false; }
+    },
+  };
+}
+
+// Las `TOPE_SALIDAS` más recientes (usada mayor primero; empate: el orden que traían).
+function recortarSalidas(salidas) {
+  return salidas.map((s, i) => [s, i]).sort((a, b) => (b[0].usada - a[0].usada) || (a[1] - b[1])).slice(0, TOPE_SALIDAS).map(([s]) => s);
+}
+// Una entrada válida de `actual` o de `salidas`: id de texto o nombre no vacío (uno de los dos).
+function idYNombre(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  const id = typeof o.id === 'string' ? o.id : '';
+  const nombre = texto(o.nombre);
+  return id || nombre ? { id, nombre } : null;
+}
+function normalizarActual(a) {
+  const base = idYNombre(a);
+  const canales = base ? validarCanales(a.canales) : null;   // sin canales → '1-2'; inválidos → se descarta
+  return base && canales !== null ? { ...base, canales } : null;
+}
+function normalizarSalidas(lista) {
+  if (!Array.isArray(lista)) return [];
+  const out = [];
+  for (const s of lista) {
+    const base = idYNombre(s);
+    const d = base ? recortarDesfase(s.desfaseMs) : null;
+    if (d === null) continue;
+    out.push({ ...base, desfaseMs: d, usada: finito(s.usada) ? s.usada : 0 });
+  }
+  return recortarSalidas(out);
+}
+
+// Lo guardado vacío.
+export const cueVacio = () => ({ actual: null, salidas: [] });
+
+// El texto del storage → { actual, salidas } normalizado, o null si no hay nada que se pueda usar (no es string,
+// JSON roto, no es un objeto, v distinta de VERSION_CUE). Una `actual` con canales inválidos se descarta (null):
+// mandar el cue a los canales equivocados de una mezcladora es peor que no restaurar.
+export function leerCueGuardado(crudo) {
+  if (typeof crudo !== 'string') return null;
+  let o;
+  try { o = JSON.parse(crudo); } catch { return null; }
+  if (!o || typeof o !== 'object' || Array.isArray(o) || o.v !== VERSION_CUE) return null;
+  return { actual: normalizarActual(o.actual), salidas: normalizarSalidas(o.salidas) };
+}
+
+// { actual, salidas } → el texto a guardar, sólo con los campos del esquema (v, actual, salidas).
+export function serializarCue(g) {
+  return JSON.stringify({ v: VERSION_CUE, actual: normalizarActual(g?.actual), salidas: normalizarSalidas(g?.salidas) });
+}
+
+// La salida elegida con «Usar» (que terminó bien). Canales inválidos o sin id/nombre → lo guardado sin cambios.
+export function recordarActual(g, salida) {
+  const actual = normalizarActual(salida);
+  const base = g ?? cueVacio();
+  return actual ? { ...base, actual } : base;
+}
+// «Quitar salida»: olvida la elegida y CONSERVA los desfases.
+export function olvidarActual(g) {
+  return { ...(g ?? cueVacio()), actual: null };
+}
+// El desfase aplicado a una salida ({ id, nombre crudo }), con `usada` = ahora. Reemplaza la entrada de ese id (o, sin
+// id, la de ese nombre); recorta a TOPE_SALIDAS. Desfase o salida inválidos → lo guardado sin cambios.
+export function recordarDesfase(g, salida, ms, ahora = Date.now()) {
+  const base = g ?? cueVacio();
+  const s = idYNombre(salida);
+  const d = recortarDesfase(ms);
+  if (!s || d === null) return base;
+  const misma = (x) => (s.id ? x.id === s.id : !x.id && x.nombre === s.nombre);
+  const resto = (base.salidas ?? []).filter((x) => !misma(x));
+  return { ...base, salidas: recortarSalidas([{ ...s, desfaseMs: d, usada: finito(ahora) ? ahora : 0 }, ...resto]) };
+}
+// La salida guardada se encontró por nombre con OTRO id: actual y su entrada de desfase pasan al id nuevo (si ya
+// había una entrada con el id nuevo, gana ésa y la vieja se descarta).
+export function migrarId(g, idViejo, idNuevo) {
+  const base = g ?? cueVacio();
+  if (typeof idNuevo !== 'string' || !idNuevo || idViejo === idNuevo) return base;
+  const actual = base.actual && base.actual.id === idViejo ? { ...base.actual, id: idNuevo } : base.actual;
+  const yaEsta = (base.salidas ?? []).some((x) => x.id === idNuevo);
+  const salidas = (base.salidas ?? []).flatMap((x) => (x.id !== idViejo ? [x] : yaEsta ? [] : [{ ...x, id: idNuevo }]));
+  return { ...base, actual, salidas };
+}
+// El desfase guardado de una salida de la lista (filtrarSalidas): por id; si no, por nombre crudo ÚNICO entre las
+// entradas guardadas (con dos entradas del mismo nombre no se adivina). → número o null.
+export function desfaseGuardado(g, salida) {
+  const lista = Array.isArray(g?.salidas) ? g.salidas : [];
+  if (!salida || typeof salida !== 'object') return null;
+  const porId = typeof salida.id === 'string' && salida.id ? lista.find((x) => x.id === salida.id) : null;
+  if (porId) return porId.desfaseMs;
+  const n = texto(salida.nombre);
+  const porNombre = n ? lista.filter((x) => x.nombre === n) : [];
+  return porNombre.length === 1 ? porNombre[0].desfaseMs : null;
+}
+
+// QUÉ HACER AL ABRIR /dj con lo guardado. `estadoLista`: el de salidas.js; sólo con la lista leída ('lista' o
+// 'vacia') hay nombres, así que con cualquier otro (permiso 'prompt' o denegado) → 'esperar' (queda el botón).
+// Empareja con elegirGuardada (id; si no, nombre crudo único):
+//   'nada' (no hay salida guardada) · 'esperar' · 'ambigua' · 'ausente' (con `nombre`, el guardado) ·
+//   'confirmar' ('1-2' en la salida del master: la confirmación de siempre, no se aplica nada) ·
+//   'restaurar' (aplicar SIN abrir). Con 'confirmar'/'restaurar': `salida` (de la lista), `canales` (los
+//   guardados), `desfaseMs` (desfaseGuardado o null) e `idNuevo` (el id actual si se encontró por nombre con otro id).
+export function decidirRestauracion({ guardado, estadoLista, salidas } = {}) {
+  const a = guardado?.actual;
+  if (!a) return { accion: 'nada' };
+  if (estadoLista !== 'lista' && estadoLista !== 'vacia') return { accion: 'esperar' };
+  const { salida, motivo } = elegirGuardada(a, Array.isArray(salidas) ? salidas : []);
+  if (!salida) return { accion: motivo === 'ambigua' ? 'ambigua' : 'ausente', nombre: a.nombre };
+  const canales = validarCanales(a.canales) ?? '1-2';
+  const desfaseMs = desfaseGuardado(guardado, salida);
+  const idNuevo = motivo === 'nombre' && salida.id !== a.id ? salida.id : null;
+  const accion = decidirEleccion(salida, canales) === 'confirmar-misma-salida' ? 'confirmar' : 'restaurar';
+  return { accion, salida, canales, desfaseMs, idNuevo };
+}
+
+// LA SALIDA QUE FALTABA VUELVE (desenchufada en plena sesión, o guardada y ausente al abrir). `faltante` =
+// { id, nombre crudo, canales }. Con elegirGuardada:
+//   · mismo id → 'rearmar': se vuelve a fijar SIN abrir y con los cues apagados (o 'confirmar' si con '1-2' es
+//     ahora la salida del master);
+//   · sólo el nombre (único) → 'pedir-usar': queda preseleccionada y se pide «Usar», como en e3b;
+//   · ambigua o ausente → 'nada'.
+export function decidirVuelta(faltante, salidas) {
+  if (!idYNombre(faltante)) return { accion: 'nada' };
+  const { salida, motivo } = elegirGuardada(faltante, Array.isArray(salidas) ? salidas : []);
+  if (!salida) return { accion: 'nada' };
+  if (motivo !== 'id') return { accion: 'pedir-usar', salida };
+  const canales = validarCanales(faltante.canales) ?? '1-2';
+  return { accion: decidirEleccion(salida, canales) === 'confirmar-misma-salida' ? 'confirmar' : 'rearmar', salida, canales };
 }

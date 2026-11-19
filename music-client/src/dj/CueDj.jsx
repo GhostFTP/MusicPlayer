@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { crearListaSalidas } from './motor/salidas.js';
 import {
   nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue, textoAviso,
-  VOLUMEN_CUE_INICIAL, DESFASE_MAX_MS, recortarDesfase, textoDesfase, crearDiferido, buscarVuelta, pistaMezcladora,
+  VOLUMEN_CUE_INICIAL, DESFASE_MAX_MS, recortarDesfase, textoDesfase, crearDiferido, pistaMezcladora,
+  CLAVE_CUE, crearAlmacen, leerCueGuardado, serializarCue, cueVacio, recordarActual, olvidarActual, recordarDesfase, migrarId,
+  decidirRestauracion, decidirVuelta,
 } from './motor/cue.js';
 import ControlDj, { num } from './ControlDj.jsx';
 
 // MODO DJ · «Audífonos (cue)» (sub-paso e3a): elegir la salida de audífonos y sus canales. Sub-paso e3b: el
-// volumen y el desfase del cue (los botones «Cue» están en cada deck, DjPage.jsx). Sin recordar la salida (e4).
+// volumen y el desfase del cue (los botones «Cue» están en cada deck, DjPage.jsx). Sub-paso e4a: recuerda la salida,
+// sus canales y el desfase de cada salida entre recargas (localStorage, ver RECORDAR abajo y el esquema en cue.js).
 //  · El estado del cue es del MOTOR: se lee motor.cue() en cada render (la consola se re-renderiza con los
 //    avisos del motor) y la UI no guarda copia. Lo único local: la salida y los canales marcados en los
 //    controles, la confirmación pendiente, el aviso de una salida que desapareció (o que volvió) y el
@@ -24,10 +27,26 @@ import ControlDj, { num } from './ControlDj.jsx';
 //  · devicechange: si la salida elegida ya no está en la lista, SIEMPRE fijarSalidaCue(null) y el aviso
 //    'no-conectada', aunque el contexto de cue esté abierto (no se sabe qué hace Edge al desenchufar: podría
 //    caer a la salida predeterminada, que es la del master). Salvo con el cue en 'error': ahí queda el aviso
-//    del motor, sin duplicar. e3b: si esa salida que FALTÓ vuelve (mismo id o mismo nombre visible), el aviso
-//    viejo (el de la página o el 'error' del motor, que se limpia con fijarSalidaCue(null)) se quita solo, la
-//    salida queda preseleccionada y sale «"X" volvió: pulsa "Usar"…». NUNCA se vuelve a armar el cue (e4).
+//    del motor, sin duplicar. Una desconexión NUNCA toca lo guardado.
+//    LA QUE FALTÓ VUELVE (decidirVuelta, con elegirGuardada; e4a reemplaza a buscarVuelta): sólo si el motor sigue
+//    sin otra salida (o en el 'error' de ésa, que se limpia con fijarSalidaCue(null)); el aviso viejo se quita solo.
+//      · MISMO id → se rearma sola: fijarSalidaCue SIN abrir (el contexto lo abre el próximo Cue o «Cargar») y con
+//        los cues apagados, «Volvió "X". Cue listo (apagado).» Con '1-2' y la salida del master → la confirmación.
+//      · sólo el nombre crudo (único) → preseleccionada y «"X" volvió: pulsa "Usar"…», como en e3b.
+//      · ambigua → nada.
 //    Un error de otro tipo con la salida siempre en la lista no se toca.
+//  · RECORDAR (e4a). Clave CLAVE_CUE, por cue.js (crearAlmacen: ningún acceso a localStorage lanza; sin storage la
+//    página es la de e3b). Se ESCRIBE: la salida (id, nombre CRUDO, canales) sólo cuando «Usar» termina con ok;
+//    el desfase de la salida en uso al aplicarse; el id nuevo tras restaurar por nombre. «Quitar» (cualquiera de los
+//    dos botones) olvida la salida y conserva los desfases. Nunca el cue encendido ni el volumen (siempre 0,50).
+//    Se RESTAURA una vez por motor (StrictMode crea, cierra y recrea el motor: se restaura sobre el VIVO), con la
+//    lista leída (sin permiso de micrófono no hay nombres: queda el botón y se restaura al pulsarlo), y sólo si el
+//    motor sigue sin salida (decidirRestauracion):
+//      · 'restaurar' → preselecciona, fijarSalidaCue SIN abrir + fijarDesfaseCue: cero contextos y cero setSinkId
+//        al montar (sin gesto el contexto quedaría 'suspended' y abrirCue fallaría a los 2 s). El primer «Cargar»
+//        lo abre (motor.abrirSalidaCue, DjPage.jsx), o el primer Cue.
+//      · 'confirmar' ('1-2' en la salida del master) → la confirmación de siempre; no se aplica nada.
+//      · 'ambigua' / 'ausente' → un aviso y lo guardado intacto; la ausente queda esperando su vuelta (arriba).
 //  · VOLUMEN: fijarVolumenCue(v) al instante (el motor aplica v² con rampa: no corta). Doble clic: 0,50.
 //  · DESFASE (cada aplicación resincroniza y corta el cue un instante): con el ratón se aplica AL SOLTAR (el
 //    patrón del seek del deck); flechas sobre el control y botones ±1: diferido de DEBOUNCE_DESFASE_MS, una
@@ -45,6 +64,12 @@ export const DEBOUNCE_DESFASE_MS = 150;
 const CUE_VACIO = Object.freeze({ salida: null, nombre: '', canales: '1-2', estado: 'sin-salida', aviso: null,
   activo: Object.freeze({ A: false, B: false }), volumen: VOLUMEN_CUE_INICIAL, desfaseMs: 0 });
 
+// e4a: lo guardado. window.localStorage se lee DENTRO del almacén (puede lanzar). Cada escritura relee lo guardado y
+// cambia sólo lo suyo; si lo que había no se podía leer (otra versión, roto), una acción del usuario lo reemplaza.
+const ALMACEN = crearAlmacen(() => window.localStorage);
+const leerGuardado = () => leerCueGuardado(ALMACEN.leer(CLAVE_CUE));
+const guardar = (cambio) => { ALMACEN.escribir(CLAVE_CUE, serializarCue(cambio(leerGuardado() ?? cueVacio()))); };
+
 export default function CueDj({ motor, refrescar }) {
   const motorRef = useRef(motor);
   motorRef.current = motor;
@@ -54,12 +79,13 @@ export default function CueDj({ motor, refrescar }) {
   const [lista, setLista] = useState({ estado: 'inactivo', salidas: [], error: null });
   const [elegido, setElegido] = useState('');
   const [canales, setCanales] = useState('1-2');
-  const [confirmar, setConfirmar] = useState(null);   // { id, nombre, canales } esperando «Usarla igual»
-  const [avisoUi, setAvisoUi] = useState(null);       // la salida elegida desapareció (devicechange)
-  const avisoUiRef = useRef(null);
-  avisoUiRef.current = avisoUi;
-  const [volvio, setVolvio] = useState(null);         // e3b: la que faltaba volvió («pulsa "Usar"»)
-  const faltaRef = useRef(null);                      // e3b: { id, nombre, tipo: 'ui' | 'motor', aviso } de la que faltó
+  const [confirmar, setConfirmar] = useState(null);   // { id, nombre, canales, cruda } esperando «Usarla igual»
+  const [avisoUi, setAvisoUi] = useState(null);       // la elegida desapareció (devicechange) o la guardada no está (e4a)
+  const [volvio, setVolvio] = useState(null);         // e3b: la que faltaba volvió («pulsa "Usar"» o «Cue listo»)
+  // e3b/e4a: { id, nombre CRUDO, canales, tipo: 'ui' | 'motor' | 'guardada' } de la que faltó (o la guardada ausente).
+  const faltaRef = useRef(null);
+  const ultimasRef = useRef([]);                      // e4a: la lista anterior (para el nombre crudo de la que falta)
+  const restauradoRef = useRef(null);                 // e4a: el motor sobre el que ya se intentó restaurar
 
   // Desfase (e3b): el valor sin aplicar (null = el del motor), su espejo para el pointerup y el diferido.
   const [desfaseLocal, setDesfaseLocal] = useState(null);
@@ -70,7 +96,15 @@ export default function CueDj({ motor, refrescar }) {
   aplicarDesfaseRef.current = (d) => {
     desfaseRef.current = null;
     setDesfaseLocal(null);
-    if (motorRef.current?.fijarDesfaseCue(d)) refrescarRef.current?.();
+    const m = motorRef.current;
+    if (!m?.fijarDesfaseCue(d)) return;
+    // e4a: el desfase queda guardado para la salida en uso (por id, con su nombre crudo de la lista).
+    const id = m.cue().salida;
+    if (id) {
+      const nombre = listaRef.current?.estado().salidas.find((s) => s.id === id)?.nombre ?? '';
+      guardar((g) => recordarDesfase(g, { id, nombre }, d));
+    }
+    refrescarRef.current?.();
   };
   const diferidoRef = useRef(null);
   if (!diferidoRef.current) diferidoRef.current = crearDiferido((d) => aplicarDesfaseRef.current(d), DEBOUNCE_DESFASE_MS);
@@ -81,34 +115,55 @@ export default function CueDj({ motor, refrescar }) {
     const revisar = (e) => {
       if (e.estado !== 'lista' && e.estado !== 'vacia') return;
       const m = motorRef.current;
-      const c = m?.cue();
+      if (!m || m.cerrado) return;
+      const c = m.cue();
       const f = faltaRef.current;
       if (f) {
-        const id = buscarVuelta(f, e.salidas);
-        if (id) {
+        const v = decidirVuelta(f, e.salidas);
+        if (v.accion !== 'nada') {
           faltaRef.current = null;
-          // Sólo si el aviso viejo sigue en pantalla: el 'error' del motor con esa salida, o el de la página.
-          const vigente = f.tipo === 'motor' ? c?.estado === 'error' && c.salida === f.id : avisoUiRef.current === f.aviso;
+          // Sólo si nadie eligió otra cosa mientras tanto: el 'error' del motor con esa salida, o el motor sin salida.
+          const vigente = f.tipo === 'motor' ? c.estado === 'error' && c.salida === f.id : c.estado === 'sin-salida' && !c.salida;
           if (!vigente) return;
           if (f.tipo === 'motor') m.fijarSalidaCue(null);
-          const i = e.salidas.findIndex((s) => s.id === id);
+          const visible = nombresVisibles(e.salidas)[e.salidas.indexOf(v.salida)];
           setConfirmar(null);
           setAvisoUi(null);
-          setElegido(id);
-          setVolvio(textoAviso('volvio', nombresVisibles(e.salidas)[i]));
+          setElegido(v.salida.id);
+          if (v.accion === 'rearmar') {
+            // Mismo id: se rearma SIN abrir (ni setSinkId ni contexto) y con los cues apagados (el null de la
+            // desconexión, o el fallo, ya los apagó). El contexto lo abre el próximo Cue o «Cargar».
+            setCanales(v.canales);
+            m.fijarSalidaCue(v.salida.id, visible, { canales: v.canales });
+            setVolvio(textoAviso('volvio-lista', visible));
+          } else if (v.accion === 'confirmar') {
+            setCanales(v.canales);
+            setVolvio(null);
+            setConfirmar({ id: v.salida.id, nombre: visible, canales: v.canales, cruda: v.salida.nombre });
+          } else {
+            setVolvio(textoAviso('volvio', visible));
+          }
           return;
         }
       }
-      if (!c?.salida || e.salidas.some((s) => s.id === c.salida)) return;
-      if (c.estado === 'error') { faltaRef.current = { id: c.salida, nombre: c.nombre, tipo: 'motor', aviso: null }; return; }
+      if (!c.salida || e.salidas.some((s) => s.id === c.salida)) return;
+      // El nombre CRUDO de la que falta sale de la lista anterior (el del motor es el visible).
+      const nombre = ultimasRef.current.find((s) => s.id === c.salida)?.nombre ?? c.nombre;
+      if (c.estado === 'error') { faltaRef.current = { id: c.salida, nombre, canales: c.canales, tipo: 'motor' }; return; }
       m.fijarSalidaCue(null);
-      const aviso = textoAviso('no-conectada', c.nombre);
-      faltaRef.current = { id: c.salida, nombre: c.nombre, tipo: 'ui', aviso };
+      faltaRef.current = { id: c.salida, nombre, canales: c.canales, tipo: 'ui' };
       setConfirmar(null);
       setVolvio(null);
-      setAvisoUi(aviso);
+      setAvisoUi(textoAviso('no-conectada', c.nombre));
     };
-    const l = crearListaSalidas({ alCambiar: () => { const e = l.estado(); setLista(e); revisar(e); } });
+    const l = crearListaSalidas({
+      alCambiar: () => {
+        const e = l.estado();
+        setLista(e);
+        revisar(e);
+        if (e.estado === 'lista' || e.estado === 'vacia') ultimasRef.current = e.salidas;
+      },
+    });
     listaRef.current = l;
     setLista(l.estado());
     l.autoListar();
@@ -117,6 +172,35 @@ export default function CueDj({ motor, refrescar }) {
       if (listaRef.current === l) listaRef.current = null;
     };
   }, []);
+
+  // e4a: restaurar lo guardado, UNA vez por motor y sobre el vivo (StrictMode cierra el primero), con la lista leída.
+  useEffect(() => {
+    if (!motor || motor.cerrado || restauradoRef.current === motor) return;
+    if (lista.estado !== 'lista' && lista.estado !== 'vacia') return;   // sin nombres: espera al botón de permiso
+    restauradoRef.current = motor;
+    const ahora = motor.cue();
+    if (ahora.salida || ahora.estado !== 'sin-salida') return;          // ya hay otra cosa elegida: no se pisa
+    const g = leerGuardado();
+    const d = decidirRestauracion({ guardado: g, estadoLista: lista.estado, salidas: lista.salidas });
+    if (d.accion === 'ambigua' || d.accion === 'ausente') {
+      setAvisoUi(textoAviso(d.accion === 'ambigua' ? 'guardada-ambigua' : 'guardada-ausente', d.nombre));
+      if (d.accion === 'ausente') faltaRef.current = { ...g.actual, tipo: 'guardada' };
+      return;
+    }
+    if (d.accion !== 'restaurar' && d.accion !== 'confirmar') return;
+    const visible = nombresVisibles(lista.salidas)[lista.salidas.indexOf(d.salida)];
+    setElegido(d.salida.id);
+    setCanales(d.canales);
+    if (d.accion === 'confirmar') {
+      setConfirmar({ id: d.salida.id, nombre: visible, canales: d.canales, cruda: d.salida.nombre });
+      return;
+    }
+    // SIN abrir: ni contexto ni setSinkId hasta el primer «Cargar» o Cue. Cues apagados y volumen 0,50 (los del motor nuevo).
+    motor.fijarSalidaCue(d.salida.id, visible, { canales: d.canales });
+    if (d.desfaseMs !== null) motor.fijarDesfaseCue(d.desfaseMs);
+    if (d.idNuevo) guardar((x) => migrarId(x, g.actual.id, d.idNuevo));
+    refrescarRef.current?.();
+  }, [motor, lista]);
 
   const c = motor?.cue() ?? CUE_VACIO;
   const conContexto = !!motor?.contextoCue();
@@ -128,11 +212,14 @@ export default function CueDj({ motor, refrescar }) {
   const desfaseVista = desfaseLocal ?? c.desfaseMs;
 
   const olvidarFalta = () => { faltaRef.current = null; setVolvio(null); };
-  const aplicar = (id, nombre, can) => {
+  // `cruda`: el nombre de filtrarSalidas (el que se guarda); `nombre`: el visible (el del motor y los avisos).
+  const aplicar = (id, nombre, can, cruda) => {
     setConfirmar(null);
     setAvisoUi(null);
     olvidarFalta();
-    motor?.fijarSalidaCue(id, nombre, { canales: can, abrir: true });   // dentro del clic: abre el contexto
+    const pedido = motor?.fijarSalidaCue(id, nombre, { canales: can, abrir: true });   // dentro del clic: abre el contexto
+    // e4a: se recuerda SÓLO si terminó bien (un «Usar» que falla no pisa la salida buena guardada).
+    pedido?.then((r) => { if (r?.ok) guardar((g) => recordarActual(g, { id, nombre: cruda, canales: can })); });
     refrescar();
   };
   const usar = (e) => {
@@ -140,12 +227,12 @@ export default function CueDj({ motor, refrescar }) {
     const i = lista.salidas.findIndex((s) => s.id === sel);
     if (i < 0 || !motor) return;
     const s = lista.salidas[i];
-    if (decidirEleccion(s, canales) === 'confirmar-misma-salida') { setConfirmar({ id: s.id, nombre: visibles[i], canales }); return; }
-    aplicar(s.id, visibles[i], canales);
+    if (decidirEleccion(s, canales) === 'confirmar-misma-salida') { setConfirmar({ id: s.id, nombre: visibles[i], canales, cruda: s.nombre }); return; }
+    aplicar(s.id, visibles[i], canales, s.nombre);
   };
   const usarIgual = (e) => {
     e.currentTarget.blur();
-    if (confirmar) aplicar(confirmar.id, confirmar.nombre, confirmar.canales);
+    if (confirmar) aplicar(confirmar.id, confirmar.nombre, confirmar.canales, confirmar.cruda);
   };
   const quitar = (e) => {
     e.currentTarget.blur();
@@ -153,6 +240,7 @@ export default function CueDj({ motor, refrescar }) {
     setAvisoUi(null);
     olvidarFalta();
     motor?.fijarSalidaCue(null);
+    guardar(olvidarActual);   // e4a: olvida la salida; los desfases quedan
     refrescar();
   };
 

@@ -20,7 +20,9 @@ const { crearMotor, TASA_DJ, TAU, Q_FILTRO, GUARDA_CUE } = await desde('music-cl
 const { interpretar, crearCombinador, crearDeduplicador, valorParaMotor, aplicar, crearColector, crearConexionMidi, MAPA_DDJ400 } = await desde('music-client/src/dj/motor/midi.js');
 const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hayNombres, elegirGuardada, textoAviso, validarCanales, DESFASE_MAX_MS, VOLUMEN_CUE_INICIAL,
   nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue,
-  textoCuesActivos, estadoBotonCue, textoNotaCue, textoDesfase, crearDiferido, buscarVuelta, pistaMezcladora } = await desde('music-client/src/dj/motor/cue.js');
+  textoCuesActivos, estadoBotonCue, textoNotaCue, textoDesfase, crearDiferido, buscarVuelta, pistaMezcladora,
+  CLAVE_CUE, TOPE_SALIDAS, crearAlmacen, leerCueGuardado, serializarCue, cueVacio, recordarActual, olvidarActual, recordarDesfase, migrarId,
+  desfaseGuardado, decidirRestauracion, decidirVuelta } = await desde('music-client/src/dj/motor/cue.js');
 const { crearListaSalidas } = await desde('music-client/src/dj/motor/salidas.js');
 
 const R = {};
@@ -566,6 +568,60 @@ console.info = () => {};   // cargarPista registra cada carga con console.info: 
       ok('motor_cue_sin_contexto_antes_de_activar', alCrear === 0 && alCargar === 1 && creados.length - n0 === 1 && r.ok === true && m.contextoCue() === null
         && e.estado === 'lista' && e.salida === ID && e.nombre === NOMBRE && e.activo.A === false && e.volumen === 0.5 && e.desfaseMs === 0 && e.aviso === null, { alCrear, alCargar, r, e });
       m.cerrar();
+    }
+    // e4a: abrirSalidaCue() abre la salida elegida SIN contexto (la restaurada) con UN setSinkId; sin salida, ya
+    // abierta o en 'error' no hace nada. Cuenta contextos de cue (los creados con sinkId en las opciones).
+    const contextosCue = (n0) => creados.slice(n0).filter((c) => c.opciones && 'sinkId' in c.opciones);
+    {
+      ACCue.modo = { tipo: 'resuelve' };
+      const n0 = creados.length;
+      const m = crearMotor();
+      m.asegurarContexto();
+      const sinSalida = await m.abrirSalidaCue();
+      const ctxSinSalida = contextosCue(n0).length;
+      await m.fijarSalidaCue(ID, NOMBRE, { canales: '1-2' });
+      const antes = { ctx: contextosCue(n0).length, estado: m.cue().estado };
+      const r = await m.abrirSalidaCue(); await listo();
+      const cc = contextosCue(n0);
+      const e = m.cue();
+      const otra = await m.abrirSalidaCue();
+      const tras = contextosCue(n0);
+      ok('motor_cue_abrir_salida_pendiente', sinSalida.ok === false && sinSalida.error === 'nada' && ctxSinSalida === 0 && antes.ctx === 0 && antes.estado === 'lista'
+        && r.ok === true && cc.length === 1 && JSON.stringify(cc[0].sinks) === JSON.stringify([ID]) && e.estado === 'lista' && m.contextoCue() === cc[0]
+        && e.activo.A === false && e.activo.B === false && otra.ok === false && otra.error === 'nada' && tras.length === 1 && tras[0].sinks.length === 1,
+      { sinSalida, ctxSinSalida, antes, r, e, sinks: cc.map((c) => c.sinks), otra });
+      m.cerrar();
+    }
+    // abrirSalidaCue y fijarCue en el MISMO gesto, en los dos órdenes: UN contexto y UN setSinkId; el cue queda activo.
+    // Y en 'error' (la salida falló) abrirSalidaCue no reintenta.
+    {
+      const orden = async (primeroCargar) => {
+        ACCue.modo = { tipo: 'resuelve' };
+        const n0 = creados.length;
+        const m = crearMotor();
+        m.asegurarContexto();
+        await m.fijarSalidaCue(ID, NOMBRE);
+        if (primeroCargar) { m.abrirSalidaCue(); m.fijarCue('A', true); } else { m.fijarCue('A', true); m.abrirSalidaCue(); }
+        await listo(); await listo();
+        const cc = contextosCue(n0);
+        const res = { ctx: cc.length, sinks: cc.reduce((s, c) => s + c.sinks.length, 0), estado: m.cue().estado, A: m.cue().activo.A };
+        m.cerrar();
+        return res;
+      };
+      const a = await orden(true), b = await orden(false);
+      ACCue.modo = { tipo: 'rechaza', name: 'NotFoundError' };
+      const n0 = creados.length;
+      const m = crearMotor();
+      m.asegurarContexto();
+      await m.fijarSalidaCue(ID, NOMBRE, { abrir: true });
+      const enError = m.cue().estado;
+      const ctx0 = contextosCue(n0).length;
+      const r = await m.abrirSalidaCue();
+      const ctx1 = contextosCue(n0).length;
+      m.cerrar();
+      ACCue.modo = { tipo: 'resuelve' };
+      ok('motor_cue_abrir_salida_y_fijarcue_no_se_pisan', [a, b].every((x) => x.ctx === 1 && x.sinks === 1 && x.estado === 'lista' && x.A === true)
+        && enError === 'error' && r.ok === false && r.error === 'nada' && ctx1 === ctx0, { a, b, enError, r, ctx0, ctx1 });
     }
     // fijarSalidaCue sólo acepta un string no vacío (o null); fijarCue sin salida o con otro lado → false.
     {
@@ -1484,6 +1540,136 @@ const motorFalso = (log = []) => ({
   ok('cue_guardada_ausente', g4.every((g) => g.motivo === 'ausente' && g.salida === null), { g4 });
   const g5 = [null, undefined, 'e21c0e98', 42, [], {}, { id: 5, nombre: null }, { id: '', nombre: '  ' }].map((x) => elegirGuardada(x, fs8));
   ok('cue_guardada_basura_y_sin_guardada', g5.every((g) => g.motivo === 'sin-guardada' && g.salida === null), { g5 });
+
+  // ── e4a: recordar el cue (lo puro) ──
+  {
+    const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const J = (o) => JSON.stringify(o);
+    // u1: leer y validar. Lo ilegible → null (sin borrar: la página lo ignora). activo, volumen y maxChannelCount no se leen.
+    const ilegibles = [null, undefined, 42, '', '{roto', '[]', '"x"', 'null', J({ actual: { id: 'a' } }), J({ v: 2, actual: { id: 'a', canales: '1-2' } }), J({ v: '1', actual: { id: 'a' } })];
+    const malLeidos = ilegibles.filter((x) => leerCueGuardado(x) !== null);
+    const lv = leerCueGuardado(J({ v: 1, activo: { A: true }, volumen: 0.9,
+      actual: { id: 'a1', nombre: '  Headphones  ', canales: '3-4', activo: { A: true, B: true }, volumen: 0.9, maxChannelCount: 4 },
+      salidas: [{ id: 'a1', nombre: 'H', desfaseMs: 300, usada: 5, activo: true }, { id: 'b', nombre: 'B', desfaseMs: '12' }, { id: '', nombre: ' ' , desfaseMs: 3 }, null, 7,
+        { id: 'c', desfaseMs: 12.6 }, { nombre: 'Sólo nombre', desfaseMs: -4, usada: 'x' }] }));
+    const sinCanales = leerCueGuardado(J({ v: 1, actual: { id: 'a1', nombre: 'H', maxChannelCount: 4 } }));
+    const canalesMalos = ['x', '3-4 ', 34, null, ['3-4']].map((c) => leerCueGuardado(J({ v: 1, actual: { id: 'a1', nombre: 'H', canales: c } })));
+    const sinIdNiNombre = leerCueGuardado(J({ v: 1, actual: { id: '', nombre: '  ', canales: '1-2' }, salidas: 'no' }));
+    ok('cue_e4_leer_valida_y_descarta', malLeidos.length === 0
+      && igual(lv, { actual: { id: 'a1', nombre: 'Headphones', canales: '3-4' }, salidas: [{ id: 'a1', nombre: 'H', desfaseMs: 250, usada: 5 }, { id: 'c', nombre: '', desfaseMs: 13, usada: 0 }, { id: '', nombre: 'Sólo nombre', desfaseMs: -4, usada: 0 }] })
+      && igual(sinCanales.actual, { id: 'a1', nombre: 'H', canales: '1-2' }) && canalesMalos.every((g) => g && g.actual === null)
+      && igual(sinIdNiNombre, { actual: null, salidas: [] }) && CLAVE_CUE === 'djCue', { malLeidos, lv, sinCanales, canalesMalos, sinIdNiNombre });
+    const diez = Array.from({ length: 10 }, (_, i) => ({ id: `s${i + 1}`, nombre: `S${i + 1}`, desfaseMs: i, usada: i + 1 }));
+    const l8 = leerCueGuardado(J({ v: 1, actual: null, salidas: diez }));
+    ok('cue_e4_tope_de_salidas', TOPE_SALIDAS === 8 && l8.salidas.length === 8 && igual(l8.salidas.map((s) => s.id), ['s10', 's9', 's8', 's7', 's6', 's5', 's4', 's3']), { ids: l8.salidas.map((s) => s.id) });
+
+    // La lista de Oscar (fs8) y una con DOS «Headphones» crudos iguales (sus visibles: «Headphones» y «Headphones (2)»).
+    const D = (deviceId, label, groupId) => ({ kind: 'audiooutput', deviceId, label, groupId });
+    const gem = filtrarSalidas([D('default', 'Predeterminado - Altavoces', 'gm'), D('h1', 'Headphones', 'g1'), D('h2', 'Headphones', 'g2'), D('sb', 'Altavoces', 'gm'),
+      D('ddj', 'Línea (2- DDJ-400)', 'gm'), D('w', 'Wave', 'gw')]);
+    const ACT = (actual, salidas = []) => ({ actual, salidas });
+    const res = (g, salidas = gem, estadoLista = 'lista') => decidirRestauracion({ guardado: g, estadoLista, salidas });
+    // u2: emparejar. Por id; por nombre CRUDO único (el id cambió → idNuevo); ambigua; ausente; y la trampa del visible.
+    const r1 = res(ACT({ id: 'e21c0e98', nombre: 'Headphones (Elgato Wave:XLR)', canales: '1-2' }), fs8);
+    const r2 = res(ACT({ id: 'viejo', nombre: 'Headphones (Elgato Wave:XLR)', canales: '1-2' }), fs8);
+    const r3 = res(ACT({ id: 'hx', nombre: 'Headphones', canales: '1-2' }));
+    const r4 = res(ACT({ id: 'nada', nombre: 'Audífonos Bluetooth', canales: '1-2' }));
+    const r5 = res(ACT({ id: 'hx', nombre: 'Headphones (2)', canales: '1-2' }));   // el VISIBLE de h2: no es un nombre crudo
+    const r6 = res(ACT({ id: 'h2', nombre: 'Headphones', canales: '1-2' }));        // por id, aunque el nombre esté repetido
+    ok('cue_e4_restaurar_empareja', r1.accion === 'restaurar' && r1.salida === elg && r1.idNuevo === null && r1.canales === '1-2'
+      && r2.accion === 'restaurar' && r2.salida === elg && r2.idNuevo === 'e21c0e98'
+      && r3.accion === 'ambigua' && r3.nombre === 'Headphones' && !r3.salida && r4.accion === 'ausente' && r4.nombre === 'Audífonos Bluetooth' && !r4.salida
+      && r5.accion === 'ausente' && !r5.salida && r6.accion === 'restaurar' && r6.salida?.id === 'h2' && r6.idNuevo === null,
+    { r1: [r1.accion, r1.salida?.id, r1.idNuevo], r2: [r2.accion, r2.salida?.id, r2.idNuevo], r3: r3.accion, r4: r4.accion, r5: [r5.accion, r5.salida?.id], r6: [r6.accion, r6.salida?.id] });
+    // decidirVuelta: mismo id → rearmar (o confirmar con '1-2' en la del master); sólo nombre → pedir «Usar»; ambigua o ausente → nada.
+    const v = [decidirVuelta({ id: 'w', nombre: 'Wave', canales: '1-2' }, gem), decidirVuelta({ id: 'w-viejo', nombre: 'Wave', canales: '1-2' }, gem),
+      decidirVuelta({ id: 'hx', nombre: 'Headphones', canales: '1-2' }, gem), decidirVuelta({ id: 'zz', nombre: 'Otra', canales: '1-2' }, gem),
+      decidirVuelta({ id: 'sb', nombre: 'Altavoces', canales: '1-2' }, gem), decidirVuelta({ id: 'ddj', nombre: 'Línea (2- DDJ-400)', canales: '3-4' }, gem),
+      decidirVuelta({ id: 'h2', nombre: 'Headphones', canales: '1-2' }, gem), decidirVuelta(null, gem), decidirVuelta({ id: 'w', nombre: 'Wave' }, 'no')];
+    ok('cue_e4_vuelta_por_id_o_nombre', v[0].accion === 'rearmar' && v[0].salida.id === 'w' && v[0].canales === '1-2' && v[1].accion === 'pedir-usar' && v[1].salida.id === 'w'
+      && v[2].accion === 'nada' && v[3].accion === 'nada' && v[4].accion === 'confirmar' && v[4].salida.id === 'sb' && v[5].accion === 'rearmar' && v[5].canales === '3-4'
+      && v[6].accion === 'rearmar' && v[6].salida.id === 'h2' && v[7].accion === 'nada' && v[8].accion === 'nada', { v: v.map((x) => [x.accion, x.salida?.id, x.canales]) });
+    // u3: permiso (sin la lista leída no se decide), master con '1-2' → confirmar, '3-4' sin preguntar, y los canales
+    // NUNCA se deducen (ni del nombre «DDJ» ni de un maxChannelCount 4 en la salida o en lo guardado).
+    const esperan = ['inactivo', 'pidiendo', 'denegado', 'sin-microfono', 'error', 'sin-nombres', 'sin-soporte', undefined]
+      .map((e) => decidirRestauracion({ guardado: ACT({ id: 'w', nombre: 'Wave', canales: '1-2' }), estadoLista: e, salidas: gem }).accion);
+    const vacia = res(ACT({ id: 'w', nombre: 'Wave', canales: '1-2' }), [], 'vacia');
+    const nadas = [res(null), res(cueVacio()), res(ACT(null, [{ id: 'w', nombre: 'Wave', desfaseMs: 3, usada: 1 }])), decidirRestauracion()].map((x) => x.accion);
+    const m12 = res(ACT({ id: 'sb', nombre: 'Altavoces', canales: '1-2' })), m34 = res(ACT({ id: 'ddj', nombre: 'Línea (2- DDJ-400)', canales: '3-4' }));
+    const gemMax = gem.map((s) => ({ ...s, maxChannelCount: 4 }));
+    const deducir = res(leerCueGuardado(J({ v: 1, actual: { id: 'ddj', nombre: 'Línea (2- DDJ-400)', maxChannelCount: 4 } })), gemMax);
+    const deducirW = res(ACT({ id: 'w', nombre: 'Wave', canales: '1-2' }), gemMax);
+    ok('cue_e4_restaurar_permiso_master_y_canales', esperan.every((a) => a === 'esperar') && vacia.accion === 'ausente' && nadas.every((a) => a === 'nada')
+      && m12.accion === 'confirmar' && m12.salida.id === 'sb' && m12.canales === '1-2' && m34.accion === 'restaurar' && m34.canales === '3-4'
+      && deducir.accion === 'confirmar' && deducir.canales === '1-2' && deducirW.accion === 'restaurar' && deducirW.canales === '1-2',
+    { esperan, vacia: vacia.accion, nadas, m12: [m12.accion, m12.canales], m34: [m34.accion, m34.canales], deducir: [deducir.accion, deducir.canales], deducirW: deducirW.canales });
+
+    // u4: el desfase por salida. Por id; si no, por nombre crudo único entre lo guardado; repetido o ninguno → null.
+    const gd = ACT({ id: 'w', nombre: 'Wave', canales: '1-2' }, [{ id: 'w', nombre: 'Wave', desfaseMs: 12, usada: 2 }, { id: 'h1', nombre: 'Headphones', desfaseMs: 5, usada: 1 },
+      { id: 'h2', nombre: 'Headphones', desfaseMs: -7, usada: 1 }, { id: 'x', nombre: 'Altavoces', desfaseMs: 30, usada: 1 }]);
+    const sal = (id) => gem.find((s) => s.id === id);
+    const dg = [desfaseGuardado(gd, sal('w')), desfaseGuardado(gd, { id: 'w-nuevo', nombre: 'Wave' }), desfaseGuardado(gd, sal('h2')), desfaseGuardado(gd, { id: 'h3', nombre: 'Headphones' }),
+      desfaseGuardado(gd, sal('sb')), desfaseGuardado(gd, sal('ddj')), desfaseGuardado(null, sal('w')), desfaseGuardado(gd, null)];
+    const conDes = res(gd), porNombre = res(ACT({ id: 'w-viejo', nombre: 'Wave', canales: '1-2' }, [{ id: 'w-viejo', nombre: 'Wave', desfaseMs: -9, usada: 1 }]));
+    const rd1 = recordarDesfase(gd, { id: 'w', nombre: 'Wave' }, 999, 50);
+    const rd2 = recordarDesfase(gd, { id: 'w', nombre: 'Wave' }, 'x', 50);
+    const rd3 = recordarDesfase(null, { id: '', nombre: 'Sólo nombre' }, 4, 9);
+    let lleno = cueVacio();
+    for (let i = 1; i <= 9; i++) lleno = recordarDesfase(lleno, { id: `s${i}`, nombre: `S${i}` }, i, i);
+    ok('cue_e4_desfase_por_salida', igual(dg, [12, 12, -7, null, 30, null, null, null]) && conDes.desfaseMs === 12 && porNombre.desfaseMs === -9 && porNombre.idNuevo === 'w'
+      && rd1.salidas.length === 4 && igual(rd1.salidas[0], { id: 'w', nombre: 'Wave', desfaseMs: 250, usada: 50 }) && rd1.salidas.filter((s) => s.id === 'w').length === 1
+      && rd2 === gd && igual(rd3.salidas, [{ id: '', nombre: 'Sólo nombre', desfaseMs: 4, usada: 9 }])
+      && lleno.salidas.length === 8 && !lleno.salidas.some((s) => s.id === 's1') && lleno.salidas[0].id === 's9', { dg, rd1: rd1.salidas, lleno: lleno.salidas.map((s) => s.id) });
+    // migrarId: actual y su entrada pasan al id nuevo; si ya había una entrada con el nuevo, gana ésa.
+    const mg = migrarId(ACT({ id: 'w-viejo', nombre: 'Wave', canales: '3-4' }, [{ id: 'w-viejo', nombre: 'Wave', desfaseMs: -9, usada: 1 }, { id: 'o', nombre: 'O', desfaseMs: 1, usada: 1 }]), 'w-viejo', 'w');
+    const mg2 = migrarId(ACT({ id: 'w-viejo', nombre: 'Wave', canales: '1-2' }, [{ id: 'w-viejo', nombre: 'Wave', desfaseMs: -9, usada: 1 }, { id: 'w', nombre: 'Wave', desfaseMs: 4, usada: 2 }]), 'w-viejo', 'w');
+    const mgNada = [migrarId(gd, 'w', ''), migrarId(gd, 'w', 'w'), migrarId(gd, 'w', null)];
+    ok('cue_e4_migrar_id', igual(mg, ACT({ id: 'w', nombre: 'Wave', canales: '3-4' }, [{ id: 'w', nombre: 'Wave', desfaseMs: -9, usada: 1 }, { id: 'o', nombre: 'O', desfaseMs: 1, usada: 1 }]))
+      && mg2.actual.id === 'w' && igual(mg2.salidas, [{ id: 'w', nombre: 'Wave', desfaseMs: 4, usada: 2 }]) && mgNada.every((x) => x === gd), { mg, mg2 });
+
+    // u5: el almacén nunca lanza: obtener el storage lanza (cookies bloqueadas), no hay storage, getItem lanza, setItem
+    // lanza (lleno); y con uno que funciona, ida y vuelta.
+    const lanza = (name) => () => { throw Object.assign(new Error(name), { name }); };
+    const mapa = new Map();
+    const bueno = { getItem: (k) => (mapa.has(k) ? mapa.get(k) : null), setItem: (k, v) => { mapa.set(k, String(v)); } };
+    const casos = {
+      getterLanza: crearAlmacen(lanza('SecurityError')),
+      sinStorage: crearAlmacen(() => undefined),
+      noEsStorage: crearAlmacen(() => ({ getItem: 1 })),
+      getItemLanza: crearAlmacen(() => ({ getItem: lanza('SecurityError'), setItem: () => {} })),
+      setItemLanza: crearAlmacen(() => ({ getItem: () => 'x', setItem: lanza('QuotaExceededError') })),
+      noEsTexto: crearAlmacen(() => ({ getItem: () => 42, setItem: () => {} })),
+    };
+    let lanzo = null;
+    const vistos = {};
+    try { for (const [k, a] of Object.entries(casos)) vistos[k] = [a.leer(CLAVE_CUE), a.escribir(CLAVE_CUE, 'v')]; } catch (e) { lanzo = String(e?.name ?? e); }
+    const ab = crearAlmacen(() => bueno);
+    const escrito = ab.escribir(CLAVE_CUE, serializarCue(recordarActual(cueVacio(), { id: 'w', nombre: 'Wave', canales: '3-4' })));
+    const vuelta = leerCueGuardado(ab.leer(CLAVE_CUE));
+    ok('cue_e4_almacen_nunca_lanza', lanzo === null && igual(vistos, { getterLanza: [null, false], sinStorage: [null, false], noEsStorage: [null, false], getItemLanza: [null, true],
+      setItemLanza: ['x', false], noEsTexto: [null, true] }) && escrito === true && igual(vuelta, ACT({ id: 'w', nombre: 'Wave', canales: '3-4' })), { lanzo, vistos, vuelta });
+
+    // u6: se serializa SÓLO el esquema: nunca activo, volumen ni maxChannelCount (ni arriba, ni en actual, ni en salidas).
+    const sucio = { activo: { A: true }, volumen: 0.9, maxChannelCount: 4,
+      actual: { id: 'w', nombre: 'Wave', canales: '3-4', activo: { A: true }, volumen: 0.9, maxChannelCount: 4 },
+      salidas: [{ id: 'w', nombre: 'Wave', desfaseMs: 5, usada: 1, activo: true, volumen: 1, maxChannelCount: 4 }] };
+    const txt = serializarCue(sucio);
+    const o = JSON.parse(txt);
+    const vacio = JSON.parse(serializarCue(undefined));
+    const ra = [recordarActual(gd, { id: 'w', nombre: 'Wave', canales: 'x' }), recordarActual(gd, { id: '', nombre: '' , canales: '1-2' })];
+    const olv = olvidarActual(gd);
+    ok('cue_e4_serializa_solo_el_esquema', igual(Object.keys(o), ['v', 'actual', 'salidas']) && o.v === 1 && igual(Object.keys(o.actual), ['id', 'nombre', 'canales'])
+      && igual(Object.keys(o.salidas[0]), ['id', 'nombre', 'desfaseMs', 'usada']) && !/activo|volumen|maxChannelCount/.test(txt)
+      && igual(leerCueGuardado(txt), { actual: { id: 'w', nombre: 'Wave', canales: '3-4' }, salidas: [{ id: 'w', nombre: 'Wave', desfaseMs: 5, usada: 1 }] })
+      && igual(vacio, { v: 1, actual: null, salidas: [] }) && ra.every((x) => x === gd) && olv.actual === null && igual(olv.salidas, gd.salidas),
+    { txt, vacio });
+    // Los avisos de e4a.
+    const av4 = [textoAviso('guardada-ausente', 'Wave'), textoAviso('guardada-ausente', ''), textoAviso('guardada-ambigua', 'Headphones'), textoAviso('guardada-ambigua', null),
+      textoAviso('volvio-lista', 'Wave'), textoAviso('volvio-lista', ' ')];
+    ok('cue_e4_avisos', igual(av4, ['La salida de audífonos guardada «Wave» no está conectada. Conéctala o elige otra.', 'La salida de audífonos guardada no está conectada. Conéctala o elige otra.',
+      'Hay más de una salida llamada «Headphones». Elige cuál y pulsa «Usar».', 'Hay más de una salida con ese nombre. Elige cuál y pulsa «Usar».',
+      'Volvió «Wave». Cue listo (apagado).', 'Volvió la salida de audífonos. Cue listo (apagado).']), { av4 });
+  }
 
   // textoAviso.
   const N = 'Headphones (Elgato Wave:XLR)';
