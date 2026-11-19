@@ -4,7 +4,7 @@ import {
   nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue, textoAviso,
   VOLUMEN_CUE_INICIAL, DESFASE_MAX_MS, recortarDesfase, textoDesfase, crearDiferido, pistaMezcladora,
   CLAVE_CUE, crearAlmacen, leerCueGuardado, serializarCue, cueVacio, recordarActual, olvidarActual, recordarDesfase, migrarId,
-  decidirRestauracion, decidirVuelta,
+  decidirRestauracion, decidirVuelta, desfaseAlUsar,
 } from './motor/cue.js';
 import ControlDj, { num } from './ControlDj.jsx';
 
@@ -38,7 +38,8 @@ import ControlDj, { num } from './ControlDj.jsx';
 //  · RECORDAR (e4a). Clave CLAVE_CUE, por cue.js (crearAlmacen: ningún acceso a localStorage lanza; sin storage la
 //    página es la de e3b). Se ESCRIBE: la salida (id, nombre CRUDO, canales) sólo cuando «Usar» termina con ok;
 //    el desfase de la salida en uso al aplicarse; el id nuevo tras restaurar por nombre. «Quitar» (cualquiera de los
-//    dos botones) olvida la salida y conserva los desfases. Nunca el cue encendido ni el volumen (siempre 0,50).
+//    dos botones en e4a; desde e4b, sólo el de la fila) olvida la salida y conserva los desfases. Nunca el cue encendido
+//    ni el volumen (siempre 0,50).
 //    Se RESTAURA una vez por motor (StrictMode crea, cierra y recrea el motor: se restaura sobre el VIVO), con la
 //    lista leída (sin permiso de micrófono no hay nombres: queda el botón y se restaura al pulsarlo), y sólo si el
 //    motor sigue sin salida (decidirRestauracion):
@@ -52,6 +53,18 @@ import ControlDj, { num } from './ControlDj.jsx';
 //    patrón del seek del deck); flechas sobre el control y botones ±1: diferido de DEBOUNCE_DESFASE_MS, una
 //    sola aplicación por ráfaga; doble clic: 0 al instante. El valor en pantalla es local mientras haya algo
 //    sin aplicar; el diferido se cancela al desmontar.
+//  · UN SOLO BOTÓN QUE OLVIDA (e4b): «Quitar salida» en la fila, visible siempre que haya salida: la del motor (también
+//    en 'error') o la que falta (la guardada ausente o la recién desconectada, esperando su vuelta), con la lista leída
+//    o sin salidas ('vacia'). Los avisos ámbar (desconexión, error del motor, guardada ausente) sólo se CIERRAN: «Cerrar»
+//    no borra nada ni cancela el rearme (faltaRef sigue). El del motor se cierra en local (el motor sigue en 'error'):
+//    vuelve a salir con el próximo error.
+//  · LO QUE FALTA SUBE A LA PÁGINA (e4b): `alFaltar(nombre visible | null)` cada vez que cambia la salida que falta;
+//    DjPage lo pasa a estadoBotonCue para el motivo «conecta "X"» bajo cada deck (el motor no lo sabe).
+//  · DESFASE AL «USAR» (e4b, desfaseAlUsar): el guardado de esa salida si existe y es otro; si no, el actual queda. Se
+//    aplica justo DESPUÉS de fijarSalidaCue, en el mismo clic: con el contexto abierto el motor ya está en 'abriendo'
+//    (abrirCue pone el estado antes de su primer await), así fijarDesfaseCue sólo para las fuentes de cue y la única
+//    resincronización es la de abrirCue al quedar lista. Con un cue sonando, el cue calla desde el clic hasta que la
+//    salida nueva está lista (sin desfase nuevo, la vieja seguiría sonando hasta entonces) y arranca UNA vez.
 //  · Volumen y desfase usan ControlDj con la clase base 'dj-cue-control' (no 'dj-control': ésos son los
 //    cuatro de la Mezcla). Se ven con una salida elegida y sin 'error'.
 
@@ -70,7 +83,7 @@ const ALMACEN = crearAlmacen(() => window.localStorage);
 const leerGuardado = () => leerCueGuardado(ALMACEN.leer(CLAVE_CUE));
 const guardar = (cambio) => { ALMACEN.escribir(CLAVE_CUE, serializarCue(cambio(leerGuardado() ?? cueVacio()))); };
 
-export default function CueDj({ motor, refrescar }) {
+export default function CueDj({ motor, refrescar, alFaltar }) {
   const motorRef = useRef(motor);
   motorRef.current = motor;
   const refrescarRef = useRef(refrescar);
@@ -84,6 +97,11 @@ export default function CueDj({ motor, refrescar }) {
   const [volvio, setVolvio] = useState(null);         // e3b: la que faltaba volvió («pulsa "Usar"» o «Cue listo»)
   // e3b/e4a: { id, nombre CRUDO, canales, tipo: 'ui' | 'motor' | 'guardada' } de la que faltó (o la guardada ausente).
   const faltaRef = useRef(null);
+  const [falta, setFalta] = useState(null);           // e4b: el nombre VISIBLE de la que falta (espejo de faltaRef)
+  // e4b: { ...faltaRef, visible } o null; el espejo para el render y la página (alFaltar, por efecto).
+  const ponerFalta = (f) => { faltaRef.current = f; setFalta(f ? f.visible || f.nombre || '' : null); };
+  useEffect(() => { alFaltar?.(falta); }, [falta, alFaltar]);
+  const [motorCerrado, setMotorCerrado] = useState(null);   // e4b: el aviso del motor que se cerró con «Cerrar»
   const ultimasRef = useRef([]);                      // e4a: la lista anterior (para el nombre crudo de la que falta)
   const restauradoRef = useRef(null);                 // e4a: el motor sobre el que ya se intentó restaurar
 
@@ -121,7 +139,7 @@ export default function CueDj({ motor, refrescar }) {
       if (f) {
         const v = decidirVuelta(f, e.salidas);
         if (v.accion !== 'nada') {
-          faltaRef.current = null;
+          ponerFalta(null);
           // Sólo si nadie eligió otra cosa mientras tanto: el 'error' del motor con esa salida, o el motor sin salida.
           const vigente = f.tipo === 'motor' ? c.estado === 'error' && c.salida === f.id : c.estado === 'sin-salida' && !c.salida;
           if (!vigente) return;
@@ -149,9 +167,9 @@ export default function CueDj({ motor, refrescar }) {
       if (!c.salida || e.salidas.some((s) => s.id === c.salida)) return;
       // El nombre CRUDO de la que falta sale de la lista anterior (el del motor es el visible).
       const nombre = ultimasRef.current.find((s) => s.id === c.salida)?.nombre ?? c.nombre;
-      if (c.estado === 'error') { faltaRef.current = { id: c.salida, nombre, canales: c.canales, tipo: 'motor' }; return; }
+      if (c.estado === 'error') { ponerFalta({ id: c.salida, nombre, canales: c.canales, tipo: 'motor', visible: c.nombre }); return; }
       m.fijarSalidaCue(null);
-      faltaRef.current = { id: c.salida, nombre, canales: c.canales, tipo: 'ui' };
+      ponerFalta({ id: c.salida, nombre, canales: c.canales, tipo: 'ui', visible: c.nombre });
       setConfirmar(null);
       setVolvio(null);
       setAvisoUi(textoAviso('no-conectada', c.nombre));
@@ -184,7 +202,7 @@ export default function CueDj({ motor, refrescar }) {
     const d = decidirRestauracion({ guardado: g, estadoLista: lista.estado, salidas: lista.salidas });
     if (d.accion === 'ambigua' || d.accion === 'ausente') {
       setAvisoUi(textoAviso(d.accion === 'ambigua' ? 'guardada-ambigua' : 'guardada-ausente', d.nombre));
-      if (d.accion === 'ausente') faltaRef.current = { ...g.actual, tipo: 'guardada' };
+      if (d.accion === 'ausente') ponerFalta({ ...g.actual, tipo: 'guardada', visible: g.actual.nombre });   // no está: su nombre crudo es el visible
       return;
     }
     if (d.accion !== 'restaurar' && d.accion !== 'confirmar') return;
@@ -211,13 +229,27 @@ export default function CueDj({ motor, refrescar }) {
   const pista = pistaMezcladora(lista.salidas.find((s) => s.id === sel)?.nombre, canales);
   const desfaseVista = desfaseLocal ?? c.desfaseMs;
 
-  const olvidarFalta = () => { faltaRef.current = null; setVolvio(null); };
+  const olvidarFalta = () => { ponerFalta(null); setVolvio(null); };
+  // e4b: el aviso del motor cerrado con «Cerrar» vuelve a salir con el próximo error (al salir de 'error' se olvida).
+  useEffect(() => { if (c.estado !== 'error' && motorCerrado !== null) setMotorCerrado(null); }, [c.estado, motorCerrado]);
+  const avisoMotor = c.estado === 'error' && c.aviso && c.aviso !== motorCerrado ? c.aviso : null;
+  const hayQuitar = !!c.salida || falta !== null;   // e4b: también en 'error' y con la que falta
   // `cruda`: el nombre de filtrarSalidas (el que se guarda); `nombre`: el visible (el del motor y los avisos).
   const aplicar = (id, nombre, can, cruda) => {
     setConfirmar(null);
     setAvisoUi(null);
+    setMotorCerrado(null);
     olvidarFalta();
     const pedido = motor?.fijarSalidaCue(id, nombre, { canales: can, abrir: true });   // dentro del clic: abre el contexto
+    // e4b: el desfase guardado de ESA salida, justo después (ver la cabecera: una sola resincronización). Sin guardado, el
+    // actual queda. Lo que hubiera sin aplicar en el control se descarta (era para la salida anterior).
+    const d = motor ? desfaseAlUsar(leerGuardado(), { id, nombre: cruda }, motor.cue().desfaseMs) : null;
+    if (d !== null) {
+      diferidoRef.current.cancelar();
+      desfaseRef.current = null;
+      setDesfaseLocal(null);
+      motor.fijarDesfaseCue(d);
+    }
     // e4a: se recuerda SÓLO si terminó bien (un «Usar» que falla no pisa la salida buena guardada).
     pedido?.then((r) => { if (r?.ok) guardar((g) => recordarActual(g, { id, nombre: cruda, canales: can })); });
     refrescar();
@@ -238,6 +270,7 @@ export default function CueDj({ motor, refrescar }) {
     e.currentTarget.blur();
     setConfirmar(null);
     setAvisoUi(null);
+    setMotorCerrado(null);
     olvidarFalta();
     motor?.fijarSalidaCue(null);
     guardar(olvidarActual);   // e4a: olvida la salida; los desfases quedan
@@ -316,7 +349,7 @@ export default function CueDj({ motor, refrescar }) {
               ))}
             </fieldset>
             <button type="button" className="dj-btn dj-cue-usar" disabled={!sel} onClick={usar}>Usar</button>
-            {c.salida && <button type="button" className="dj-btn dj-cue-quitar" onClick={quitar}>Quitar</button>}
+            {hayQuitar && <button type="button" className="dj-btn dj-cue-quitar" onClick={quitar}>Quitar salida</button>}
           </div>
           <p className="dj-cue-ayuda">{TEXTO_AYUDA}</p>
           {canales === '3-4' && <p className="dj-cue-ayuda dj-cue-ojo">{TEXTO_OJO}</p>}
@@ -328,6 +361,7 @@ export default function CueDj({ motor, refrescar }) {
           {CON_BOTON.has(lista.estado) && (
             <button type="button" className="dj-btn dj-cue-ver" onClick={() => listaRef.current?.pedir()}>Ver salidas de audio</button>
           )}
+          {lista.estado === 'vacia' && hayQuitar && <button type="button" className="dj-btn dj-cue-quitar" onClick={quitar}>Quitar salida</button>}
         </div>
       )}
 
@@ -357,10 +391,10 @@ export default function CueDj({ motor, refrescar }) {
           </div>
         </div>
       )}
-      {c.estado === 'error' && c.aviso && (
+      {avisoMotor && (
         <div className="dj-cue-aviso dj-cue-aviso-motor" role="alert">
-          <p>{c.aviso}</p>
-          <button type="button" className="dj-btn dj-cue-quitar-error" onClick={quitar}>Quitar salida</button>
+          <p>{avisoMotor}</p>
+          <button type="button" className="dj-btn dj-cue-cerrar-error" onClick={() => setMotorCerrado(c.aviso)}>Cerrar</button>
         </div>
       )}
       {avisoUi && (

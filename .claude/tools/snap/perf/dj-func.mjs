@@ -46,7 +46,7 @@
 //         salida reusa el contexto (cs3); misma salida que el master: confirma con 1-2, no con 3-4 (cs4);
 //         la etapa '3-4' armada sobre el destination REAL y el cambio de canales en caliente sin setSinkId
 //         (cs10); las teclas y el selector no aplican nada (cs6); quitar (cs5); el error del motor con el
-//         master intacto (cs9, cs9b); devicechange sin la salida con contexto abierto → null + aviso (cs7) y
+//         master intacto (cs9; cs9b, e4b: su aviso sólo se cierra y «Quitar salida» de la fila quita); devicechange sin la salida con contexto abierto → null + aviso (cs7) y
 //         en 'error' sin duplicar (cs7b); salir quita el oyente de devicechange (cs11); permiso ya dado al
 //         montar (cs8); denegado y sin micrófono (cs2). Con el setSinkId falso NO se prueba: que el audio
 //         salga por otro dispositivo, los sinkchange/error/'closed' reales al desenchufar, el maxChannelCount
@@ -71,6 +71,11 @@
 //         localStorage bloqueado para 'djCue' (cr9). Se cuentan setSinkId y contextos de cue (el runner no deja
 //         contextos 'suspended': --autoplay-policy=no-user-gesture-required). NO se prueba: el getter de
 //         window.localStorage que lanza (sólo dj-unit), dos pestañas, el permiso «sólo esta vez» de Edge.
+//         e4b: el motivo visible bajo cada deck con el Cue deshabilitado (sin salida, error, la que falta: recién
+//         desconectada o guardada ausente) y su aria-describedby (cr13); un solo botón que olvida: los avisos sólo se
+//         cierran, sin olvidar ni cancelar el rearme, y «Quitar salida» de la fila (también en 'error') sí olvida (cr14);
+//         «Usar» aplica el desfase guardado de esa salida y sin guardado deja el actual (cr15). Registro (fuera del
+//         conteo): las fuentes de cue nuevas al cambiar de salida con un cue sonando y otro desfase.
 //   · d6  con radio activa (anfitrión de una radio REAL, creada con «Iniciar radio» como radio-func) /dj
 //         no pausa nada (ni isPlaying ni el pause() nativo), muestra «Sal de la radio para usar el Modo
 //         DJ» y deja la barra visible; tampoco tapa teclas: Espacio llega al reproductor normal y lo
@@ -1036,7 +1041,8 @@ try {
       textoEstado: q('.dj-cue-estado'), textoLista: q('.dj-cue-lista-texto'), boton: !!s.querySelector('.dj-cue-ver'),
       opciones: [...s.querySelectorAll('.dj-cue-salida option')].map((o) => [o.value, o.textContent]),
       sel: s.querySelector('.dj-cue-salida')?.value ?? null, radio: s.querySelector('.dj-cue-canales input:checked')?.value ?? null,
-      ojo: !!s.querySelector('.dj-cue-ojo'), quitar: !!s.querySelector('.dj-cue-quitar'),
+      ojo: !!s.querySelector('.dj-cue-ojo'), quitar: !!s.querySelector('.dj-cue-quitar'), quitarTxt: q('.dj-cue-quitar'),
+      avisoBotones: [...s.querySelectorAll('.dj-cue-aviso-ui button, .dj-cue-aviso-motor button')].map((b) => b.textContent),
       confirmacion: q('.dj-cue-confirmacion p'), avisoMotor: q('.dj-cue-aviso-motor p'), avisoUi: q('.dj-cue-aviso-ui p'),
       alertas: s.querySelectorAll('[role="alert"]').length, foco: document.activeElement?.tagName ?? null,
     };
@@ -1197,9 +1203,17 @@ try {
     && u9.contexto === '0' && u9.textoEstado === null && u9.alertas === 1 && q9.cue?.state === 'closed' && q9.master === 'running' && q9.sinksMaster === 0
     && d9a.estado === 'sonando' && av9.p1 - av9.p0 > 0.5 && Math.abs((av9.p1 - av9.p0) - av9.pared) <= TOL_S && JSON.stringify(await valoresUi()) === JSON.stringify(mezcla9),
   { u9, q9, av9 });
-  await clicSiHay('.dj-cue-quitar-error');
+  // cs9b (e4b): el aviso del motor sólo tiene «Cerrar»; cerrarlo lo quita pero el motor sigue en 'error' (no olvida nada);
+  // «Quitar salida» está en la FILA también en 'error', y ése sí la quita.
+  await clicSiHay('.dj-cue-cerrar-error');
+  await sleep(150);
+  const u9c = await cueUi();
+  await clicSiHay('.dj-cue-quitar');
   const u9b = await esperarCue((u) => u.estado === 'sin-salida') ?? await cueUi();
-  ok('cs9b_quitar_salida_tras_error', u9b.estado === 'sin-salida' && u9b.alertas === 0 && u9b.avisoMotor === null, { u9b });
+  ok('cs9b_error_se_cierra_y_la_fila_quita', JSON.stringify(u9.avisoBotones) === JSON.stringify(['Cerrar']) && u9.quitarTxt === 'Quitar salida'
+    && u9c.estado === 'error' && u9c.salida === 'hp-0002' && u9c.avisoMotor === null && u9c.alertas === 0 && u9c.quitar
+    && u9b.estado === 'sin-salida' && u9b.alertas === 0 && u9b.avisoMotor === null && !u9b.quitar,
+  { botones: u9.avisoBotones, quitar: u9.quitarTxt, u9c: [u9c.estado, u9c.avisoMotor, u9c.alertas, u9c.quitar], u9b: [u9b.estado, u9b.alertas, u9b.quitar] });
 
   // cs7: devicechange SIN la salida elegida, con el contexto de cue ABIERTO: la página llama a null igual y
   // avisa 'no-conectada'; la lista se vuelve a leer sin pedir el micrófono.
@@ -1224,7 +1238,7 @@ try {
   const u7b = await cueUi();
   ok('cs7b_devicechange_en_error_sin_duplicar', u7b.estado === 'error' && u7b.salida === 'hp-0002' && u7b.avisoMotor === 'No se encontró la salida «Headphones (2)». Cue apagado; el master sigue igual.'
     && u7b.avisoUi === null && u7b.alertas === 1, { u7b });
-  await clicSiHay('.dj-cue-quitar-error');
+  await clicSiHay('.dj-cue-quitar');
   await p.evaluate(() => window.__fd.poner('hp-0002'));
   await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
 
@@ -1241,7 +1255,9 @@ try {
     const d = document.querySelector(`.dj-deck[data-lado="${l}"]`);
     const b = d?.querySelector('.dj-cue-btn');
     return [l, b ? { pressed: b.getAttribute('aria-pressed'), disabled: b.disabled, title: b.title, cue: d.dataset.cue,
-      nota: d.querySelector('.dj-deck-cue-nota')?.textContent ?? null, foco: document.activeElement === b } : null];
+      nota: d.querySelector('.dj-deck-cue-nota')?.textContent ?? null, foco: document.activeElement === b,
+      motivo: d.querySelector('.dj-deck-cue-motivo')?.textContent ?? null, describedby: b.getAttribute('aria-describedby'),
+      desc: b.getAttribute('aria-describedby') ? (d.querySelector('#' + CSS.escape(b.getAttribute('aria-describedby')))?.textContent ?? '(sin elemento)') : null } : null];
   })));
   const ajustes = () => p.evaluate(() => {
     const s = document.querySelector('.dj-cue');
@@ -1277,7 +1293,7 @@ try {
     await usar('hp-0002', '1-2');
     await esperarCue((u) => u.estado === 'error');
     const b1b = await botones(), a1b = await ajustes();
-    await clicSiHay('.dj-cue-quitar-error');
+    await clicSiHay('.dj-cue-quitar');
     await usar('wave-0001', '1-2');
     await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
     const b1c = await botones(), a1c = await ajustes();
@@ -1477,7 +1493,7 @@ try {
     const u16 = await cueUi(), a16 = await ajustes();
     ok('ce16_error_sin_faltar_no_se_toca', u16.estado === 'error' && u16.salida === 'hp-0002' && u16.avisoMotor === TXT_E.noEncontro2 && a16.volvio === null && u16.alertas === 1,
       { u16: [u16.estado, u16.salida, u16.avisoMotor, u16.alertas], volvio: a16.volvio });
-    await clicSiHay('.dj-cue-quitar-error');
+    await clicSiHay('.dj-cue-quitar');
     await esperarCue((u) => u.estado === 'sin-salida');
 
     // ce17 (i.2): la pista DDJ sólo con «DDJ» en el nombre y 1-2 marcado; nunca junto al «Ojo»; no cambia nada.
@@ -1576,7 +1592,7 @@ try {
       ausente: `La salida de audífonos guardada «${WAVE}» no está conectada. Conéctala o elige otra.`,
       volvioLista: `Volvió «${WAVE}». Cue listo (apagado).`,
       volvioUsar: `«${WAVE}» volvió: pulsa «Usar» para activarla.`,
-      sinAbrir: `«${WAVE}» · canales 1-2. Se abre al activar un cue.`,
+      sinAbrir: `«${WAVE}» · canales 1-2. Se abre al cargar una pista o al activar un cue.`,
     };
     const G = (actual, salidas = []) => JSON.stringify({ v: 1, actual, salidas });
     // Recarga /dj con lo guardado (el texto tal cual; null = sin la clave), la config del mediaDevices falso y la del
@@ -1755,6 +1771,103 @@ try {
     ok('cr12_cue_encendido_y_volumen_no_se_restauran', b12a.A.pressed === 'true' && a12a.volumen === 0.8 && typeof s12 === 'string' && !/activo|volumen/.test(s12)
       && u12.salida === 'wave-0001' && u12.contexto === '0' && a12.activo === '' && a12.volumen === 0.5 && ['A', 'B'].every((l) => b12[l].pressed === 'false') && nada(q12),
     { antes: [b12a.A.pressed, a12a.volumen], s12, despues: [a12.activo, a12.volumen, b12.A.pressed, b12.B.pressed], q12 });
+
+    // cr13 (e4b): con el Cue deshabilitado, el MOTIVO visible bajo los controles de cada deck, unido al botón con
+    // aria-describedby (el elemento existe en el MISMO deck y dice lo mismo), en los tres casos: sin salida, la salida en
+    // 'error', y la que falta (recién desconectada y guardada ausente al abrir), con su nombre visible. Nunca motivo y nota
+    // a la vez. Con el Cue habilitado: sin motivo y sin aria-describedby (la nota de V1 sigue).
+    const TXT_M = { sin: 'Para usar Cue, elige una salida de audífonos abajo, en «Audífonos (cue)».',
+      err: 'Cue no disponible: la salida de audífonos falló. Quítala o elige otra.', aus: `Cue no disponible: conecta «${WAVE}» o elige otra salida.` };
+    const conMotivo = (b, txt) => ['A', 'B'].every((l) => b[l]?.disabled === true && b[l].motivo === txt && b[l].desc === txt && b[l].describedby === `dj-deck-cue-motivo-${l}` && b[l].nota === null);
+    await recargarCr(null);
+    await esperarCue((u) => u.lista === 'lista'); await sleep(200);
+    const b13a = await botones();
+    await usar('hp-0002', '1-2'); await esperarCue((u) => u.estado === 'error');
+    const b13b = await botones();
+    await clicSiHay('.dj-cue-quitar'); await esperarCue((u) => u.estado === 'sin-salida');
+    await usar('wave-0001', '1-2'); await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
+    await p.locator(sel('A', '.dj-cue-btn')).click();
+    const b13c = await botones();
+    await p.evaluate(() => window.__fd.quitar('wave-0001'));
+    const u13d = await esperarCue((u) => u.estado === 'sin-salida' && !!u.avisoUi) ?? await cueUi();
+    const b13d = await botones();
+    await p.evaluate(() => window.__fd.poner('wave-0001'));
+    await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista');
+    await recargarCr(G({ id: 'wave-0001', nombre: WAVE, canales: '1-2' }), { permiso: 'granted', quitados: ['wave-0001'] });
+    const u13e = await esperarCue((u) => u.lista === 'lista' && !!u.avisoUi) ?? await cueUi();
+    await sleep(150);
+    const b13e = await botones();
+    ok('cr13_motivo_visible_con_cue_deshabilitado', conMotivo(b13a, TXT_M.sin) && conMotivo(b13b, TXT_M.err) && conMotivo(b13d, TXT_M.aus) && conMotivo(b13e, TXT_M.aus)
+      && ['A', 'B'].every((l) => b13c[l]?.disabled === false && b13c[l].motivo === null && b13c[l].describedby === null && b13c[l].desc === null)
+      && b13c.A.nota === TXT_E.vacio && b13c.A.pressed === 'true' && b13d.A.pressed === 'false' && u13d.quitar && u13e.quitar && u13e.estado === 'sin-salida',
+    { b13a: b13a.A, b13b: b13b.A, b13c: [b13c.A, b13c.B], b13d: b13d.A, b13e: b13e.A, quitar: [u13d.quitar, u13e.quitar] });
+
+    // cr14 (e4b): UN solo botón que olvida. Desconexión → su aviso sólo tiene «Cerrar» y la fila ofrece «Quitar salida»;
+    // «Cerrar» NO olvida lo guardado ni cancela el rearme (vuelve → se rearma sola) y al recargar se restaura. Error del
+    // motor → su aviso sólo tiene «Cerrar»: cerrarlo deja el motor en 'error' y lo guardado igual. «Quitar salida» de la
+    // FILA (también en 'error') SÍ olvida: actual null y los desfases conservados; al recargar no se restaura nada.
+    await recargarCr(G(null, [{ id: 'wave-0001', nombre: WAVE, desfaseMs: 6, usada: 1 }]));
+    await esperarCue((u) => u.lista === 'lista');
+    await usar('wave-0001', '1-2');
+    await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1'); await sleep(150);
+    const s14a = await guardadoAhora();
+    await p.evaluate(() => window.__fd.quitar('wave-0001'));
+    const u14a = await esperarCue((u) => u.estado === 'sin-salida' && !!u.avisoUi) ?? await cueUi();
+    await clicSiHay('.dj-cue-cerrar'); await sleep(150);
+    const u14b = await cueUi(), s14b = await guardadoAhora();
+    await p.evaluate(() => window.__fd.poner('wave-0001'));
+    const u14c = await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista') ?? await cueUi();
+    await recargarCue({ permiso: 'granted' });
+    const u14d = await esperarCue((u) => u.lista === 'lista' && u.salida === 'wave-0001') ?? await cueUi();
+    await usar('hp-0002', '1-2');
+    const u14e = await esperarCue((u) => u.estado === 'error') ?? await cueUi();
+    await clicSiHay('.dj-cue-cerrar-error'); await sleep(150);
+    const u14f = await cueUi(), s14f = await guardadoAhora();
+    await clicSiHay('.dj-cue-quitar');
+    const u14g = await esperarCue((u) => u.estado === 'sin-salida') ?? await cueUi();
+    const s14g = await leido();
+    await recargarCue({ permiso: 'granted' });
+    await esperarCue((u) => u.lista === 'lista'); await sleep(250);
+    const u14h = await cueUi(), q14h = await cueCtx();
+    let g14a = null; try { g14a = JSON.parse(s14a); } catch { /* el caso falla abajo */ }
+    ok('cr14_cerrar_no_olvida_y_quitar_de_la_fila_si', g14a?.actual?.id === 'wave-0001'
+      && JSON.stringify(u14a.avisoBotones) === JSON.stringify(['Cerrar']) && u14a.quitar && u14a.quitarTxt === 'Quitar salida'
+      && u14b.avisoUi === null && u14b.alertas === 0 && u14b.quitar && s14b === s14a
+      && u14c.salida === 'wave-0001' && u14c.estado === 'lista' && u14d.salida === 'wave-0001' && u14d.estado === 'lista'
+      && JSON.stringify(u14e.avisoBotones) === JSON.stringify(['Cerrar']) && u14e.quitar
+      && u14f.estado === 'error' && u14f.salida === 'hp-0002' && u14f.avisoMotor === null && u14f.alertas === 0 && s14f === s14a
+      && u14g.estado === 'sin-salida' && !u14g.quitar && s14g?.actual === null && s14g.salidas.some((s) => s.id === 'wave-0001' && s.desfaseMs === 6)
+      && u14h.estado === 'sin-salida' && u14h.salida === '' && u14h.avisoUi === null && nada(q14h),
+    { g14a, u14a: [u14a.avisoBotones, u14a.quitarTxt], u14b: [u14b.avisoUi, u14b.quitar, s14b === s14a], u14c: [u14c.salida, u14c.estado], u14d: u14d.salida,
+      u14e: [u14e.avisoBotones, u14e.quitar], u14f: [u14f.estado, u14f.avisoMotor, s14f === s14a], s14g, u14h: [u14h.estado, u14h.salida], q14h });
+
+    // cr15 (e4b): «Usar» aplica el desfase GUARDADO de esa salida (aunque no sea la guardada como actual); otra salida SIN
+    // desfase guardado deja el actual (no lo pone en 0). Registro: con el cue de A sonando, «Usar» a otra salida con otro
+    // desfase guardado → cuántas fuentes de cue nuevas (una por resincronización) y cuántos setSinkId.
+    await recargarCr(G(null, [{ id: 'wave-0001', nombre: WAVE, desfaseMs: 23, usada: 2 }, { id: 'ddj-0001', nombre: 'Línea (2- DDJ-400)', desfaseMs: -40, usada: 1 }]));
+    await esperarCue((u) => u.lista === 'lista'); await sleep(150);
+    const a15a = await ajustes();
+    await usar('wave-0001', '1-2');
+    await esperarCue((u) => u.salida === 'wave-0001' && u.estado === 'lista' && u.contexto === '1');
+    const a15b = await conDesfase(23) ?? await ajustes();
+    await usar('hp-0001', '1-2');
+    await esperarCue((u) => u.salida === 'hp-0001' && u.estado === 'lista'); await sleep(200);
+    const a15c = await ajustes(), s15 = await leido();
+    ok('cr15_usar_aplica_el_desfase_guardado_o_deja_el_actual', a15a.desfase === 0 && a15b.desfase === 23 && a15b.desTxt === '+23 ms' && a15c.desfase === 23 && a15c.desTxt === '+23 ms'
+      && s15?.actual?.id === 'hp-0001' && !s15.salidas.some((s) => s.id === 'hp-0001') && s15.salidas.some((s) => s.id === 'wave-0001' && s.desfaseMs === 23),
+    { desfases: [a15a.desfase, a15b.desfase, a15c.desfase], textos: [a15b.desTxt, a15c.desTxt], s15 });
+    await cargarEn('A', n1); await esperarDeck('A', (d) => d.estado === 'pausa');
+    await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'sonando', 2000);
+    await p.locator(sel('A', '.dj-cue-btn')).click();
+    await esperar(async () => ((await fuentesCue()).n >= 1 ? true : null), 2000);
+    await sleep(300);
+    const f15a = await fuentesCue(), q15a = await cueCtx();
+    await usar('ddj-0001', '3-4');
+    await esperarCue((u) => u.salida === 'ddj-0001' && u.estado === 'lista' && u.contexto === '1');
+    await sleep(400);
+    const f15b = await fuentesCue(), q15b = await cueCtx(), a15d = await ajustes();
+    REG.cue_usar_con_cue_sonando = { fuentesNuevas: f15b.n - f15a.n, setSinkId: q15b.sinks.length - q15a.sinks.length, contextosNuevos: q15b.cues - q15a.cues, desfase: a15d.desfase, activo: a15d.activo };
+    await p.locator(sel('A', '.dj-play')).click(); await esperarDeck('A', (d) => d.estado === 'pausa', 2000);
 
     // cr9: localStorage BLOQUEADO para 'djCue' (leer lanza SecurityError, escribir QuotaExceededError) → la página funciona
     // igual que sin nada guardado: «Usar», el desfase y «Quitar» andan, y no hay errores de página. Se intentó leer y escribir.

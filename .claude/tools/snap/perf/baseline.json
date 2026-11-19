@@ -78,7 +78,7 @@
     { "nombre": "login-sso-func", "archivo": "login-sso-func.mjs", "modo": "name-line", "esperado": { "ok": 24, "total": 24 } },
     { "nombre": "buscar-func", "archivo": "buscar-func.mjs", "modo": "name-line", "esperado": { "ok": 34, "total": 34 } },
     { "nombre": "teclado-func", "archivo": "teclado-func.mjs", "modo": "name-line", "esperado": { "ok": 39, "total": 39 } },
-    { "nombre": "dj-func", "archivo": "dj-func.mjs", "modo": "name-line", "esperado": { "ok": 128, "total": 128 } },
-    { "nombre": "dj-unit", "archivo": "dj-unit.mjs", "modo": "name-line", "esperado": { "ok": 207, "total": 207 } }
+    { "nombre": "dj-func", "archivo": "dj-func.mjs", "modo": "name-line", "esperado": { "ok": 131, "total": 131 } },
+    { "nombre": "dj-unit", "archivo": "dj-unit.mjs", "modo": "name-line", "esperado": { "ok": 209, "total": 209 } }
   ]
 }

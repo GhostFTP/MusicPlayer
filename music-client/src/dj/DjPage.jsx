@@ -23,7 +23,10 @@ import { estadoBotonCue, textoNotaCue } from './motor/cue.js';
 // «Audífonos (cue)» (CueDj.jsx) elige la salida de audífonos y sus canales. Sub-paso e3b: el botón «Cue» de
 // cada deck (motor.fijarCue; deshabilitado sin salida y en 'error'; con el deck vacío o en pausa, una nota:
 // en V1 el cue sólo suena con el deck sonando) y, en «Audífonos (cue)», el volumen y el desfase. El control
-// deslizante de la Mezcla y del cue es ControlDj.jsx. Nada de esto toca PlayerContext.
+// deslizante de la Mezcla y del cue es ControlDj.jsx. Sub-paso e4b: con el Cue deshabilitado, un renglón visible bajo
+// los controles del deck dice POR QUÉ (estadoBotonCue().motivo, unido al botón con aria-describedby): sin salida, la
+// salida en 'error', o la que falta («conecta "X"»; CueDj avisa con alFaltar cuál es, el motor no lo sabe). Sale en
+// lugar de la nota de V1, nunca las dos. Nada de esto toca PlayerContext.
 //  · La consola se re-renderiza con los avisos del motor AGRUPADOS por requestAnimationFrame: un fader
 //    del DDJ-400 manda decenas de mensajes por segundo y cada uno llega en su propia tarea, así que sin
 //    agrupar sería un render por mensaje. Con el ratón el render sigue siendo inmediato (el <input> es
@@ -282,23 +285,24 @@ function ConsolaDj({ diag }) {
 
   const motor = motorRef.current;
   const cue = motor?.cue() ?? null;
+  const [cueFalta, setCueFalta] = useState(null);   // e4b: el nombre visible de la salida que falta (CueDj, alFaltar)
   return (
     <>
       <div className="dj-decks">
         {LADOS.map((lado) => (
           <Deck key={lado} lado={lado} deck={motor?.decks[lado] ?? null} estado={motor?.decks[lado].estado() ?? null}
             ui={ui[lado]} vistas={vistasRef.current} onCargar={cargar} onCancelar={cancelarAviso}
-            cueActivo={!!cue?.activo[lado]} cueEstado={cue?.estado ?? null} onCue={alternarCue} />
+            cueActivo={!!cue?.activo[lado]} cueEstado={cue?.estado ?? null} cueFalta={cueFalta} onCue={alternarCue} />
         ))}
       </div>
       <MezclaDj motor={motor} refrescar={refrescar} midi={midi} onConectarMidi={conectarMidi} />
-      <CueDj motor={motor} refrescar={refrescar} />
+      <CueDj motor={motor} refrescar={refrescar} alFaltar={setCueFalta} />
       <BibliotecaDj onCargar={cargar} />
     </>
   );
 }
 
-function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar, cueActivo, cueEstado, onCue }) {
+function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar, cueActivo, cueEstado, cueFalta, onCue }) {
   const cargado = !!estado?.cargado;
   const pista = estado?.meta?.pista ?? null;
   const registro = estado?.meta?.registro ?? null;
@@ -336,9 +340,11 @@ function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar, cueActivo,
     ? `Cargando${ui.cargando.pct != null ? ` ${ui.cargando.pct} %` : '…'}`
     : !cargado ? 'Vacío' : sonando ? 'Sonando' : 'En pausa';
   const dataEstado = ui.cargando ? 'cargando' : !cargado ? 'vacio' : sonando ? 'sonando' : 'pausa';
-  // Sub-paso e3b: el botón «Cue» (estadoBotonCue) y la nota del límite de V1 (sin fuente de cue en pausa).
-  const botonCue = estadoBotonCue(cueEstado);
-  const notaCue = textoNotaCue({ activo: cueActivo, cargado, sonando });
+  // Sub-paso e3b: el botón «Cue» (estadoBotonCue) y la nota del límite de V1 (sin fuente de cue en pausa). e4b: con el
+  // botón deshabilitado, el motivo en lugar de la nota (una sola línea bajo los controles).
+  const botonCue = estadoBotonCue(cueEstado, cueFalta);
+  const notaCue = botonCue.habilitado ? textoNotaCue({ activo: cueActivo, cargado, sonando }) : null;
+  const idMotivo = `dj-deck-cue-motivo-${lado}`;
 
   return (
     <section className={`dj-deck dj-deck--${lado.toLowerCase()}`} data-lado={lado} data-estado={dataEstado} data-cue={cueActivo ? '1' : '0'} aria-label={`Deck ${lado}`}>
@@ -374,6 +380,7 @@ function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar, cueActivo,
           Al inicio
         </button>
         <button type="button" className="dj-btn dj-cue-btn" aria-pressed={cueActivo} disabled={!botonCue.habilitado}
+          aria-describedby={botonCue.motivo ? idMotivo : undefined}
           aria-label={`Cue del deck ${lado}`} title={botonCue.titulo ?? `Preescuchar el deck ${lado} en los audífonos`}
           onClick={() => onCue(lado)}>
           Cue
@@ -381,6 +388,7 @@ function Deck({ lado, deck, estado, ui, vistas, onCargar, onCancelar, cueActivo,
         <span className="dj-deck-estado">{textoEstado}</span>
       </div>
       {notaCue && <p className="dj-deck-cue-nota" role="status">{notaCue}</p>}
+      {botonCue.motivo && <p className="dj-deck-cue-motivo" id={idMotivo}>{botonCue.motivo}</p>}
 
       {registro && (
         <p className="dj-deck-registro"

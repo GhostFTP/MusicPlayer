@@ -22,7 +22,8 @@ const { recortarDesfase, volumenCue, offsetRelojes, planCue, filtrarSalidas, hay
   nombresVisibles, decidirEleccion, textoListaSalidas, textoEstadoCue,
   textoCuesActivos, estadoBotonCue, textoNotaCue, textoDesfase, crearDiferido, buscarVuelta, pistaMezcladora,
   CLAVE_CUE, TOPE_SALIDAS, crearAlmacen, leerCueGuardado, serializarCue, cueVacio, recordarActual, olvidarActual, recordarDesfase, migrarId,
-  desfaseGuardado, decidirRestauracion, decidirVuelta } = await desde('music-client/src/dj/motor/cue.js');
+  desfaseGuardado, decidirRestauracion, decidirVuelta,
+  MOTIVO_CUE_SIN_SALIDA, MOTIVO_CUE_ERROR, motivoCueAusente, desfaseAlUsar } = await desde('music-client/src/dj/motor/cue.js');
 const { crearListaSalidas } = await desde('music-client/src/dj/motor/salidas.js');
 
 const R = {};
@@ -1737,7 +1738,7 @@ const motorFalso = (log = []) => ({
   const est = [textoEstadoCue('sin-salida', '', '1-2', false), textoEstadoCue('abriendo', 'Línea (2- DDJ-400)', '3-4', true), textoEstadoCue('lista', 'Línea (2- DDJ-400)', '3-4', true),
     textoEstadoCue('lista', 'Headphones', '1-2', false), textoEstadoCue('error', 'Headphones', '1-2', false), textoEstadoCue('otro', 'x', '1-2', true)];
   ok('cue_texto_estado_cue', JSON.stringify(est) === JSON.stringify(['Sin salida de audífonos.', 'Abriendo «Línea (2- DDJ-400)»…', 'Listo: «Línea (2- DDJ-400)» · canales 3-4.',
-    '«Headphones» · canales 1-2. Se abre al activar un cue.', null, null]), { est });
+    '«Headphones» · canales 1-2. Se abre al cargar una pista o al activar un cue.', null, null]), { est });
 }
 
 // ── cue.js (sub-paso e3b): botones Cue, volumen y desfase; la vuelta de una salida y la pista DDJ ──
@@ -1748,12 +1749,37 @@ const motorFalso = (log = []) => ({
   const est = [textoEstadoCue('lista', 'Línea (2- DDJ-400)', '3-4', true, { A: true, B: true }), textoEstadoCue('lista', 'Headphones', '1-2', false, { A: false, B: true }),
     textoEstadoCue('lista', 'Headphones', '1-2', true, { A: false, B: false }), textoEstadoCue('abriendo', 'Headphones', '1-2', true, { A: true, B: false })];
   ok('cue_texto_cues_activos_y_estado', JSON.stringify(act) === JSON.stringify(['cue A', 'cue B', 'cue A y B', '', '', ''])
-    && JSON.stringify(est) === JSON.stringify(['Listo: «Línea (2- DDJ-400)» · canales 3-4 · cue A y B.', '«Headphones» · canales 1-2 · cue B. Se abre al activar un cue.',
+    && JSON.stringify(est) === JSON.stringify(['Listo: «Línea (2- DDJ-400)» · canales 3-4 · cue A y B.', '«Headphones» · canales 1-2 · cue B. Se abre al cargar una pista o al activar un cue.',
       'Listo: «Headphones» · canales 1-2.', 'Abriendo «Headphones»…']), { act, est });
   const SIN = 'Elige la salida de audífonos en «Audífonos (cue)»', ERR = 'La salida falló: quítala o elige otra';
+  // e4b: cada estado lleva además su `motivo` (el renglón visible); null con el botón habilitado.
+  const M_SIN = 'Para usar Cue, elige una salida de audífonos abajo, en «Audífonos (cue)».', M_ERR = 'Cue no disponible: la salida de audífonos falló. Quítala o elige otra.';
   const bot = ['sin-salida', 'abriendo', 'lista', 'error', null, 'otro'].map((e) => estadoBotonCue(e));
-  ok('cue_boton_cue_estados', JSON.stringify(bot) === JSON.stringify([{ habilitado: false, titulo: SIN }, { habilitado: true, titulo: null }, { habilitado: true, titulo: null },
-    { habilitado: false, titulo: ERR }, { habilitado: false, titulo: SIN }, { habilitado: false, titulo: SIN }]), { bot });
+  ok('cue_boton_cue_estados', JSON.stringify(bot) === JSON.stringify([{ habilitado: false, titulo: SIN, motivo: M_SIN }, { habilitado: true, titulo: null, motivo: null },
+    { habilitado: true, titulo: null, motivo: null }, { habilitado: false, titulo: ERR, motivo: M_ERR }, { habilitado: false, titulo: SIN, motivo: M_SIN },
+    { habilitado: false, titulo: SIN, motivo: M_SIN }]), { bot });
+  // e4b: el motivo en los TRES casos (sin salida, error, la que falta) con los textos escritos acá; `ausente` gana sobre
+  // 'sin-salida' y 'error' pero nunca deshabilita un botón habilitado; un ausente vacío o que no es texto no cuenta.
+  {
+    const W = 'Headphones (Elgato Wave:XLR)', M_AUS = `Cue no disponible: conecta «${W}» o elige otra salida.`;
+    const casos = [['sin-salida', null], ['error', null], ['sin-salida', W], ['error', W], ['lista', W], ['abriendo', W], ['sin-salida', ''], ['sin-salida', '  '], ['error', 7], [null, W]];
+    const r = casos.map(([e, a]) => estadoBotonCue(e, a));
+    const esp = [{ h: false, m: M_SIN }, { h: false, m: M_ERR }, { h: false, m: M_AUS }, { h: false, m: M_AUS }, { h: true, m: null }, { h: true, m: null },
+      { h: false, m: M_SIN }, { h: false, m: M_SIN }, { h: false, m: M_ERR }, { h: false, m: M_AUS }];
+    ok('cue_e4b_motivo_boton_cue', r.every((x, i) => x.habilitado === esp[i].h && x.motivo === esp[i].m && (x.habilitado ? x.titulo === null : !!x.titulo))
+      && MOTIVO_CUE_SIN_SALIDA === M_SIN && MOTIVO_CUE_ERROR === M_ERR && motivoCueAusente(W) === M_AUS && r[2].titulo === M_AUS && r[1].titulo === ERR,
+    { r: r.map((x) => [x.habilitado, x.motivo]) });
+  }
+  // e4b: el desfase al «Usar» (desfaseAlUsar): el guardado de ESA salida (por id; si no, por nombre crudo único) si es
+  // otro que el actual; sin guardado, el mismo o basura → null (el actual queda: nunca 0 por no tener).
+  {
+    const g = { actual: null, salidas: [{ id: 'w', nombre: 'Wave', desfaseMs: 23, usada: 2 }, { id: 'h1', nombre: 'Headphones', desfaseMs: -5, usada: 1 },
+      { id: 'h2', nombre: 'Headphones', desfaseMs: 9, usada: 1 }, { id: 'z', nombre: 'Cero', desfaseMs: 0, usada: 1 }] };
+    const r = [desfaseAlUsar(g, { id: 'w', nombre: 'Wave' }, 0), desfaseAlUsar(g, { id: 'w', nombre: 'Wave' }, 23), desfaseAlUsar(g, { id: 'otro', nombre: 'Wave' }, 4),
+      desfaseAlUsar(g, { id: 'nuevo', nombre: 'Nueva' }, 17), desfaseAlUsar(g, { id: 'h9', nombre: 'Headphones' }, 17), desfaseAlUsar(g, { id: 'h2', nombre: 'Headphones' }, 17),
+      desfaseAlUsar(g, { id: 'z', nombre: 'Cero' }, 40), desfaseAlUsar(null, { id: 'w', nombre: 'Wave' }, 3), desfaseAlUsar(g, null, 3), desfaseAlUsar(cueVacio(), { id: 'w', nombre: 'Wave' }, -8)];
+    ok('cue_e4b_desfase_al_usar', JSON.stringify(r) === JSON.stringify([23, null, 23, null, null, 9, 0, null, null, null]), { r });
+  }
   const VACIO = 'Cue activo: carga una canción y dale play para oírla en los audífonos.';
   const PAUSA = 'Cue activo: dale play para preescuchar. En esta versión el cue no suena en pausa: baja el volumen del deck o el crossfader para que no salga por el master.';
   const notas = [textoNotaCue({ activo: true, cargado: false, sonando: false }), textoNotaCue({ activo: true, cargado: true, sonando: false }),

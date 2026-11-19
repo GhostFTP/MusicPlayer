@@ -18,6 +18,8 @@
 //     desfaseGuardado, decidirRestauracion, decidirVuelta: recordar el cue entre recargas (sub-paso e4a). El
 //     almacén recibe una función que DEVUELVE el storage (la página pasa () => window.localStorage): así
 //     también el acceso a window.localStorage, que puede lanzar, queda dentro del try.
+//   · estadoBotonCue con su `motivo` (el renglón visible bajo cada deck) y desfaseAlUsar (el desfase guardado de la
+//     salida que se elige con «Usar»): sub-paso e4b.
 
 import { gananciaVolumen } from './mezcla.js';
 
@@ -232,7 +234,8 @@ export function textoListaSalidas(estado, nombreError) {
 }
 
 // La línea de estado del cue (motor.cue()). `conContexto`: si el motor ya abrió el contexto de cue
-// (motor.contextoCue()); 'lista' sin contexto = elegida, se abre al activar un cue. 'error' → null: el
+// (motor.contextoCue()); 'lista' sin contexto = elegida, se abre al cargar una pista o al activar un cue (e4b: el
+// texto; desde e4a también la abre el primer «Cargar»). 'error' → null: el
 // aviso del motor se muestra aparte, tal cual. Estado desconocido → null.
 // e3b: `activo` ({ A, B } de motor.cue()) suma los cues activos a la línea de 'lista' («· cue A y B»); sin
 // ninguno (o sin `activo`), el texto es el de e3a.
@@ -244,7 +247,7 @@ export function textoEstadoCue(estado, nombre, canales, conContexto, activo) {
   switch (estado) {
     case 'sin-salida': return 'Sin salida de audífonos.';
     case 'abriendo': return `Abriendo ${q}…`;
-    case 'lista': return conContexto ? `Listo: ${q} · ${c}${cues}.` : `${q} · ${c}${cues}. Se abre al activar un cue.`;
+    case 'lista': return conContexto ? `Listo: ${q} · ${c}${cues}.` : `${q} · ${c}${cues}. Se abre al cargar una pista o al activar un cue.`;
     default: return null;
   }
 }
@@ -262,12 +265,21 @@ export function textoCuesActivos(activo) {
 // (en 'abriendo' el motor guarda el pedido y lo aplica al quedar lista). Sin salida o en 'error' (el motor
 // reintentaría abrir la salida sin avisar: el reintento es con «Usar»), deshabilitado con su explicación.
 // Lo demás (sin motor, estado desconocido) → deshabilitado como sin salida.
+// e4b: `motivo`, el renglón VISIBLE bajo los controles del deck (unido al botón con aria-describedby); null con el
+// botón habilitado. `ausente` (2.º argumento): el nombre VISIBLE de la salida que la página sabe que falta (la
+// guardada que no está al abrir /dj o la recién desconectada, que quedan esperando su vuelta); el motor no lo sabe:
+// tras una desconexión queda 'sin-salida', o en 'error' si ya había fallado. Con `ausente` (string no vacío) y el
+// botón deshabilitado, gana sobre 'error' y 'sin-salida': lo útil es decir QUÉ conectar.
 export const TITULO_CUE_SIN_SALIDA = 'Elige la salida de audífonos en «Audífonos (cue)»';
 export const TITULO_CUE_ERROR = 'La salida falló: quítala o elige otra';
-export function estadoBotonCue(estado) {
-  if (estado === 'abriendo' || estado === 'lista') return { habilitado: true, titulo: null };
-  if (estado === 'error') return { habilitado: false, titulo: TITULO_CUE_ERROR };
-  return { habilitado: false, titulo: TITULO_CUE_SIN_SALIDA };
+export const MOTIVO_CUE_SIN_SALIDA = 'Para usar Cue, elige una salida de audífonos abajo, en «Audífonos (cue)».';
+export const MOTIVO_CUE_ERROR = 'Cue no disponible: la salida de audífonos falló. Quítala o elige otra.';
+export const motivoCueAusente = (nombre) => `Cue no disponible: conecta «${texto(nombre)}» o elige otra salida.`;
+export function estadoBotonCue(estado, ausente) {
+  if (estado === 'abriendo' || estado === 'lista') return { habilitado: true, titulo: null, motivo: null };
+  if (texto(ausente)) { const m = motivoCueAusente(ausente); return { habilitado: false, titulo: m, motivo: m }; }
+  if (estado === 'error') return { habilitado: false, titulo: TITULO_CUE_ERROR, motivo: MOTIVO_CUE_ERROR };
+  return { habilitado: false, titulo: TITULO_CUE_SIN_SALIDA, motivo: MOTIVO_CUE_SIN_SALIDA };
 }
 
 // La nota bajo los controles de un deck con su cue activo: en V1 el cue sólo suena con el deck sonando (sin
@@ -460,6 +472,17 @@ export function desfaseGuardado(g, salida) {
   const n = texto(salida.nombre);
   const porNombre = n ? lista.filter((x) => x.nombre === n) : [];
   return porNombre.length === 1 ? porNombre[0].desfaseMs : null;
+}
+
+// e4b: el desfase a aplicar al elegir `salida` ({ id, nombre crudo }) con «Usar»: el guardado de esa salida
+// (desfaseGuardado) si existe y es distinto del `actualMs` del motor; si no hay guardado (o es el mismo), null = dejar
+// el actual tal cual (NUNCA se pone 0 por no tener guardado). → número recortado o null.
+export function desfaseAlUsar(g, salida, actualMs) {
+  const d = desfaseGuardado(g, salida);
+  if (d === null || d === undefined) return null;
+  const r = recortarDesfase(d);
+  if (r === null) return null;
+  return r === recortarDesfase(actualMs) ? null : r;
 }
 
 // QUÉ HACER AL ABRIR /dj con lo guardado. `estadoLista`: el de salidas.js; sólo con la lista leída ('lista' o

@@ -6338,7 +6338,7 @@ input[type="range"]:active::-webkit-slider-thumb { opacity: 1; }
    borde y texto accent. Inactivo, el .dj-btn de siempre; deshabilitado, su opacity. La nota del límite de V1
    va con el gris del registro. Sin colores nuevos ni animación. */
 .dj-cue-btn[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-.dj-deck-cue-nota { margin: 0; color: var(--text-muted); font-size: 12px; }
+.dj-deck-cue-nota, .dj-deck-cue-motivo { margin: 0; color: var(--text-muted); font-size: 12px; }
 .dj-deck-aviso, .dj-cue-aviso {
   padding: 10px 12px;
   border-radius: 10px;
