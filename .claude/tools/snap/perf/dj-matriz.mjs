@@ -4,11 +4,47 @@
 //   SNAP_BASE=http://localhost:4173 node dj-matriz.mjs        (lo normal: por el runner, con su baseline aparte)
 //   node regresion.mjs --baseline baseline-dj-matriz.json      (build + servidores aislados + esta matriz)
 //
-// LAS DOS MÉTRICAS (las de h5a, sin cambios; solapes, texto cortado, alto y objetivos táctiles son de h5c):
+// MÉTRICAS, cada una un caso por celda (estado × ventana que cuenta). Las de h5a, sin cambios:
 //   · sin_scroll_horizontal: .main-content y document.scrollingElement con scrollWidth ≤ clientWidth.
 //   · nada_fuera_del_area: todo descendiente de .dj-page con caja de ancho > 0 queda entre el borde izquierdo y el
 //     derecho del CONTENIDO de .main-content (sin su padding), con 0,5 px de margen (generaliza dj-func.mjs:1521–1523
 //     a los dos lados). Se nombran las clases de los que se salen (las 8 primeras, como ce12).
+// Las de h5c (sólo escritorio con ratón; la tablet es h5d). «Visible» = checkVisibility (sin display:none propio ni de
+// un ancestro), visibility 'visible' y caja de ancho y alto > 0:
+//   · sin_solapes: en CADA elemento de .dj-page (y .dj-page misma) con dos o más hijos visibles, ningún par de hermanos se
+//     intersecta en más de 0,5 px de ancho Y de alto; se reporta el par de clases, los px y el contenedor. Contenedores de
+//     filas que hay en /dj (leídos en DjPage.jsx, CueDj.jsx, ControlDj.jsx y main.css:6252–6470; todos se revisan solos,
+//     porque se recorren TODOS): .dj-page, .section-header › .lib-heading › .lib-headtext, .dj-decks, .dj-deck y sus hijos
+//     .dj-deck-cabeza (lado, pista, chip), .dj-deck-pista (título, artista), .dj-deck-tiempos, .dj-deck-controles
+//     (Play, Al inicio, Cue, estado), .dj-deck-aviso y .dj-deck-aviso-acciones; .dj-mezcla, .dj-mezcla-cabeza, .dj-midi,
+//     .dj-mezcla-controles, .dj-control / .dj-cue-control, .dj-control-cabeza, .dj-control-extremos; .dj-cue,
+//     .dj-cue-cabeza, .dj-cue-fila, .dj-cue-canales (leyenda flotante y las dos etiquetas), .dj-cue-ajustes,
+//     .dj-cue-desfase-caja, .dj-cue-pasos, .dj-cue-aviso; .dj-biblioteca, .dj-lista (filas y espaciadoras), .dj-fila,
+//     .dj-fila-texto y el QualityChip. EXCLUSIONES, cada una con su motivo:
+//       1. el CONTENIDO de un control (button, select, option, a, [role=button], input): el texto y los íconos de un
+//          botón forman UN objetivo y se superponen a propósito; las <option> no se pintan en la página.
+//       2. los hijos con position absolute o fixed: son capas que se apoyan encima a propósito (no participan del flujo).
+//       3. los pulgares de los range: viven en el shadow DOM del <input> y no son hijos de nadie (no se recorren).
+//       4. lo no visible (arriba): no puede tapar a nadie.
+//   · sin_texto_cortado: cada elemento visible de .dj-page con overflow ≠ visible cuyo contenido no entra
+//     (scrollWidth > clientWidth + 1 o scrollHeight > clientHeight + 1). FALLA si su text-overflow no es ellipsis
+//     (texto perdido sin aviso); con ellipsis sólo se REGISTRA (conElipsis: clase, texto y px; en V1 se aceptan los
+//     nombres largos con puntos suspensivos). EXCLUSIÓN 5: el eje con overflow auto o scroll (la lista de la biblioteca):
+//     ese contenido se alcanza scrolleando, no se pierde.
+//   · objetivos_24px: todo control visible y HABILITADO (button, select, input que no sea range, a, [role=button]) mide
+//     al menos 24×24 px (WCAG 2.2, 2.5.8). Red: los medidos (por selector) CUADRAN con los contados aparte (recorriendo
+//     todos los elementos por tagName/role) y hay alguno. Los range se miden por su CAJA y sólo van al registro
+//     (rangos < 44 y sus cajas). Registro: cuántos controles miden menos de 44×44 (menos44).
+//   · sin_colapsados: todo control (range incluido, habilitado o no) visible por CSS con caja de menos de 1 px de ancho
+//     o de alto FALLA.
+//   · decks_a_la_vista (sólo ventanas SIN cola y de 768 px de alto o más): la PROMESA literal de main.css:6278–6280,
+//     «La lista de la biblioteca scrollea en su PROPIA caja (.dj-lista-scroll, el scroller de useWindowedRows): los
+//     decks quedan siempre a la vista.» → con el scroll de .main-content arriba, los dos .dj-deck enteros dentro de lo
+//     visible de .main-content. main.css:6435–6437 (el 807) no promete nada visible: es la medida de cs12 (dj-func), que
+//     no se duplica; acá sólo se REGISTRAN el scroll vertical de .main-content (scrollV) y la X fuera de la lista
+//     (la fórmula de medirAlto, dj-func.mjs:1072–1083).
+//   Antes de medir cada celda, el scroll de .main-content se pone arriba (el clic de Playwright al armar el estado lo
+//   puede mover; no cambia nada en horizontal).
 //   Red anti pase en falso, DENTRO de cada métrica: .dj-page existe, se midió al menos un elemento y la medida se
 //   estabilizó. Espera estable: tras cada setViewportSize, dos frames y dos medidas IGUALES seguidas (no un sleep).
 //
@@ -48,7 +84,12 @@
 //
 // CONOCIDOS (abajo): los fallos REALES del estado limpio, cada uno con su hallazgo (H1, H2…). Un caso que falla y está
 // ahí se imprime CONOCIDO y cuenta como pasado; uno que falla y no está, FALLA; un CONOCIDO que ahora pasa se imprime
-// ARREGLADO y FALLA (así la línea n/m obliga a quitarlo a mano de la lista, en el mismo commit que lo arregló).
+// ARREGLADO y FALLA (así la línea n/m obliga a quitarlo a mano de la lista, en el mismo commit que lo arregló). Una entrada
+// cuyo caso no existe FALLA como conocido_sin_caso_<clave>. Desde h5c una entrada puede llevar `evidencia` (sólo esa
+// evidencia es conocida: si el caso falla con algo más, FALLA) y abarcar varios estados y ventanas (ver CONOCIDOS).
+// DJ_MATRIZ_CONOCIDOS=<arreglo JSON> (h5c, para PROBAR el mecanismo): entradas que se SUMAN a CONOCIDOS sólo en esa
+// corrida; se lee únicamente si la variable está puesta (sin ella, nada cambia). mutar.mjs y regresion.mjs pasan su
+// entorno a los hijos (mutar.mjs:74, regresion.mjs:341), así que llega puesta desde `DJ_MATRIZ_CONOCIDOS=… node mutar.mjs`.
 //
 // Los falsos (AudioContext/setSinkId, MIDI mínimo, mediaDevices) son una COPIA de dj-func: dj-falsos.mjs.
 // Salida: el tablero estado × ventana, el detalle de lo que no pasa, el registro, y la línea «dj-matriz: n/m» (modo
@@ -63,8 +104,25 @@ const SIN_COLA = [[900, 800], [1024, 768], [1280, 800], [1366, 768], [1440, 900]
 const CON_COLA = [[1280, 800], [1366, 768], [1440, 900], [1920, 1080]];
 const CON_COLA_REG = [[900, 800], [1024, 768]];
 
-// { estado, ventana ('1280x800' o 'cola_1280x800'), metrica ('sin_scroll_horizontal' | 'nada_fuera_del_area'), id, motivo }
-const CONOCIDOS = [];
+// { estado, ventana, metrica, id, motivo [, evidencia] }. estado: 'e2' o un arreglo; ventana: '1280x800', 'cola_1280x800', un
+// arreglo o '*' (las 10 que cuentan); metrica: uno de los sufijos de METRICAS. Cada entrada se EXPANDE a sus casos.
+// Con `evidencia` (h5c: un arreglo de textos EXACTOS de la evidencia del caso, p. ej. 'INPUT[radio] [13×13]'), el caso
+// sale CONOCIDO sólo si falla y TODA su evidencia está en esa lista: si aparece algo más (otro control chico, otro
+// solape), FALLA igual. Sin `evidencia`, el caso entero (como en h5b). Así un hallazgo conocido no tapa uno nuevo.
+const CONOCIDOS = [
+  { estado: ['e2', 'e3', 'e4', 'e5', 'e8', 'e9', 'e10'], ventana: '*', metrica: 'objetivos_24px', id: 'H1', evidencia: ['INPUT[radio] [13×13]'],
+    motivo: 'los dos botones de opción de «Canales» (.dj-cue-canales input[type=radio], 1-2 y 3-4) miden 13×13 px: el tamaño del navegador, main.css no les da ninguno; su <label class="dj-cue-canal"> también los marca' },
+];
+// DJ_MATRIZ_CONOCIDOS (h5c): un arreglo JSON de entradas con el MISMO formato, que se SUMAN a CONOCIDOS sólo en esa
+// corrida (para probar CONOCIDO/ARREGLADO sin editar la lista). Sólo se lee si la variable está puesta; sin ella, nada
+// cambia. Si no es un arreglo JSON, el script corta antes de abrir el navegador (sin línea n/m: el runner lo ve).
+const CONOCIDOS_ENV = (() => {
+  const t = process.env.DJ_MATRIZ_CONOCIDOS;
+  if (t === undefined) return [];
+  const v = JSON.parse(t);
+  if (!Array.isArray(v)) throw new Error('DJ_MATRIZ_CONOCIDOS tiene que ser un arreglo JSON');
+  return v;
+})();
 
 const R = {};
 const REG = { celdas: {}, cola_registro: {} };   // lo que sólo se registra (no cuenta en el n/m)
@@ -109,9 +167,79 @@ const medir = () => {
     if (q.left < izq - 0.5 || q.right > der + 0.5) fuera.push(`${nombre(e)} [${Math.round(q.left)}–${Math.round(q.right)}]`);
   }
   const d = document.scrollingElement;
+  const px = (v) => Math.round(v * 10) / 10;
+
+  // h5c · visible = checkVisibility (sin display:none propio ni de un ancestro), visibility 'visible' y caja de ancho y
+  // alto > 0. `visCss` es lo mismo SIN mirar la caja (para la red de colapsados).
+  const visCss = (e) => e.checkVisibility({ checkVisibilityCSS: true }) && getComputedStyle(e).visibility === 'visible';
+  const vis = (e) => { if (!visCss(e)) return false; const q = e.getBoundingClientRect(); return q.width > 0 && q.height > 0; };
+  const todos = [pg, ...pg.querySelectorAll('*')];
+  // Exclusión 1 de los solapes: dentro de un control no se buscan solapes (ver la cabecera). Dentro de medir: corre en la página.
+  const EXCL_CONTENEDOR = 'button, select, option, a, [role="button"], input';
+
+  // (A) SOLAPES entre hermanos visibles de cada contenedor (ver la cabecera: contenedores y exclusiones).
+  const solapes = [];
+  let contenedores = 0;
+  for (const c of todos) {
+    if (c.matches(EXCL_CONTENEDOR)) continue;   // exclusión 1: el contenido de un control (texto e íconos de un botón…)
+    const hijos = [...c.children].filter((h) => vis(h) && !['absolute', 'fixed'].includes(getComputedStyle(h).position));   // exclusión 2
+    if (hijos.length < 2) continue;
+    contenedores++;
+    const cajas = hijos.map((h) => h.getBoundingClientRect());
+    for (let i = 0; i < hijos.length; i++) for (let j = i + 1; j < hijos.length; j++) {
+      const a = cajas[i], b = cajas[j];
+      const iw = Math.min(a.right, b.right) - Math.max(a.left, b.left), ih = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      if (iw > 0.5 && ih > 0.5) solapes.push(`${nombre(hijos[i])} × ${nombre(hijos[j])} [${px(iw)}×${px(ih)} px] en ${nombre(c)}`);
+    }
+  }
+
+  // (B) TEXTO CORTADO: overflow ≠ visible y contenido mayor que la caja (+1 px). El eje que SCROLLEA (auto/scroll) se
+  // excluye: ese contenido se alcanza scrolleando, no se pierde (exclusión 3, la lista de la biblioteca).
+  const cortados = [], conElipsis = [];
+  for (const e of todos) {
+    const cs = getComputedStyle(e);
+    if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+    if (!vis(e)) continue;
+    const scrollea = (o) => o === 'auto' || o === 'scroll';
+    const h = e.scrollWidth > e.clientWidth + 1 && !scrollea(cs.overflowX), v = e.scrollHeight > e.clientHeight + 1 && !scrollea(cs.overflowY);
+    if (!h && !v) continue;
+    const dato = `${nombre(e)} «${(e.textContent ?? '').trim().slice(0, 48)}» [${h ? `ancho ${e.scrollWidth}>${e.clientWidth}` : ''}${h && v ? ' · ' : ''}${v ? `alto ${e.scrollHeight}>${e.clientHeight}` : ''}]`;
+    (cs.textOverflow === 'ellipsis' ? conElipsis : cortados).push(dato);
+  }
+
+  // (C) OBJETIVOS: los controles visibles y habilitados (no range) por un selector, y CONTADOS APARTE recorriendo todos
+  // los elementos por tagName/role (la red: si uno de los dos caminos se salta controles, no cuadran).
+  const SEL_CTRL = 'button, select, input:not([type="range"]), a, [role="button"]';
+  const habil = (e) => vis(e) && !e.matches(':disabled');
+  const medidosCtrl = [...pg.querySelectorAll(SEL_CTRL)].filter(habil);
+  const esCtrl = (e) => ['BUTTON', 'SELECT', 'A'].includes(e.tagName) || (e.tagName === 'INPUT' && e.type !== 'range') || e.getAttribute('role') === 'button';
+  const contados = todos.filter((e) => esCtrl(e) && habil(e)).length;
+  const caja = (e) => { const q = e.getBoundingClientRect(); return [px(q.width), px(q.height)]; };
+  const chicos = medidosCtrl.filter((e) => { const [w, h] = caja(e); return w < 24 || h < 24; })
+    .map((e) => `${nombre(e)}${e.type && e.tagName === 'INPUT' ? `[${e.type}]` : ''} [${caja(e).join('×')}]`);
+  const menos44 = medidosCtrl.filter((e) => { const [w, h] = caja(e); return w < 44 || h < 44; }).length;
+  const rangos = [...pg.querySelectorAll('input[type="range"]')].filter(vis);
+  const rangosMenos44 = rangos.filter((e) => { const [w, h] = caja(e); return w < 44 || h < 44; }).length;
+  const altoRango = rangos.length ? Math.min(...rangos.map((e) => caja(e)[1])) : null;
+  const cajasRango = [...new Set(rangos.map((e) => `${nombre(e)} ${caja(e).join('×')}`))];
+  const etiquetasCanales = [...new Set([...pg.querySelectorAll('label.dj-cue-canal')].filter(vis).map((e) => caja(e).join('×')))];   // para H1
+  // Red de colapsados: TODO control (range incluido, habilitado o no) visible por CSS con caja < 1 px de ancho o de alto.
+  const colapsados = [...pg.querySelectorAll('button, select, input, a, [role="button"]')].filter((e) => visCss(e) && (() => { const [w, h] = caja(e); return w < 1 || h < 1; })())
+    .map((e) => `${nombre(e)} [${caja(e).join('×')}]`);
+
+  // (D) ALTO, con el scroll de .main-content arriba (la matriz nunca lo mueve): scroll vertical, X fuera de la lista
+  // (la fórmula de medirAlto, dj-func.mjs:1072–1083) y los decks enteros dentro de lo visible de .main-content.
+  const lista = document.querySelector('.dj-lista-scroll')?.getBoundingClientRect().height ?? null;
+  const vTop = r.top + sc.clientTop, vBot = vTop + sc.clientHeight;
+  const decks = [...pg.querySelectorAll('.dj-deck')].map((e) => { const q = e.getBoundingClientRect(); return { top: Math.round(q.top - vTop), bottom: Math.round(q.bottom - vTop), dentro: q.top >= vTop - 0.5 && q.bottom <= vBot + 0.5 }; });
+
   return {
     pagina: true, vw: innerWidth, vh: innerHeight, area: [Math.round(izq), Math.round(der)], medidos, nFuera: fuera.length, fuera: fuera.slice(0, 8),
     main: { sw: sc.scrollWidth, cw: sc.clientWidth }, doc: { sw: d.scrollWidth, cw: d.clientWidth },
+    contenedores, solapes,
+    cortados, conElipsis,
+    ctrl: { medidos: medidosCtrl.length, contados, chicos, menos44, rangos: rangos.length, rangosMenos44, altoRango, cajasRango, etiquetasCanales }, colapsados,
+    alto: { scrollTop: sc.scrollTop, scrollV: sc.scrollHeight - sc.clientHeight, visible: sc.clientHeight, X: lista === null ? null : Math.round(innerHeight - sc.clientHeight + (sc.scrollHeight - lista)), decks },
   };
 };
 
@@ -225,15 +353,38 @@ const ESTADOS = [
 // Una celda: la medida estable y los dos casos (o sólo el registro).
 async function celda(e, w, h, cola, cuenta) {
   await p.setViewportSize({ width: w, height: h });
+  // h5c: el scroll de .main-content ARRIBA (la promesa de (D) es «con el scroll arriba»; el clic de Playwright en una fila
+  // o en un botón lo puede haber movido al armar el estado). No cambia nada en horizontal.
+  await p.evaluate(() => { const sc = document.querySelector('.main-content'); if (sc) sc.scrollTop = 0; });
   const { m, intentos, inestable } = await medirEstable(p);
   const v = `${cola ? 'cola_' : ''}${w}x${h}`;
   const medido = !!m && m.pagina === true && m.medidos > 0 && !inestable;
   const red = { medidos: m?.medidos ?? null, intentos, inestable: !!inestable };
-  if (!cuenta) { REG.cola_registro[e][v] = { ...red, area: m?.area ?? null, main: m?.main ?? null, nFuera: m?.nFuera ?? null, fuera: m?.fuera?.slice(0, 4) ?? null }; return; }
-  REG.celdas[e][v] = [intentos, m?.medidos ?? null];
+  // h5c: lo que sólo se registra en cada celda (también en las de la cola a 900 y 1024).
+  const reg5c = m?.pagina ? { contenedores: m.contenedores, conElipsis: m.conElipsis, menos44: `${m.ctrl.menos44}/${m.ctrl.medidos}`, rangos: `${m.ctrl.rangosMenos44}/${m.ctrl.rangos}`, cajasRango: m.ctrl.cajasRango, etiquetasCanales: m.ctrl.etiquetasCanales,
+    scrollV: m.alto.scrollV, X: m.alto.X, decks: m.alto.decks.map((d) => `${d.top}–${d.bottom}`).join(' ') } : null;
+  if (!cuenta) {
+    REG.cola_registro[e][v] = { ...red, area: m?.area ?? null, main: m?.main ?? null, nFuera: m?.nFuera ?? null, fuera: m?.fuera?.slice(0, 4) ?? null,
+      solapes: m?.solapes?.slice(0, 4) ?? null, cortados: m?.cortados?.slice(0, 4) ?? null, chicos: m?.ctrl?.chicos.slice(0, 4) ?? null, colapsados: m?.colapsados ?? null, ...reg5c };
+    return;
+  }
+  REG.celdas[e][v] = { i: intentos, medidos: m?.medidos ?? null, ...reg5c };
   ok(`${e}_${v}_sin_scroll_horizontal`, medido && m.main.sw <= m.main.cw && m.doc.sw <= m.doc.cw, { ...red, main: m?.main ?? null, doc: m?.doc ?? null });
   ok(`${e}_${v}_nada_fuera_del_area`, medido && m.nFuera === 0, { ...red, area: m?.area ?? null, nFuera: m?.nFuera ?? null, fuera: m?.fuera ?? null });
+  // `evid` (h5c): TODA la evidencia del caso, para los CONOCIDOS con `evidencia` (ver CONOCIDOS).
+  // h5c (A–C). La red de cada una: la medida estable de la página, y además, en (A) al menos un contenedor revisado y en
+  // (C) que los controles medidos CUADREN con los contados aparte (y que haya alguno).
+  ok(`${e}_${v}_sin_solapes`, medido && m.contenedores > 0 && m.solapes.length === 0, { ...red, contenedores: m?.contenedores ?? null, solapes: m?.solapes?.slice(0, 8) ?? null, nSolapes: m?.solapes?.length ?? null, evid: m?.solapes ?? null });
+  ok(`${e}_${v}_sin_texto_cortado`, medido && m.cortados.length === 0, { ...red, cortados: m?.cortados?.slice(0, 8) ?? null, nCortados: m?.cortados?.length ?? null, evid: m?.cortados ?? null });
+  ok(`${e}_${v}_objetivos_24px`, medido && m.ctrl.medidos > 0 && m.ctrl.medidos === m.ctrl.contados && m.ctrl.chicos.length === 0,
+    { ...red, medidosCtrl: m?.ctrl?.medidos ?? null, contados: m?.ctrl?.contados ?? null, chicos: m?.ctrl?.chicos?.slice(0, 8) ?? null, nChicos: m?.ctrl?.chicos?.length ?? null, evid: m && m.ctrl && m.ctrl.medidos > 0 && m.ctrl.medidos === m.ctrl.contados ? m.ctrl.chicos : null });
+  ok(`${e}_${v}_sin_colapsados`, medido && m.colapsados.length === 0, { ...red, colapsados: m?.colapsados ?? null, evid: m?.colapsados ?? null });
+  // (D) La promesa de main.css:6278–6280 («los decks quedan siempre a la vista»): sólo sin cola y con 768 px de alto o más.
+  if (!cola && h >= 768) ok(`${e}_${v}_decks_a_la_vista`, medido && m.alto.scrollTop === 0 && m.alto.decks.length === 2 && m.alto.decks.every((d) => d.dentro),
+    { ...red, scrollTop: m?.alto?.scrollTop ?? null, visible: m?.alto?.visible ?? null, decks: m?.alto?.decks ?? null });
 }
+const METRICAS = ['sin_scroll_horizontal', 'nada_fuera_del_area', 'sin_solapes', 'sin_texto_cortado', 'objetivos_24px', 'sin_colapsados', 'decks_a_la_vista'];
+const LETRA = { sin_scroll_horizontal: 'S', nada_fuera_del_area: 'F', sin_solapes: 'P', sin_texto_cortado: 'T', objetivos_24px: 'O', sin_colapsados: 'C', decks_a_la_vista: 'D' };
 
 try {
   await servirBiblioteca(ctx);
@@ -278,22 +429,32 @@ REG.ms = Date.now() - t0;
 
 // CONOCIDOS → CONOCIDO / ARREGLADO; el resto, PASA o FALLA.
 const pasa = (v) => (typeof v === 'object' ? v.ok : v);
-const clave = (c) => `${c.estado}_${c.ventana}_${c.metrica}`;
-const conocido = new Map(CONOCIDOS.map((c) => [clave(c), c]));
-const estadoDe = (k) => { const c = conocido.get(k); return pasa(R[k]) ? (c ? `ARREGLADO ${c.id}` : 'PASA') : (c ? `CONOCIDO ${c.id}` : 'FALLA'); };
+const VENTANAS_CUENTAN = [...SIN_COLA.map(([w, h]) => `${w}x${h}`), ...CON_COLA.map(([w, h]) => `cola_${w}x${h}`)];
+const comoLista = (x, todo) => (x === '*' ? todo : Array.isArray(x) ? x : [x]);
+const conocido = new Map();
+for (const c of [...CONOCIDOS, ...CONOCIDOS_ENV]) for (const es of comoLista(c.estado, ESTADOS.map((E) => E.e))) for (const v of comoLista(c.ventana, VENTANAS_CUENTAN)) conocido.set(`${es}_${v}_${c.metrica}`, c);
+if (CONOCIDOS_ENV.length) console.log(`DJ_MATRIZ_CONOCIDOS: ${CONOCIDOS_ENV.length} entradas sumadas a CONOCIDOS en esta corrida`);
+const cubre = (c, k) => !c.evidencia || (Array.isArray(R[k]?.evid) && R[k].evid.length > 0 && R[k].evid.every((x) => c.evidencia.includes(x)));
+const estadoDe = (k) => { const c = conocido.get(k); return pasa(R[k]) ? (c ? `ARREGLADO ${c.id}` : 'PASA') : (c && cubre(c, k) ? `CONOCIDO ${c.id}` : 'FALLA'); };
 for (const k of conocido.keys()) if (!(k in R)) ok(`conocido_sin_caso_${k}`, false, { nota: 'entrada de CONOCIDOS sin caso: quitarla o corregirla' });
 const fallan = Object.keys(R).filter((k) => { const s = estadoDe(k); return s === 'FALLA' || s.startsWith('ARREGLADO'); });
 const ESTADO = Object.fromEntries(Object.keys(R).map((k) => [k, estadoDe(k)]));
 
-// El tablero: una fila por estado, una columna por ventana; cada celda junta sus dos métricas (S = scroll, F = fuera).
-const corto = (s) => (s === 'PASA' ? '·' : s === 'FALLA' ? 'X' : s.replace('CONOCIDO ', 'c').replace('ARREGLADO ', 'a!'));
+// El tablero: una fila por estado, una columna por ventana. Celda «·» = todas sus métricas pasan; si no, la letra de cada
+// métrica que no pasa (S scroll · F fuera · P solapes · T texto cortado · O objetivos · C colapsados · D decks a la vista)
+// con X (falla), cHn (conocido) o a!Hn (arreglado). «—» = la celda no se midió.
+const corto = (s) => (s === 'FALLA' ? 'X' : s.replace('CONOCIDO ', 'c').replace('ARREGLADO ', 'a!'));
 const cols = [...SIN_COLA.map(([w, h]) => `${w}x${h}`), ...CON_COLA.map(([w, h]) => `cola_${w}x${h}`)];
 console.log(['estado'.padEnd(6), 'alc', ...cols.map((c) => c.replace('cola_', 'c').padEnd(10))].join(' '));
 for (const E of ESTADOS) {
-  const fila = cols.map((c) => { const s = ESTADO[`${E.e}_${c}_sin_scroll_horizontal`], f = ESTADO[`${E.e}_${c}_nada_fuera_del_area`]; return (s === undefined ? '—' : `S${corto(s)} F${corto(f)}`).padEnd(10); });
-  console.log([E.e.padEnd(6), corto(ESTADO[`${E.e}_alcanzado`] ?? 'FALLA').padEnd(3), ...fila].join(' '));
+  const fila = cols.map((c) => {
+    const est = METRICAS.map((mt) => [mt, ESTADO[`${E.e}_${c}_${mt}`]]).filter(([, s]) => s !== undefined);
+    if (!est.length) return '—'.padEnd(10);
+    const mal = est.filter(([, s]) => s !== 'PASA');
+    return (mal.length ? mal.map(([mt, s]) => LETRA[mt] + corto(s)).join(' ') : '·').padEnd(10);
+  });
+  console.log([E.e.padEnd(6), (ESTADO[`${E.e}_alcanzado`] === 'PASA' ? '·' : 'X').padEnd(3), ...fila].join(' '));
 }
-console.log('(· pasa · X falla · cHn conocido · a!Hn arreglado · — sin medir)');
 const noPasa = Object.keys(R).filter((k) => ESTADO[k] !== 'PASA');
 if (noPasa.length) console.log('\nlo que no pasa:\n' + noPasa.map((k) => `  ${ESTADO[k].padEnd(12)} ${k} ${JSON.stringify(typeof R[k] === 'object' ? { ...R[k], ok: undefined } : R[k])}`).join('\n'));
 console.log('\nregistro (fuera del conteo):', JSON.stringify(REG));
