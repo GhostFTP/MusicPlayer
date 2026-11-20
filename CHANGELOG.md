@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [Sin versión]
+## [1.43.1] - 2026-11-20
 
 ### Corregido
 - **Agregar a una playlist ya no falla en silencio.** Si no se puede agregar una canción desde el
