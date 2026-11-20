@@ -1,11 +1,11 @@
 // mutar.mjs — MUTACIONES DE CONTROL de un sub-paso: aplica cada mutación de un archivo de datos, corre las suites,
 // restaura SIEMPRE y dice qué casos la detectaron. Reemplaza al driver que cada sub-paso armaba a mano en el scratchpad.
 //
-//   node mutar.mjs mutaciones/<sub-paso>.mjs [--ids A,B] [--revisar]
+//   node mutar.mjs mutaciones/<sub-paso>.mjs [--ids A,B] [--revisar] [--suites a,b]
 //   node mutar.mjs --restaurar [--sin-build]
 //
 // ARCHIVO DE MUTACIONES (mutaciones/*.mjs): SÓLO DATOS LITERALES, sin lógica. Exporta
-//   · suites: las suites a correr, de SUITES (hoy 'dj-unit' y 'dj-func').
+//   · suites: las suites a correr, de SUITES ('dj-unit', 'dj-func' y, desde h5a, 'dj-matriz').
 //   · mutaciones: [{ id, que, cambios: [{ archivo, ancla, reemplazo }], esperados? }]
 //     archivo = ruta relativa al repo bajo music-client/src/ (nunca las suites, regresion.mjs ni baseline.json);
 //     ancla = texto que tiene que aparecer EXACTAMENTE UNA vez (contado sobre el texto ya cambiado por los cambios
@@ -36,6 +36,11 @@
 // completa de cada suite.
 // CÓDIGO: 0 bien (avisos incluidos) · 1 alguna SOBREVIVE o NO APLICÓ · 2 no corrió (validación, respaldo, puertos,
 // runner) · 3 el dist quedó sucio o el build final falló · 4 un hash no coincide al restaurar (el respaldo queda) · 130.
+// --suites a,b (h5a): corre ESAS suites en lugar de las que exporta el archivo. Sin la opción, las del archivo, igual
+// que antes. 'dj-matriz' = build + la matriz visual por el runner con su baseline aparte (regresion.mjs --baseline
+// baseline-dj-matriz.json, DJ_MATRIZ_SALIDA para el detalle). Con --suites, o con 'dj-matriz' entre las suites, el
+// estado es GENÉRICO: DETECTADA (la detectaron todas las suites corridas, aunque sea una sola) · SOLO <suites> ·
+// SOBREVIVE · POR EXCEPCIÓN, y la tabla trae una columna por suite corrida. Sin eso, la tabla y los estados de siempre.
 import { spawn, spawnSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { createHash } from 'node:crypto';
@@ -48,7 +53,8 @@ const REPO = resolve(HERE, '..', '..', '..', '..');
 const CARPETA = join(REPO, '.claude', 'tools', 'snap', 'shots', 'mutar');
 const RESPALDO = join(CARPETA, 'respaldo');
 const MANIFIESTO = join(RESPALDO, 'manifiesto.json');
-const SUITES = ['dj-unit', 'dj-func'];
+const SUITES = ['dj-unit', 'dj-func', 'dj-matriz'];
+const CORTO = { 'dj-unit': 'UNIT', 'dj-func': 'FUNC', 'dj-matriz': 'MATRIZ' };
 const PSEUDO = new Set(['excepcion', '(build)', '(timeout)', '(sin resultados)']);
 const T_UNIT = 3 * 60 * 1000, T_RUNNER = 15 * 60 * 1000;
 const WIN = process.platform === 'win32';
@@ -179,6 +185,42 @@ async function correrFunc(dir, id) {
   try { casos = JSON.parse(readFileSync(json, 'utf8')).fallan; } catch { /* sin archivo */ }
   return { casos: Array.isArray(casos) ? casos : ['(sin resultados)'], linea };
 }
+// h5a: la matriz visual, con build, por el runner y su baseline aparte. Mismos controles que correrFunc.
+async function correrMatriz(dir, id) {
+  const json = join(dir, `${id}-dj-matriz.json`);
+  rmSync(json, { force: true });
+  const r = await correr(process.execPath, ['regresion.mjs', '--baseline', join(HERE, 'baseline-dj-matriz.json')], { cwd: HERE, ms: T_RUNNER, env: { DJ_MATRIZ_SALIDA: json } });
+  writeFileSync(join(dir, `${id}-runner-matriz.txt`), r.out);
+  if (/preflight|^base\s+·.*NO CORRIÓ|^servidores\s+·.*NO CORRIÓ/m.test(r.out)) throw new Aborto(`el runner no corrió (preflight, base o servidores): ver ${relRepo(join(dir, `${id}-runner-matriz.txt`))}`);
+  if (r.vencido) return { casos: ['(timeout)'], linea: 'timeout' };
+  if (/^build\s+·.*FALLA/m.test(r.out)) return { casos: ['(build)'], linea: 'build FALLA' };
+  const linea = ((r.out.match(/^dj-matriz\s+·.*$/m) ?? ['dj-matriz ?'])[0]).replace(/\s+/g, ' ').trim();
+  if (!/^dj-matriz\s+·/m.test(r.out)) throw new Aborto(`el runner no dio la fila de dj-matriz: ver ${relRepo(join(dir, `${id}-runner-matriz.txt`))}`);
+  let casos = null;
+  try { casos = JSON.parse(readFileSync(json, 'utf8')).fallan; } catch { /* sin archivo */ }
+  return { casos: Array.isArray(casos) ? casos : ['(sin resultados)'], linea };
+}
+// h5a: el estado GENÉRICO (con --suites o con 'dj-matriz'). Con dj-unit y dj-func da lo mismo que clasificar().
+function clasificarN(m, suites, res) {
+  const todos = suites.map((s) => res[s]?.casos ?? []);
+  const reales = todos.map((c) => c.filter((x) => !PSEUDO.has(x)));
+  const avisos = [];
+  let estado;
+  if (todos.every((c) => !c.length)) estado = 'SOBREVIVE';
+  else if (reales.every((c) => !c.length)) estado = 'POR EXCEPCIÓN';
+  else {
+    const det = suites.filter((s, i) => reales[i].length);
+    estado = det.length === suites.length ? 'DETECTADA' : `SOLO ${det.map((s) => CORTO[s]).join(' + ')}`;
+    if (todos.some((c, i) => c.length && !reales[i].length)) avisos.push('POR EXCEPCIÓN');
+  }
+  let colateral = null;
+  if (m.esperados && estado !== 'SOBREVIVE') {
+    const r = new Set(reales.flat());
+    const deMas = [...r].filter((c) => !m.esperados.includes(c)), faltan = m.esperados.filter((c) => !r.has(c));
+    if (deMas.length || faltan.length) { avisos.push('COLATERAL'); colateral = { deMas, faltan }; }
+  }
+  return { estado, avisos, colateral };
+}
 function clasificar(m, unit, func) {
   const u = unit?.casos ?? [], f = func?.casos ?? [];
   const ru = u.filter((c) => !PSEUDO.has(c)), rf = f.filter((c) => !PSEUDO.has(c));
@@ -241,6 +283,16 @@ function tabla(filas) {
   }
   return t.join('\n');
 }
+// h5a: una columna por suite corrida (con --suites o con 'dj-matriz').
+function tablaN(filas, suites) {
+  const t = [`| Mutación | Qué | ${suites.join(' | ')} | Estado |`, `|---|---|${suites.map(() => '---|').join('')}---|`];
+  for (const f of filas) {
+    const est = [f.estado, ...f.avisos].join(' · ');
+    const nota = f.colateral ? ` (de más: ${lista(f.colateral.deMas)}; no cayó: ${lista(f.colateral.faltan)})` : f.malas ? ` (${f.malas.join('; ')})` : '';
+    t.push(`| ${f.id} | ${f.que.replace(/\|/g, '\\|')} | ${suites.map((s) => lista(f.res?.[s]?.casos)).join(' | ')} | ${est}${nota} |`);
+  }
+  return t.join('\n');
+}
 
 // ── modos ──
 async function modoRestaurar() {
@@ -258,7 +310,12 @@ async function modoRestaurar() {
 }
 
 async function modoMutar(ruta) {
-  const { suites, mutaciones: todas } = await cargar(ruta);
+  const { suites: delArchivo, mutaciones: todas } = await cargar(ruta);
+  // h5a: --suites a,b pisa las del archivo. Sin la opción, `suites` es exactamente la del archivo (como antes).
+  const pedidas = argv.includes('--suites') ? (opcion('--suites') ?? '').split(',').map((s) => s.trim()).filter(Boolean) : null;
+  if (pedidas && (!pedidas.length || pedidas.some((s) => !SUITES.includes(s)) || new Set(pedidas).size !== pedidas.length)) throw new Aborto(`--suites tiene que ser una lista sin repetidos de ${SUITES.join(', ')}`);
+  const suites = pedidas ?? delArchivo;
+  const generico = !!pedidas || suites.includes('dj-matriz');
   const ids = opcion('--ids')?.split(',').map((s) => s.trim()).filter(Boolean);
   const mutaciones = ids ? todas.filter((m) => ids.includes(m.id)) : todas;
   if (ids && mutaciones.length !== ids.length) throw new Aborto(`ids desconocidos: ${ids.filter((i) => !todas.some((m) => m.id === i)).join(', ')}`);
@@ -279,6 +336,7 @@ async function modoMutar(ruta) {
   mkdirSync(dir, { recursive: true });
   const respaldo = crearRespaldo(archivos, relRepo(resolve(ruta)));
   log(`${mutaciones.length} mutaciones de ${sub} sobre ${archivos.length} archivos · respaldo con sha256 en ${relRepo(RESPALDO)}`);
+  if (generico) log(`suites: ${suites.join(', ')}${pedidas ? ' (--suites)' : ''} · estado genérico`);
 
   let cortado = false;
   const alCortar = (sen) => {
@@ -308,20 +366,22 @@ async function modoMutar(ruta) {
     if (!coincide(respaldo)) throw new Aborto(`antes de ${m.id} los archivos ya no son los del respaldo (¿alguien los editó?): no toco nada; revisá y corré --restaurar.`);
     const r = aplicarEnMemoria(m, originales);
     if (r.malas) { filas.push({ id: m.id, que: m.que, estado: 'NO APLICÓ', avisos: [], malas: r.malas }); log(`${m.id} NO APLICÓ: ${r.malas.join('; ')}`); continue; }
-    let unit = null, func = null;
+    let unit = null, func = null, matriz = null;
     try {
       fase({ mutacion: m.id, fase: 'aplicando' });
       for (const [a, t] of Object.entries(r.txt)) writeFileSync(join(REPO, a), t);
       if (suites.includes('dj-unit')) { fase({ mutacion: m.id, fase: 'dj-unit' }); unit = await correrUnit(dir, m.id); }
       if (suites.includes('dj-func')) { fase({ mutacion: m.id, fase: 'dj-func' }); func = await correrFunc(dir, m.id); }
+      if (suites.includes('dj-matriz')) { fase({ mutacion: m.id, fase: 'dj-matriz' }); matriz = await correrMatriz(dir, m.id); }
     } finally {
       if (!cortado && !restaurar(respaldo)) { log(`⚠ tras ${m.id} el hash no coincide: dejo el respaldo; corré --restaurar.`); process.exit(4); }
       fase({ mutacion: m.id, fase: 'restaurada' });
     }
-    const c = clasificar(m, unit, func);
-    const fila = { id: m.id, que: m.que, unit, func, ...c, hashRestaurado: true };
+    const res = { 'dj-unit': unit, 'dj-func': func, 'dj-matriz': matriz };
+    const c = generico ? clasificarN(m, suites, res) : clasificar(m, unit, func);
+    const fila = generico ? { id: m.id, que: m.que, unit, func, matriz, res, ...c, hashRestaurado: true } : { id: m.id, que: m.que, unit, func, ...c, hashRestaurado: true };
     filas.push(fila);
-    log(`${m.id} ${[c.estado, ...c.avisos].join(' · ')} · unit: ${lista(unit?.casos)} · func: ${lista(func?.casos)}`);
+    log(`${m.id} ${[c.estado, ...c.avisos].join(' · ')} · unit: ${lista(unit?.casos)} · func: ${lista(func?.casos)}${suites.includes('dj-matriz') ? ` · matriz: ${lista(matriz?.casos)}` : ''}`);
   } }
 
   const aplicadas = mutaciones.filter((m) => filas.find((f) => f.id === m.id)?.estado !== 'NO APLICÓ');
@@ -338,7 +398,7 @@ async function modoMutar(ruta) {
   const avisos = filas.filter((f) => f.avisos.length || f.estado === 'POR EXCEPCIÓN');
   const md = [
     `# Mutaciones de ${sub} · ${new Date().toISOString()}`, '',
-    tabla(filas), '',
+    generico ? tablaN(filas, suites) : tabla(filas), '',
     `- ${filas.length} mutaciones · ${sobreviven.length} SOBREVIVE o NO APLICÓ · ${avisos.length} con aviso · hashes restaurados y verificados tras cada una.`,
     build ? `- build final: ${build.ok ? 'PASA' : 'FALLA'} · dist: ${dist.buscados} textos de mutación buscados en dist/assets, ${dist.encontrados.length} encontrados${dist.encontrados.length ? ` (${dist.encontrados.map((e) => `${e.id}: ${e.texto}`).join('; ')})` : ''}.` : '- ninguna mutación se aplicó: no hizo falta build.',
   ].join('\n');
@@ -350,9 +410,9 @@ async function modoMutar(ruta) {
 }
 
 try {
-  const ruta = argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--ids');
+  const ruta = argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--ids' && argv[i - 1] !== '--suites');
   if (argv.includes('--restaurar')) process.exitCode = await modoRestaurar();
-  else if (!ruta) { console.log('uso: node mutar.mjs mutaciones/<sub-paso>.mjs [--ids A,B] [--revisar] · node mutar.mjs --restaurar [--sin-build]'); process.exitCode = 2; }
+  else if (!ruta) { console.log('uso: node mutar.mjs mutaciones/<sub-paso>.mjs [--ids A,B] [--revisar] [--suites a,b] · node mutar.mjs --restaurar [--sin-build]'); process.exitCode = 2; }
   else process.exitCode = await modoMutar(ruta);
 } catch (e) {
   log(`NO CORRIÓ: ${e.message}`);
