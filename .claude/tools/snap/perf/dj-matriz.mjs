@@ -95,7 +95,10 @@
 // Salida: el tablero estado × ventana, el detalle de lo que no pasa, el registro, y la línea «dj-matriz: n/m» (modo
 // name-line de regresion.mjs); exit 0 o 1. Con DJ_MATRIZ_SALIDA=<archivo>, el resultado completo va también a ese
 // archivo (lo usa mutar.mjs --suites dj-matriz: `fallan` = lo que FALLA o sale ARREGLADO, nunca lo CONOCIDO).
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BASE } from '../session.mjs';
 import { preparar, instalarFalsos } from './dj-falsos.mjs';
 import { PISTAS, servirBiblioteca, TITULO_LARGO, ARTISTA_LARGO, BUSQUEDA, BUSQUEDA_N, NADA } from './dj-biblioteca-fija.mjs';
@@ -125,7 +128,37 @@ const CONOCIDOS_ENV = (() => {
 })();
 
 const R = {};
-const REG = { celdas: {}, cola_registro: {} };   // lo que sólo se registra (no cuenta en el n/m)
+const REG = { celdas: {}, cola_registro: {}, tablet: {} };   // lo que sólo se registra (no cuenta en el n/m)
+
+// ── CAPTURAS (h5e): sólo con DJ_MATRIZ_CAPTURAS=1; sin la variable no se escribe nada y la corrida es la de siempre ──
+// PNG del VIEWPORT (lo que ve el usuario, sin scroll; scale 'css' = 1 px por px de CSS, deviceScaleFactor 1 en todos los
+// contextos) en .claude/tools/snap/shots/dj-matriz/<AAAA-MM-DD-HHmmss><DJ_MATRIZ_CAPTURAS_SUFIJO>/<estado>_<ventana>.png.
+// ANTES de escribir, git check-ignore sobre esa carpeta (como regresion.mjs:227–228); si NO está ignorada, el script
+// corta sin abrir el navegador (exit 2, sin línea n/m). Determinismo: decks en pausa, la biblioteca fija, el cursor de
+// texto oculto (caret 'hide'), animaciones desactivadas y el ratón llevado a (0, 0) justo antes de capturar (DESPUÉS de
+// medir: la medida es la misma con o sin capturas).
+// Qué se captura: por defecto E1, E3, E5, E7a, E8 y E10 × 900x800, 1366x768, 1920x1080, cola_1366x768 y cola_900x800;
+// con DJ_MATRIZ_CAPTURAS_TODAS=1, los 11 estados × las 12 ventanas; DJ_MATRIZ_CAPTURAS_ESTADOS y
+// DJ_MATRIZ_CAPTURAS_VENTANAS (listas separadas por comas) reemplazan el subconjunto. La tablet (abajo) captura siempre
+// sus tres estados. Junto a las PNG, medidas.json: por captura, la caja de .dj-cue-fila y de cada hijo, y del select
+// (caja, scrollWidth/clientWidth, el texto elegido y su ancho con la fuente del select) — para el experimento D2.
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO = resolve(HERE, '..', '..', '..', '..');
+const CAPT = process.env.DJ_MATRIZ_CAPTURAS === '1';
+const deComas = (v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : null);
+const TODAS = process.env.DJ_MATRIZ_CAPTURAS_TODAS === '1';
+const CAPT_ESTADOS = deComas(process.env.DJ_MATRIZ_CAPTURAS_ESTADOS) ?? (TODAS ? null : ['e1', 'e3', 'e5', 'e7a', 'e8', 'e10']);
+const CAPT_VENTANAS = deComas(process.env.DJ_MATRIZ_CAPTURAS_VENTANAS) ?? (TODAS ? null : ['900x800', '1366x768', '1920x1080', 'cola_1366x768', 'cola_900x800']);
+let CAPT_DIR = null;
+const capturas = [], medidasCaptura = {};
+if (CAPT) {
+  const d = new Date(), dos = (n) => String(n).padStart(2, '0');
+  const sello = `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}-${dos(d.getHours())}${dos(d.getMinutes())}${dos(d.getSeconds())}`;
+  CAPT_DIR = join(REPO, '.claude', 'tools', 'snap', 'shots', 'dj-matriz', sello + (process.env.DJ_MATRIZ_CAPTURAS_SUFIJO ?? ''));
+  const ign = spawnSync('git', ['check-ignore', '-q', join(CAPT_DIR, 'x.png')], { cwd: REPO });
+  if (ign.status !== 0) { console.log(`⚠ ${CAPT_DIR} NO está ignorada por git: no escribo capturas y corto acá`); process.exit(2); }
+  mkdirSync(CAPT_DIR, { recursive: true });
+}
 const ok = (k, v, extra) => { R[k] = extra === undefined ? !!v : { ok: !!v, ...extra }; };
 const t0 = Date.now();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -218,6 +251,7 @@ const medir = () => {
   const chicos = medidosCtrl.filter((e) => { const [w, h] = caja(e); return w < 24 || h < 24; })
     .map((e) => `${nombre(e)}${e.type && e.tagName === 'INPUT' ? `[${e.type}]` : ''} [${caja(e).join('×')}]`);
   const menos44 = medidosCtrl.filter((e) => { const [w, h] = caja(e); return w < 44 || h < 44; }).length;
+  const lista44 = [...new Set(medidosCtrl.filter((e) => { const [w, h] = caja(e); return w < 44 || h < 44; }).map((e) => `${nombre(e)}${e.tagName === 'INPUT' ? `[${e.type}]` : ''} [${caja(e).join('×')}]`))];   // h5e: para la tablet
   const rangos = [...pg.querySelectorAll('input[type="range"]')].filter(vis);
   const rangosMenos44 = rangos.filter((e) => { const [w, h] = caja(e); return w < 44 || h < 44; }).length;
   const altoRango = rangos.length ? Math.min(...rangos.map((e) => caja(e)[1])) : null;
@@ -238,7 +272,7 @@ const medir = () => {
     main: { sw: sc.scrollWidth, cw: sc.clientWidth }, doc: { sw: d.scrollWidth, cw: d.clientWidth },
     contenedores, solapes,
     cortados, conElipsis,
-    ctrl: { medidos: medidosCtrl.length, contados, chicos, menos44, rangos: rangos.length, rangosMenos44, altoRango, cajasRango, etiquetasCanales }, colapsados,
+    ctrl: { medidos: medidosCtrl.length, contados, chicos, menos44, lista44, rangos: rangos.length, rangosMenos44, altoRango, cajasRango, etiquetasCanales }, colapsados,
     alto: { scrollTop: sc.scrollTop, scrollV: sc.scrollHeight - sc.clientHeight, visible: sc.clientHeight, X: lista === null ? null : Math.round(innerHeight - sc.clientHeight + (sc.scrollHeight - lista)), decks },
   };
 };
@@ -256,7 +290,8 @@ async function medirEstable(p) {
 }
 
 const { browser, abrir } = await preparar();
-const { ctx, p, errores } = await abrir(BASE, '/', { w: 1280, h: 800, esperar: '.player-bar' });
+const { ctx, p: p0, errores } = await abrir(BASE, '/', { w: 1280, h: 800, esperar: '.player-bar' });
+let p = p0;   // la página ACTIVA: la de escritorio, o la de un contexto de tablet mientras se mide (h5e)
 
 // Lo que la página muestra del cue, de los decks y de la biblioteca (para afirmar cada estado).
 const foto = () => p.evaluate(() => {
@@ -285,17 +320,20 @@ const sel = (lado, s) => `.dj-deck[data-lado="${lado}"] ${s}`;
 const esperarFoto = (cond, ms = 6000) => esperar(async () => { const f = await foto(); return cond(f) ? f : null; }, ms);
 
 // 1–3 de la cabecera: storage del estado, / con la cola abierta por su botón, y /dj por la barra lateral.
-async function visita({ cue = null, fd = null } = {}) {
-  await p.setViewportSize({ width: 1280, height: 800 });
+async function visita({ cue = null, fd = null } = {}, { cola = true, w = 1280, h = 800 } = {}) {
+  await p.setViewportSize({ width: w, height: h });
   await p.evaluate(({ cue, fd }) => {
     if (cue) localStorage.setItem('djCue', cue); else localStorage.removeItem('djCue');
     if (fd) sessionStorage.setItem('__fdCfg', JSON.stringify(fd)); else sessionStorage.removeItem('__fdCfg');
     sessionStorage.removeItem('__fmCfg');
   }, { cue, fd });
   await p.goto(BASE + '/');
-  await p.waitForSelector('.player-bar .queue-btn', { timeout: 15000 });
-  await p.locator('.player-bar .queue-btn').click();
-  await p.waitForSelector('.layout--queue .queue-panel', { timeout: 5000 });
+  await p.waitForSelector('.player-bar', { timeout: 15000 });
+  if (cola) {
+    await p.waitForSelector('.player-bar .queue-btn', { timeout: 15000 });
+    await p.locator('.player-bar .queue-btn').click();
+    await p.waitForSelector('.layout--queue .queue-panel', { timeout: 5000 });
+  }
   await p.locator('.sidebar-nav button', { hasText: /^Modo DJ$/ }).click();
   await p.waitForSelector('.dj-cue', { timeout: 15000 });
   await p.waitForSelector('.dj-fila', { timeout: 15000 });
@@ -351,12 +389,38 @@ const ESTADOS = [
 ];
 
 // Una celda: la medida estable y los dos casos (o sólo el registro).
+// Las medidas de la fila del cue que acompañan cada captura (sólo con capturas).
+const medirFilaCue = () => {
+  const caja = (e) => { const q = e.getBoundingClientRect(); return [Math.round(q.left), Math.round(q.top), Math.round(q.width * 10) / 10, Math.round(q.height * 10) / 10]; };
+  const nombre = (e) => (typeof e.className === 'string' && e.className ? e.className : e.tagName);
+  const f = document.querySelector('.dj-cue-fila');
+  const s = document.querySelector('.dj-cue-salida');
+  let select = null;
+  if (s) {
+    const cs = getComputedStyle(s), c = document.createElement('canvas').getContext('2d');
+    c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const texto = s.selectedOptions[0]?.textContent ?? '';
+    select = { caja: caja(s), scrollWidth: s.scrollWidth, clientWidth: s.clientWidth, texto, anchoTexto: Math.round(c.measureText(texto).width), padding: [cs.paddingLeft, cs.paddingRight] };
+  }
+  return { fila: f ? { caja: caja(f), scrollWidth: f.scrollWidth, clientWidth: f.clientWidth, hijos: [...f.children].map((h) => ({ clase: nombre(h), caja: caja(h), scrollWidth: h.scrollWidth, clientWidth: h.clientWidth })) } : null, select };
+};
+async function capturar(nombreArchivo, estado, ventana) {
+  if (!CAPT) return;
+  if (!(ventana.startsWith('tablet_') || ((!CAPT_ESTADOS || CAPT_ESTADOS.includes(estado)) && (!CAPT_VENTANAS || CAPT_VENTANAS.includes(ventana))))) return;
+  medidasCaptura[nombreArchivo] = await p.evaluate(medirFilaCue);
+  await p.mouse.move(0, 0);
+  await p.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
+  await p.screenshot({ path: join(CAPT_DIR, nombreArchivo), animations: 'disabled', caret: 'hide', scale: 'css' });
+  capturas.push(nombreArchivo);
+}
+
 async function celda(e, w, h, cola, cuenta) {
   await p.setViewportSize({ width: w, height: h });
   // h5c: el scroll de .main-content ARRIBA (la promesa de (D) es «con el scroll arriba»; el clic de Playwright en una fila
   // o en un botón lo puede haber movido al armar el estado). No cambia nada en horizontal.
   await p.evaluate(() => { const sc = document.querySelector('.main-content'); if (sc) sc.scrollTop = 0; });
   const { m, intentos, inestable } = await medirEstable(p);
+  await capturar(`${e}_${cola ? 'cola_' : ''}${w}x${h}.png`, e, `${cola ? 'cola_' : ''}${w}x${h}`);
   const v = `${cola ? 'cola_' : ''}${w}x${h}`;
   const medido = !!m && m.pagina === true && m.medidos > 0 && !inestable;
   const red = { medidos: m?.medidos ?? null, intentos, inestable: !!inestable };
@@ -382,6 +446,23 @@ async function celda(e, w, h, cola, cuenta) {
   // (D) La promesa de main.css:6278–6280 («los decks quedan siempre a la vista»): sólo sin cola y con 768 px de alto o más.
   if (!cola && h >= 768) ok(`${e}_${v}_decks_a_la_vista`, medido && m.alto.scrollTop === 0 && m.alto.decks.length === 2 && m.alto.decks.every((d) => d.dentro),
     { ...red, scrollTop: m?.alto?.scrollTop ?? null, visible: m?.alto?.visible ?? null, decks: m?.alto?.decks ?? null });
+}
+// h5e: las métricas de una celda RESUMIDAS para la tablet (los mismos criterios que los casos de celda()).
+const TABLETS = [[820, 1180], [1180, 820]];
+const TABLET_ESTADOS = ['e1', 'e3', 'e10'];
+function resumenTablet(m) {
+  if (!m?.pagina) return { pagina: false };
+  return {
+    sin_scroll_horizontal: m.main.sw <= m.main.cw && m.doc.sw <= m.doc.cw, main: m.main, doc: m.doc,
+    nada_fuera_del_area: m.nFuera === 0, fuera: m.fuera,
+    sin_solapes: m.solapes.length === 0, solapes: m.solapes.slice(0, 8),
+    sin_texto_cortado: m.cortados.length === 0, cortados: m.cortados.slice(0, 8), conElipsis: m.conElipsis.length,
+    objetivos_24px: m.ctrl.medidos > 0 && m.ctrl.medidos === m.ctrl.contados && m.ctrl.chicos.length === 0, chicos: m.ctrl.chicos,
+    menos44: `${m.ctrl.menos44}/${m.ctrl.medidos}`, lista44: m.ctrl.lista44,
+    sin_colapsados: m.colapsados.length === 0, colapsados: m.colapsados,
+    decks_a_la_vista: m.alto.scrollTop === 0 && m.alto.decks.length === 2 && m.alto.decks.every((d) => d.dentro), decks: m.alto.decks, visible: m.alto.visible,
+    scrollV: m.alto.scrollV, X: m.alto.X, area: m.area,
+  };
 }
 const METRICAS = ['sin_scroll_horizontal', 'nada_fuera_del_area', 'sin_solapes', 'sin_texto_cortado', 'objetivos_24px', 'sin_colapsados', 'decks_a_la_vista'];
 const LETRA = { sin_scroll_horizontal: 'S', nada_fuera_del_area: 'F', sin_solapes: 'P', sin_texto_cortado: 'T', objetivos_24px: 'O', sin_colapsados: 'C', decks_a_la_vista: 'D' };
@@ -421,6 +502,38 @@ try {
     ok(`${E.e}_alcanzado`, !error && !!antes && E.es(antes) && antes.cola && !!despues && E.es(despues) && !despues.cola,
       { error, antes: antes && !E.es(antes) ? antes : undefined, cola: antes?.cola ?? null, despues: despues && !E.es(despues) ? despues : undefined });
   }
+  // ── TABLET (h5e): SÓLO REGISTRO (REG.tablet), nunca un caso ni el n/m ──
+  // Dos contextos con DEDO (hasTouch + isMobile, como tablet-util.mjs:29; deviceScaleFactor 1, el de Playwright):
+  // 820×1180 (vertical, debajo de 900: sale «solo escritorio» pero la consola se monta) y 1180×820 (horizontal). En cada
+  // uno, E1, E3 y E10 con el MISMO armado (visita sin cola + armar, con el clic de Playwright: armar con el dedo no se
+  // probó) y las MISMAS métricas de las celdas, resumidas: lo que fallaría, con su evidencia, más los controles de
+  // menos de 44×44 y el aviso «solo escritorio». Un error acá queda en el registro y no toca los casos.
+  for (const [w, h] of TABLETS) {
+    const k = `${w}x${h}`;
+    const reg = (REG.tablet[k] = {});
+    const anterior = p;
+    let t = null;
+    try {
+      t = await abrir(BASE, '/', { w, h, tactil: true, esperar: '.player-bar' });
+      p = t.p;
+      await servirBiblioteca(t.ctx); await instalarFalsos(t.ctx);
+      reg.contexto = await p.evaluate(() => ({ dpr: devicePixelRatio, dedo: matchMedia('(pointer: coarse)').matches, hover: matchMedia('(hover: hover)').matches, vw: innerWidth, vh: innerHeight }));
+      for (const E of ESTADOS.filter((x) => TABLET_ESTADOS.includes(x.e))) {
+        try {
+          await visita(E.visita, { cola: false, w, h });
+          await E.armar();
+          const f = await esperarFoto(E.es, 3000) ?? await foto();
+          await p.evaluate(() => { const sc = document.querySelector('.main-content'); if (sc) sc.scrollTop = 0; });
+          const { m, intentos, inestable } = await medirEstable(p);
+          await capturar(`${E.e}_tablet_${k}.png`, E.e, `tablet_${k}`);
+          const aviso = await p.evaluate(() => { const a = document.querySelector('.dj-solo-escritorio'); const q = a?.getBoundingClientRect(); return { visible: !!a && a.checkVisibility() && q.height > 0, texto: a?.textContent ?? null, caja: q ? [Math.round(q.top), Math.round(q.height)] : null, consola: !!document.querySelector('.dj-mezcla') && !!document.querySelector('.dj-cue'), decksColumnas: getComputedStyle(document.querySelector('.dj-decks')).gridTemplateColumns }; });
+          reg[E.e] = { alcanzado: E.es(f), intentos, inestable: !!inestable, ...resumenTablet(m), soloEscritorio: aviso };
+        } catch (e) { reg[E.e] = { error: String(e.message).split('\n')[0].slice(0, 200) }; }
+      }
+      reg.errores = t.errores.slice();
+    } catch (e) { reg.error = String(e.message).split('\n')[0].slice(0, 200); }
+    finally { p = anterior; if (t) await t.ctx.close().catch(() => {}); }
+  }
   ok('sin_errores_de_pagina', errores.length === 0, { errores });
 } catch (e) {
   ok('excepcion', false, { error: String(e.message).split('\n')[0].slice(0, 200) });
@@ -459,6 +572,10 @@ const noPasa = Object.keys(R).filter((k) => ESTADO[k] !== 'PASA');
 if (noPasa.length) console.log('\nlo que no pasa:\n' + noPasa.map((k) => `  ${ESTADO[k].padEnd(12)} ${k} ${JSON.stringify(typeof R[k] === 'object' ? { ...R[k], ok: undefined } : R[k])}`).join('\n'));
 console.log('\nregistro (fuera del conteo):', JSON.stringify(REG));
 console.log(`\ndj-matriz: ${Object.keys(R).length - fallan.length}/${Object.keys(R).length}`);
-if (process.env.DJ_MATRIZ_SALIDA) writeFileSync(process.env.DJ_MATRIZ_SALIDA, JSON.stringify({ fallan, estado: ESTADO, R, REG }, null, 1));
+if (CAPT) {
+  writeFileSync(join(CAPT_DIR, 'medidas.json'), JSON.stringify(medidasCaptura, null, 1));
+  console.log(`capturas: ${capturas.length} en ${CAPT_DIR}`);
+}
+if (process.env.DJ_MATRIZ_SALIDA) writeFileSync(process.env.DJ_MATRIZ_SALIDA, JSON.stringify({ fallan, estado: ESTADO, R, REG, ...(CAPT ? { capturas: { carpeta: CAPT_DIR, archivos: capturas } } : {}) }, null, 1));
 await browser.close();
 process.exit(fallan.length ? 1 : 0);
