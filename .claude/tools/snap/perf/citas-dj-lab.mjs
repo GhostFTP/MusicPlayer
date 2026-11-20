@@ -3,7 +3,7 @@
 //   node .claude/tools/snap/perf/citas-dj-lab.mjs [ruta/a/SKILL.md]
 //
 // Para qué: dj-lab (.claude/skills/dj-lab/SKILL.md) cita `archivo:línea` en cada regla. Este script extrae cada
-// cita del SKILL.md (`archivo:N` y los rangos `archivo:N`–`M`), comprueba que esa línea del worktree CONTENGA el
+// cita del SKILL.md (`archivo:N` y los rangos `archivo:N`–`M`; .mjs, .jsx, .js y, desde h5f, .css y .json), comprueba que esa línea del worktree CONTENGA el
 // texto esperado de la tabla E de abajo, e imprime cuántas coinciden, cuántas fallan (con la línea que encontró)
 // y cuántas citas del SKILL.md no tienen texto esperado en la tabla. Exit 0 sólo con 0 fallas y 0 sin comprobar;
 // exit 1 en cualquier otro caso. No escribe nada, no corre suites, no abre puertos.
@@ -24,6 +24,10 @@ const F = {
   'salidas.js': 'music-client/src/dj/motor/salidas.js',
   'main.jsx': 'music-client/src/main.jsx', 'dj-func.mjs': '.claude/tools/snap/perf/dj-func.mjs', 'dj-unit.mjs': '.claude/tools/snap/perf/dj-unit.mjs',
   'regresion.mjs': '.claude/tools/snap/perf/regresion.mjs', 'mutar.mjs': '.claude/tools/snap/perf/mutar.mjs', 'tablet-util.mjs': '.claude/tools/snap/perf/tablet-util.mjs',
+  // h5f: la matriz visual (sección 9 de dj-lab) y lo que cita del CSS y del baseline.
+  'dj-matriz.mjs': '.claude/tools/snap/perf/dj-matriz.mjs', 'dj-hojas.mjs': '.claude/tools/snap/perf/dj-hojas.mjs',
+  'dj-biblioteca-fija.mjs': '.claude/tools/snap/perf/dj-biblioteca-fija.mjs', 'dj-falsos.mjs': '.claude/tools/snap/perf/dj-falsos.mjs',
+  'h5.mjs': '.claude/tools/snap/perf/mutaciones/h5.mjs', 'baseline.json': '.claude/tools/snap/perf/baseline.json', 'main.css': 'music-client/src/styles/main.css',
 };
 const E = [  // [archivo, línea, texto que tiene que estar en esa línea]
   ['motor.js', 38, 'NUNCA se le llama setSinkId'], ['motor.js', 489, 'ctx = new AudioContext('], ['motor.js', 450, 'await c.setSinkId(id)'],
@@ -78,6 +82,43 @@ const E = [  // [archivo, línea, texto que tiene que estar en esa línea]
   ['cue.js', 501, "const canales = validarCanales(a.canales) ?? '1-2';"],
   ['dj-unit.mjs', 1600, 'const gemMax = gem.map((s) => ({ ...s, maxChannelCount: 4 }))'],
   ['dj-unit.mjs', 1603, "ok('cue_e4_restaurar_permiso_master_y_canales'"],
+  // h5f · sección 7 (mutar --suites) y sección 9 (la matriz visual):
+  ['mutar.mjs', 39, '--suites a,b (h5a): corre ESAS suites'], ['mutar.mjs', 43, 'SOBREVIVE · POR EXCEPCIÓN'],
+  ['mutar.mjs', 192, "['regresion.mjs', '--solo', 'dj-matriz']"],
+  ['baseline.json', 83, '"nombre": "dj-matriz", "archivo": "dj-matriz.mjs", "modo": "name-line", "esperado": { "ok": 739, "total": 739 }'],
+  ['regresion.mjs', 249, "--solo con scripts que no están en el baseline"], ['regresion.mjs', 313, 'if (!SIN_BUILD) {'],
+  ['dj-biblioteca-fija.mjs', 48, 'Array.from({ length: 40 }'], ['dj-falsos.mjs', 42, "const SINK_FALSO = { 'sb-0001': null"],
+  ['dj-matriz.mjs', 147, "const CAPT = process.env.DJ_MATRIZ_CAPTURAS === '1'"], ['dj-matriz.mjs', 149, "process.env.DJ_MATRIZ_CAPTURAS_TODAS === '1'"],
+  ['dj-matriz.mjs', 158, "spawnSync('git', ['check-ignore', '-q'"],
+  ['dj-hojas.mjs', 5, 'node dj-hojas.mjs <carpeta>'], ['dj-hojas.mjs', 7, 'node dj-hojas.mjs --comparar <limpio> <otra>'],
+  ['dj-matriz.mjs', 106, 'const SIN_COLA = [[900, 800], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1920, 1080]]'],
+  ['dj-matriz.mjs', 107, 'const CON_COLA = [[1280, 800], [1366, 768], [1440, 900], [1920, 1080]]'], ['dj-matriz.mjs', 108, 'const CON_COLA_REG = [[900, 800], [1024, 768]]'],
+  ['dj-matriz.mjs', 451, 'const TABLETS = [[820, 1180], [1180, 820]]'], ['dj-matriz.mjs', 452, "const TABLET_ESTADOS = ['e1', 'e3', 'e10']"],
+  ['dj-matriz.mjs', 502, 'ok(`${E.e}_alcanzado`'],
+  ['dj-matriz.mjs', 360, "{ e: 'e1',"], ['dj-matriz.mjs', 361, "{ e: 'e2',"], ['dj-matriz.mjs', 363, "{ e: 'e3',"], ['dj-matriz.mjs', 366, "{ e: 'e4',"],
+  ['dj-matriz.mjs', 369, "{ e: 'e5', visita: { cue: G({ id: 'largo-0001', nombre: LARGO"], ['dj-matriz.mjs', 372, "{ e: 'e7a',"], ['dj-matriz.mjs', 376, "{ e: 'e7b',"],
+  ['dj-matriz.mjs', 378, "{ e: 'e7c',"], ['dj-matriz.mjs', 380, "{ e: 'e8', armar: async () => { await verSalidas(); await usar('hp-0002', '1-2')"],
+  ['dj-matriz.mjs', 382, "{ e: 'e9', armar: async () => { await verSalidas(); await usar('sb-0001', '1-2')"], ['dj-matriz.mjs', 384, "{ e: 'e10',"],
+  ['dj-matriz.mjs', 281, 'async function medirEstable(p)'], ['dj-matriz.mjs', 286, 'JSON.stringify(m) === JSON.stringify(prev)'],
+  ['dj-matriz.mjs', 436, '_sin_scroll_horizontal`, medido && m.main.sw <= m.main.cw && m.doc.sw <= m.doc.cw'],
+  ['dj-matriz.mjs', 200, 'q.left < izq - 0.5 || q.right > der + 0.5'], ['dj-matriz.mjs', 437, '_nada_fuera_del_area`, medido && m.nFuera === 0'],
+  ['dj-matriz.mjs', 211, `const EXCL_CONTENEDOR = 'button, select, option, a, [role="button"], input'`],
+  ['dj-matriz.mjs', 218, "!['absolute', 'fixed'].includes(getComputedStyle(h).position)"], ['dj-matriz.mjs', 225, 'if (iw > 0.5 && ih > 0.5)'],
+  ['dj-matriz.mjs', 441, '_sin_solapes`, medido && m.contenedores > 0 && m.solapes.length === 0'],
+  ['dj-matriz.mjs', 237, 'e.scrollWidth > e.clientWidth + 1 && !scrollea(cs.overflowX)'], ['dj-matriz.mjs', 442, '_sin_texto_cortado`, medido && m.cortados.length === 0'],
+  ['dj-matriz.mjs', 251, 'return w < 24 || h < 24;'], ['dj-matriz.mjs', 443, 'm.ctrl.medidos === m.ctrl.contados && m.ctrl.chicos.length === 0'],
+  ['dj-matriz.mjs', 261, 'const colapsados ='], ['dj-matriz.mjs', 445, '_sin_colapsados`, medido && m.colapsados.length === 0'],
+  ['dj-matriz.mjs', 447, 'if (!cola && h >= 768) ok(`${e}_${v}_decks_a_la_vista`'],
+  ['main.css', 6278, 'La lista de la biblioteca scrollea'], ['main.css', 6280, 'vista. Las filas tienen alto fijo'],
+  ['dj-matriz.mjs', 508, 'con el clic de Playwright: armar con el dedo'],
+  ['h5.mjs', 22, 'id: "D1"'], ['h5.mjs', 33, 'id: "D2"'], ['h5.mjs', 44, 'id: "D3"'], ['h5.mjs', 55, 'id: "D4"'], ['h5.mjs', 66, 'id: "D5"'], ['h5.mjs', 77, 'id: "D6"'],
+  ['main.css', 6391, '.dj-cue-salida {'], ['main.css', 6394, 'min-width: 0;'],   // 6394 = el min-width del select (ancla débil: la 6391 fija el bloque)
+  ['main.css', 6404, '.dj-cue-canales { display: flex; align-items: center; gap: 12px; margin: 0; padding: 0; border: 0; min-width: 0;'],
+  ['DjPage.jsx', 130, 'El Modo DJ es solo para escritorio'], ['main.css', 6269, '@media (max-width: 899px) {'], ['main.css', 6270, '.dj-solo-escritorio { display: block; }'],
+  ['dj-matriz.mjs', 115, 'const CONOCIDOS = ['], ['dj-matriz.mjs', 116, "metrica: 'objetivos_24px', id: 'H1', evidencia: ['INPUT[radio] [13×13]']"],
+  ['dj-matriz.mjs', 117, 'miden 13×13 px: el tamaño del navegador'],
+  ['dj-matriz.mjs', 550, 'const cubre = (c, k) => !c.evidencia'], ['dj-matriz.mjs', 551, '`ARREGLADO ${c.id}`'], ['dj-matriz.mjs', 552, 'conocido_sin_caso_'],
+  ['dj-matriz.mjs', 122, 'const CONOCIDOS_ENV = (() => {'], ['DjPage.jsx', 492, "useWindowedRows(filtered.length, { overscan: 8, scroller: '.dj-lista-scroll' })"],
 ];
 const lineas = {};
 const leer = (k) => (lineas[k] ??= fs.readFileSync(path.join(R, F[k]), 'utf8').split('\n'));
@@ -92,7 +133,7 @@ for (const [k, n, t] of E) {
 // Todas las citas del SKILL.md (`archivo:N` y rangos `archivo:N`–`M`) tienen que tener su fila en E.
 const sk = fs.readFileSync(SKILL, 'utf8');
 const citas = new Set();
-const re = /`([\w.-]+\.(?:mjs|jsx|js)):(\d+)`(?:–`(\d+)`)?/g;
+const re = /`([\w.-]+\.(?:mjs|jsx|js|css|json)):(\d+)`(?:–`(\d+)`)?/g;   // h5f: también .css y .json
 for (const m of sk.matchAll(re)) { citas.add(`${m[1]}:${m[2]}`); if (m[3]) citas.add(`${m[1]}:${m[3]}`); }
 const sinComprobar = [...citas].filter((c) => !enTabla.has(c));
 for (const c of sinComprobar) console.log(`SIN COMPROBAR ${c}: está en el SKILL.md y no tiene texto esperado en la tabla E`);

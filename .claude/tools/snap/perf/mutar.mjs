@@ -37,8 +37,8 @@
 // CÓDIGO: 0 bien (avisos incluidos) · 1 alguna SOBREVIVE o NO APLICÓ · 2 no corrió (validación, respaldo, puertos,
 // runner) · 3 el dist quedó sucio o el build final falló · 4 un hash no coincide al restaurar (el respaldo queda) · 130.
 // --suites a,b (h5a): corre ESAS suites en lugar de las que exporta el archivo. Sin la opción, las del archivo, igual
-// que antes. 'dj-matriz' = build + la matriz visual por el runner con su baseline aparte (regresion.mjs --baseline
-// baseline-dj-matriz.json, DJ_MATRIZ_SALIDA para el detalle). Con --suites, o con 'dj-matriz' entre las suites, el
+// que antes. 'dj-matriz' = build + la matriz visual por el runner con el baseline normal (h5f: regresion.mjs --solo
+// dj-matriz, DJ_MATRIZ_SALIDA para el detalle). Con --suites, o con 'dj-matriz' entre las suites, el
 // estado es GENÉRICO: DETECTADA (la detectaron todas las suites corridas, aunque sea una sola) · SOLO <suites> ·
 // SOBREVIVE · POR EXCEPCIÓN, y la tabla trae una columna por suite corrida. Sin eso, la tabla y los estados de siempre.
 import { spawn, spawnSync } from 'node:child_process';
@@ -185,11 +185,11 @@ async function correrFunc(dir, id) {
   try { casos = JSON.parse(readFileSync(json, 'utf8')).fallan; } catch { /* sin archivo */ }
   return { casos: Array.isArray(casos) ? casos : ['(sin resultados)'], linea };
 }
-// h5a: la matriz visual, con build, por el runner y su baseline aparte. Mismos controles que correrFunc.
+// h5a: la matriz visual, con build, por el runner (h5f: --solo dj-matriz del baseline normal). Mismos controles que correrFunc.
 async function correrMatriz(dir, id) {
   const json = join(dir, `${id}-dj-matriz.json`);
   rmSync(json, { force: true });
-  const r = await correr(process.execPath, ['regresion.mjs', '--baseline', join(HERE, 'baseline-dj-matriz.json')], { cwd: HERE, ms: T_RUNNER, env: { DJ_MATRIZ_SALIDA: json } });
+  const r = await correr(process.execPath, ['regresion.mjs', '--solo', 'dj-matriz'], { cwd: HERE, ms: T_RUNNER, env: { DJ_MATRIZ_SALIDA: json } });
   writeFileSync(join(dir, `${id}-runner-matriz.txt`), r.out);
   if (/preflight|^base\s+·.*NO CORRIÓ|^servidores\s+·.*NO CORRIÓ/m.test(r.out)) throw new Aborto(`el runner no corrió (preflight, base o servidores): ver ${relRepo(join(dir, `${id}-runner-matriz.txt`))}`);
   if (r.vencido) return { casos: ['(timeout)'], linea: 'timeout' };

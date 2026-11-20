@@ -1,7 +1,0 @@
-{
-  "_nota": "Baseline APARTE de la matriz visual del Modo DJ (sub-pasos h5a, h5b y h5c: 11 estados x 10 ventanas x 6 metricas + 11 x 6 decks a la vista (sin cola) + 11 estados alcanzados + la biblioteca fija + sin errores de pagina = 739; los 70 objetivos_24px de H1 cuentan como CONOCIDO), con el formato de baseline.json. Se corre con: node regresion.mjs --baseline baseline-dj-matriz.json (build + servidores aislados + dj-matriz). No entra a la regresion completa hasta que se agregue a mano a baseline.json, en un commit. Se cambia SOLO a mano, nunca para que una corrida 'cuadre'. modo name-line = linea 'dj-matriz: n/m' + codigo de salida.",
-  "build": { "exit": 0 },
-  "scripts": [
-    { "nombre": "dj-matriz", "archivo": "dj-matriz.mjs", "modo": "name-line", "esperado": { "ok": 739, "total": 739 } }
-  ]
-}

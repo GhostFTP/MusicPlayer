@@ -1,6 +1,6 @@
 ---
 name: dj-lab
-description: Contrato as-built del Modo DJ web de SonoraRev (/dj) — motor de dos AudioContext (master y cue a audífonos), canales 3-4 opt-in, lo que se guarda en localStorage (djCue) y lo que nunca, salidas que faltan y vuelven, teclado tapado en /dj, alcance, qué prueban dj-unit/dj-func y qué no, cómo usar mutar.mjs, límites de V1 y checklist manual con la DDJ-400. Úsala SIEMPRE antes de tocar, revisar o auditar cualquier cosa de music-client/src/dj/ (DjPage.jsx, CueDj.jsx, ControlDj.jsx, motor/*.js) o sus suites (dj-unit.mjs, dj-func.mjs, mutaciones/*.mjs).
+description: Contrato as-built del Modo DJ web de SonoraRev (/dj) — motor de dos AudioContext (master y cue a audífonos), canales 3-4 opt-in, lo que se guarda en localStorage (djCue) y lo que nunca, salidas que faltan y vuelven, teclado tapado en /dj, alcance, qué prueban dj-unit/dj-func y qué no, la matriz visual (dj-matriz: 11 estados × 10 ventanas, 7 métricas, capturas y hojas de contacto), cómo usar mutar.mjs, límites de V1 y checklist manual con la DDJ-400. Úsala SIEMPRE antes de tocar, revisar o auditar cualquier cosa de music-client/src/dj/ (DjPage.jsx, CueDj.jsx, ControlDj.jsx, motor/*.js), el CSS de /dj, o sus suites (dj-unit.mjs, dj-func.mjs, dj-matriz.mjs, mutaciones/*.mjs).
 ---
 
 # DJ Lab — contrato del Modo DJ (as-built)
@@ -27,6 +27,7 @@ con hardware y prototipos: `sonorarev-dj-audio`. Esta skill no las repite.
 | `music-client/src/dj/motor/carga.js` | Bajar y decodificar una pista (`antesDeBajar`, `cargarPista`, `MAX_SEG`). |
 | `music-client/src/dj/motor/mezcla.js` · `midi.js` | Crossfader/filtro · Web MIDI del DDJ-400. |
 | `.claude/tools/snap/perf/dj-unit.mjs` · `dj-func.mjs` | Las dos suites del DJ (en `baseline.json`). |
+| `.claude/tools/snap/perf/dj-matriz.mjs` · `dj-biblioteca-fija.mjs` · `dj-falsos.mjs` · `dj-hojas.mjs` | La matriz visual de `/dj` (en `baseline.json`), su biblioteca fija, la copia de los falsos de dj-func y las hojas de contacto (sección 9). |
 | `.claude/tools/snap/perf/mutar.mjs` · `mutaciones/*.mjs` | Mutaciones de control por sub-paso. |
 
 ## 1. Motor (dos AudioContext)
@@ -156,6 +157,7 @@ a `decidirRestauracion` (`salidas.js:50`, `CueDj.jsx:202`). La mutación e4a M2a
 |---|---|---|
 | `dj-unit.mjs` (node, sin navegador) | Lo puro: `mezcla.js`, `carga.js`, `motor.js` con un AudioContext falso, `midi.js` y `cue.js` (`dj-unit.mjs:1`–`10`). | Nada de DOM ni de navegador. |
 | `dj-func.mjs` (Chromium headless, build de producción) | La página entera con `mediaDevices` y `setSinkId` falsos: cuenta contextos de cue, `setSinkId` y fuentes. | El sonido, el corte al resincronizar, clics (`dj-func.mjs:63`); que el audio salga por otro dispositivo y los eventos reales al desenchufar (`dj-func.mjs:51`); el getter de `window.localStorage` que lanza, dos pestañas, «sólo esta vez» de Edge (`dj-func.mjs:72`–`73`). |
+| `dj-matriz.mjs` (Chromium headless, build de producción, biblioteca fija) | El LAYOUT de `/dj`: 11 estados × 10 ventanas con 7 métricas (sección 9); en `baseline.json` con 739/739 (`baseline.json:83`). | El sonido, el `setSinkId` real, Edge, el dedo real, el texto dentro de un select o un botón, solapes entre elementos que no son hermanos (sección 9). |
 | `regresion.mjs` | Build + las suites del baseline contra `vite preview` (`regresion.mjs:19`, `regresion.mjs:325`). | — |
 
 - **El flag de autoplay es de la suite, no del runner:** dj-func lanza Chromium con
@@ -169,6 +171,11 @@ a `decidirRestauracion` (`salidas.js:50`, `CueDj.jsx:202`). La mutación e4a M2a
   `mutar.mjs:31`, `mutar.mjs:37`. **No uses Ctrl+C durante dj-func:** el manejador restaura de inmediato
   (`mutar.mjs:22`) pero ese camino no está probado y el `dist` puede quedar con la mutación; si hace falta cortar,
   después `--restaurar`. Pasá `MUSIC_DB_PATH` si el worktree no tiene base.
+- **`mutar.mjs --suites a,b`** corre ESAS suites en lugar de las que exporta el archivo de mutaciones; `dj-matriz` =
+  build + la matriz por el runner con el baseline normal (`regresion.mjs --solo dj-matriz`, `mutar.mjs:192`). Con
+  `--suites` o con `dj-matriz` el estado es genérico: DETECTADA (la vieron todas las suites corridas, aunque sea
+  una) · SOLO … · SOBREVIVE · POR EXCEPCIÓN (`mutar.mjs:39`–`43`). Los controles de la matriz:
+  `node mutar.mjs mutaciones/h5.mjs --suites dj-matriz` (sección 9).
 - **Puertos:** el runner usa 3100 y 4173 (`regresion.mjs:45`, `regresion.mjs:46`); el 3000 es de otro proyecto y
   no se toca (`regresion.mjs:9`); 3310 y 4310 son manuales de Oscar y no se usan [no verificado: no están en el
   repo, sólo en `sonorarev-trabajo`].
@@ -194,6 +201,89 @@ a `decidirRestauracion` (`salidas.js:50`, `CueDj.jsx:202`). La mutación e4a M2a
 7. Recargar: la salida y el desfase se restauran sin abrir nada; el primer «Cargar» la abre.
 8. «Quitar salida» y recargar: no se restaura nada.
 
+## 9. Matriz visual (`dj-matriz`)
+
+`dj-matriz.mjs` (`.claude/tools/snap/perf/`) mide el **layout** de `/dj` en Chromium headless contra el build de
+producción. No lee la base real: la biblioteca son 40 pistas fijas servidas con `ctx.route`
+(`dj-biblioteca-fija.mjs:48`), y el audio, el MIDI y `mediaDevices` son una COPIA de los falsos de dj-func, con un
+`setSinkId` falso (`dj-falsos.mjs:42`). Está en el baseline normal con 739/739 y la cuenta en su nota
+(`baseline.json:83`).
+
+**Cómo correrla**
+- `node regresion.mjs --solo dj-matriz` (`--solo` sólo acepta nombres del baseline, `regresion.mjs:249`; el build
+  corre igual salvo `--sin-build`, `regresion.mjs:313`). Con `MUSIC_DB_PATH` si el worktree no tiene base.
+- **Capturas** para revisión humana: `DJ_MATRIZ_CAPTURAS=1` (`dj-matriz.mjs:147`) guarda PNG del viewport en
+  `.claude/tools/snap/shots/dj-matriz/<fecha-hora>/`, sólo si `git check-ignore` confirma que la carpeta está ignorada
+  (`dj-matriz.mjs:158`); por defecto un subconjunto, con `DJ_MATRIZ_CAPTURAS_TODAS=1` todo (`dj-matriz.mjs:149`). Sin
+  la variable no se escribe nada. **Hojas de contacto:** `node dj-hojas.mjs <carpeta>` (una hoja por estado) y
+  `node dj-hojas.mjs --comparar <limpio> <otra>` (`dj-hojas.mjs:5`, `dj-hojas.mjs:7`).
+- **Controles:** `node mutar.mjs mutaciones/h5.mjs --suites dj-matriz` (sección 7).
+
+**Ventanas** (con ratón): 900×800, 1024×768, 1280×800, 1366×768, 1440×900 y 1920×1080 sin cola
+(`dj-matriz.mjs:106`); con la cola abierta cuentan 1280×800, 1366×768, 1440×900 y 1920×1080 (`dj-matriz.mjs:107`);
+900×800 y 1024×768 con cola sólo se registran (`dj-matriz.mjs:108`). La tablet (820×1180 y 1180×820, dedo emulado)
+sólo va al registro, con E1, E3 y E10 (`dj-matriz.mjs:451`, `dj-matriz.mjs:452`).
+
+**Estados** (cada uno armado por la interfaz y AFIRMADO antes y después de recorrer las ventanas: si no se alcanza,
+falla `<estado>_alcanzado` y no se mide nada, `dj-matriz.mjs:502`):
+E1 sin salida (`dj-matriz.mjs:360`) · E2 salida lista con decks vacíos (`dj-matriz.mjs:361`) · E3 dos pistas cargadas
+y Cue en A (`dj-matriz.mjs:363`) · E4 la salida guardada que falta (`dj-matriz.mjs:366`) · E5 lo mismo con un nombre de
+120 caracteres (`dj-matriz.mjs:369`) · E7a la biblioteca bajada hasta el fondo (`dj-matriz.mjs:372`) · E7b búsqueda
+con resultados (`dj-matriz.mjs:376`) · E7c «Nada coincide» (`dj-matriz.mjs:378`) · E8 error del motor
+(`dj-matriz.mjs:380`) · E9 la confirmación «Usarla igual» sin confirmar (`dj-matriz.mjs:382`) · E10 la DDJ con 3-4,
+los dos decks cargados y los dos Cue encendidos (`dj-matriz.mjs:384`).
+
+**Las 7 métricas**, un caso por celda. Cada una exige además la medida estable (dos frames y dos medidas iguales,
+`dj-matriz.mjs:281`, `dj-matriz.mjs:286`):
+
+| Caso | Falla si | Línea |
+|---|---|---|
+| `sin_scroll_horizontal` | `.main-content` o el documento tienen `scrollWidth > clientWidth`. | `dj-matriz.mjs:436` |
+| `nada_fuera_del_area` | un descendiente de `.dj-page` se sale del contenido de `.main-content` más de 0,5 px. | `dj-matriz.mjs:200`, `dj-matriz.mjs:437` |
+| `sin_solapes` | dos HERMANOS visibles se cruzan más de 0,5 px de ancho Y de alto. No se mira dentro de un control (`dj-matriz.mjs:211`) ni a los hijos absolute/fixed (`dj-matriz.mjs:218`). | `dj-matriz.mjs:225`, `dj-matriz.mjs:441` |
+| `sin_texto_cortado` | con overflow ≠ visible, el contenido pasa la caja en más de 1 px y no hay `text-overflow: ellipsis`. Con ellipsis sólo se registra; el eje que scrollea no cuenta. | `dj-matriz.mjs:237`, `dj-matriz.mjs:442` |
+| `objetivos_24px` | un control visible y habilitado (no range) mide menos de 24×24 px, o los medidos no cuadran con los contados aparte. | `dj-matriz.mjs:251`, `dj-matriz.mjs:443` |
+| `sin_colapsados` | un control visible por CSS tiene caja de menos de 1 px. | `dj-matriz.mjs:261`, `dj-matriz.mjs:445` |
+| `decks_a_la_vista` | sin cola y con 768 px de alto o más: con el scroll arriba, un deck no entra entero en lo visible. Es la promesa de `main.css:6278`–`6280`. | `dj-matriz.mjs:447` |
+
+**Qué NO mide:** el sonido ni el `setSinkId` real (`dj-falsos.mjs:42`); Edge ni nada que no sea Chromium
+(`tablet-util.mjs:26`); el dedo real (la tablet arma con el clic de Playwright, `dj-matriz.mjs:508`); el texto
+dentro de un `select` o de un botón [no verificado: lo mostró el experimento D2 de h5e, sin línea]; solapes entre
+elementos que no son hermanos (sólo se comparan hijos de un mismo contenedor, `dj-matriz.mjs:218`).
+
+**Controles** (`mutaciones/h5.mjs`), todos con `--suites dj-matriz`:
+- D1, la biblioteca con 1200 px de ancho (`h5.mjs:22`): DETECTADA (scroll y fuera del área).
+- D2, `nowrap` en la fila del cue (`h5.mjs:33`): **SOBREVIVE**.
+- D3, el select con 900 px de mínimo (`h5.mjs:44`): DETECTADA, sólo en los estados con select.
+- D4, el motivo del Cue subido 24 px (`h5.mjs:55`): DETECTADA por solapes.
+- D5, el título del deck sin ellipsis (`h5.mjs:66`): DETECTADA por texto cortado, con el título largo.
+- D6, los ±1 del desfase a 18 px de alto (`h5.mjs:77`): DETECTADA por objetivos.
+
+**Por qué D2 sobrevive:** el select y los canales tienen `min-width: 0` (`main.css:6391`–`6394`, `main.css:6404`), así que con
+`nowrap` se encogen en vez de desbordar. En las ventanas que cuentan, la fila entra en una línea igual. Sólo degrada
+con la cola a 900 (que sólo se registra, `dj-matriz.mjs:108`) y en la tablet vertical, por debajo de 900, donde `/dj`
+ya avisa «solo para escritorio» (`DjPage.jsx:130`, `main.css:6269`–`6270`): en las dos queda un select más angosto
+que su texto. Eso está fuera de lo que V1 promete [no verificado: medidas de h5e, sin línea].
+
+**Hallazgo H1, aceptado para V1:** los dos radios de «Canales» miden 13×13 px, el tamaño del navegador
+(`dj-matriz.mjs:116`, `dj-matriz.mjs:117`). En la matriz van como CONOCIDO, con su evidencia exacta. Se acepta porque
+V1 es sólo para escritorio con ratón (`DjPage.jsx:130`) y WCAG 2.5.8 exime los controles cuyo tamaño pone el
+navegador [no verificado: criterio externo, y la aceptación es una decisión de Oscar en h5f, sin línea]. **Se reabre
+si `/dj` pasa a soportar tablet o táctil.**
+
+**CONOCIDOS y ARREGLADO** (lista en `dj-matriz.mjs:115`):
+- Un caso que falla y está en la lista sale CONOCIDO y cuenta como pasado. Si la entrada trae `evidencia`, sólo cuando
+  TODA la evidencia del caso está en ella; algo más hace FALLAR la celda (`dj-matriz.mjs:550`).
+- Un CONOCIDO que ahora pasa sale ARREGLADO y FALLA, para obligar a quitar la entrada (`dj-matriz.mjs:551`).
+- Una entrada sin caso falla (`dj-matriz.mjs:552`).
+- `DJ_MATRIZ_CONOCIDOS` suma entradas sólo en una corrida, para probar el mecanismo (`dj-matriz.mjs:122`).
+- Un fallo nuevo en limpio NO se tapa con un umbral: va a la lista con su id (H2…), su evidencia y su motivo, y se
+  decide si se arregla, se acepta o se cambia la ventana.
+
+**Límites de los datos:** 40 pistas fijas (`dj-biblioteca-fija.mjs:48`). La lista monta sólo las filas visibles más 8
+de margen (`DjPage.jsx:492`): se miden unas 22 de las 40 por estado [no verificado: contado en h5b, sin línea]. Sólo
+Chromium (`tablet-util.mjs:26`).
+
 ## Cómo mantenerla
 
 - **Se actualiza en el MISMO commit que cambie una regla** (o una línea citada). Un sub-paso que toca
@@ -204,4 +294,8 @@ a `decidirRestauracion` (`salidas.js:50`, `CueDj.jsx:202`). La mutación e4a M2a
   (exit 0 = cada cita sigue conteniendo su texto esperado; una cita nueva o movida necesita su fila en la tabla del
   script, en el mismo commit) y revisar el diff con el agente de usuario `dj-qa` (`~/.claude/agents/dj-qa.md`; vive
   fuera del repo, así que no viaja con la rama).
+- **Cualquier cambio de layout o de CSS de `/dj`** (DjPage.jsx, CueDj.jsx, ControlDj.jsx o las reglas `.dj-*` de
+  main.css) corre `node regresion.mjs --solo dj-matriz` antes del commit.
+- **Si la matriz da ARREGLADO**, la entrada se quita de CONOCIDOS en el MISMO commit que lo arregló. Un fallo nuevo
+  en limpio va a CONOCIDOS con su evidencia, nunca a un umbral (sección 9).
 - Lo volátil (qué sub-paso sigue, números de una sesión) no vive acá.

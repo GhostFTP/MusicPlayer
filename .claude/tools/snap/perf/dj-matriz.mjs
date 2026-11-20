@@ -1,8 +1,8 @@
 // dj-matriz.mjs — MATRIZ VISUAL del Modo DJ (h5a: E1 × 3 ventanas; h5b: 11 estados × 6 ventanas + la cola abierta).
 // El mismo /dj medido en varios estados y tamaños de ventana, para atrapar desbordes antes de que los vea Oscar.
 //
-//   SNAP_BASE=http://localhost:4173 node dj-matriz.mjs        (lo normal: por el runner, con su baseline aparte)
-//   node regresion.mjs --baseline baseline-dj-matriz.json      (build + servidores aislados + esta matriz)
+//   SNAP_BASE=http://localhost:4173 node dj-matriz.mjs        (lo normal: por el runner, abajo)
+//   node regresion.mjs --solo dj-matriz                         (build + servidores aislados + esta matriz; está en baseline.json)
 //
 // MÉTRICAS, cada una un caso por celda (estado × ventana que cuenta). Las de h5a, sin cambios:
 //   · sin_scroll_horizontal: .main-content y document.scrollingElement con scrollWidth ≤ clientWidth.
