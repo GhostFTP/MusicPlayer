@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../auth/jwt.js';
+import { contarBusy } from '../estado/contadores.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -51,7 +52,11 @@ router.post('/', (req, res) => {
         // changes === 0 → el client_id ya estaba: es un reintento de algo que ya
         // habíamos guardado, no un error.
         if (r.changes) added++; else already++;
-      } catch {
+      } catch (e) {
+        // SOLO SE CUENTA: si fue un SQLITE_BUSY (otra conexión escribiendo), entra en
+        // estado/contadores.js, y la fila igual sale como `skipped` y el lote con 201, como
+        // siempre. Cambiar eso (reintentar, o un 503) es otro paso.
+        contarBusy(e);
         // FK rota: la pista ya no existe (un rescan la borró y el cliente manda su
         // cola vieja). ⚠️ `INSERT OR IGNORE` NO cubre esto — el ON CONFLICT de
         // SQLite aplica a UNIQUE, NOT NULL, CHECK y PRIMARY KEY, no a FOREIGN KEY.
@@ -61,7 +66,8 @@ router.post('/', (req, res) => {
       }
     }
     db.exec('COMMIT');
-  } catch {
+  } catch (e) {
+    contarBusy(e);   // solo cuenta; el ROLLBACK y el 500 siguen igual
     db.exec('ROLLBACK');
     return res.status(500).json({ error: 'could not record plays' });
   }

@@ -13,7 +13,10 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 //
 // No se documenta como variable de despliegue a propósito: en producción no hay que
 // ponerla, y el default es el de siempre.
-const DB_PATH = process.env.MUSIC_DB_PATH ?? join(__dir, '../../data/music.db');
+//
+// Se exporta SOLO para estado/base.js, que mide el tamaño del archivo cuando el node:sqlite
+// no trae db.location(). Es una ruta del disco: no sale por ninguna respuesta.
+export const DB_PATH = process.env.MUSIC_DB_PATH ?? join(__dir, '../../data/music.db');
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 
