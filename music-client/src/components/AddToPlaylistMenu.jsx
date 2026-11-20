@@ -3,7 +3,9 @@ import { api } from '../api/client.js';
 import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { useToast } from './Toast.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
-import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
+import {
+  addTrackToPlaylist, createPlaylistWithTrack, avisoFalloAgregar, avisoFalloCrearYAgregar, motivoFalloAgregar,
+} from '../utils/playlistActions.js';
 
 // Botón "+" por pista: abre un menú para añadirla a una playlist existente
 // o crear una nueva al vuelo. Desde aquí también se pueden RENOMBRAR (con cambio
@@ -51,12 +53,21 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
   // El QUÉ (llamada + aviso, incluido el "ya está" en variante warning) vive en
   // utils/playlistActions.js, compartido con el menú contextual. Acá queda sólo el CÓMO de
   // este widget: el candado `busy`, cerrar el popover y limpiar el formulario.
+  //
+  // ⚠️ LAS DOS LLEVAN `catch`. Corren desde un onClick que nadie espera: sin catch, un 404 del
+  // servidor quedaba como "Uncaught (in promise)" y no se avisaba nada (la playlist 14 en v1.43.0).
+  // El texto sale de playlistActions.js, el mismo que usa el menú contextual.
+  const recargarLista = () => { api.playlists().then(setPlaylists).catch(() => {}); };
+
   async function addTo(playlist) {
     if (busy) return;
     setBusy(true);
     try {
       await addTrackToPlaylist(playlist, trackId, toast);
       setOpen(false);
+    } catch (err) {
+      toast(avisoFalloAgregar(err), { variant: 'warning' });
+      if (motivoFalloAgregar(err) === 'playlist') recargarLista();
     } finally {
       setBusy(false);
     }
@@ -72,6 +83,11 @@ export default function AddToPlaylistMenu({ trackId, placement = 'down', classNa
       setNewName('');
       setEmoji('🎵');
       setOpen(false);
+    } catch (err) {
+      toast(avisoFalloCrearYAgregar(err), { variant: 'warning' });
+      // Si se llegó a crear, ya existe (vacía): se limpia el formulario para no crearla otra vez
+      // con el mismo nombre, y la lista la muestra.
+      if (err?.creada) { setNewName(''); setEmoji('🎵'); recargarLista(); }
     } finally {
       setBusy(false);
     }
