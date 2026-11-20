@@ -71,6 +71,13 @@ con hardware y prototipos: `sonorarev-dj-audio`. Esta skill no las repite.
 3. `maxChannelCount` se lee SÓLO al montar la etapa '3-4' (`montarSalidaCue`, `motor.js:386`); con menos de 4 →
    fallo `'sin-canales-3-4'` (`motor.js:396`), con su aviso (`cue.js:176`).
 
+**Nota: hoy 2.1 se cumple porque el dato no llega.** `filtrarSalidas` (`cue.js:106`–`120`) arma cada salida como
+`{ id, nombre, grupo, esMaster }` (`cue.js:117`) y no copia `maxChannelCount`; ésa es la lista que la página le pasa
+a `decidirRestauracion` (`salidas.js:50`, `CueDj.jsx:202`). La mutación e4a M2a (deducir '3-4' de
+`salida.maxChannelCount` en `cue.js:501`) sólo ejercita esa rama con los datos falsos de dj-unit, que agregan
+`maxChannelCount: 4` a mano a las salidas (`dj-unit.mjs:1600`, caso `cue_e4_restaurar_permiso_master_y_canales`,
+`dj-unit.mjs:1603`). Si algún día `filtrarSalidas` copia ese campo, 2.1 necesita un caso en dj-func.
+
 ## 3. Estado y almacenamiento (`djCue`)
 
 1. **El volumen del cue no se guarda** y arranca en 0,5 (`cue.js:31`, `cue.js:33`, `motor.js:235`).
@@ -108,8 +115,19 @@ con hardware y prototipos: `sonorarev-dj-audio`. Esta skill no las repite.
    `'rearmar'` (`cue.js:514`; página `CueDj.jsx:151`, `CueDj.jsx:155`, aviso «Cue listo (apagado)»
    `CueDj.jsx:156`). Con '1-2' y ahora del master → la confirmación.
 3. **Con OTRO id y el mismo nombre crudo** se preselecciona y se pide «Usar» (`CueDj.jsx:162`).
-4. El botón Cue de cada deck, deshabilitado sin salida, en `'error'` o con la que falta, con su motivo visible
-   (`estadoBotonCue`, `cue.js:278`).
+4. **El botón Cue de cada deck** se habilita sólo con el cue en `'abriendo'` o `'lista'` (`estadoBotonCue`,
+   `cue.js:278`, `cue.js:279`). Deshabilitado, su motivo se ve en una línea bajo los controles del deck
+   (`DjPage.jsx:391`, unida al botón con `aria-describedby`, `DjPage.jsx:383`). El motivo lo decide
+   `estadoBotonCue(cueEstado, cueFalta)` (`DjPage.jsx:345`), en este orden:
+   - **Con la que falta** (la guardada ausente al abrir o la recién desconectada: CueDj sube su nombre visible con
+     `alFaltar`, `CueDj.jsx:103`, y la página se lo pasa a cada deck como `cueFalta`, `DjPage.jsx:295`):
+     `Cue no disponible: conecta «X» o elige otra salida.`, con X = ese nombre (`motivoCueAusente`, `cue.js:277`).
+     Gana sobre `'error'` y sobre sin salida (`cue.js:280`). **Éste es el motivo que la regla exige:** con la que
+     falta, mostrar cualquiera de los otros dos no la cumple.
+   - En `'error'` sin la que falta: `Cue no disponible: la salida de audífonos falló. Quítala o elige otra.`
+     (`MOTIVO_CUE_ERROR`, `cue.js:276`, `cue.js:281`).
+   - Si no, el **genérico** (sin salida): `Para usar Cue, elige una salida de audífonos abajo, en «Audífonos (cue)».`
+     (`MOTIVO_CUE_SIN_SALIDA`, `cue.js:275`, `cue.js:282`).
 
 ## 5. Teclado en `/dj`
 
@@ -182,4 +200,8 @@ con hardware y prototipos: `sonorarev-dj-audio`. Esta skill no las repite.
   `music-client/src/dj/` revisa esta skill antes del commit.
 - Para revisar las citas: cada `archivo:línea` debe seguir conteniendo el texto que la regla describe. Lo que no
   tenga línea se marca [no verificado]; nunca se inventa.
+- **Antes de commitear cambios en `music-client/src/dj/`:** correr `node .claude/tools/snap/perf/citas-dj-lab.mjs`
+  (exit 0 = cada cita sigue conteniendo su texto esperado; una cita nueva o movida necesita su fila en la tabla del
+  script, en el mismo commit) y revisar el diff con el agente de usuario `dj-qa` (`~/.claude/agents/dj-qa.md`; vive
+  fuera del repo, así que no viaja con la rama).
 - Lo volátil (qué sub-paso sigue, números de una sesión) no vive acá.
