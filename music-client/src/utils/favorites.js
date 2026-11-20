@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { api } from '../api/client.js';
 import { currentOwner } from './playsOutbox.js';
+import { AVISO_PISTA_CAMBIO, motivoFalloAgregar } from './playlistActions.js';
 
 // FAVORITOS = la playlist "Mis favoritos", la MISMA que usa la app iOS (lib/playlists/favoritos.ts),
 // así el corazón del iPhone y el de la web son el mismo. No hay endpoint propio: es una playlist más.
@@ -130,8 +131,12 @@ async function send(owner, trackId, on) {
   try {
     await run(id);
   } catch (e) {
-    // 404: la borraron (desde la web o el iPhone). Se vuelve a resolver UNA vez, como iOS.
-    if (e?.status !== 404) throw e;
+    // 404 "Playlist not found": la borraron (desde la web o el iPhone). Se vuelve a resolver UNA vez,
+    // como iOS. ⚠️ SÓLO ese 404: el POST también contesta 404 "Track not found" cuando la PISTA ya no
+    // existe (un reescaneo le cambió el id), y tomarlo por "la borraron" borraba sonorarev.favoritos
+    // y repetía el POST para nada (hallazgo de la playlist 14, v1.43.0). Ése sube tal cual y el
+    // corazón se deshace con el aviso de playlistActions.js.
+    if (motivoFalloAgregar(e) !== 'playlist') throw e;
     if (currentOwner() === owner) state = { ...state, playlistId: null };
     storeId(owner, null);
     if (!on) return;   // quitar de una playlist que ya no existe: ya no está
@@ -160,7 +165,7 @@ export function toggleFavorite(trackId, onError, afterLoad = false) {
   pendingByTrack.set(trackId, mine);
   chain = chain.then(() => send(owner, trackId, on)).then(
     () => { if (pendingByTrack.get(trackId) === mine) pendingByTrack.delete(trackId); },
-    () => {
+    (err) => {
       if (currentOwner() !== owner || state.owner !== owner) return;
       // Deshacer SÓLO si nadie volvió a tocar ese corazón después (si no, manda el último toque).
       if (pendingByTrack.get(trackId) === mine) {
@@ -170,7 +175,10 @@ export function toggleFavorite(trackId, onError, afterLoad = false) {
         state = { ...state, ids: back };
         emit();
       }
-      onError?.(on ? 'No se pudo guardar en «Mis favoritos»' : 'No se pudo quitar de «Mis favoritos»');
+      // La pista que cambió de id tiene su propio aviso (el mismo que el "+"): "no se pudo guardar"
+      // haría reintentar algo que no va a salir hasta recargar la página.
+      onError?.(motivoFalloAgregar(err) === 'pista' ? AVISO_PISTA_CAMBIO
+        : on ? 'No se pudo guardar en «Mis favoritos»' : 'No se pudo quitar de «Mis favoritos»');
     },
   );
 }
