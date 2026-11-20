@@ -3,6 +3,21 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [Sin versión]
+
+### Corregido
+- **Agregar a una playlist ya no falla en silencio.** Si no se puede agregar una canción desde el
+  botón «+» del reproductor o desde el menú de una canción, ahora aparece un aviso que dice por qué:
+  «Esta canción cambió en la biblioteca. Recarga la página para agregarla.» (la canción se movió o
+  se renombró en el servidor mientras la página estaba abierta), «Esa playlist ya no existe.» (y la
+  lista se actualiza) o «No se pudo agregar a la playlist.». Antes el «+» no decía nada y dejaba un
+  error en la consola.
+- **El corazón de «Mis favoritos»** da ese mismo aviso cuando la canción cambió en la biblioteca, y
+  ya no confunde ese caso con que borraron la playlist: no la vuelve a buscar ni repite el envío.
+- **Crear una playlist con una canción ya no deja el nombre puesto si falla a medias.** Si la
+  playlist se crea pero no se puede agregar la canción, aparece el mismo aviso, el formulario se
+  limpia y la playlist nueva (vacía) sale en la lista, para no crearla dos veces con el mismo nombre.
+
 ## [1.43.0] - 2026-11-14
 
 ### Nuevo
