@@ -156,15 +156,18 @@ export function etiquetaEstado(clave) {
 export const PIE = 'Mide solo el servidor, no tu conexión';
 export const TEXTO_VIDEOS = { ok: 'Índice listo', unavailable: 'Sin consultar o no disponible' };
 
-/** uptime en segundos → «hace …». Cortes en 60 s, 1 h y 1 día; siempre hacia abajo. null si no es válido. */
+/** uptime en segundos → «hace …». Cortes en 60 s, 1 h y 1 día; siempre hacia abajo; la unidad menor
+ *  solo si no es 0. null si no es válido. */
 export function textoEncendido(seg) {
   if (!esNumNoNeg(seg)) return null;
   const s = Math.floor(seg);
   if (s < 60) return 'hace menos de 1 min';
   if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `hace ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
-  return `hace ${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h`;
+  if (s < 86400) return conMenor(`hace ${Math.floor(s / 3600)} h`, Math.floor((s % 3600) / 60), 'min');
+  return conMenor(`hace ${Math.floor(s / 86400)} d`, Math.floor((s % 86400) / 3600), 'h');
 }
+// La unidad menor se omite cuando vale 0 (3b): «hace 1 h», no «hace 1 h 0 min»; «hace 3 d», no «hace 3 d 0 h».
+const conMenor = (mayor, n, unidad) => (n ? `${mayor} ${n} ${unidad}` : mayor);
 
 const UNIDADES = ['B', 'KB', 'MB', 'GB', 'TB'];
 const coma = (n) => String(n).replace('.', ',');

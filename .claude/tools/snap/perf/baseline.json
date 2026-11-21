@@ -78,6 +78,7 @@
     { "nombre": "login-sso-func", "archivo": "login-sso-func.mjs", "modo": "name-line", "esperado": { "ok": 24, "total": 24 } },
     { "nombre": "buscar-func", "archivo": "buscar-func.mjs", "modo": "name-line", "esperado": { "ok": 34, "total": 34 } },
     { "nombre": "teclado-func", "archivo": "teclado-func.mjs", "modo": "name-line", "esperado": { "ok": 39, "total": 39 } },
-    { "nombre": "servidor-unit", "archivo": "servidor-unit.mjs", "modo": "name-line", "esperado": { "ok": 72, "total": 72 }, "_nota": "estado del servidor en Ajustes (sub-paso 3a): funciones puras de music-client/src/utils/estadoServidor.js, sin navegador ni servidor. Controles en mutaciones/s3a.mjs." }
+    { "nombre": "servidor-unit", "archivo": "servidor-unit.mjs", "modo": "name-line", "esperado": { "ok": 84, "total": 84 }, "_nota": "estado del servidor en Ajustes: funciones puras de music-client/src/utils/estadoServidor.js (3a) y el sondeo de utils/sondeoServidor.js (3b), sin navegador ni servidor. Controles en mutaciones/s3a.mjs y s3b.mjs." },
+    { "nombre": "servidor-func", "archivo": "servidor-func.mjs", "modo": "name-line", "esperado": { "ok": 21, "total": 21 }, "_nota": "tarjeta «Servidor» de Ajustes (sub-paso 3b): /api/servidor mockeado con ctx.route y reloj falso, más un caso contra el backend real (snap@local, admin:false). Controles en mutaciones/s3b.mjs." }
   ]
 }

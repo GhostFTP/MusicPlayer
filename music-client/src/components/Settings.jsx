@@ -1,4 +1,5 @@
 import { useAuth } from '../context/AuthContext.jsx';
+import EstadoServidor from './EstadoServidor.jsx';
 
 // Método de acceso legible + su etiqueta corta para el chip. 'sso' = Cloudflare
 // Access + Google (auto-login); 'password' = login tradicional de red local. Si
@@ -84,10 +85,13 @@ export default function Settings({ navigate }) {
         </button>
       </section>
 
-      {/* Hueco extensible: la próxima sección (Tema, Movimiento reducido,
-          "Acerca de"/versión) entra como otra <section className="settings-section">
-          con su <h2 className="settings-section-title"> + <dl className="settings-card">,
-          sin tocar nada de lo de arriba. */}
+      {/* Servidor: estado, versión y tiempo encendido (GET /api/servidor), con su propio sondeo
+          que vive y muere con esta vista. Misma forma que las de arriba. */}
+      <EstadoServidor />
+
+      {/* Hueco extensible: la próxima sección (Tema, Movimiento reducido) entra como otra
+          <section className="settings-section"> con su <h2 className="settings-section-title">
+          + <dl className="settings-card">, sin tocar nada de lo de arriba. */}
     </div>
   );
 }

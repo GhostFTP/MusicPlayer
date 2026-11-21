@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const U = await import(pathToFileURL(join(ROOT, 'music-client/src/utils/estadoServidor.js')).href);
+const S = await import(pathToFileURL(join(ROOT, 'music-client/src/utils/sondeoServidor.js')).href);
 
 const R = {};
 const ok = (k, v, extra) => { R[k] = extra === undefined ? v : { ok: v, ...extra }; };
@@ -125,11 +126,15 @@ const HTML = '<!doctype html><html><head><title>Cloudflare Access</title></head>
   const t = U.textoEncendido;
   const casos = [
     [0, 'hace menos de 1 min'], [59, 'hace menos de 1 min'], [59.9, 'hace menos de 1 min'], [60, 'hace 1 min'],
-    [3599, 'hace 59 min'], [3600, 'hace 1 h 0 min'], [3660, 'hace 1 h 1 min'],
-    [86399, 'hace 23 h 59 min'], [86400, 'hace 1 d 0 h'], [3 * 86400 + 4 * 3600 + 59 * 60, 'hace 3 d 4 h'],
+    [3599, 'hace 59 min'], [3600, 'hace 1 h'], [3660, 'hace 1 h 1 min'], [3659, 'hace 1 h'],
+    [86399, 'hace 23 h 59 min'], [86400, 'hace 1 d'], [3 * 86400 + 4 * 3600 + 59 * 60, 'hace 3 d 4 h'],
   ];
   const mal = casos.filter(([s, esp]) => t(s) !== esp).map(([s, esp]) => ({ s, esp, dio: t(s) }));
   ok('encendido_bordes', mal.length === 0, { mal });
+  // 3b: la unidad menor se omite cuando vale 0 (nunca «0 min» ni «0 h»).
+  const ceros = [[7200, 'hace 2 h'], [7260, 'hace 2 h 1 min'], [3 * 86400, 'hace 3 d'], [3 * 86400 + 3599, 'hace 3 d'], [90000, 'hace 1 d 1 h']];
+  const malCero = ceros.filter(([s, esp]) => t(s) !== esp).map(([s, esp]) => ({ s, esp, dio: t(s) }));
+  ok('encendido_sin_cero_menor', malCero.length === 0 && [3600, 86400, 7200, 3 * 86400].every((s) => !/ 0 (min|h)$/.test(t(s))), { malCero });
   ok('encendido_invalido_null', [-1, NaN, Infinity, '60', null, undefined].every((x) => t(x) === null));
 }
 
@@ -240,6 +245,129 @@ function r1(n) { return Math.round(n * 10) / 10; }
   ok('build_sin_script_dev', U.idDelBuild(doc([])) === 'dev' && U.idDelBuild(doc(['/src/main.jsx', '/@vite/client'])) === 'dev');
   ok('build_sin_documento_dev', U.idDelBuild(null) === 'dev' && U.idDelBuild(undefined) === 'dev' && U.idDelBuild({}) === 'dev');
   ok('build_src_propiedad', U.idDelBuild({ querySelectorAll: () => [{ src: 'http://localhost:4173/assets/index-KLyDKkjF.js' }] }) === 'KLyDKkjF');
+}
+
+// ── 11. El sondeo (utils/sondeoServidor.js, 3b), con reloj, timers y documento falsos ──
+// En el navegador un 401 desloguea y desmonta Ajustes, así que «el 401 corta» solo se ve acá.
+{
+  const flush = () => new Promise((r) => setImmediate(r));
+  function entorno({ leer } = {}) {
+    let t = 1_000_000;
+    let sig = 1;
+    const timers = new Map();
+    const doc = {
+      visibilityState: 'visible', ls: new Set(),
+      addEventListener(n, f) { if (n === 'visibilitychange') this.ls.add(f); },
+      removeEventListener(n, f) { if (n === 'visibilitychange') this.ls.delete(f); },
+    };
+    const e = {
+      llamadas: 0, datos: [], fallos: [], timers, doc,
+      // Por defecto cada lectura responde al toque con un JSON bueno; `respuestas` cambia eso.
+      respuestas: [],
+      leer: leer ?? (() => { e.llamadas++; const r = e.respuestas.shift(); return typeof r === 'function' ? r() : Promise.resolve(r ?? PUBLICO); }),
+      get ahora() { return t; },
+      async avanzar(ms) {
+        const fin = t + ms;
+        for (;;) {
+          const [id, prox] = [...timers.entries()].sort((a, b) => a[1].at - b[1].at)[0] ?? [];
+          if (!prox || prox.at > fin) break;
+          t = prox.at; timers.delete(id); prox.fn(); await flush();
+        }
+        t = fin; await flush();
+      },
+      async ver(v) { doc.visibilityState = v; for (const f of [...doc.ls]) f(); await flush(); },
+    };
+    e.arrancar = (extra = {}) => S.crearSondeo({
+      leer: e.leer, validar: U.validarServidor, clasificar: U.claveDeFallo,
+      alDato: (d, at) => e.datos.push({ d, at }), alFallo: (k) => e.fallos.push(k), documento: doc,
+      ahora: () => t, programar: (fn, ms) => { const id = sig++; timers.set(id, { fn, at: t + ms }); return id; }, cancelar: (id) => timers.delete(id),
+      ...extra,
+    });
+    return e;
+  }
+  const diferida = () => { let res, rej; const p = new Promise((a, b) => { res = a; rej = b; }); return { p, res, rej }; };
+
+  ok('sond_cada_30s', S.CADA_MS === 30_000);
+  {
+    const e = entorno(); const s = e.arrancar(); await flush();
+    const alArrancar = e.llamadas === 1 && e.datos.length === 1 && igual(e.datos[0].d, PUBLICO) && e.datos[0].at === e.ahora;
+    await e.avanzar(29_999); const antes = e.llamadas;
+    await e.avanzar(1); const justo = e.llamadas;
+    await e.avanzar(30_000);
+    ok('sond_pide_al_arrancar', alArrancar);
+    ok('sond_cadena_30s', antes === 1 && justo === 2 && e.llamadas === 3 && e.timers.size === 1, { antes, justo, despues: e.llamadas, timers: e.timers.size });
+    s.detener();
+  }
+  {
+    // Oculta a los 10 s: se cancela el timer y en 2 min no sale nada. Visible a los 130 s → en el acto.
+    const e = entorno(); const s = e.arrancar(); await flush();
+    await e.avanzar(10_000); await e.ver('hidden');
+    const timersOculta = e.timers.size;
+    await e.avanzar(120_000); const enOculta = e.llamadas;
+    await e.ver('visible'); const alVolver = e.llamadas;
+    ok('sond_pausa_oculta', timersOculta === 0 && enOculta === 1, { timersOculta, enOculta });
+    ok('sond_vuelve_visible_pide', alVolver === 2 && e.timers.size === 1, { alVolver });
+    s.detener();
+  }
+  {
+    // Oculta a los 10 s y visible a los 20 s: NO pide en el acto; agenda lo que falta (10 s).
+    const e = entorno(); const s = e.arrancar(); await flush();
+    await e.avanzar(10_000); await e.ver('hidden'); await e.avanzar(10_000); await e.ver('visible');
+    const alVolver = e.llamadas;
+    await e.avanzar(9_999); const casi = e.llamadas;
+    await e.avanzar(1);
+    ok('sond_visible_antes_de_30s_espera', alVolver === 1 && casi === 1 && e.llamadas === 2, { alVolver, casi, despues: e.llamadas });
+    s.detener();
+  }
+  {
+    // Una sola lectura en vuelo: con la primera colgada, ni la visibilidad ni el tiempo disparan otra.
+    const d = diferida();
+    const e = entorno(); e.respuestas.push(() => d.p);
+    const s = e.arrancar(); await flush();
+    await e.ver('hidden'); await e.ver('visible'); await e.avanzar(90_000);
+    const enVuelo = e.llamadas;
+    d.res(PUBLICO); await flush();
+    const tras = e.llamadas;
+    await e.avanzar(30_000);
+    ok('sond_una_en_vuelo', enVuelo === 1 && tras === 1 && e.llamadas === 2 && e.datos.length === 2, { enVuelo, tras, despues: e.llamadas });
+    s.detener();
+  }
+  {
+    // 401 → 'sesion' y se corta: ni el tiempo ni volver a la pestaña piden otra vez.
+    const e = entorno(); e.respuestas.push(() => Promise.reject(Object.assign(new Error('No token'), { status: 401 })));
+    const s = e.arrancar(); await flush();
+    await e.avanzar(120_000); await e.ver('hidden'); await e.ver('visible'); await e.avanzar(60_000);
+    ok('sond_401_corta', e.llamadas === 1 && igual(e.fallos, ['sesion']) && e.timers.size === 0 && s.estado().cortado, { llamadas: e.llamadas, fallos: e.fallos });
+    s.detener();
+  }
+  {
+    // La respuesta pasa por validar: forma mala y HTML → respuesta_invalida; SyntaxError (res.json sobre
+    // HTML) → respuesta_invalida; red caída → sin_respuesta. Y la cadena SIGUE (no es un 401).
+    let sintaxis; try { JSON.parse(HTML); } catch (err) { sintaxis = err; }
+    const e = entorno();
+    e.respuestas.push({ ...PUBLICO, estado: 'regular' }, HTML, () => Promise.reject(sintaxis), () => Promise.reject(new TypeError('Failed to fetch')), PUBLICO);
+    const s = e.arrancar(); await flush();
+    for (let i = 0; i < 4; i++) await e.avanzar(30_000);
+    ok('sond_valida_y_clasifica', igual(e.fallos, ['respuesta_invalida', 'respuesta_invalida', 'respuesta_invalida', 'sin_respuesta']) && e.datos.length === 1 && igual(e.datos[0].d, PUBLICO) && e.llamadas === 5,
+      { fallos: e.fallos, datos: e.datos.length, llamadas: e.llamadas });
+    s.detener();
+  }
+  {
+    // detener(): sin timer, sin listener, y en 2 min no sale nada.
+    const e = entorno(); const s = e.arrancar(); await flush();
+    s.detener();
+    const limpio = e.timers.size === 0 && e.doc.ls.size === 0;
+    await e.avanzar(120_000); await e.ver('hidden'); await e.ver('visible');
+    ok('sond_detener_limpia', limpio && e.llamadas === 1, { timers: e.timers.size, listeners: e.doc.ls.size, llamadas: e.llamadas });
+  }
+  {
+    // detener() con la lectura en vuelo: cuando llega, nadie se entera y no se agenda nada.
+    const d = diferida();
+    const e = entorno(); e.respuestas.push(() => d.p);
+    const s = e.arrancar(); await flush();
+    s.detener(); d.res(PUBLICO); await flush(); await e.avanzar(60_000);
+    ok('sond_detener_en_vuelo_calla', e.datos.length === 0 && e.fallos.length === 0 && e.timers.size === 0 && e.llamadas === 1);
+  }
 }
 
 console.log(JSON.stringify(R, null, 1));

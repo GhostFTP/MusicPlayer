@@ -178,6 +178,12 @@ export const api = {
   // Novedades (CHANGELOG.md del repo) → { content }
   changelog:       ()           => request('/api/changelog'),
 
+  // Estado del servidor (music-server/src/api/servidor.js) → { estado, version, uptime_s, admin }. Lo
+  // sondea Ajustes cada 30 s (EstadoServidor.jsx): techo de 5 s y no los 10 de siempre, para que un
+  // servidor colgado se vea como «Sin respuesta» antes del próximo turno. La forma la valida
+  // utils/estadoServidor.js (validarServidor): Access puede contestar 200 con su página de login.
+  servidor:        ()           => request('/api/servidor', { timeoutMs: 5000 }),
+
   // Videos (music-server/src/videos/routes.js) → { videos: [{ id, title, artist, year, ext, size,
   // mime, duration, has_cover }] }. Ya vienen ordenados: artista A→Z, año del más nuevo al más viejo.
   videos:          ()           => request('/api/videos'),

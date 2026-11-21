@@ -21,7 +21,8 @@ export const mutaciones = [
       },
     ],
     // También cae pub_campo_que_falta: sin `estado` (undefined) el validador mutado lo acepta igual.
-    esperados: ["pub_estado_desconocido", "pub_campo_que_falta"],
+    // Desde 3b cae también sond_valida_y_clasifica: el sondeo valida con validarServidor.
+    esperados: ["pub_estado_desconocido", "pub_campo_que_falta", "sond_valida_y_clasifica"],
   },
   {
     id: "S2",
@@ -94,20 +95,20 @@ export const mutaciones = [
     cambios: [
       {
         archivo: "music-client/src/utils/estadoServidor.js",
-        ancla: "  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;\n  if (s < 86400) return `hace ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;\n",
-        reemplazo: "  if (s <= 3600) return `hace ${Math.floor(s / 60)} min`;\n  if (s < 86400) return `hace ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;\n",
+        ancla: "  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;\n  if (s < 86400) return conMenor(",
+        reemplazo: "  if (s <= 3600) return `hace ${Math.floor(s / 60)} min`;\n  if (s < 86400) return conMenor(",
       },
     ],
     esperados: ["encendido_bordes"],
   },
   {
     id: "S6c",
-    que: "textoEncendido cruza mal el día (86400 s todavía dice «hace 24 h 0 min»)",
+    que: "textoEncendido cruza mal el día (86400 s todavía dice «hace 24 h»)",
     cambios: [
       {
         archivo: "music-client/src/utils/estadoServidor.js",
-        ancla: "  if (s < 86400) return `hace ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;\n",
-        reemplazo: "  if (s <= 86400) return `hace ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;\n",
+        ancla: "  if (s < 86400) return conMenor(",
+        reemplazo: "  if (s <= 86400) return conMenor(",
       },
     ],
     esperados: ["encendido_bordes"],

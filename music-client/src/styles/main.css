@@ -290,6 +290,37 @@ button, input, select, textarea { font-family: inherit; }
   .settings-logout { display: flex; width: 100%; }
 }
 
+/* ── AJUSTES · SERVIDOR (EstadoServidor.jsx, sub-paso 3b) ─────────────
+   La tarjeta «Servidor» reusa .settings-section / .settings-card / .settings-row (y su apilado a
+   ≤700px, arriba); acá solo lo suyo, con clases .srv-* nuevas: ninguna clase existente se toca.
+   El estado lo dicen el TEXTO y el ICONO; el tono apoya. Sin rojo ni verde (son de los tiers de
+   calidad): lento en ámbar suave, mal en ámbar pleno con fondo y en negrita, sin dato en gris.
+   Sin movimiento → sin rama reduced-motion. */
+.srv-estado-celda { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; }
+.srv-estado { display: inline-flex; align-items: center; gap: 6px; }
+.srv-icono { flex-shrink: 0; }
+.srv-estado--normal { color: var(--text); }
+.srv-estado--ambar { color: var(--amber-soft); }
+.srv-estado--ambar-fuerte {
+  color: var(--amber); font-weight: 700;
+  background: var(--amber-dim); padding: 2px 8px; border-radius: 7px;
+}
+.srv-estado--gris { color: var(--text-muted); }
+/* «Si sigue, recarga la página»: debajo del estado, en el tono de las notas. */
+.srv-ayuda { font-size: 12.5px; font-weight: 400; color: var(--text-muted); }
+/* Sin respuesta: los últimos valores siguen, atenuados (son de antes, no de ahora). Con la
+   especificidad de `.settings-row dd` + 1, que si no le gana el color; sin opacidad: el gris de la
+   casa sobre la tarjeta ya es lo más tenue que sigue siendo legible. */
+.settings-row dd.srv-viejo { color: var(--text-muted); }
+.srv-pie {
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+  margin-top: 10px; font-size: 12.5px; color: var(--text-muted);
+}
+.srv-hace { font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) {
+  .srv-estado-celda { align-items: flex-start; }
+}
+
 /* ── RADIO (vista Radio: cara "sin radio" y /radio/CODIGO) ─────────────
    Mismo vocabulario que Ajustes (tarjetas, títulos de sección en versalitas, botón neutro ≥44px)
    pero con clases propias: ninguna clase existente se toca. El campo va a 16px porque con menos
