@@ -77,6 +77,7 @@
     { "nombre": "login-eleccion-func", "archivo": "login-eleccion-func.mjs", "modo": "name-line", "esperado": { "ok": 18, "total": 18 } },
     { "nombre": "login-sso-func", "archivo": "login-sso-func.mjs", "modo": "name-line", "esperado": { "ok": 24, "total": 24 } },
     { "nombre": "buscar-func", "archivo": "buscar-func.mjs", "modo": "name-line", "esperado": { "ok": 34, "total": 34 } },
-    { "nombre": "teclado-func", "archivo": "teclado-func.mjs", "modo": "name-line", "esperado": { "ok": 39, "total": 39 } }
+    { "nombre": "teclado-func", "archivo": "teclado-func.mjs", "modo": "name-line", "esperado": { "ok": 39, "total": 39 } },
+    { "nombre": "servidor-unit", "archivo": "servidor-unit.mjs", "modo": "name-line", "esperado": { "ok": 72, "total": 72 }, "_nota": "estado del servidor en Ajustes (sub-paso 3a): funciones puras de music-client/src/utils/estadoServidor.js, sin navegador ni servidor. Controles en mutaciones/s3a.mjs." }
   ]
 }
