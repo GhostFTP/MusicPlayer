@@ -18,6 +18,7 @@
     "smoke:playlist-videos": "node scripts/smoke-playlist-videos.mjs",
     "smoke:resumen": "node scripts/smoke-resumen.mjs",
     "smoke:range": "node scripts/smoke-range.mjs",
+    "smoke:servidor": "node scripts/smoke-servidor.mjs",
     "test:password-view": "node scripts/test-password-view.mjs",
     "test:reasignar": "node scripts/test-reasignar.mjs",
     "test:locutor-hechos": "node scripts/test-locutor-hechos.mjs",
