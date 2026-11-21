@@ -15,6 +15,10 @@
 //   · aria-live SOLO en el estado (no en «hace N s») y el foco no se mueve; el tic de «hace N s» no toca
 //     la tarjeta; a 390 con touch no desborda;
 //   · sin errores de página; y UN caso sin mock contra el backend de verdad (snap@local: admin:false).
+// 3c: el detalle de admin plegado y su gráfica. 3d: «Copiar diagnóstico». 3e: teclado (orden de Tab,
+// Enter/Espacio en el <details>, anillo de foco MEDIDO), contraste WCAG medido (textos ≥ 4,5:1, trazos
+// ≥ 3:1), el árbol accesible sin controles sin nombre, reduced-motion sin movimiento, y a 390 con una
+// pista sonando el pie y el botón de copiar no quedan tapados por el mini-reproductor.
 // Con SERVIDOR_CAPTURAS=<carpeta> además guarda Ajustes a 390 y 960 en ok, lento, mal y sin respuesta
 // (no cuentan como casos). Con SERVIDOR_FUNC_SALIDA=<archivo> escribe ahí el detalle de cada caso.
 // Termina con `servidor-func: N/N` y código 0/1 (modo name-line).
@@ -49,8 +53,9 @@ const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 //   'ok'    → writeText guarda el texto en window.__copias;
 //   'falla' → writeText rechaza y document.execCommand devuelve false (queda el textarea a mano);
 //   'exec'  → writeText rechaza y execCommand('copy') «copia» lo seleccionado en window.__copias.
-async function abrir({ responder, responderAdmin, ancho = 1440, alto = 900, movil = false, portapapeles = null } = {}) {
-  const ctx = await browser.newContext({ viewport: { width: ancho, height: alto }, isMobile: movil, hasTouch: movil });
+// `reducido` (3e) emula prefers-reduced-motion: reduce.
+async function abrir({ responder, responderAdmin, ancho = 1440, alto = 900, movil = false, portapapeles = null, reducido = false } = {}) {
+  const ctx = await browser.newContext({ viewport: { width: ancho, height: alto }, isMobile: movil, hasTouch: movil, reducedMotion: reducido ? 'reduce' : 'no-preference' });
   await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
   if (portapapeles) {
     await ctx.addInitScript((modo) => {
@@ -664,56 +669,268 @@ try {
     await ctx.close();
   }
 
+  // ═══ 3e: verificación final (teclado, foco, contraste, árbol accesible, reduced-motion, mini-reproductor) ═══
+
+  // Contraste WCAG medido en la página: el color del texto (o del trazo) compuesto sobre el fondo REAL
+  // que lo rodea (se suben los ancestros hasta un fondo opaco, componiendo los semitransparentes), con
+  // la opacidad del propio elemento. Devuelve la razón (1–21) y los colores usados.
+  const CONTRASTE = `(sel, prop) => {
+    const el = typeof sel === 'string' ? document.querySelector(sel) : sel;
+    if (!el) return null;
+    const rgba = (s) => { const m = (s || '').match(/rgba?\\(([^)]+)\\)/); if (!m) return null; const [r, g, b, a = 1] = m[1].split(/[ ,\\/]+/).filter(Boolean).map(Number); return [r, g, b, a]; };
+    const sobre = (f, b) => [0, 1, 2].map((i) => f[i] * f[3] + b[i] * (1 - f[3])).concat(1);
+    const capas = [];
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const c = rgba(getComputedStyle(n).backgroundColor);
+      if (c && c[3] > 0) { capas.push(c); if (c[3] >= 1) break; }
+    }
+    let fondo = [17, 17, 17, 1];   // --bg de la casa, por si nadie pinta
+    for (let i = capas.length - 1; i >= 0; i--) fondo = sobre(capas[i], fondo);
+    const cs = getComputedStyle(el);
+    let fg = rgba(cs[prop || 'color']);
+    if (!fg) return null;
+    fg = [fg[0], fg[1], fg[2], fg[3] * Number(cs.opacity || 1)];
+    const color = sobre(fg, fondo);
+    const L = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const [a, b] = [L(color), L(fondo)].sort((x, y) => y - x);
+    return { razon: Math.round(((a + 0.05) / (b + 0.05)) * 100) / 100, color: color.slice(0, 3).map(Math.round), fondo: fondo.slice(0, 3).map(Math.round) };
+  }`;
+  const contraste = (p, sel, prop) => p.evaluate(`(${CONTRASTE})(${JSON.stringify(sel)}, ${JSON.stringify(prop ?? null)})`);
+  // El anillo del foco del elemento enfocado, medido: estilo, grosor y contraste del color contra el fondo.
+  const anillo = (p) => p.evaluate(`(() => {
+    const el = document.activeElement; if (!el || el === document.body) return null;
+    const cs = getComputedStyle(el);
+    const c = (${CONTRASTE})(el, 'outlineColor');
+    return { clase: el.className, estilo: cs.outlineStyle, grosor: parseFloat(cs.outlineWidth), razon: c?.razon ?? null, visible: cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2 && (c?.razon ?? 0) >= 3 };
+  })()`);
+  const enfocado = (p) => p.evaluate(() => {
+    const e = document.activeElement;
+    return { clase: e?.className ?? null, texto: e?.textContent?.trim().slice(0, 40) ?? null, enSrv: !!e?.closest?.('.srv'), abierto: document.querySelector('.srv-admin')?.open ?? null };
+  });
+
+  // (a) Teclado: Tab desde «Abrir Radio» → copiar → resumen; Enter y Espacio abren y cierran el
+  // <details>; cada foco con un anillo visible (outline medido, no la clase).
+  {
+    const { ctx, p } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson()) });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await p.evaluate(() => [...document.querySelectorAll('.settings-logout')].find((b) => b.textContent.includes('Abrir Radio'))?.focus());
+    await p.keyboard.press('Tab'); const f1 = await enfocado(p); const a1 = await anillo(p);
+    await p.keyboard.press('Tab'); const f2 = await enfocado(p); const a2 = await anillo(p);
+    await p.keyboard.press('Enter'); await esperar(300); const tras1 = await enfocado(p);
+    await p.keyboard.press('Enter'); await esperar(200); const tras2 = await enfocado(p);
+    await p.keyboard.press(' '); await esperar(300); const tras3 = await enfocado(p);
+    await p.keyboard.press(' '); await esperar(200); const tras4 = await enfocado(p);
+    const a3 = await anillo(p);
+    ok('teclado_orden_y_details', /srv-copiar-boton/.test(f1.clase) && /srv-admin-resumen/.test(f2.clase)
+      && tras1.abierto === true && tras2.abierto === false && tras3.abierto === true && tras4.abierto === false && /srv-admin-resumen/.test(tras4.clase),
+    { f1, f2, abrir_enter: tras1.abierto, cerrar_enter: tras2.abierto, abrir_espacio: tras3.abierto, cerrar_espacio: tras4.abierto });
+    // Usuario normal: después de copiar, el Tab SALE de la tarjeta (no hay resumen).
+    const u = await abrir({ responder: () => json(pub('ok')) });
+    await hasta(u.p, 'Funciona con normalidad');
+    await u.p.locator('.srv-copiar-boton').focus();
+    await u.p.keyboard.press('Tab'); const fu = await enfocado(u.p);
+    // El textarea de respaldo, que recibe el foco por código.
+    const t = await abrir({ responder: () => json(pub('ok')), portapapeles: 'falla' });
+    await hasta(t.p, 'Funciona con normalidad');
+    await t.p.locator('.srv-copiar-boton').focus(); await t.p.keyboard.press('Enter');
+    await t.p.waitForSelector('.srv-copiar-texto', { timeout: 3000 }).catch(() => {});
+    const a4 = await anillo(t.p);
+    ok('foco_anillo_visible', [a1, a2, a3, a4].every((x) => x?.visible), { copiar: a1, resumen: a2, resumen_tras_espacio: a3, textarea: a4 });
+    ok('teclado_usuario_sale_de_la_tarjeta', !fu.enSrv, { siguiente: fu });
+    await ctx.close(); await u.ctx.close(); await t.ctx.close();
+  }
+
+  // (b) Contraste de cada texto (≥ 4.5:1) y de los trazos de la gráfica (≥ 3:1).
+  {
+    const filas = [];
+    const medir = async (p, nombre, sel, minimo = 4.5, prop = null) => { const c = await contraste(p, sel, prop); filas.push({ nombre, minimo, ...(c ?? { razon: null }) }); };
+    for (const [estado, texto] of [['ok', 'Funciona con normalidad'], ['lento', 'Va lento'], ['mal', 'Con problemas'], ['sin_datos', 'Recién encendido, todavía midiendo']]) {
+      const { ctx, p } = await abrir({ responder: () => json(pub(estado)) });
+      await hasta(p, texto);
+      await medir(p, `estado ${estado}`, '.srv > .settings-card .srv-estado');
+      if (estado === 'ok') {
+        await medir(p, 'fila: etiqueta (dt)', '.srv > .settings-card .settings-row dt');
+        await medir(p, 'fila: valor (dd)', '.srv > .settings-card .settings-row:nth-child(2) dd');
+        await medir(p, 'pie: «Actualizado hace…»', '.srv > .srv-pie .srv-hace');
+        await medir(p, 'pie: nota fija', '.srv > .srv-pie .srv-pie-nota');
+        await medir(p, 'botón «Copiar diagnóstico»', '.srv-copiar-boton');
+      }
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await abrir({ responder: (n) => (n === 1 ? json(pub('ok')) : { status: 200, contentType: 'text/html', body: HTML }) });
+      await hasta(p, 'Funciona con normalidad'); await p.clock.fastForward(31_000); await hasta(p, 'Sin respuesta');
+      await medir(p, 'estado sin respuesta', '.srv > .settings-card .srv-estado');
+      await medir(p, 'sin respuesta: «Si sigue, recarga…»', '.srv > .settings-card .srv-ayuda');
+      await medir(p, 'sin respuesta: valor atenuado', '.srv > .settings-card dd.srv-viejo');
+      await medir(p, 'pie: «Último dato hace…»', '.srv > .srv-pie .srv-hace');
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson({ n: 60, pico: 600 })) });
+      await hasta(p, 'Funciona con normalidad');
+      await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+      await abrirDetalle(p); await esperar(300);
+      await medir(p, 'resumen «Ver detalle (admin)»', '.srv-admin-resumen');
+      await medir(p, 'detalle: etiqueta (dt)', '.srv-admin-filas dt');
+      await medir(p, 'detalle: valor (dd)', '.srv-admin-filas dd');
+      await medir(p, 'gráfica: título', '.srv-grafica-titulo');
+      await medir(p, 'gráfica: etiqueta «lento · 100 ms»', '.srv-guia-etiqueta--100');
+      await medir(p, 'gráfica: etiqueta «mal · 500 ms»', '.srv-guia-etiqueta--500');
+      await medir(p, 'gráfica: eje «hace 60 min / ahora»', '.srv-grafica-eje span');
+      await medir(p, 'gráfica: «Pico: …»', '.srv-grafica-pico');
+      await medir(p, 'gráfica: trazo p99', '.srv-linea-p99', 3, 'stroke');
+      await medir(p, 'gráfica: trazo máximo (tenue)', '.srv-linea-max', 3, 'stroke');
+      await medir(p, 'gráfica: guía 100', '.srv-guia--100', 3, 'stroke');
+      await medir(p, 'gráfica: guía 500', '.srv-guia--500', 3, 'stroke');
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await abrir({ responder: () => json(pub('ok')), portapapeles: 'falla' });
+      await hasta(p, 'Funciona con normalidad'); await copiar(p);
+      await medir(p, 'aviso «No pude copiar solo…»', '.srv-copiar-aviso');
+      await medir(p, 'textarea de respaldo', '.srv-copiar-texto');
+      await ctx.close();
+      const c2 = await abrir({ responder: () => json(pub('ok')), portapapeles: 'ok' });
+      await hasta(c2.p, 'Funciona con normalidad'); await copiar(c2.p);
+      await medir(c2.p, 'botón «Copiado»', '.srv-copiar-boton');
+      await c2.ctx.close();
+    }
+    const bajos = filas.filter((f) => f.razon === null || f.razon < f.minimo);
+    ok('contraste_textos', filas.filter((f) => f.minimo === 4.5).every((f) => f.razon !== null && f.razon >= 4.5), { bajos: bajos.filter((f) => f.minimo === 4.5), filas: filas.filter((f) => f.minimo === 4.5) });
+    ok('contraste_trazos', filas.filter((f) => f.minimo === 3).every((f) => f.razon !== null && f.razon >= 3), { filas: filas.filter((f) => f.minimo === 3) });
+  }
+
+  // (c) El árbol accesible de la tarjeta: ningún control, imagen o grupo sin nombre. El árbol completo
+  // va a SERVIDOR_CAPTURAS (si se pidió) para leerlo.
+  {
+    const { ctx, p } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson({ n: 60, pico: 600 })), portapapeles: 'ok' });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await abrirDetalle(p); await esperar(300);
+    await copiar(p);
+    const arbol = await p.locator('.srv').ariaSnapshot();
+    if (process.env.SERVIDOR_CAPTURAS) { mkdirSync(process.env.SERVIDOR_CAPTURAS, { recursive: true }); writeFileSync(join(process.env.SERVIDOR_CAPTURAS, 'arbol-admin-abierto-copiado.txt'), arbol); }
+    // Sin nombre se tolera SOLO el `group` del <details> nativo (es su semántica: el nombre lo lleva el
+    // <summary>). Cualquier otro control, imagen o región sin nombre hace fallar el caso.
+    const sinNombre = arbol.split('\n').filter((l) => /^\s*- (button|img|textbox|group|status|figure|region|link)(\s*\[[^\]]*\])?\s*(:\s*)?$/.test(l));
+    const otros = sinNombre.filter((l) => !/^\s*- group:?\s*$/.test(l));
+    ok('arbol_controles_con_nombre', otros.length === 0 && sinNombre.length <= 1 && /button "Copiar diagnóstico"|button "Copiado"/.test(arbol) && /img "Atraso en la última hora\. Pico: 600 ms/.test(arbol) && /region "Servidor"/.test(arbol),
+      { sinNombre, tolerado: 'el group del <details>', lineas: arbol.split('\n').length });
+    await ctx.close();
+    const u = await abrir({ responder: () => json(pub('ok')) });
+    await hasta(u.p, 'Funciona con normalidad');
+    const arbolU = await u.p.locator('.srv').ariaSnapshot();
+    if (process.env.SERVIDOR_CAPTURAS) writeFileSync(join(process.env.SERVIDOR_CAPTURAS, 'arbol-usuario.txt'), arbolU);
+    await u.ctx.close();
+  }
+
+  // (d) prefers-reduced-motion: ni animaciones ni transiciones de movimiento en la tarjeta (con el
+  // detalle abierto, la gráfica y «Copiado»). Las de COLOR (fondo y borde en hover) se permiten: no
+  // son movimiento (ui-polish: «conservá cambios de color»), y se listan.
+  {
+    const { ctx, p } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson({ n: 60, pico: 600 })), portapapeles: 'ok', reducido: true });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await abrirDetalle(p); await esperar(300); await copiar(p);
+    const r = await p.evaluate(() => {
+      const COLOR = new Set(['color', 'background-color', 'border-color', 'background', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color', 'outline-color', 'fill', 'stroke']);
+      const animadas = [], transiciones = [];
+      for (const el of [document.querySelector('.srv'), ...document.querySelectorAll('.srv *')]) {
+        for (const pseudo of [null, '::after', '::before']) {
+          const cs = getComputedStyle(el, pseudo);
+          const durs = cs.transitionDuration.split(',').map((d) => parseFloat(d));
+          const props = cs.transitionProperty.split(',').map((s) => s.trim());
+          if (durs.some((d) => d > 0)) transiciones.push({ el: el.className?.baseVal ?? el.className, pseudo, props, movimiento: props.filter((x, i) => (durs[i] ?? durs[0]) > 0 && !COLOR.has(x)) });
+          if (cs.animationName !== 'none' && parseFloat(cs.animationDuration) > 0) animadas.push({ el: el.className?.baseVal ?? el.className, pseudo, anim: cs.animationName });
+        }
+      }
+      return { reduce: matchMedia('(prefers-reduced-motion: reduce)').matches, animadas, transiciones };
+    });
+    ok('reduced_motion_sin_movimiento', r.reduce && r.animadas.length === 0 && r.transiciones.every((t) => t.movimiento.length === 0), r);
+    await ctx.close();
+  }
+
+  // (3) 390 con el mini-reproductor: se arranca una pista desde la Biblioteca (usuario del snap) y se va
+  // a Ajustes por el engrane; al bajar hasta el final, el pie y el botón de copiar se ven enteros.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
+    await ctx.route((u) => esServidor(u.href ?? u), (route) => route.fulfill(json(pub('ok'))));
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => errores.push(String(e?.message ?? e)));
+    await p.goto(BASE + '/');
+    const fila = await p.waitForSelector('.library-tracks .track-row', { timeout: 15_000 }).then(() => true, () => false);
+    if (fila) await p.locator('.library-tracks .track-row').first().click({ timeout: 5000 }).catch(() => {});
+    await esperar(800);
+    const sonando = await p.evaluate(() => {
+      const bar = document.querySelector('.player-bar');
+      return { texto: bar?.textContent.replace(/\s+/g, ' ').trim().slice(0, 80) ?? null, sinReproduccion: /Sin reproducción/.test(bar?.textContent ?? '') };
+    });
+    await p.locator('.settings-fab').click({ timeout: 5000 }).catch(() => {});
+    await p.waitForSelector('.srv .srv-copiar-boton', { timeout: 6000 }).catch(() => {});
+    await esperar(500);
+    const m = await p.evaluate(() => {
+      const main = document.querySelector('.main-content');
+      if (main) main.scrollTop = main.scrollHeight;
+      const r = (q) => { const e = document.querySelector(q); if (!e) return null; const x = e.getBoundingClientRect(); return { top: Math.round(x.top), bottom: Math.round(x.bottom), cx: Math.round(x.left + x.width / 2), cy: Math.round(x.top + x.height / 2) }; };
+      const pie = r('.srv > .srv-pie'), boton = r('.srv-copiar-boton'), barra = r('.player-bar'), nav = r('.bottom-nav');
+      const tope = Math.min(barra?.top ?? Infinity, nav?.top ?? Infinity, window.innerHeight);
+      const encima = (x, q) => { if (!x) return false; const e = document.elementFromPoint(x.cx, x.cy); return !!e && (e === document.querySelector(q) || document.querySelector(q).contains(e)); };
+      return { pie, boton, barra, nav, tope, pieVisible: !!pie && pie.bottom <= tope && encima(pie, '.srv > .srv-pie'), botonVisible: !!boton && boton.bottom <= tope && encima(boton, '.srv-copiar-boton') };
+    });
+    ok('mini_390_no_tapa', fila && !sonando.sinReproduccion && m.pieVisible && m.botonVisible, { fila, sonando, ...m });
+    await ctx.close();
+  }
+
   ok('sin_errores_pagina', errores.length === 0, { errores: errores.slice(0, 5) });
 
-  // ── Capturas para revisión humana (no cuentan) ──
+  // ── Capturas para revisión humana (no cuentan) ── 3e: el juego final, a 390, 960 y 1440.
+  //   publico-{cargando,ok,lento,mal,sin_respuesta} · admin-{pico120,pico600} (detalle abierto) ·
+  //   copiar-{normal,copiado,textarea}. Se captura la SECCIÓN entera: la ventana crece hasta que entra.
   const DIR = process.env.SERVIDOR_CAPTURAS;
   if (DIR) {
     mkdirSync(DIR, { recursive: true });
-    const CASOS = { ok: () => json(pub('ok')), lento: () => json(pub('lento')), mal: () => json(pub('mal')) };
-    for (const [ancho, alto, movil] of [[390, 844, true], [960, 900, false]]) {
-      for (const [nombre, responder] of Object.entries(CASOS)) {
-        const { ctx, p } = await abrir({ ancho, alto, movil, responder });
-        await hasta(p, ESTADOS[nombre].texto); await esperar(1200);
-        await p.locator('.srv').scrollIntoViewIfNeeded();
-        await p.screenshot({ path: join(DIR, `ajustes-${ancho}-${nombre}.png`), fullPage: true });
+    const foto = async (p, ancho, alto, nombre) => {
+      const altoSec = await p.evaluate(() => Math.ceil(document.querySelector('.srv').getBoundingClientRect().height));
+      await p.setViewportSize({ width: ancho, height: Math.max(alto, altoSec + 600) });
+      await esperar(300);
+      await p.locator('.srv').screenshot({ path: join(DIR, `${ancho}-${nombre}.png`) });
+    };
+    for (const [ancho, alto, movil] of [[390, 844, true], [960, 900, false], [1440, 900, false]]) {
+      // Cargando: la primera respuesta tarda 6 s de verdad; la foto sale antes.
+      {
+        const { ctx, p } = await abrir({ ancho, alto, movil, responder: () => ({ ...json(pub('ok')), demoraMs: 6000 }) });
+        await esperar(500);
+        await foto(p, ancho, alto, 'publico-cargando');
         await ctx.close();
       }
-      // Sin respuesta, con un dato previo (valores atenuados) y por HTML de Access (con la ayuda).
-      const { ctx, p } = await abrir({ ancho, alto, movil, responder: (n) => (n === 1 ? json(pub('ok')) : { status: 200, contentType: 'text/html', body: HTML }) });
-      await hasta(p, 'Funciona con normalidad'); await p.clock.fastForward(31_000); await hasta(p, 'Sin respuesta'); await esperar(1200);
-      await p.locator('.srv').scrollIntoViewIfNeeded();
-      await p.screenshot({ path: join(DIR, `ajustes-${ancho}-sin_respuesta.png`), fullPage: true });
-      await ctx.close();
-    }
-    // 3c: con admin y el detalle abierto (captura de la sección entera, aunque sea más alta que la ventana).
-    const ADMIN = { abierto: adminJson({ n: 30 }), pico120: adminJson({ n: 120, pico: 120 }), pico600: adminJson({ n: 120, pico: 600 }), m360: adminJson({ n: 360 }) };
-    for (const [ancho, alto, movil] of [[390, 844, true], [960, 900, false]]) {
-      for (const [nombre, admin] of Object.entries(ADMIN)) {
+      for (const [estado, texto] of [['ok', 'Funciona con normalidad'], ['lento', 'Va lento'], ['mal', 'Con problemas']]) {
+        const { ctx, p } = await abrir({ ancho, alto, movil, responder: () => json(pub(estado)) });
+        await hasta(p, texto); await esperar(800);
+        await foto(p, ancho, alto, `publico-${estado}`);
+        await ctx.close();
+      }
+      {
+        const { ctx, p } = await abrir({ ancho, alto, movil, responder: (n) => (n === 1 ? json(pub('ok')) : { status: 200, contentType: 'text/html', body: HTML }) });
+        await hasta(p, 'Funciona con normalidad'); await p.clock.fastForward(31_000); await hasta(p, 'Sin respuesta'); await esperar(800);
+        await foto(p, ancho, alto, 'publico-sin_respuesta');
+        await ctx.close();
+      }
+      for (const [nombre, admin] of [['admin-pico120', adminJson({ n: 120, pico: 120 })], ['admin-pico600', adminJson({ n: 120, pico: 600 })]]) {
         const { ctx, p } = await abrir({ ancho, alto, movil, responder: pubAdmin, responderAdmin: () => json(admin) });
         await hasta(p, 'Funciona con normalidad');
         await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
-        await abrirDetalle(p); await esperar(1200);
-        // La sección abierta es más alta que la ventana y lo que queda fuera no se pinta: para la foto,
-        // la ventana crece hasta que la sección entra entera.
-        const altoSec = await p.evaluate(() => Math.ceil(document.querySelector('.srv').getBoundingClientRect().height));
-        await p.setViewportSize({ width: ancho, height: Math.max(alto, altoSec + 600) });
-        await esperar(400);
-        await p.locator('.srv').screenshot({ path: join(DIR, `admin-${ancho}-${nombre}.png`) });
+        await abrirDetalle(p); await esperar(1000);
+        await foto(p, ancho, alto, nombre);
         await ctx.close();
       }
-    }
-    // 3d: el botón normal, «Copiado» y el textarea de respaldo.
-    for (const [ancho, alto, movil] of [[390, 844, true], [960, 900, false]]) {
-      for (const [nombre, modo] of [['normal', 'ok'], ['copiado', 'ok'], ['textarea', 'falla']]) {
+      for (const [nombre, modo] of [['copiar-normal', 'ok'], ['copiar-copiado', 'ok'], ['copiar-textarea', 'falla']]) {
         const { ctx, p } = await abrir({ ancho, alto, movil, responder: () => json(pub('ok')), portapapeles: modo });
         await hasta(p, 'Funciona con normalidad'); await esperar(800);
-        if (nombre !== 'normal') await copiar(p);
-        await esperar(200);
-        const altoSec = await p.evaluate(() => Math.ceil(document.querySelector('.srv').getBoundingClientRect().height));
-        await p.setViewportSize({ width: ancho, height: Math.max(alto, altoSec + 600) });
-        await esperar(300);
-        await p.locator('.srv').screenshot({ path: join(DIR, `copiar-${ancho}-${nombre}.png`) });
+        if (nombre !== 'copiar-normal') await copiar(p);
+        await foto(p, ancho, alto, nombre);
         await ctx.close();
       }
     }

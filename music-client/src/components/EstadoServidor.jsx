@@ -330,7 +330,7 @@ const CopiarDiagnostico = memo(function CopiarDiagnostico({ armar }) {
         <div className="srv-copiar-manual">
           <p className="srv-copiar-aviso" id="srv-copiar-aviso">No pude copiar solo: selecciona y copia</p>
           <textarea ref={areaRef} className="srv-copiar-texto" readOnly value={texto}
-                    rows={Math.min(18, texto.split('\n').length)} aria-describedby="srv-copiar-aviso"
+                    rows={Math.min(20, texto.split('\n').length + 2)} aria-describedby="srv-copiar-aviso"
                     aria-label="Diagnóstico para copiar" />
         </div>
       )}

@@ -353,7 +353,9 @@ button, input, select, textarea { font-family: inherit; }
 .srv-grafica-lienzo { position: relative; height: 160px; }
 .srv-grafica-svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .srv-linea-p99 { fill: none; stroke: var(--text); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
-.srv-linea-max { fill: none; stroke: var(--text-muted); stroke-width: 1; opacity: .55; stroke-linejoin: round; stroke-linecap: round; }
+/* Opacidad .75 y no menos (3e): el gris a .55 daba 2,39:1 contra la tarjeta, bajo el 3:1 de un trazo;
+   a .75 da ≈3,3:1 y sigue siendo más tenue que la línea del p99. */
+.srv-linea-max { fill: none; stroke: var(--text-muted); stroke-width: 1; opacity: .75; stroke-linejoin: round; stroke-linecap: round; }
 path.srv-linea-p99 { stroke-width: 5; }
 path.srv-linea-max { stroke-width: 4; }
 .srv-guia { stroke-width: 1; stroke-dasharray: 4 4; }
