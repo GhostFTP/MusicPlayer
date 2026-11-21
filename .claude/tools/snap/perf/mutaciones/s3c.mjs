@@ -16,8 +16,8 @@ export const mutaciones = [
     cambios: [
       {
         archivo: "music-client/src/components/EstadoServidor.jsx",
-        ancla: "{dato?.admin === true && !prohibido && <DetalleAdmin alProhibido={alProhibido} />}",
-        reemplazo: "{!prohibido && <DetalleAdmin alProhibido={alProhibido} />}",
+        ancla: "{dato?.admin === true && !prohibido && <DetalleAdmin ",
+        reemplazo: "{!prohibido && <DetalleAdmin ",
       },
     ],
     esperados: ["usuario_sin_detalle"],
@@ -28,13 +28,13 @@ export const mutaciones = [
     cambios: [
       {
         archivo: "music-client/src/components/EstadoServidor.jsx",
-        ancla: "{abierto && <DetalleAbierto alProhibido={alProhibido} />}",
-        reemplazo: "<DetalleAbierto alProhibido={alProhibido} />",
+        ancla: "{abierto && <DetalleAbierto alProhibido={alProhibido} alDatoAdmin={alDatoAdmin} />}",
+        reemplazo: "<DetalleAbierto alProhibido={alProhibido} alDatoAdmin={alDatoAdmin} />",
       },
     ],
     // También sin_pedido_admin (3b) y admin_403_oculta: el detalle se pide al montar y el 403 lo
     // esconde antes del clic.
-    esperados: ["admin_detalle_cerrado_sin_pedido", "admin_abre_pide_una_vez", "admin_cierra_detiene", "sin_pedido_admin", "admin_403_oculta"],
+    esperados: ["admin_detalle_cerrado_sin_pedido", "admin_abre_pide_una_vez", "admin_cierra_detiene", "sin_pedido_admin", "admin_403_oculta", "copiar_admin_cerrado_no_pide"],
   },
   {
     id: "U3",

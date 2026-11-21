@@ -277,6 +277,62 @@ function r1(n) { return Math.round(n * 10) / 10; }
   ok('txt_videos_reusa', U.TEXTO_VIDEOS.unavailable === 'Sin consultar o no disponible');
 }
 
+// ── 13. «Copiar diagnóstico»: el texto plano (3d) ──
+{
+  const TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJpZCI6OTAwMDAxLCJ1c2VybmFtZSI6InNuYXBAbG9jYWwifQ.firma-del-token-de-prueba';
+  globalThis.localStorage = { getItem: (k) => (k === 'token' ? TOKEN : null), setItem() {}, removeItem() {} };
+  const AHORA = Date.UTC(2026, 10, 20, 20, 30, 5);            // 14:30:05 en UTC−6
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36';
+  const base = { ahora: AHORA, zona: 'America/Mexico_City', clave: 'ok', publico: { ...PUBLICO, uptime_s: 3 * 86400 + 4 * 3600 }, recibidoEn: AHORA - 12_000, build: 'CBdG0aEW', navegador: UA, visible: true };
+  const lineas = (t) => Object.fromEntries(t.split('\n').map((l) => { const i = l.indexOf(': '); return [l.slice(0, i), l.slice(i + 2)]; }));
+  const pub = U.textoDiagnostico(base);
+  const L = lineas(pub);
+  ok('dx_formato_clave_valor', pub.split('\n').every((l) => /^[a-záéíóúñ ]+: \S.*$/.test(l)) && !pub.includes('{') && !pub.includes('"'), { texto: pub });
+  ok('dx_publico', L['fecha'] === '2026-11-20 14:30:05 UTC-06:00 (America/Mexico_City)' && L['estado'] === 'Funciona con normalidad' && L['última lectura'] === 'hace 12 s'
+    && L['versión del servidor'] === '1.43.0' && L['versión del cliente'] === 'CBdG0aEW' && L['encendido'] === 'hace 3 d 4 h' && L['navegador'] === UA && L['pestaña'] === 'visible', { L });
+  ok('dx_sin_admin_sin_lineas_admin', !['event loop', 'memoria', 'base', 'desde el arranque', 'locutor', 'videos', 'pico de la hora', 'detalle leído'].some((k) => k in L));
+  // Sin respuesta, con lo último que hubo; y sin ningún dato nunca.
+  const sr = lineas(U.textoDiagnostico({ ...base, clave: 'sin_respuesta', recibidoEn: AHORA - 95_000, visible: false }));
+  ok('dx_sin_respuesta_con_lo_ultimo', sr['estado'] === 'Sin respuesta' && sr['última lectura'] === 'hace 1 min' && sr['versión del servidor'] === '1.43.0' && sr['pestaña'] === 'oculta', { sr });
+  const nada = lineas(U.textoDiagnostico({ ...base, clave: 'sin_respuesta', publico: null, recibidoEn: null }));
+  ok('dx_sin_datos_nunca', nada['estado'] === 'Sin respuesta' && nada['última lectura'] === 'nunca' && nada['versión del servidor'] === '—' && nada['encendido'] === '—' && nada['versión del cliente'] === 'CBdG0aEW', { nada });
+  const cargando = lineas(U.textoDiagnostico({ ...base, clave: 'cargando', publico: null, recibidoEn: null }));
+  ok('dx_cargando', cargando['estado'] === 'Consultando el servidor…' && cargando['última lectura'] === 'nunca');
+  ok('dx_html_y_sesion', lineas(U.textoDiagnostico({ ...base, clave: 'respuesta_invalida' }))['estado'] === 'Sin respuesta' && lineas(U.textoDiagnostico({ ...base, clave: 'sesion' }))['estado'] === 'Sin respuesta');
+  // Con el detalle de admin (abierto y cargado).
+  const adm = adminCon({ pico: 600 });
+  const A = lineas(U.textoDiagnostico({ ...base, admin: adm, adminEn: AHORA - 4_000 }));
+  ok('dx_admin', A['detalle leído'] === 'hace 4 s' && A['event loop'] === 'p50 11 ms · p99 13 ms · máx 13 ms (últimos 10 s)'   // el ADMIN de arriba: máx 13,42 && A['pico de la hora'] === `600 ms a las ${U.horaLocal(adm.muestras[1].t)}`
+    && A['memoria'] === '60 MB (heap 18 MB)' && A['base'] === '92 KB · WAL 386 KB' && A['desde el arranque'] === 'SQLITE_BUSY 0 · errores 500 0'
+    && A['locutor'] === 'Apagado' && A['videos'] === 'Sin consultar o no disponible', { A });
+  // Envuelto: si el validador dejara pasar la muestra mala, puntosGrafica lanzaría; el caso tiene que
+  // FALLAR, no tumbar la suite.
+  const seguro = (f) => { try { return f(); } catch { return false; } };
+  ok('dx_admin_invalido_no_va', seguro(() => !('event loop' in lineas(U.textoDiagnostico({ ...base, admin: { ...adm, muestras: [null] } }))) && !('event loop' in lineas(U.textoDiagnostico({ ...base, admin: HTML })))));
+  ok('dx_version_cliente', lineas(U.textoDiagnostico({ ...base, build: 'dev' }))['versión del cliente'] === 'dev' && lineas(U.textoDiagnostico({ ...base, build: TOKEN }))['versión del cliente'] === 'desconocido'
+    && U.buildSeguro('CBdG0aEW') === 'CBdG0aEW' && U.buildSeguro(undefined) === 'desconocido');
+  ok('dx_fecha_sin_zona', U.fechaConZona(AHORA, null) === '2026-11-20 14:30:05 UTC-06:00' && U.fechaConZona(AHORA, 'x; rm -rf') === '2026-11-20 14:30:05 UTC-06:00');
+  ok('dx_navegador_acotado', lineas(U.textoDiagnostico({ ...base, navegador: `a\nb${'x'.repeat(500)}` }))['navegador'].length === 300 && lineas(U.textoDiagnostico({ ...base, navegador: '' }))['navegador'] === 'desconocido');
+  // Sin secretos: el token puesto en localStorage, en el JSON (público y admin) y en el build; el
+  // usuario y el correo en el público. Nada de eso sale, ni rastros de URL, cookie o header.
+  const sucioPub = { ...PUBLICO, token: TOKEN, username: 'snap@local', email: 'alguien@correo.com' };
+  const sucioAdm = { ...adm, token: TOKEN, base: { ...adm.base, ruta: 'C:/data/music.db' }, locutor: { ...LOCUTOR, url: 'http://127.0.0.1:11434' } };
+  const todo = U.textoDiagnostico({ ...base, publico: sucioPub, admin: sucioAdm, adminEn: AHORA, build: TOKEN });
+  ok('dx_sin_secretos', TOKEN.split('.').every((p) => !todo.includes(p)) && !/snap@local|alguien@|correo|music\.db|127\.0\.0\.1|11434|bearer|cookie|authorization|token|https?:\/\/|\?/i.test(todo.replace(UA, '')) && 'event loop' in lineas(todo),
+    { texto: todo });
+  ok('dx_no_lee_localstorage', (() => {
+    let leido = false;
+    globalThis.localStorage = { getItem: () => { leido = true; return TOKEN; } };
+    U.textoDiagnostico(base);
+    return !leido;
+  })());
+  delete globalThis.localStorage;
+}
+function adminCon({ pico }) {
+  const muestras = [muestra(0), { ...muestra(1), p99: Math.round(pico * 0.85), max: pico }, muestra(2)];
+  return { ...clon(ADMIN), muestras };
+}
+
 // ── 11. El sondeo (utils/sondeoServidor.js, 3b), con reloj, timers y documento falsos ──
 // En el navegador un 401 desloguea y desmonta Ajustes, así que «el 401 corta» solo se ve acá.
 {

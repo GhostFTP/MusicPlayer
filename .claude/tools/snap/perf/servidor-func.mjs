@@ -45,9 +45,28 @@ const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 // /api/servidor: { status, contentType, body }, 'abortar', o { demoraMs, ... }. Sin responder: backend real.
 // `responderAdmin(n)` hace lo mismo para /api/admin/servidor (3c); sin él, ese pedido va al backend
 // real (que a snap@local le contesta 403).
-async function abrir({ responder, responderAdmin, ancho = 1440, alto = 900, movil = false } = {}) {
+// `portapapeles` (3d) sustituye navigator.clipboard ANTES de que cargue la app, sin permisos reales:
+//   'ok'    → writeText guarda el texto en window.__copias;
+//   'falla' → writeText rechaza y document.execCommand devuelve false (queda el textarea a mano);
+//   'exec'  → writeText rechaza y execCommand('copy') «copia» lo seleccionado en window.__copias.
+async function abrir({ responder, responderAdmin, ancho = 1440, alto = 900, movil = false, portapapeles = null } = {}) {
   const ctx = await browser.newContext({ viewport: { width: ancho, height: alto }, isMobile: movil, hasTouch: movil });
   await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
+  if (portapapeles) {
+    await ctx.addInitScript((modo) => {
+      window.__copias = [];
+      const writeText = modo === 'ok'
+        ? async (t) => { window.__copias.push(t); }
+        : async () => { throw new DOMException('denegado', 'NotAllowedError'); };
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+      if (modo !== 'ok') {
+        document.execCommand = (cmd) => {
+          if (modo === 'exec' && cmd === 'copy') { window.__copias.push(document.activeElement?.value ?? null); return true; }
+          return false;
+        };
+      }
+    }, portapapeles);
+  }
   const c = { pedidos: 0, admin: 0 };
   ctx.on('request', (r) => { if (esAdmin(r.url())) c.admin++; });
   if (responderAdmin) {
@@ -273,13 +292,14 @@ try {
     await p.clock.fastForward(31_000);
     const cambio = await hasta(p, 'Va lento');
     const a = await p.evaluate(() => {
-      const vivos = [...document.querySelectorAll('.srv [aria-live]')];
+      // En la TARJETA (desde 3d hay otra región viva, la de «Copiado», fuera de ella: va en copiar_feedback_aria).
+      const vivos = [...document.querySelectorAll('.srv > .settings-card [aria-live]')];
       const hace = document.querySelector('.srv .srv-hace');
       return {
         vivos: vivos.length,
         esElEstado: vivos.length === 1 && vivos[0].classList.contains('srv-estado') && vivos[0].getAttribute('role') === 'status' && vivos[0].getAttribute('aria-live') === 'polite' && !!vivos[0].querySelector('.srv-estado-texto'),
         haceFuera: !!hace && !hace.closest('[aria-live]') && !hace.hasAttribute('aria-live') && !hace.closest('[role="status"]'),
-        status: document.querySelectorAll('.srv [role="status"]').length,
+        status: document.querySelectorAll('.srv > .settings-card [role="status"]').length,
         foco: document.activeElement?.tagName ?? null,
       };
     });
@@ -497,6 +517,153 @@ try {
     await ctx.close();
   }
 
+  // ═══ 3d: «Copiar diagnóstico» ═══
+  const ADMIN_CLAVES = ['detalle leído', 'event loop', 'pico de la hora', 'memoria', 'base', 'desde el arranque', 'locutor', 'videos'];
+  const lineasDe = (t) => Object.fromEntries((t ?? '').split('\n').map((l) => { const i = l.indexOf(': '); return [l.slice(0, i), l.slice(i + 2)]; }));
+  // Clic en «Copiar diagnóstico» y lo que quedó en el portapapeles falso (o null).
+  async function copiar(p) {
+    const antes = await p.evaluate(() => window.__copias?.length ?? 0);
+    await p.locator('.srv-copiar-boton').click({ timeout: 3000 }).catch(() => {});
+    await p.waitForFunction((n) => (window.__copias?.length ?? 0) > n || !!document.querySelector('.srv-copiar-texto'), antes, { timeout: 3000 }).catch(() => {});
+    return p.evaluate((n) => window.__copias?.[n] ?? null, antes);
+  }
+  const buildEnPagina = (p) => p.evaluate(() => {
+    for (const s of document.querySelectorAll('script[src]')) { const m = /\/assets\/index-([A-Za-z0-9_-]{4,64})\.js(?:$|\?)/.exec(s.getAttribute('src')); if (m) return m[1]; }
+    return 'dev';
+  });
+  const FECHA = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC[+-]\d{2}:\d{2}( \([A-Za-z_]+(\/[A-Za-z0-9_+-]+)*\))?$/;
+
+  // Público: lo de la tarjeta, la versión del cliente, el navegador y la pestaña; nada de admin.
+  {
+    const { ctx, p, c } = await abrir({ responder: () => json(pub('ok')), portapapeles: 'ok' });
+    await hasta(p, 'Funciona con normalidad');
+    const t = await copiar(p);
+    const L = lineasDe(t);
+    const build = await buildEnPagina(p);
+    const ua = await p.evaluate(() => navigator.userAgent);
+    ok('copiar_publico', !!t && L['diagnóstico'] === 'SonoraRev · estado del servidor' && FECHA.test(L['fecha'] ?? '') && L['estado'] === 'Funciona con normalidad'
+      && /^hace \d+ s$/.test(L['última lectura'] ?? '') && L['versión del servidor'] === '1.43.0' && L['versión del cliente'] === build && build !== 'dev'
+      && L['encendido'] === 'hace 3 d 4 h' && L['navegador'] === ua && L['pestaña'] === 'visible' && !ADMIN_CLAVES.some((k) => k in L) && c.admin === 0,
+    { texto: t, build });
+    await ctx.close();
+  }
+  // Sin respuesta: con lo último que hubo, y sin ningún dato nunca.
+  {
+    const a = await abrir({ responder: (n) => (n === 1 ? json(pub('ok')) : 'abortar'), portapapeles: 'ok' });
+    await hasta(a.p, 'Funciona con normalidad'); await a.p.clock.fastForward(31_000); await hasta(a.p, 'Sin respuesta');
+    const La = lineasDe(await copiar(a.p));
+    await a.ctx.close();
+    const b = await abrir({ responder: () => 'abortar', portapapeles: 'ok' });
+    await hasta(b.p, 'Sin respuesta');
+    const Lb = lineasDe(await copiar(b.p));
+    await b.ctx.close();
+    ok('copiar_sin_respuesta', La['estado'] === 'Sin respuesta' && /^hace \d+ s$/.test(La['última lectura'] ?? '') && La['versión del servidor'] === '1.43.0' && La['encendido'] === 'hace 3 d 4 h'
+      && Lb['estado'] === 'Sin respuesta' && Lb['última lectura'] === 'nunca' && Lb['versión del servidor'] === '—' && Lb['encendido'] === '—' && !!Lb['versión del cliente'], { con_dato: La, sin_dato: Lb });
+  }
+  // Admin con el detalle ABIERTO y cargado: van las líneas del detalle.
+  {
+    const { ctx, p } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson({ n: 60, pico: 600 })), portapapeles: 'ok' });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await abrirDetalle(p); await esperar(300);
+    const L = lineasDe(await copiar(p));
+    const hora = await horaEnPagina(p, FIN - (60 - 1 - 30) * 10_000);
+    ok('copiar_admin_incluye_detalle', /^hace \d+ s$/.test(L['detalle leído'] ?? '') && L['event loop'] === 'p50 11 ms · p99 13 ms · máx 15 ms (últimos 10 s)' && L['pico de la hora'] === `600 ms a las ${hora}`
+      && L['memoria'] === '60 MB (heap 18 MB)' && L['base'] === '92 KB · WAL 386 KB' && L['desde el arranque'] === 'SQLITE_BUSY 0 · errores 500 0'
+      && L['locutor'] === 'Apagado' && L['videos'] === 'Sin consultar o no disponible', { L, hora });
+    await ctx.close();
+  }
+  // Admin con el bloque CERRADO: nada de admin y copiar no pide el endpoint. Abrir y cerrar: tampoco.
+  {
+    const { ctx, p, c } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson()), portapapeles: 'ok' });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    const L1 = lineasDe(await copiar(p)); await esperar(400);
+    const pedidos1 = c.admin;
+    await abrirDetalle(p); await esperar(400);
+    await clicResumen(p); await esperar(300);
+    const L2 = lineasDe(await copiar(p)); await esperar(400);
+    ok('copiar_admin_cerrado_no_pide', pedidos1 === 0 && c.admin === 1 && !ADMIN_CLAVES.some((k) => k in L1) && !ADMIN_CLAVES.some((k) => k in L2) && L1['estado'] === 'Funciona con normalidad',
+      { pedidos_al_copiar_cerrado: pedidos1, pedidos_total: c.admin, claves1: Object.keys(L1), claves2: Object.keys(L2) });
+    await ctx.close();
+  }
+  // Ningún secreto: el token REAL del fixture (el de localStorage), el usuario, cookies, URLs.
+  {
+    const { ctx, p } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson({ n: 60, pico: 600, locutor: LOCUTOR_ABIERTO })), portapapeles: 'ok' });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await abrirDetalle(p); await esperar(300);
+    const t = await copiar(p);
+    const { tk, cookie, ua } = await p.evaluate(() => ({ tk: localStorage.getItem('token'), cookie: document.cookie, ua: navigator.userAgent }));
+    const sinUa = (t ?? '').replace(ua, '');
+    const partes = (tk ?? '').split('.').filter((x) => x.length >= 8);
+    ok('copiar_no_incluye_secretos', !!t && !!tk && tk === token && !t.includes(tk) && partes.every((x) => !t.includes(x)) && (!cookie || !t.includes(cookie))
+      && !/snap@local|bearer|authorization|cookie|token|localhost|127\.0\.0\.1|:\/\/|\?|@/i.test(sinUa) && 'event loop' in lineasDe(t),
+    { largo_token: tk?.length ?? 0, hay_cookie: !!cookie, claves: Object.keys(lineasDe(t)) });
+    await ctx.close();
+  }
+  // Sin portapapeles ni execCommand: el texto queda a la vista, readonly y seleccionado.
+  {
+    const { ctx, p } = await abrir({ responder: () => json(pub('ok')), portapapeles: 'falla' });
+    await hasta(p, 'Funciona con normalidad');
+    await copiar(p);
+    const m = await p.evaluate(() => {
+      const ta = document.querySelector('.srv-copiar-texto');
+      return ta ? { ro: ta.readOnly, inicio: ta.value.slice(0, 13), sel: [ta.selectionStart, ta.selectionEnd, ta.value.length], foco: document.activeElement === ta,
+        aviso: document.querySelector('.srv-copiar-aviso')?.textContent.trim(), etiqueta: document.querySelector('.srv-copiar-etiqueta')?.textContent.trim() } : null;
+    });
+    ok('copiar_fallback_textarea', !!m && m.ro && m.inicio === 'diagnóstico: ' && m.sel[0] === 0 && m.sel[1] === m.sel[2] && m.foco
+      && m.aviso === 'No pude copiar solo: selecciona y copia' && m.etiqueta === 'Copiar diagnóstico', m);
+    await ctx.close();
+  }
+  // El camino del medio: sin clipboard, pero execCommand('copy') sí copia (y el foco vuelve al botón).
+  {
+    const { ctx, p } = await abrir({ responder: () => json(pub('ok')), portapapeles: 'exec' });
+    await hasta(p, 'Funciona con normalidad');
+    const t = await copiar(p);
+    const m = await p.evaluate(() => ({ etiqueta: document.querySelector('.srv-copiar-etiqueta')?.textContent.trim(), foco: document.activeElement?.classList.contains('srv-copiar-boton'), manual: !!document.querySelector('.srv-copiar-texto') }));
+    ok('copiar_exec_command', (t ?? '').startsWith('diagnóstico: ') && m.etiqueta === 'Copiado' && m.foco && !m.manual, { inicio: t?.slice(0, 30), ...m });
+    await ctx.close();
+  }
+  // «Copiado» ~2 s, en una región role=status hermana del botón; el foco se queda; sin color de estado.
+  {
+    const { ctx, p } = await abrir({ responder: () => json(pub('ok')), portapapeles: 'ok' });
+    await hasta(p, 'Funciona con normalidad');
+    const colorAntes = await p.evaluate(() => getComputedStyle(document.querySelector('.srv-copiar-boton')).color);
+    await copiar(p);
+    const d = await p.evaluate(() => {
+      const b = document.querySelector('.srv-copiar-boton');
+      const st = document.querySelector('.srv-copiar [role="status"]');
+      return {
+        etiqueta: b.querySelector('.srv-copiar-etiqueta').textContent.trim(), tipo: b.getAttribute('type'),
+        status: st?.textContent.trim() ?? null, vivo: st?.getAttribute('aria-live') ?? null, fueraDelBoton: !!st && !b.contains(st),
+        foco: document.activeElement === b, color: getComputedStyle(b).color,
+      };
+    });
+    await p.clock.fastForward(2_100); await esperar(300);
+    const despues = await p.evaluate(() => ({ etiqueta: document.querySelector('.srv-copiar-etiqueta').textContent.trim(), status: document.querySelector('.srv-copiar [role="status"]').textContent.trim() }));
+    ok('copiar_feedback_aria', d.etiqueta === 'Copiado' && d.tipo === 'button' && d.status === 'Copiado' && d.vivo === 'polite' && d.fueraDelBoton && d.foco
+      && d.color === colorAntes && d.color === 'rgb(240, 240, 240)' && sinRojoNiVerde(d.color) && despues.etiqueta === 'Copiar diagnóstico' && despues.status === '',
+    { durante: d, despues, colorAntes });
+    await ctx.close();
+  }
+  // 390 con touch: el botón a lo ancho y el textarea de respaldo, sin desborde.
+  {
+    const { ctx, p } = await abrir({ ancho: 390, alto: 844, movil: true, responder: () => json(pub('mal')), portapapeles: 'falla' });
+    await hasta(p, 'Con problemas');
+    const antes = await p.evaluate(() => { const s = document.querySelector('.srv').getBoundingClientRect(), b = document.querySelector('.srv-copiar-boton').getBoundingClientRect(); return { s: [s.left, s.right], b: [b.left, b.right, b.height] }; });
+    await copiar(p); await esperar(200);
+    const m = await p.evaluate(() => {
+      const s = document.querySelector('.srv').getBoundingClientRect();
+      const r = (q) => { const e = document.querySelector(q); if (!e) return null; const x = e.getBoundingClientRect(); return [x.left, x.right]; };
+      return { scroll: document.scrollingElement.scrollWidth, vw: window.innerWidth, s: [s.left, s.right], ta: r('.srv-copiar-texto'), aviso: r('.srv-copiar-aviso'), b: r('.srv-copiar-boton'), fs: getComputedStyle(document.querySelector('.srv-copiar-texto') ?? document.body).fontSize };
+    });
+    const dentro = (x) => !!x && x[0] >= m.s[0] - 0.5 && x[1] <= m.s[1] + 0.5;
+    ok('copiar_390_sin_desborde', m.scroll <= m.vw && dentro(m.ta) && dentro(m.aviso) && dentro(m.b) && Math.abs((antes.b[1] - antes.b[0]) - (antes.s[1] - antes.s[0])) < 1 && antes.b[2] >= 44 && m.fs === '16px',
+      { antes, ...m });
+    await ctx.close();
+  }
+
   ok('sin_errores_pagina', errores.length === 0, { errores: errores.slice(0, 5) });
 
   // ── Capturas para revisión humana (no cuentan) ──
@@ -533,6 +700,20 @@ try {
         await p.setViewportSize({ width: ancho, height: Math.max(alto, altoSec + 600) });
         await esperar(400);
         await p.locator('.srv').screenshot({ path: join(DIR, `admin-${ancho}-${nombre}.png`) });
+        await ctx.close();
+      }
+    }
+    // 3d: el botón normal, «Copiado» y el textarea de respaldo.
+    for (const [ancho, alto, movil] of [[390, 844, true], [960, 900, false]]) {
+      for (const [nombre, modo] of [['normal', 'ok'], ['copiado', 'ok'], ['textarea', 'falla']]) {
+        const { ctx, p } = await abrir({ ancho, alto, movil, responder: () => json(pub('ok')), portapapeles: modo });
+        await hasta(p, 'Funciona con normalidad'); await esperar(800);
+        if (nombre !== 'normal') await copiar(p);
+        await esperar(200);
+        const altoSec = await p.evaluate(() => Math.ceil(document.querySelector('.srv').getBoundingClientRect().height));
+        await p.setViewportSize({ width: ancho, height: Math.max(alto, altoSec + 600) });
+        await esperar(300);
+        await p.locator('.srv').screenshot({ path: join(DIR, `copiar-${ancho}-${nombre}.png`) });
         await ctx.close();
       }
     }

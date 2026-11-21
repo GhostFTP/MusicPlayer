@@ -371,9 +371,47 @@ path.srv-linea-max { stroke-width: 4; }
 .srv-grafica-pico { margin: 6px 0 0; font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
 .srv-grafica-vacia { margin: 0; font-size: 13px; color: var(--text-muted); }
 
+/* «Copiar diagnóstico» (3d): mismo botón neutro de la casa (≥44px). «Copiado» NO cambia de color de
+   estado (sin rojo ni verde): solo el texto y el icono, y el borde se aclara un punto. */
+.srv-copiar { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 12px; }
+.srv-copiar-boton {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; padding: 0 16px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.srv-copiar-boton:hover { background: var(--surface-hover); border-color: var(--surface-hover); }
+.srv-copiar-boton:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.srv-copiar-boton--hecho { color: var(--text); border-color: var(--text-muted); }
+/* Solo para lectores de pantalla (como .radio-solo-lector, con nombre propio para no tocarla). */
+.srv-solo-lector {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+/* Respaldo a mano: el texto a la vista, ya seleccionado. Aviso en ámbar (el «info» de la casa). */
+.srv-copiar-manual { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.srv-copiar-aviso { margin: 0; font-size: 12.5px; color: var(--amber); }
+.srv-copiar-texto {
+  box-sizing: border-box; width: 100%; max-width: 100%; min-height: 160px; resize: vertical;
+  padding: 10px 12px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* pre-wrap: a 390 la fecha y el navegador no caben; se parten A LA VISTA y lo copiado sigue con
+     un salto solo por línea «clave: valor». */
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto;
+}
+.srv-copiar-texto:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Con dedo o pantalla angosta, 16px: con menos, Safari de iOS agranda la página al enfocar (1.32.1). */
+@media (pointer: coarse), (max-width: 700px) {
+  .srv-copiar-texto { font-size: 16px; }
+}
+
 @media (max-width: 700px) {
   .srv-estado-celda { align-items: flex-start; }
   .srv-admin-resumen { display: flex; width: 100%; justify-content: center; }
+  .srv-copiar { align-items: stretch; }
+  .srv-copiar-boton { width: 100%; }
 }
 
 /* ── RADIO (vista Radio: cara "sin radio" y /radio/CODIGO) ─────────────

@@ -34,7 +34,8 @@ export const mutaciones = [
         reemplazo: "    muestras.push(validarMuestra(m) ?? m);\n",
       },
     ],
-    esperados: ["adm_muestra_basura", "diag_admin_invalido_null"],
+    // Desde 3d cae también dx_admin_invalido_no_va (el texto del diagnóstico valida el detalle).
+    esperados: ["adm_muestra_basura", "diag_admin_invalido_null", "dx_admin_invalido_no_va"],
   },
   {
     id: "S3",
@@ -71,8 +72,8 @@ export const mutaciones = [
     cambios: [
       {
         archivo: "music-client/src/utils/estadoServidor.js",
-        ancla: "cliente: { build: b }, servidor }",
-        reemplazo: "cliente: { build: b, token: globalThis.localStorage?.getItem?.('token') ?? null }, servidor }",
+        ancla: "cliente: { build: buildSeguro(build) }, servidor }",
+        reemplazo: "cliente: { build: buildSeguro(build), token: globalThis.localStorage?.getItem?.('token') ?? null }, servidor }",
       },
     ],
     esperados: ["diag_sin_token", "diag_no_lee_localstorage"],

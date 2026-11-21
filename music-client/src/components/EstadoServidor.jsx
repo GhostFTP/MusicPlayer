@@ -1,9 +1,9 @@
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import {
   validarServidor, validarAdminServidor, claveDeFallo, claveDeFalloAdmin, etiquetaEstado, textoEncendido, textoHace, PIE,
   textoEventLoop, textoMemoria, textoBase, textoContadores, textoLocutor, versionPaqueteDistinta, fechaEscaneoLocal,
-  TEXTO_VIDEOS, puntosGrafica, textoPico, ariaGrafica,
+  TEXTO_VIDEOS, puntosGrafica, textoPico, ariaGrafica, textoDiagnostico, idDelBuild,
 } from '../utils/estadoServidor.js';
 import { crearSondeo } from '../utils/sondeoServidor.js';
 
@@ -36,6 +36,26 @@ function EstadoServidor() {
   const [prohibido, setProhibido] = useState(false);  // el detalle contestó 403: no se vuelve a mostrar
   const alProhibido = useCallback(() => setProhibido(true), []);
 
+  // «Copiar diagnóstico» (3d) lee lo ÚLTIMO que hay sin re-renderizar a nadie: lo público en una ref
+  // que se actualiza tras cada render, y el detalle de admin en otra que solo llena DetalleAbierto
+  // mientras está abierto (al cerrarse la vacía). Copiar no pide nada: arma el texto con esto.
+  const publicoRef = useRef({ clave: 'cargando', dato: null, recibidoEn: null });
+  const adminRef = useRef(null);                       // { dato, recibidoEn } del detalle abierto, o null
+  const alDatoAdmin = useCallback((v) => { adminRef.current = v; }, []);
+  const armar = useCallback(() => {
+    const p = publicoRef.current;
+    const a = adminRef.current;
+    return textoDiagnostico({
+      ahora: Date.now(),
+      zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      clave: p.clave, publico: p.dato, recibidoEn: p.recibidoEn,
+      build: idDelBuild(document),
+      navegador: navigator.userAgent,
+      visible: document.visibilityState !== 'hidden',
+      admin: a?.dato ?? null, adminEn: a?.recibidoEn ?? null,
+    });
+  }, []);
+
   useEffect(() => {
     const sondeo = crearSondeo({
       leer: () => api.servidor(),
@@ -55,6 +75,9 @@ function EstadoServidor() {
     ? { texto: 'Consultando el servidor…', icono: 'puntos', tono: 'gris' }
     : etiquetaEstado(clave) ?? etiquetaEstado('sin_respuesta');
   const viejo = Boolean(fallo && dato);   // hay un dato, pero no es de ahora: va atenuado
+  useEffect(() => {
+    publicoRef.current = { clave: cargando ? 'cargando' : clave, dato, recibidoEn };
+  }, [cargando, clave, dato, recibidoEn]);
 
   return (
     <section className="settings-section srv" aria-labelledby="srv-titulo">
@@ -83,7 +106,8 @@ function EstadoServidor() {
         {recibidoEn !== null && <Hace desde={recibidoEn} prefijo={fallo ? 'Último dato' : 'Actualizado'} />}
         <span className="srv-pie-nota">{PIE}</span>
       </p>
-      {dato?.admin === true && !prohibido && <DetalleAdmin alProhibido={alProhibido} />}
+      <CopiarDiagnostico armar={armar} />
+      {dato?.admin === true && !prohibido && <DetalleAdmin alProhibido={alProhibido} alDatoAdmin={alDatoAdmin} />}
     </section>
   );
 }
@@ -92,17 +116,17 @@ export default memo(EstadoServidor);
 
 // El bloque plegado, cerrado de inicio. Su contenido (y con él el sondeo del detalle) existe solo
 // mientras está abierto.
-function DetalleAdmin({ alProhibido }) {
+function DetalleAdmin({ alProhibido, alDatoAdmin }) {
   const [abierto, setAbierto] = useState(false);
   return (
     <details className="srv-admin" onToggle={(e) => setAbierto(e.currentTarget.open)}>
       <summary className="srv-admin-resumen">Ver detalle (admin)</summary>
-      {abierto && <DetalleAbierto alProhibido={alProhibido} />}
+      {abierto && <DetalleAbierto alProhibido={alProhibido} alDatoAdmin={alDatoAdmin} />}
     </details>
   );
 }
 
-function DetalleAbierto({ alProhibido }) {
+function DetalleAbierto({ alProhibido, alDatoAdmin }) {
   const [dato, setDato] = useState(null);
   const [recibidoEn, setRecibidoEn] = useState(null);
   const [fallo, setFallo] = useState(null);
@@ -112,13 +136,15 @@ function DetalleAbierto({ alProhibido }) {
       leer: () => api.adminServidor(),
       validar: validarAdminServidor,
       clasificar: claveDeFalloAdmin,
-      alDato: (d, t) => { setDato(d); setRecibidoEn(t); setFallo(null); },
+      // El último detalle válido también va al padre, para «Copiar diagnóstico» (sin re-render).
+      alDato: (d, t) => { setDato(d); setRecibidoEn(t); setFallo(null); alDatoAdmin({ dato: d, recibidoEn: t }); },
       // 403: le quitaron el rol. El padre esconde el bloque (y al desmontarse esto, el sondeo para).
       alFallo: (clave) => { if (clave === 'prohibido') alProhibido(); else setFallo(clave); },
       documento: document,
     });
-    return () => sondeo.detener();
-  }, [alProhibido]);
+    // Cerrado (o escondido) el bloque, el diagnóstico ya no lleva nada de admin.
+    return () => { sondeo.detener(); alDatoAdmin(null); };
+  }, [alProhibido, alDatoAdmin]);
 
   const etq = fallo ? etiquetaEstado(fallo === 'sesion' ? 'sin_respuesta' : fallo) : null;
   return (
@@ -254,4 +280,94 @@ function IconoEstado({ nombre }) {
     default:   // 'puntos': todavía no se sabe
       return <svg {...p}><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>;
   }
+}
+
+// «Copiar diagnóstico» (3d): para quien siente lag, admin o no. Copia un texto plano con lo que la
+// app sabe AHORA (textoDiagnostico), también —y sobre todo— con el servidor sin respuesta. Copiar no
+// pide nada a ningún endpoint: `armar` lee lo último que ya llegó.
+//
+// Tres caminos, en orden: navigator.clipboard.writeText; si falla o no existe (http, permiso
+// negado), el textarea oculto + execCommand('copy'); si también falla, el texto queda a la vista en
+// un <textarea readonly> ya seleccionado para copiarlo a mano.
+// «Copiado» ~2 s en el botón; el mismo mensaje en una región role="status" HERMANA del botón (los
+// hijos de un botón son presentacionales: una región viva adentro no se anunciaría). Sin rojo ni
+// verde, y el foco se queda en el botón (el camino de execCommand se lo devuelve).
+const COPIADO_MS = 2000;
+const CopiarDiagnostico = memo(function CopiarDiagnostico({ armar }) {
+  const [fase, setFase] = useState('listo');   // 'listo' | 'copiado' | 'manual'
+  const [texto, setTexto] = useState('');
+  const botonRef = useRef(null);
+  const areaRef = useRef(null);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  // A mano: el textarea aparece con todo seleccionado (eso sí lleva el foco, para que copiar sea un gesto).
+  useEffect(() => {
+    if (fase === 'manual') { areaRef.current?.focus(); areaRef.current?.select(); }
+  }, [fase, texto]);
+
+  async function copiar() {
+    const t = armar();
+    const ok = await copiarAlPortapapeles(t, botonRef.current);
+    clearTimeout(timer.current);
+    if (ok) {
+      setFase('copiado');
+      timer.current = setTimeout(() => setFase('listo'), COPIADO_MS);
+    } else {
+      setTexto(t);
+      setFase('manual');
+    }
+  }
+
+  const copiado = fase === 'copiado';
+  return (
+    <div className="srv-copiar">
+      <button type="button" ref={botonRef} className={`srv-copiar-boton${copiado ? ' srv-copiar-boton--hecho' : ''}`} onClick={copiar}>
+        <IconoCopiar hecho={copiado} />
+        <span className="srv-copiar-etiqueta">{copiado ? 'Copiado' : 'Copiar diagnóstico'}</span>
+      </button>
+      <span className="srv-solo-lector" role="status" aria-live="polite">{copiado ? 'Copiado' : ''}</span>
+      {fase === 'manual' && (
+        <div className="srv-copiar-manual">
+          <p className="srv-copiar-aviso" id="srv-copiar-aviso">No pude copiar solo: selecciona y copia</p>
+          <textarea ref={areaRef} className="srv-copiar-texto" readOnly value={texto}
+                    rows={Math.min(18, texto.split('\n').length)} aria-describedby="srv-copiar-aviso"
+                    aria-label="Diagnóstico para copiar" />
+        </div>
+      )}
+    </div>
+  );
+});
+
+// El portapapeles: el moderno y, si no, el viejo. Devuelve true si copió.
+async function copiarAlPortapapeles(texto, volverA) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(texto);
+      return true;
+    }
+  } catch { /* sin permiso, sin https: se prueba el camino viejo */ }
+  let ta = null;
+  try {
+    ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.setAttribute('readonly', '');
+    ta.setAttribute('aria-hidden', 'true');
+    ta.tabIndex = -1;
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+    document.body.appendChild(ta);
+    ta.select();
+    return document.execCommand('copy') === true;
+  } catch {
+    return false;
+  } finally {
+    ta?.remove();
+    volverA?.focus();   // select() se llevó el foco al textarea oculto: vuelve al botón
+  }
+}
+
+function IconoCopiar({ hecho }) {
+  const p = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true', className: 'srv-icono' };
+  return hecho
+    ? <svg {...p}><polyline points="20 6 9 17 4 12" /></svg>
+    : <svg {...p}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>;
 }

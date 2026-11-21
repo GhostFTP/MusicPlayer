@@ -354,6 +354,75 @@ export function idDelBuild(documento) {
 export function armarDiagnostico({ admin, build, ahora = Date.now() }) {
   const servidor = validarAdminServidor(admin);
   if (!servidor || !Number.isFinite(ahora)) return null;
-  const b = typeof build === 'string' && /^(dev|[A-Za-z0-9_-]{4,64})$/.test(build) ? build : 'desconocido';
-  return JSON.stringify({ generado: new Date(ahora).toISOString(), cliente: { build: b }, servidor }, null, 2);
+  return JSON.stringify({ generado: new Date(ahora).toISOString(), cliente: { build: buildSeguro(build) }, servidor }, null, 2);
+}
+
+/** El build tal cual si es un hash de Vite o 'dev'; cualquier otra cosa → 'desconocido'. */
+export function buildSeguro(build) {
+  return typeof build === 'string' && /^(dev|[A-Za-z0-9_-]{4,64})$/.test(build) ? build : 'desconocido';
+}
+
+const dos = (n) => String(n).padStart(2, '0');
+
+/** epoch ms → «2026-11-20 14:30:05 UTC-06:00 (America/Mexico_City)» en la hora LOCAL del proceso. */
+export function fechaConZona(ahora, zona) {
+  const d = new Date(ahora);
+  const off = -d.getTimezoneOffset();   // minutos al este de UTC
+  const signo = off >= 0 ? '+' : '-';
+  const abs = Math.abs(off);
+  const base = `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())} ${dos(d.getHours())}:${dos(d.getMinutes())}:${dos(d.getSeconds())} UTC${signo}${dos(Math.floor(abs / 60))}:${dos(abs % 60)}`;
+  return typeof zona === 'string' && /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(zona) ? `${base} (${zona})` : base;
+}
+
+/**
+ * «Copiar diagnóstico» (3d): TEXTO PLANO, una línea «clave: valor», para pegar en un chat. Sirve
+ * también con el servidor SIN respuesta (es justo el caso que importa): va lo último que hubo.
+ *
+ *   ahora       epoch ms del momento de copiar
+ *   zona        nombre IANA de la zona (Intl…resolvedOptions().timeZone); la hora ya es la local
+ *   clave       lo que muestra la tarjeta: un estado, 'sin_respuesta', 'respuesta_invalida' o
+ *               'cargando' (todavía no llegó nada)
+ *   publico     el último /api/servidor VÁLIDO (o null si nunca hubo) — pasa otra vez por validarServidor
+ *   recibidoEn  cuándo llegó ese dato (ms) o null
+ *   build       idDelBuild(document)
+ *   navegador   navigator.userAgent (se acota: una línea, 300 caracteres)
+ *   visible     ¿la pestaña está visible?
+ *   admin       el detalle de admin SOLO si el bloque está abierto y ya cargó; si no, null. Pasa otra
+ *               vez por validarAdminServidor: si no valida, no va nada de admin.
+ *   adminEn     cuándo llegó ese detalle (ms)
+ *
+ * NUNCA lleva el token, el usuario, el correo, IPs, cookies, headers, URLs ni config: no lee
+ * localStorage ni el documento, y cada línea sale de un campo validado o de un texto de la vista.
+ */
+export function textoDiagnostico({ ahora, zona = null, clave, publico = null, recibidoEn = null, build, navegador = '', visible = true, admin = null, adminEn = null }) {
+  const pub = validarServidor(publico);
+  const etq = clave === 'cargando' ? { texto: 'Consultando el servidor…' } : etiquetaEstado(clave);
+  const hace = (t) => (Number.isFinite(t) ? textoHace((ahora - t) / 1000) : 'nunca');
+  const ua = String(navegador ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) || 'desconocido';
+  const lineas = [
+    ['diagnóstico', 'SonoraRev · estado del servidor'],
+    ['fecha', fechaConZona(ahora, zona)],
+    ['estado', etq?.texto ?? 'Sin respuesta'],
+    ['última lectura', pub && Number.isFinite(recibidoEn) ? hace(recibidoEn) : 'nunca'],
+    ['versión del servidor', pub?.version ?? '—'],
+    ['versión del cliente', buildSeguro(build)],
+    ['encendido', pub ? textoEncendido(pub.uptime_s) ?? '—' : '—'],
+    ['navegador', ua],
+    ['pestaña', visible ? 'visible' : 'oculta'],
+  ];
+  const a = validarAdminServidor(admin);
+  if (a) {
+    const g = puntosGrafica(a.muestras);
+    lineas.push(
+      ['detalle leído', hace(adminEn)],
+      ['event loop', textoEventLoop(a.event_loop)],
+      ['pico de la hora', g ? `${Math.round(g.pico.valor)} ms a las ${horaLocal(g.pico.t)}` : 'sin muestras'],
+      ['memoria', textoMemoria(a.memoria)],
+      ['base', textoBase(a.base)],
+      ['desde el arranque', textoContadores(a)],
+      ['locutor', textoLocutor(a.locutor)],
+      ['videos', TEXTO_VIDEOS[a.videos]],
+    );
+  }
+  return lineas.map(([k, v]) => `${k}: ${v}`).join('\n');
 }
