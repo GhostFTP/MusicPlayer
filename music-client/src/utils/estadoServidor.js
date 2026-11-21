@@ -261,6 +261,77 @@ export function puntosGrafica(muestras, { ancho = 600, alto = 160 } = {}) {
   };
 }
 
+// ── Detalle de admin (3c) ──
+
+/**
+ * Como claveDeFallo, más el 403 del endpoint de admin: 'prohibido' (le quitaron el rol entre un
+ * pedido y otro). La vista esconde el detalle y deja lo público. claveDeFallo no cambia: para
+ * /api/servidor un 403 sigue siendo 'sin_respuesta'.
+ */
+export function claveDeFalloAdmin(error) {
+  if (error?.status === 403) return 'prohibido';
+  return claveDeFallo(error);
+}
+
+const ms0 = (v) => `${Math.round(v)} ms`;
+
+/** event_loop → «p50 11 ms · p99 13 ms · máx 15 ms (últimos 10 s)»; null → «Sin datos todavía». */
+export function textoEventLoop(el) {
+  if (el === null || el === undefined) return 'Sin datos todavía';
+  return `p50 ${ms0(el.p50)} · p99 ${ms0(el.p99)} · máx ${ms0(el.max)} (últimos 10 s)`;
+}
+
+/** memoria → «60 MB (heap 18 MB)». */
+export function textoMemoria(m) {
+  return `${textoBytes(m.rss) ?? '—'} (heap ${textoBytes(m.heap) ?? '—'})`;
+}
+
+/** base → «92 KB · WAL 386 KB»; los tamaños null → «no disponible». */
+export function textoBase(b) {
+  const bytes = textoBytes(b.bytes);
+  const wal = textoBytes(b.wal_bytes);
+  if (bytes === null && wal === null) return 'no disponible';
+  return `${bytes ?? 'no disponible'} · WAL ${wal ?? 'no disponible'}`;
+}
+
+/** Los contadores desde el arranque → «SQLITE_BUSY 0 · errores 500 0». */
+export function textoContadores(a) {
+  return `SQLITE_BUSY ${a.sqlite_busy} · errores 500 ${a.errores_500}`;
+}
+
+const CIRCUITO_TEXTO = { cerrado: 'normal', abierto: 'en pausa por fallos', semi: 'probando' };
+
+/**
+ * locutor → null (o apagado) → «Apagado»; encendido → «Encendido · circuito normal · generadas 5 ·
+ * errores 0 · cola 0». Circuito: cerrado = normal, abierto = en pausa por fallos, semi = probando.
+ */
+export function textoLocutor(l) {
+  if (!l || !l.cliente?.encendido) return 'Apagado';
+  const c = CIRCUITO_TEXTO[l.cliente.circuito] ?? l.cliente.circuito;
+  return `Encendido · circuito ${c} · generadas ${l.servicio.generadas} · errores ${l.servicio.errores} · cola ${l.servicio.cola}`;
+}
+
+/** La versión del paquete SOLO si difiere de la del CHANGELOG (y existe); si no, null. */
+export function versionPaqueteDistinta(a) {
+  return a.version_paquete && a.version_paquete !== a.version ? a.version_paquete : null;
+}
+
+/** epoch ms → «14:05» (hora local, o `zona`). */
+export function horaLocal(t, { zona } = {}) {
+  return new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit', hour12: false, ...(zona ? { timeZone: zona } : {}) }).format(t);
+}
+
+/** El pico de puntosGrafica → «Pico: 620 ms a las 14:05». */
+export function textoPico(pico, opciones) {
+  return `Pico: ${ms0(pico.valor)} a las ${horaLocal(pico.t, opciones)}`;
+}
+
+/** El aria-label de la gráfica: lo que se ve, dicho. null (sin muestras) → que no hay datos. */
+export function ariaGrafica(g, opciones) {
+  if (!g) return 'Atraso en la última hora: todavía no hay muestras';
+  return `Atraso en la última hora. ${textoPico(g.pico, opciones)}`;
+}
+
 // ── Diagnóstico y build ──
 
 /** El hash del bundle de Vite (<script src="/assets/index-HASH.js">) o 'dev' si no lo hay. */

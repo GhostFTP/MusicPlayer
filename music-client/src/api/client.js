@@ -183,6 +183,10 @@ export const api = {
   // servidor colgado se vea como «Sin respuesta» antes del próximo turno. La forma la valida
   // utils/estadoServidor.js (validarServidor): Access puede contestar 200 con su página de login.
   servidor:        ()           => request('/api/servidor', { timeoutMs: 5000 }),
+  // El detalle, SOLO para admins (music-server/src/api/admin-servidor.js): Ajustes lo pide únicamente
+  // con el bloque «Ver detalle (admin)» abierto. Mismo techo de 5 s; un 403 esconde el detalle. La
+  // forma la valida validarAdminServidor (utils/estadoServidor.js).
+  adminServidor:   ()           => request('/api/admin/servidor', { timeoutMs: 5000 }),
 
   // Videos (music-server/src/videos/routes.js) → { videos: [{ id, title, artist, year, ext, size,
   // mime, duration, has_cover }] }. Ya vienen ordenados: artista A→Z, año del más nuevo al más viejo.

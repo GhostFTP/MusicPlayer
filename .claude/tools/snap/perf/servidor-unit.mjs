@@ -247,6 +247,36 @@ function r1(n) { return Math.round(n * 10) / 10; }
   ok('build_src_propiedad', U.idDelBuild({ querySelectorAll: () => [{ src: 'http://localhost:4173/assets/index-KLyDKkjF.js' }] }) === 'KLyDKkjF');
 }
 
+// ── 12. Textos del detalle de admin (3c) ──
+{
+  ok('adm_falla_403_prohibido', U.claveDeFalloAdmin(Object.assign(new Error('admin required'), { status: 403 })) === 'prohibido'
+    && U.claveDeFallo(Object.assign(new Error('x'), { status: 403 })) === 'sin_respuesta');
+  let sintaxis; try { JSON.parse(HTML); } catch (err) { sintaxis = err; }
+  ok('adm_falla_resto_igual', U.claveDeFalloAdmin(Object.assign(new Error('x'), { status: 401 })) === 'sesion'
+    && U.claveDeFalloAdmin(sintaxis) === 'respuesta_invalida' && U.claveDeFalloAdmin(null) === 'respuesta_invalida'
+    && U.claveDeFalloAdmin(new TypeError('Failed to fetch')) === 'sin_respuesta' && U.claveDeFalloAdmin(Object.assign(new Error('x'), { status: 500 })) === 'sin_respuesta');
+  ok('txt_event_loop', U.textoEventLoop({ p50: 11.1, p99: 12.9, max: 14.5 }) === 'p50 11 ms · p99 13 ms · máx 15 ms (últimos 10 s)'
+    && U.textoEventLoop({ p50: 0, p99: 0.4, max: 195.48 }) === 'p50 0 ms · p99 0 ms · máx 195 ms (últimos 10 s)', { dio: U.textoEventLoop({ p50: 11.1, p99: 12.9, max: 14.5 }) });
+  ok('txt_event_loop_null', U.textoEventLoop(null) === 'Sin datos todavía');
+  ok('txt_memoria', U.textoMemoria({ rss: 63029248, heap: 18874368 }) === '60 MB (heap 18 MB)', { dio: U.textoMemoria({ rss: 63029248, heap: 18874368 }) });
+  ok('txt_base', U.textoBase({ bytes: 94208, wal_bytes: 395552 }) === '92 KB · WAL 386 KB' && U.textoBase({ bytes: 94208, wal_bytes: 0 }) === '92 KB · WAL 0 B'
+    && U.textoBase({ bytes: null, wal_bytes: null }) === 'no disponible' && U.textoBase({ bytes: 5 * 1024 ** 3, wal_bytes: null }) === '5 GB · WAL no disponible');
+  ok('txt_contadores', U.textoContadores({ sqlite_busy: 3, errores_500: 12 }) === 'SQLITE_BUSY 3 · errores 500 12');
+  const loc = (circuito) => ({ cliente: { encendido: true, circuito, fallosSeguidos: 0 }, servicio: { cache: 3, cola: 2, trabajando: false, generadas: 5, descartadas: 1, sinCupo: 0, errores: 1, rechazos: {} } });
+  ok('txt_locutor_apagado', U.textoLocutor(null) === 'Apagado' && U.textoLocutor({ ...loc('cerrado'), cliente: { encendido: false, circuito: 'cerrado', fallosSeguidos: 0 } }) === 'Apagado');
+  ok('txt_locutor_circuitos', U.textoLocutor(loc('cerrado')) === 'Encendido · circuito normal · generadas 5 · errores 1 · cola 2'
+    && U.textoLocutor(loc('abierto')) === 'Encendido · circuito en pausa por fallos · generadas 5 · errores 1 · cola 2'
+    && U.textoLocutor(loc('semi')) === 'Encendido · circuito probando · generadas 5 · errores 1 · cola 2', { dio: U.textoLocutor(loc('abierto')) });
+  ok('txt_version_paquete', U.versionPaqueteDistinta({ version: '1.43.0', version_paquete: '1.40.2' }) === '1.40.2'
+    && U.versionPaqueteDistinta({ version: '1.43.0', version_paquete: '1.43.0' }) === null && U.versionPaqueteDistinta({ version: '1.43.0', version_paquete: null }) === null);
+  // Hora local (TZ fijada a UTC−6): 20:05 UTC = 14:05.
+  const t = Date.UTC(2026, 10, 20, 20, 5, 30);
+  ok('txt_hora_y_pico', U.horaLocal(t) === '14:05' && U.horaLocal(t, { zona: 'UTC' }) === '20:05' && U.textoPico({ valor: 619.6, t }) === 'Pico: 620 ms a las 14:05', { hora: U.horaLocal(t) });
+  const g = U.puntosGrafica([muestra(0, 12, 33.4)]);
+  ok('txt_aria_grafica', U.ariaGrafica(g) === `Atraso en la última hora. Pico: 33 ms a las ${U.horaLocal(T0)}` && U.ariaGrafica(null) === 'Atraso en la última hora: todavía no hay muestras', { dio: U.ariaGrafica(g) });
+  ok('txt_videos_reusa', U.TEXTO_VIDEOS.unavailable === 'Sin consultar o no disponible');
+}
+
 // ── 11. El sondeo (utils/sondeoServidor.js, 3b), con reloj, timers y documento falsos ──
 // En el navegador un 401 desloguea y desmonta Ajustes, así que «el 401 corta» solo se ve acá.
 {

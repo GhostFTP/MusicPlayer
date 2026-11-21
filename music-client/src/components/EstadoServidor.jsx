@@ -1,10 +1,20 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
-import { validarServidor, claveDeFallo, etiquetaEstado, textoEncendido, textoHace, PIE } from '../utils/estadoServidor.js';
+import {
+  validarServidor, validarAdminServidor, claveDeFallo, claveDeFalloAdmin, etiquetaEstado, textoEncendido, textoHace, PIE,
+  textoEventLoop, textoMemoria, textoBase, textoContadores, textoLocutor, versionPaqueteDistinta, fechaEscaneoLocal,
+  TEXTO_VIDEOS, puntosGrafica, textoPico, ariaGrafica,
+} from '../utils/estadoServidor.js';
 import { crearSondeo } from '../utils/sondeoServidor.js';
 
-// La tarjeta «Servidor» de Ajustes (sub-paso 3b): lo que cualquiera con sesión puede saber del
-// servidor (GET /api/servidor). El detalle de admin es 3c: `admin` se guarda pero no se usa todavía.
+// La tarjeta «Servidor» de Ajustes: lo que cualquiera con sesión puede saber del servidor
+// (GET /api/servidor, 3b) y, SOLO si esa respuesta dijo admin:true, el bloque plegado «Ver detalle
+// (admin)» (GET /api/admin/servidor, 3c). Un usuario normal no ve ni el bloque ni un pedido al detalle.
+//
+// EL DETALLE se pide únicamente con el bloque ABIERTO: el sondeo del detalle vive en DetalleAbierto,
+// que solo existe mientras el <details> está abierto; cerrarlo lo desmonta y su sondeo se detiene.
+// Mismo bucle que lo público (utils/sondeoServidor.js). Un 403 ('prohibido') esconde el bloque y deja
+// lo público; un JSON con otra forma dice «Sin respuesta» solo dentro del detalle.
 //
 // ESTADO LOCAL Y NADA MÁS. No toca contextos (ni PlayerContext ni Layout): el sondeo vive acá, y
 // como Layout monta solo la vista actual, salir de Ajustes desmonta esto y corta el sondeo.
@@ -16,10 +26,15 @@ import { crearSondeo } from '../utils/sondeoServidor.js';
 //
 // ACCESIBILIDAD: role="status" + aria-live="polite" SOLO en el texto del estado, que cambia poco.
 // «hace N s» nunca va en una región viva: hablaría cada segundo. Nada mueve el foco.
-export default function EstadoServidor() {
+//
+// memo: Settings no le pasa props, así que un re-render de Layout (cada frame del swipe-atrás)
+// no llega hasta acá; y la gráfica es memo aparte, para que tampoco la redibujen los tics.
+function EstadoServidor() {
   const [dato, setDato] = useState(null);             // la última respuesta VÁLIDA
   const [recibidoEn, setRecibidoEn] = useState(null); // cuándo llegó (ms)
   const [fallo, setFallo] = useState(null);           // null | 'sin_respuesta' | 'respuesta_invalida' | 'sesion'
+  const [prohibido, setProhibido] = useState(false);  // el detalle contestó 403: no se vuelve a mostrar
+  const alProhibido = useCallback(() => setProhibido(true), []);
 
   useEffect(() => {
     const sondeo = crearSondeo({
@@ -68,9 +83,140 @@ export default function EstadoServidor() {
         {recibidoEn !== null && <Hace desde={recibidoEn} prefijo={fallo ? 'Último dato' : 'Actualizado'} />}
         <span className="srv-pie-nota">{PIE}</span>
       </p>
+      {dato?.admin === true && !prohibido && <DetalleAdmin alProhibido={alProhibido} />}
     </section>
   );
 }
+
+export default memo(EstadoServidor);
+
+// El bloque plegado, cerrado de inicio. Su contenido (y con él el sondeo del detalle) existe solo
+// mientras está abierto.
+function DetalleAdmin({ alProhibido }) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <details className="srv-admin" onToggle={(e) => setAbierto(e.currentTarget.open)}>
+      <summary className="srv-admin-resumen">Ver detalle (admin)</summary>
+      {abierto && <DetalleAbierto alProhibido={alProhibido} />}
+    </details>
+  );
+}
+
+function DetalleAbierto({ alProhibido }) {
+  const [dato, setDato] = useState(null);
+  const [recibidoEn, setRecibidoEn] = useState(null);
+  const [fallo, setFallo] = useState(null);
+
+  useEffect(() => {
+    const sondeo = crearSondeo({
+      leer: () => api.adminServidor(),
+      validar: validarAdminServidor,
+      clasificar: claveDeFalloAdmin,
+      alDato: (d, t) => { setDato(d); setRecibidoEn(t); setFallo(null); },
+      // 403: le quitaron el rol. El padre esconde el bloque (y al desmontarse esto, el sondeo para).
+      alFallo: (clave) => { if (clave === 'prohibido') alProhibido(); else setFallo(clave); },
+      documento: document,
+    });
+    return () => sondeo.detener();
+  }, [alProhibido]);
+
+  const etq = fallo ? etiquetaEstado(fallo === 'sesion' ? 'sin_respuesta' : fallo) : null;
+  return (
+    <div className="srv-admin-cuerpo">
+      {!dato && !fallo && <p className="srv-admin-aviso">Consultando el detalle…</p>}
+      {etq && (
+        <p className="srv-admin-aviso srv-admin-aviso--fallo">
+          <span className="srv-admin-fallo"><IconoEstado nombre={etq.icono} /><span className="srv-admin-fallo-texto">{etq.texto}</span></span>
+          {etq.ayuda && <span className="srv-ayuda">{etq.ayuda}</span>}
+        </p>
+      )}
+      {dato && <DatosAdmin dato={dato} viejo={Boolean(fallo)} />}
+      {recibidoEn !== null && (
+        <p className="srv-pie"><Hace desde={recibidoEn} prefijo={fallo ? 'Último dato' : 'Actualizado'} /></p>
+      )}
+    </div>
+  );
+}
+
+// Las filas y la gráfica. memo: solo cambian cuando llega un detalle nuevo (cada 30 s).
+const DatosAdmin = memo(function DatosAdmin({ dato, viejo }) {
+  const vp = versionPaqueteDistinta(dato);
+  const fila = (dt, dd) => (
+    <div className="settings-row" key={dt}>
+      <dt>{dt}</dt>
+      <dd className={viejo ? 'srv-viejo srv-admin-valor' : 'srv-admin-valor'}>{dd}</dd>
+    </div>
+  );
+  return (
+    <>
+      <dl className="settings-card srv-admin-filas">
+        {fila('Atraso del event loop', textoEventLoop(dato.event_loop))}
+      </dl>
+      <Grafica muestras={dato.muestras} />
+      <dl className="settings-card srv-admin-filas">
+        {fila('Memoria', textoMemoria(dato.memoria))}
+        {fila('Base', textoBase(dato.base))}
+        {fila('Pistas', String(dato.base.pistas))}
+        {fila('Último escaneo', fechaEscaneoLocal(dato.base.ultimo_escaneo) ?? '—')}
+        {fila('Videos', TEXTO_VIDEOS[dato.videos])}
+        {fila('Locutor', textoLocutor(dato.locutor))}
+        {fila('Desde el arranque', textoContadores(dato))}
+        {vp && fila('Versión del paquete', vp)}
+      </dl>
+    </>
+  );
+});
+
+// La gráfica del atraso en la última hora: SVG inline sin librerías. Las líneas se estiran al ancho
+// de la tarjeta (preserveAspectRatio none + vector-effect non-scaling-stroke: el trazo no engorda);
+// los rótulos van en HTML encima, para que el texto no se deforme. Techo, guías y pico salen de
+// puntosGrafica (100 siempre; 500 solo si cabe). memo: la redibuja solo un arreglo de muestras nuevo.
+const G_ANCHO = 600;
+const G_ALTO = 160;
+const Grafica = memo(function Grafica({ muestras }) {
+  const g = puntosGrafica(muestras, { ancho: G_ANCHO, alto: G_ALTO });
+  const aria = ariaGrafica(g);
+  if (!g) {
+    return (
+      <figure className="srv-grafica">
+        <figcaption className="srv-grafica-titulo">Atraso en la última hora</figcaption>
+        <p className="srv-grafica-vacia" role="img" aria-label={aria}>Todavía no hay muestras</p>
+      </figure>
+    );
+  }
+  // Con una sola muestra la polilínea no dibuja nada: un trazo de largo 0 con punta redonda es un punto.
+  const punto = (pts) => { const [x, y] = pts.split(',').map(Number); return `M${x} ${y}h0`; };
+  return (
+    <figure className="srv-grafica">
+      <figcaption className="srv-grafica-titulo">Atraso en la última hora</figcaption>
+      <div className="srv-grafica-lienzo">
+        <svg className="srv-grafica-svg" viewBox={`0 0 ${G_ANCHO} ${G_ALTO}`} preserveAspectRatio="none" role="img" aria-label={aria}>
+          {g.guias.map((x) => (
+            <line key={x.valor} className={`srv-guia srv-guia--${x.valor}`} data-valor={x.valor}
+                  x1="0" x2={G_ANCHO} y1={x.y} y2={x.y} vectorEffect="non-scaling-stroke" />
+          ))}
+          {g.unPunto ? (
+            <>
+              <path className="srv-linea-max" d={punto(g.max)} vectorEffect="non-scaling-stroke" />
+              <path className="srv-linea-p99" d={punto(g.p99)} vectorEffect="non-scaling-stroke" />
+            </>
+          ) : (
+            <>
+              <polyline className="srv-linea-max" points={g.max} vectorEffect="non-scaling-stroke" />
+              <polyline className="srv-linea-p99" points={g.p99} vectorEffect="non-scaling-stroke" />
+            </>
+          )}
+        </svg>
+        {g.guias.map((x) => (
+          <span key={x.valor} className={`srv-guia-etiqueta srv-guia-etiqueta--${x.valor}`} data-valor={x.valor}
+                style={{ top: `${(x.y / G_ALTO) * 100}%` }} aria-hidden="true">{x.etiqueta}</span>
+        ))}
+      </div>
+      <div className="srv-grafica-eje" aria-hidden="true"><span>hace 60 min</span><span>ahora</span></div>
+      <p className="srv-grafica-pico">{textoPico(g.pico)}</p>
+    </figure>
+  );
+});
 
 // «Actualizado hace 12 s» / «Último dato hace 3 min». Su propio intervalo de 1 s, solo con la
 // pestaña visible; memo: la tarjeta no se re-renderiza por su tic, ni este por los de la tarjeta.

@@ -43,11 +43,22 @@ const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Una página en Ajustes. `responder(n)` (n = número de pedido, desde 1) devuelve lo que contesta
 // /api/servidor: { status, contentType, body }, 'abortar', o { demoraMs, ... }. Sin responder: backend real.
-async function abrir({ responder, ancho = 1440, alto = 900, movil = false } = {}) {
+// `responderAdmin(n)` hace lo mismo para /api/admin/servidor (3c); sin él, ese pedido va al backend
+// real (que a snap@local le contesta 403).
+async function abrir({ responder, responderAdmin, ancho = 1440, alto = 900, movil = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: ancho, height: alto }, isMobile: movil, hasTouch: movil });
   await ctx.addInitScript((t) => localStorage.setItem('token', t), token);
   const c = { pedidos: 0, admin: 0 };
   ctx.on('request', (r) => { if (esAdmin(r.url())) c.admin++; });
+  if (responderAdmin) {
+    let n = 0;
+    await ctx.route((u) => esAdmin(u.href ?? u), async (route) => {
+      const r = responderAdmin(++n);
+      if (r === 'abortar') return route.abort('failed');
+      if (r?.demoraMs) await esperar(r.demoraMs);
+      return route.fulfill(r);
+    });
+  }
   if (responder) {
     await ctx.route((u) => esServidor(u.href ?? u), async (route) => {
       const n = ++c.pedidos;
@@ -67,9 +78,11 @@ async function abrir({ responder, ancho = 1440, alto = 900, movil = false } = {}
   return { ctx, p, c };
 }
 
+// Solo lo PÚBLICO: la tarjeta (.srv > .settings-card) y su pie (.srv > .srv-pie). Desde 3c el detalle
+// de admin también vive dentro de .srv, con sus propias filas, ayuda y «hace N s».
 const leer = (p) => p.evaluate(() => {
-  const q = (s) => document.querySelector(s);
-  const filas = [...document.querySelectorAll('.srv .settings-row')].map((f) => ({ dt: f.querySelector('dt')?.textContent.trim(), dd: f.querySelector('dd')?.textContent.trim(), viejo: !!f.querySelector('dd.srv-viejo') }));
+  const q = (s) => document.querySelector(s.replace('.srv .srv-pie', '.srv > .srv-pie').replace('.srv .', '.srv > .settings-card .'));
+  const filas = [...document.querySelectorAll('.srv > .settings-card .settings-row')].map((f) => ({ dt: f.querySelector('dt')?.textContent.trim(), dd: f.querySelector('dd')?.textContent.trim(), viejo: !!f.querySelector('dd.srv-viejo') }));
   const est = q('.srv .srv-estado');
   return {
     texto: q('.srv .srv-estado-texto')?.textContent.trim() ?? null,
@@ -81,9 +94,9 @@ const leer = (p) => p.evaluate(() => {
     ayuda: q('.srv .srv-ayuda')?.textContent.trim() ?? null,
     filas,
     version: filas.find((f) => f.dt === 'Versión')?.dd ?? null,
-    colorVersion: (() => { const f = [...document.querySelectorAll('.srv .settings-row')].find((x) => x.querySelector('dt')?.textContent.trim() === 'Versión'); return f ? getComputedStyle(f.querySelector('dd')).color : null; })(),
+    colorVersion: (() => { const f = [...document.querySelectorAll('.srv > .settings-card .settings-row')].find((x) => x.querySelector('dt')?.textContent.trim() === 'Versión'); return f ? getComputedStyle(f.querySelector('dd')).color : null; })(),
     encendido: filas.find((f) => f.dt === 'Encendido')?.dd ?? null,
-    hace: q('.srv .srv-hace')?.textContent.trim() ?? null,
+    hace: document.querySelector('.srv > .srv-pie .srv-hace')?.textContent.trim() ?? null,
     pie: q('.srv .srv-pie')?.textContent.trim() ?? null,
   };
 });
@@ -94,6 +107,52 @@ const ver = (p, v) => p.evaluate((v) => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => v === 'hidden' });
   document.dispatchEvent(new Event('visibilitychange'));
 }, v);
+// ── 3c: el JSON de admin (la forma de music-server/src/api/admin-servidor.js) ──
+// `n` muestras cada 10 s que terminan en FIN; `pico` (ms) en la muestra `picoEn` (por defecto, la del medio).
+const FIN = Date.UTC(2026, 10, 20, 20, 0, 0);
+function adminJson({ n = 30, pico = null, picoEn = null, ...extra } = {}) {
+  const muestras = Array.from({ length: n }, (_, i) => ({ t: FIN - (n - 1 - i) * 10_000, p99: 12 + (i % 3), max: 14 + (i % 4), rss: 63029248 }));
+  if (pico !== null && n) { const k = picoEn ?? Math.floor(n / 2); muestras[k] = { ...muestras[k], p99: Math.round(pico * 0.85), max: pico }; }
+  return {
+    version: '1.43.0', version_paquete: '1.40.2', node: 'v22.18.0', uptime_s: 3 * 86400,
+    memoria: { rss: 63029248, heap: 18874368 }, event_loop: { p50: 11.1, p99: 12.9, max: 14.5 }, muestras,
+    base: { bytes: 94208, wal_bytes: 395552, pistas: 653, ultimo_escaneo: '2026-11-20 10:00:02' },
+    videos: 'unavailable', locutor: null, sqlite_busy: 0, errores_500: 0, ...extra,
+  };
+}
+const LOCUTOR_ABIERTO = { cliente: { encendido: true, circuito: 'abierto', fallosSeguidos: 3 }, servicio: { cache: 3, cola: 2, trabajando: false, generadas: 5, descartadas: 1, sinCupo: 0, errores: 1, rechazos: { extraccion: 2 } } };
+const pubAdmin = () => json(pub('ok', { admin: true }));
+// Abre el bloque «Ver detalle (admin)» y espera a que pinte algo (filas o aviso).
+// Clic en el resumen con un techo corto: si el bloque no está (p. ej. ya lo escondió un 403), el caso
+// falla con false en vez de tumbar la suite con el timeout de 30 s de Playwright.
+const clicResumen = (p) => p.locator('.srv-admin-resumen').click({ timeout: 3000 }).then(() => true, () => false);
+async function abrirDetalle(p) {
+  if (!(await clicResumen(p))) return false;
+  return p.waitForSelector('.srv-admin-filas, .srv-admin-aviso--fallo', { timeout: 5000 }).then(() => true, () => false);
+}
+const leerAdmin = (p) => p.evaluate(() => {
+  const filas = Object.fromEntries([...document.querySelectorAll('.srv-admin-filas .settings-row')].map((f) => [f.querySelector('dt').textContent.trim(), f.querySelector('dd').textContent.trim()]));
+  const svg = document.querySelector('.srv-grafica-svg');
+  const pts = (s) => (document.querySelector(s)?.getAttribute('points') ?? '').trim().split(/\s+/).filter(Boolean).length;
+  return {
+    hay: !!document.querySelector('.srv-admin'),
+    abierto: document.querySelector('.srv-admin')?.open ?? null,
+    resumen: document.querySelector('.srv-admin-resumen')?.textContent.trim() ?? null,
+    filas,
+    aviso: document.querySelector('.srv-admin-aviso--fallo .srv-admin-fallo-texto')?.textContent.trim() ?? null,
+    ayuda: document.querySelector('.srv-admin-aviso--fallo .srv-ayuda')?.textContent.trim() ?? null,
+    guias: [...document.querySelectorAll('.srv-grafica-svg .srv-guia')].map((g) => g.getAttribute('data-valor')),
+    etiquetas: [...document.querySelectorAll('.srv-guia-etiqueta')].map((e) => e.textContent.trim()),
+    puntosP99: pts('.srv-linea-p99'), puntosMax: pts('.srv-linea-max'),
+    role: svg?.getAttribute('role') ?? null, aria: svg?.getAttribute('aria-label') ?? null,
+    pico: document.querySelector('.srv-grafica-pico')?.textContent.trim() ?? null,
+    eje: [...document.querySelectorAll('.srv-grafica-eje span')].map((e) => e.textContent.trim()),
+  };
+});
+// La hora «HH:MM» de un instante, con la zona de la PÁGINA (lo mismo que hace horaLocal en la app).
+const horaEnPagina = (p, t) => p.evaluate((t) => new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit', hour12: false }).format(t), t);
+const fechaEnPagina = (p, ms) => p.evaluate((ms) => new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(ms), ms);
+
 // Sin rojo ni verde: ni el canal R ni el G dominan solos (el ámbar tiene R y G altos y B bajo; el gris, los tres iguales).
 const sinRojoNiVerde = (rgb) => { const [r, g, b] = (rgb.match(/\d+/g) ?? []).map(Number); return !(r > 150 && g < 110 && b < 110) && !(g > 150 && r < 120 && b < 150); };
 
@@ -282,6 +341,162 @@ try {
     await ctx.close();
   }
 
+  // ═══ 3c: el detalle de admin ═══
+
+  // Usuario normal: ni rastro del bloque, ni un pedido al detalle.
+  {
+    const { ctx, p, c } = await abrir({ responder: () => json(pub('ok')), responderAdmin: () => json(adminJson()) });
+    await hasta(p, 'Funciona con normalidad');
+    await p.clock.fastForward(61_000); await esperar(500);
+    const a = await leerAdmin(p);
+    const texto = await p.evaluate(() => document.querySelector('.srv').textContent);
+    ok('usuario_sin_detalle', !a.hay && !/detalle|admin/i.test(texto) && c.admin === 0, { hay: a.hay, admin: c.admin });
+    await ctx.close();
+  }
+  // Admin: el bloque está, cerrado, y cerrado no pide nada.
+  {
+    const { ctx, p, c } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson()) });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await p.clock.fastForward(61_000); await esperar(500);
+    const a = await leerAdmin(p);
+    ok('admin_detalle_cerrado_sin_pedido', a.hay && a.abierto === false && a.resumen === 'Ver detalle (admin)' && c.admin === 0 && c.pedidos >= 2, { ...a, filas: undefined, admin: c.admin });
+    // Abrir: UN pedido, y las filas con sus textos.
+    const pinto = await abrirDetalle(p); await esperar(800);
+    const b = await leerAdmin(p);
+    const f = b.filas;
+    const escaneo = await fechaEnPagina(p, Date.UTC(2026, 10, 20, 10, 0, 2));
+    ok('admin_abre_pide_una_vez', pinto && c.admin === 1 && b.abierto === true
+      && f['Atraso del event loop'] === 'p50 11 ms · p99 13 ms · máx 15 ms (últimos 10 s)'
+      && f['Memoria'] === '60 MB (heap 18 MB)' && f['Base'] === '92 KB · WAL 386 KB' && f['Pistas'] === '653'
+      && f['Último escaneo'] === escaneo && f['Desde el arranque'] === 'SQLITE_BUSY 0 · errores 500 0' && f['Versión del paquete'] === '1.40.2'
+      && b.eje.join('|') === 'hace 60 min|ahora', { admin: c.admin, filas: f, escaneo, eje: b.eje });
+    ok('videos_unavailable_texto', f['Videos'] === 'Sin consultar o no disponible', { videos: f['Videos'] });
+    ok('locutor_apagado', f['Locutor'] === 'Apagado', { locutor: f['Locutor'] });
+
+    // La gráfica no se redibuja con el tic de «hace N s» (3 s reales).
+    await p.evaluate(() => {
+      window.__mutG = 0;
+      new MutationObserver((ms) => { window.__mutG += ms.length; }).observe(document.querySelector('.srv-grafica'), { subtree: true, childList: true, characterData: true, attributes: true });
+      window.__haceG = document.querySelector('.srv-admin-cuerpo .srv-hace')?.textContent;
+    });
+    await esperar(3200);
+    const m = await p.evaluate(() => ({ mut: window.__mutG, antes: window.__haceG, ahora: document.querySelector('.srv-admin-cuerpo .srv-hace')?.textContent }));
+    ok('grafica_no_se_redibuja', m.mut === 0 && m.antes !== m.ahora, m);
+    await ctx.close();
+  }
+  // Abierto: cada 30 s; oculta no pide; al volver (más de 30 s) pide en el acto.
+  {
+    const { ctx, p, c } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson()) });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await abrirDetalle(p); await esperar(500);
+    const alAbrir = c.admin;
+    await p.clock.fastForward(31_000); await esperar(600);
+    const a30 = c.admin;
+    await ver(p, 'hidden'); await p.clock.fastForward(61_000); await esperar(500);
+    const oculta = c.admin;
+    await ver(p, 'visible'); await esperar(700);
+    const visible = c.admin;
+    ok('admin_sondeo_30s_solo_abierto', alAbrir === 1 && a30 === 2 && oculta === 2 && visible === 3, { alAbrir, a30, oculta, visible });
+    await ctx.close();
+  }
+  // Cerrar el bloque detiene su sondeo (lo público sigue); reabrir pide en el acto.
+  {
+    const { ctx, p, c } = await abrir({ responder: pubAdmin, responderAdmin: () => json(adminJson()) });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await abrirDetalle(p); await esperar(500);
+    const abierto = c.admin;
+    await clicResumen(p); await esperar(300);
+    const cerrado = await p.evaluate(() => document.querySelector('.srv-admin')?.open === false);
+    const pub0 = c.pedidos;
+    await p.clock.fastForward(91_000); await esperar(600);
+    const tras = c.admin;
+    const pubSigue = c.pedidos > pub0;
+    await abrirDetalle(p); await esperar(600);
+    ok('admin_cierra_detiene', abierto === 1 && cerrado && tras === 1 && pubSigue && c.admin === 2, { abierto, cerrado, tras, pubSigue, reabrir: c.admin });
+    await ctx.close();
+  }
+  // 403 en el detalle: el bloque desaparece, lo público queda, y no se vuelve a pedir.
+  {
+    const { ctx, p, c } = await abrir({ responder: pubAdmin, responderAdmin: () => json({ error: 'admin required' }, 403) });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    const hizoClic = await clicResumen(p);
+    const oculto = await p.waitForFunction(() => !document.querySelector('.srv-admin'), null, { timeout: 4000 }).then(() => true, () => false);
+    await p.clock.fastForward(61_000); await esperar(600);
+    const v = await leer(p);
+    // hizoClic: el bloque tenía que estar (cerrado y SIN pedir) hasta el clic; el 403 llega recién al abrir.
+    ok('admin_403_oculta', hizoClic && oculto && c.admin === 1 && v.texto === 'Funciona con normalidad' && !(await leerAdmin(p)).hay, { hizoClic, oculto, admin: c.admin, publico: v.texto });
+    await ctx.close();
+  }
+  // JSON de admin con otra forma: «Sin respuesta» SOLO en el detalle.
+  {
+    const { ctx, p } = await abrir({ responder: pubAdmin, responderAdmin: () => json({ ...adminJson(), muestras: [null] }) });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await abrirDetalle(p);
+    const a = await leerAdmin(p);
+    const v = await leer(p);
+    ok('admin_forma_mala', a.aviso === 'Sin respuesta' && a.ayuda === 'Si sigue, recarga la página' && Object.keys(a.filas).length === 0
+      && v.texto === 'Funciona con normalidad' && v.ayuda === null, { aviso: a.aviso, ayuda: a.ayuda, publico: v.texto, publicoAyuda: v.ayuda });
+    await ctx.close();
+  }
+  // La gráfica: guías, 360 muestras, aria con el pico; versión del paquete; locutor encendido.
+  {
+    const conDetalle = async (admin) => {
+      const r = await abrir({ responder: pubAdmin, responderAdmin: () => json(admin) });
+      await hasta(r.p, 'Funciona con normalidad');
+      await r.p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+      await abrirDetalle(r.p);
+      return { ...r, a: await leerAdmin(r.p) };
+    };
+    const bajo = await conDetalle(adminJson({ n: 60, pico: 120 }));
+    const alto = await conDetalle(adminJson({ n: 60, pico: 600 }));
+    ok('grafica_guias', bajo.a.guias.join(',') === '100' && bajo.a.etiquetas.join('|') === 'lento · 100 ms'
+      && alto.a.guias.join(',') === '100,500' && alto.a.etiquetas.join('|') === 'lento · 100 ms|mal · 500 ms', { bajo: [bajo.a.guias, bajo.a.etiquetas], alto: [alto.a.guias, alto.a.etiquetas] });
+    const tPico = FIN - (60 - 1 - 30) * 10_000;
+    const hora = await horaEnPagina(alto.p, tPico);
+    ok('grafica_aria_pico', alto.a.role === 'img' && alto.a.aria === `Atraso en la última hora. Pico: 600 ms a las ${hora}` && alto.a.pico === `Pico: 600 ms a las ${hora}`, { aria: alto.a.aria, pico: alto.a.pico, hora });
+    await bajo.ctx.close(); await alto.ctx.close();
+
+    const m360 = await conDetalle(adminJson({ n: 360 }));
+    ok('grafica_360_muestras', m360.a.puntosP99 === 360 && m360.a.puntosMax === 360, { p99: m360.a.puntosP99, max: m360.a.puntosMax });
+    await m360.ctx.close();
+
+    const igual = await conDetalle(adminJson({ version_paquete: '1.43.0', locutor: LOCUTOR_ABIERTO }));
+    ok('version_paquete_si_difiere', !('Versión del paquete' in igual.a.filas), { filas: Object.keys(igual.a.filas) });
+    ok('locutor_encendido', igual.a.filas['Locutor'] === 'Encendido · circuito en pausa por fallos · generadas 5 · errores 1 · cola 2', { locutor: igual.a.filas['Locutor'] });
+    await igual.ctx.close();
+  }
+  // 390 con touch: 360 muestras, pico alto, números enormes y el locutor encendido: nada desborda.
+  {
+    const enorme = adminJson({ n: 360, pico: 600, memoria: { rss: 3.5 * 1024 ** 4, heap: 987654321098 }, base: { bytes: Math.round(7.2 * 1024 ** 4), wal_bytes: 999999999999, pistas: 1234567, ultimo_escaneo: '2026-11-20 10:00:02' },
+      sqlite_busy: 9999999, errores_500: 8888888, locutor: { ...LOCUTOR_ABIERTO, servicio: { ...LOCUTOR_ABIERTO.servicio, generadas: 123456789, errores: 987654321, cola: 20 } } });
+    const { ctx, p } = await abrir({ ancho: 390, alto: 844, movil: true, responder: pubAdmin, responderAdmin: () => json(enorme) });
+    await hasta(p, 'Funciona con normalidad');
+    await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+    await abrirDetalle(p); await esperar(400);
+    const m = await p.evaluate(() => {
+      // Sin gráfica (p. ej. el JSON no validó) el caso falla con `sinGrafica`, no tumba la suite.
+      if (!document.querySelector('.srv-grafica-svg')) return { sinGrafica: true, aviso: document.querySelector('.srv-admin-aviso')?.textContent ?? null };
+      const sec = document.querySelector('.srv').getBoundingClientRect();
+      const fig = document.querySelector('.srv-grafica').getBoundingClientRect();
+      const svg = document.querySelector('.srv-grafica-svg').getBoundingClientRect();
+      const cosas = [...document.querySelectorAll('.srv-admin dd, .srv-admin dt, .srv-guia-etiqueta, .srv-grafica-pico, .srv-grafica-eje span, .srv-admin-resumen')].map((e) => e.getBoundingClientRect());
+      return {
+        scroll: document.scrollingElement.scrollWidth, vw: window.innerWidth,
+        seccion: { l: Math.round(sec.left), r: Math.round(sec.right) },
+        svg: { l: Math.round(svg.left), r: Math.round(svg.right), w: Math.round(svg.width) }, figura: { l: Math.round(fig.left), r: Math.round(fig.right) },
+        dentro: cosas.every((r) => r.width === 0 || (r.left >= sec.left - 0.5 && r.right <= sec.right + 0.5)),
+      };
+    });
+    const llena = !m.sinGrafica && m.svg.w >= (m.figura.r - m.figura.l) - 2 * 14 - 2;   // el lienzo ocupa el ancho de la tarjeta (menos su padding y borde)
+    ok('admin_390_sin_desborde', !m.sinGrafica && m.scroll <= m.vw && m.seccion.r <= m.vw && m.dentro && llena, m);
+    await ctx.close();
+  }
+
   ok('sin_errores_pagina', errores.length === 0, { errores: errores.slice(0, 5) });
 
   // ── Capturas para revisión humana (no cuentan) ──
@@ -303,6 +518,23 @@ try {
       await p.locator('.srv').scrollIntoViewIfNeeded();
       await p.screenshot({ path: join(DIR, `ajustes-${ancho}-sin_respuesta.png`), fullPage: true });
       await ctx.close();
+    }
+    // 3c: con admin y el detalle abierto (captura de la sección entera, aunque sea más alta que la ventana).
+    const ADMIN = { abierto: adminJson({ n: 30 }), pico120: adminJson({ n: 120, pico: 120 }), pico600: adminJson({ n: 120, pico: 600 }), m360: adminJson({ n: 360 }) };
+    for (const [ancho, alto, movil] of [[390, 844, true], [960, 900, false]]) {
+      for (const [nombre, admin] of Object.entries(ADMIN)) {
+        const { ctx, p } = await abrir({ ancho, alto, movil, responder: pubAdmin, responderAdmin: () => json(admin) });
+        await hasta(p, 'Funciona con normalidad');
+        await p.waitForSelector('.srv-admin', { timeout: 3000 }).catch(() => {});
+        await abrirDetalle(p); await esperar(1200);
+        // La sección abierta es más alta que la ventana y lo que queda fuera no se pinta: para la foto,
+        // la ventana crece hasta que la sección entra entera.
+        const altoSec = await p.evaluate(() => Math.ceil(document.querySelector('.srv').getBoundingClientRect().height));
+        await p.setViewportSize({ width: ancho, height: Math.max(alto, altoSec + 600) });
+        await esperar(400);
+        await p.locator('.srv').screenshot({ path: join(DIR, `admin-${ancho}-${nombre}.png`) });
+        await ctx.close();
+      }
     }
     console.error(`[servidor-func] capturas en ${DIR}`);
   }

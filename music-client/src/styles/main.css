@@ -317,8 +317,63 @@ button, input, select, textarea { font-family: inherit; }
   margin-top: 10px; font-size: 12.5px; color: var(--text-muted);
 }
 .srv-hace { font-variant-numeric: tabular-nums; }
+
+/* Detalle de admin (3c): un <details> neutro bajo la tarjeta, cerrado de inicio. */
+.srv-admin { margin-top: 16px; }
+.srv-admin-resumen {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.srv-admin-resumen:hover { background: var(--surface-hover); border-color: var(--surface-hover); }
+/* Con display flex el <summary> pierde su marcador nativo: un chevron dice si está abierto (sin animar). */
+.srv-admin-resumen { list-style: none; gap: 10px; }
+.srv-admin-resumen::-webkit-details-marker { display: none; }
+.srv-admin-resumen::after {
+  content: ''; width: 6px; height: 6px; margin-top: -3px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg);
+}
+.srv-admin[open] > .srv-admin-resumen::after { margin-top: 3px; transform: rotate(-135deg); }
+.srv-admin-resumen:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.srv-admin-cuerpo { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.srv-admin-aviso { margin: 0; font-size: 13.5px; color: var(--text-muted); }
+.srv-admin-aviso--fallo { display: flex; flex-direction: column; gap: 4px; }
+.srv-admin-fallo { display: inline-flex; align-items: center; gap: 6px; }
+/* Números largos (memoria en GB, contadores de 6 cifras): se parten antes que desbordar. */
+.srv-admin-valor { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+/* La gráfica: lienzo de alto fijo al ancho de la tarjeta; líneas en el color de texto (el p99) y en
+   gris tenue (el máximo); guías en ámbar punteado (100 suave, 500 pleno). Rótulos en HTML encima. */
+.srv-grafica {
+  margin: 0; padding: 12px 14px 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+}
+.srv-grafica-titulo { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+.srv-grafica-lienzo { position: relative; height: 160px; }
+.srv-grafica-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.srv-linea-p99 { fill: none; stroke: var(--text); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.srv-linea-max { fill: none; stroke: var(--text-muted); stroke-width: 1; opacity: .55; stroke-linejoin: round; stroke-linecap: round; }
+path.srv-linea-p99 { stroke-width: 5; }
+path.srv-linea-max { stroke-width: 4; }
+.srv-guia { stroke-width: 1; stroke-dasharray: 4 4; }
+.srv-guia--100 { stroke: var(--amber-soft); }
+.srv-guia--500 { stroke: var(--amber); }
+.srv-guia-etiqueta {
+  position: absolute; right: 0; transform: translateY(-100%); padding-bottom: 2px;
+  font-size: 11px; line-height: 1.2; white-space: nowrap; pointer-events: none;
+  /* Fondo de tarjeta: si un pico pasa por debajo del rótulo (a 390 pasa), el texto sigue legible. */
+  background: var(--surface); padding-left: 4px; padding-right: 2px;
+}
+.srv-guia-etiqueta--100 { color: var(--amber-soft); }
+.srv-guia-etiqueta--500 { color: var(--amber); }
+.srv-grafica-eje { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+.srv-grafica-pico { margin: 6px 0 0; font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.srv-grafica-vacia { margin: 0; font-size: 13px; color: var(--text-muted); }
+
 @media (max-width: 700px) {
   .srv-estado-celda { align-items: flex-start; }
+  .srv-admin-resumen { display: flex; width: 100%; justify-content: center; }
 }
 
 /* ── RADIO (vista Radio: cara "sin radio" y /radio/CODIGO) ─────────────
