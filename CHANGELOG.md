@@ -3,6 +3,29 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.44.0] - 2026-11-20
+
+### Nuevo
+- **Estado del servidor en Ajustes.** Hay una tarjeta nueva, «Servidor», que dice si el servidor
+  funciona con normalidad, va lento o tiene problemas, qué versión tiene, desde cuándo está
+  encendido y hace cuánto se actualizó el dato. Se revisa sola cada 30 segundos mientras la tienes
+  a la vista. Mide solo el servidor, no tu conexión: si no llega ninguna respuesta, dice «Sin
+  respuesta».
+- **«Copiar diagnóstico».** Un botón en la misma tarjeta copia ese estado como texto, listo para
+  pegarlo en un mensaje a quien te lo pida. Lleva la fecha, el estado, las versiones y el navegador
+  que usas; no lleva contraseñas, tu nombre ni tu correo. Si el navegador no deja copiar solo, el
+  texto aparece seleccionado para que lo copies a mano.
+
+### Para quien administra el servidor
+- **«Ver detalle (admin)»**, plegado debajo de la tarjeta, con una gráfica de cuánto se atrasó el
+  servidor en la última hora y su peor momento, la memoria que usa, el tamaño de la base de datos,
+  cuántas canciones tiene y cuándo fue el último escaneo, y cuántos errores hubo desde que arrancó.
+  Con el detalle abierto, «Copiar diagnóstico» lleva también esos números.
+
+### Para tener en cuenta
+- Los límites de «Va lento» y «Con problemas» son provisionales: se van a ajustar con lo que el
+  servidor mida en sus primeras semanas.
+
 ## [1.43.1] - 2026-11-20
 
 ### Corregido

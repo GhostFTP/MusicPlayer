@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db/database.js';
 import { authMiddleware } from '../auth/jwt.js';
 import { estadoIndice, obtenerIndice } from '../videos/index.js';
+import { contarBusy } from '../estado/contadores.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -195,6 +196,7 @@ function protegido(ruta, fn) {
     try {
       await fn(req, res);
     } catch (e) {
+      contarBusy(e);   // solo cuenta (estado/contadores.js); la respuesta sigue igual
       console.error(`[playlists/videos] ${ruta}:`, e);
       if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
     }
