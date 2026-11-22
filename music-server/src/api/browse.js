@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { existsSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import db from '../db/database.js';
 import { authMiddleware } from '../auth/jwt.js';
+import { handle } from './handle.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -54,12 +56,15 @@ function insideMusicDir(dir) {
 // /mnt/storage/Musica → dentro del contenedor es /music/Musica/<Artista>). Esa suposición
 // andaría en local y fallaría EN SILENCIO en prod, así que la carpeta se deriva del
 // file_path real que el scanner ya escribió; la convención queda como primer candidato.
-function artistDirCandidates(artist) {
+//
+// `rows` (opcional) son las filas { file_path } del artista ya leídas: GET /artists las trae
+// las de TODOS en una sola consulta. Sin `rows` (la ruta /image) se piden acá.
+function artistDirCandidates(artist, rows = null) {
   const wanted = nfc(artist);
   // Las dos formas del candidato por convención: si la carpeta se escribió en la forma
   // contraria a la del tag, una de las dos acierta.
   const dirs = [join(MUSIC_DIR, artist), join(MUSIC_DIR, wanted)];
-  const rows = db.prepare(
+  rows ??= db.prepare(
     'SELECT DISTINCT file_path FROM tracks WHERE album_artist = ? AND file_path IS NOT NULL'
   ).all(artist);
   for (const { file_path } of rows) {
@@ -85,6 +90,25 @@ function findArtistImage(artist) {
   return null;
 }
 
+// ¿Tiene foto? La MISMA búsqueda que findArtistImage —mismos guards, mismas carpetas, mismos
+// nombres y el mismo orden—, pero sin bloquear: `access` (F_OK) es la versión asíncrona de lo
+// que existsSync pregunta, y cualquier error cuenta como "no está", igual que allá. La usa GET
+// /artists, que la corre para todos los artistas; /image sigue con la síncrona (es uno solo).
+async function hasArtistImage(artist, rows) {
+  if (!isSafeArtistName(artist)) return false;
+  for (const dir of artistDirCandidates(artist, rows)) {
+    for (const name of ARTIST_IMAGE_NAMES) {
+      try { await access(join(dir, name)); return true; } catch { /* no está: la siguiente */ }
+    }
+  }
+  return false;
+}
+
+// Cuántos artistas se resuelven a la vez. Cada uno pregunta de a un archivo, así que a lo sumo
+// hay este número de `access` en el pool de libuv (4 hilos por defecto), y el stream de audio,
+// que usa el mismo pool, no queda detrás de cientos de consultas al disco.
+const IMAGE_CONCURRENCY = 4;
+
 // GET /api/browse/genres  — géneros con nº de pistas y álbumes
 router.get('/genres', (req, res) => {
   res.json(db.prepare(`
@@ -100,7 +124,15 @@ router.get('/genres', (req, res) => {
 });
 
 // GET /api/browse/artists  — artistas (por album_artist) con conteos, carátula y foto propia
-router.get('/artists', (req, res) => {
+//
+// SIN UNA CONSULTA POR ARTISTA. Hasta acá cada artista pedía sus rutas por separado, y con
+// album_artist sin índice cada pedido recorría `tracks` entera: con ~8000 pistas y ~190
+// artistas, ~1 s de event loop bloqueado (medido en Windows con una base sintética). Ahora las
+// rutas de todos salen de UNA lectura y se reparten en memoria; y las fotos se preguntan al disco
+// sin bloquear (hasArtistImage). La respuesta es la misma, campo por campo y en el mismo orden.
+//
+// async → va dentro de handle(): un error es un 500 genérico y se loguea, como en servidor.js.
+router.get('/artists', handle(async (req, res) => {
   const artists = db.prepare(`
     SELECT
       album_artist          AS artist,
@@ -114,9 +146,35 @@ router.get('/artists', (req, res) => {
   `).all();
   // has_image deja que la vista elija el nivel de la cadena de fallback ANTES de renderizar
   // (foto → carátula → iniciales), igual que hoy hace con sample_track_id. Cuesta unos pocos
-  // existsSync por artista; el server ya lee la biblioteca en cada request (stream.js:29,42).
-  res.json(artists.map(a => ({ ...a, has_image: findArtistImage(a.artist) !== null })));
-});
+  // consultas al disco por artista; el server ya lee la biblioteca en cada request (stream.js).
+  //
+  // Las rutas de todos, en una lectura. Mismo filtro que la consulta de artistDirCandidates; el
+  // ORDER BY id deja cada lista en el orden en que aquélla las devolvía.
+  const filesByArtist = new Map();
+  for (const { album_artist, file_path } of db.prepare(`
+    SELECT album_artist, file_path FROM tracks
+    WHERE album_artist IS NOT NULL AND album_artist <> '' AND file_path IS NOT NULL
+    ORDER BY id
+  `).all()) {
+    let list = filesByArtist.get(album_artist);
+    if (!list) filesByArtist.set(album_artist, (list = []));
+    list.push({ file_path });
+  }
+
+  // Cada resultado va a SU índice: el orden de la respuesta es el del SELECT, termine primero
+  // el que termine.
+  const hasImage = new Array(artists.length);
+  let next = 0;
+  async function worker() {
+    while (next < artists.length) {
+      const i = next++;
+      hasImage[i] = await hasArtistImage(artists[i].artist, filesByArtist.get(artists[i].artist) ?? []);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(IMAGE_CONCURRENCY, artists.length) }, worker));
+
+  res.json(artists.map((a, i) => ({ ...a, has_image: hasImage[i] })));
+}));
 
 // GET /api/browse/artists/:artist  — agregados LOCALES de un artista (album_artist):
 // nº de álbumes, canciones, géneros que abarca y desglose de calidad por tier.
