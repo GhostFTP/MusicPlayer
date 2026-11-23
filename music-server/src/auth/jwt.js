@@ -2,7 +2,19 @@ import jwt from 'jsonwebtoken';
 import db from '../db/database.js';
 
 const SECRET = process.env.JWT_SECRET ?? 'change-me-in-production';
-const EXPIRES = '7d';
+// LA SESIÓN DURA 90 DÍAS, y es el ÚNICO lugar donde se decide: los cuatro que emiten un
+// token (/login, /cf, /google y PATCH /api/me) y POST /api/auth/renovar pasan todos por
+// signToken. Hasta S0 eran 7 días y nada renovaba, así que la familia volvía a ver el login
+// cada semana. Ahora la app pide uno nuevo con /renovar cuando al suyo le quedan menos de 60
+// días (api/auth.js).
+//
+// Un token ya emitido NO cambia: el `exp` va adentro y firmado, así que los de 7 días
+// siguen valiendo hasta su fecha y los nuevos salen con 90.
+//
+// El precio, aceptado por Oscar: un token robado vive mientras alguien lo renueve. Lo
+// cortan dos cosas: borrar la cuenta (cuentaExiste, abajo) o rotar JWT_SECRET, que echa a
+// todos. Cambiar la contraseña no lo corta.
+const EXPIRES = '90d';
 
 export function signToken(payload) {
   return jwt.sign(payload, SECRET, { expiresIn: EXPIRES });
@@ -15,7 +27,7 @@ export function verifyToken(token) {
 // ¿LA CUENTA DEL TOKEN TODAVÍA EXISTE? Desde 1.19.0, sí se pregunta en cada petición.
 //
 // Hasta ahí un token bien firmado y sin vencer bastaba, y un usuario BORRADO por un admin
-// seguía viendo el catálogo y escuchando música con su sesión vieja hasta 7 días: solo
+// seguía viendo el catálogo y escuchando música con su sesión vieja hasta que venciera: solo
 // /api/me y las rutas de admin se enteraban. Ahora borrar corta al momento.
 //
 // El precio es UNA lectura por clave primaria por petición —medida en ~5 µs con la base de
@@ -61,8 +73,8 @@ export function authMiddleware(req, res, next) {
 //
 // LEE LA BASE, NO EL TOKEN, y es una decisión tomada, no una distracción:
 //   · El rol cambia sin que la persona vuelva a entrar. Con el rol adentro del JWT,
-//     ascender a alguien no haría nada hasta que su token venza —hasta 7 días—, y
-//     DEGRADARLO sería peor: seguiría siendo admin toda esa semana, que es justo el
+//     ascender a alguien no haría nada hasta que su token venza —hasta 90 días—, y
+//     DEGRADARLO sería peor: seguiría siendo admin todo ese tiempo, que es justo el
 //     caso en el que uno necesita que el cambio valga YA.
 //   · Por eso signToken() NO se toca. Ningún token viejo arrastra privilegios,
 //     porque ninguno los lleva escritos: el permiso se pregunta cada vez.

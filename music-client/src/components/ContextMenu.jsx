@@ -7,7 +7,9 @@ import { api } from '../api/client.js';
 import { albumTracks, artistTracks, genreTracks, yearTracks } from '../utils/itemTracks.js';
 import EmojiPicker, { isEmojiPickerTarget } from './EmojiPicker.jsx';
 import { emojiHue } from '../utils/emojiHue.js';
-import { addTrackToPlaylist, createPlaylistWithTrack } from '../utils/playlistActions.js';
+import {
+  addTrackToPlaylist, createPlaylistWithTrack, avisoFalloAgregar, avisoFalloCrearYAgregar, motivoFalloAgregar,
+} from '../utils/playlistActions.js';
 import { trackMessage, albumMessage, shareAndNotify } from '../utils/share.js';
 import { useFavorites, loadFavorites, favoritesIdIn } from '../utils/favorites.js';
 import { accionesHoja, agregarVideo, crearYAgregarVideo, playlistsParaVideo } from '../utils/videoPlaylistActions.js';
@@ -288,7 +290,11 @@ export function ContextMenuProvider({ children }) {
     if (busy || plTrackId == null) return;
     setBusy(true);
     try { await addTrackToPlaylist(pl, plTrackId, toast); closeMenu(); }
-    catch { toast('No se pudo añadir a la playlist', { variant: 'warning' }); }
+    catch (err) {
+      // Los textos son los del "+" (utils/playlistActions.js): una sola fuente.
+      toast(avisoFalloAgregar(err), { variant: 'warning' });
+      if (motivoFalloAgregar(err) === 'playlist') recargarPlaylists();
+    }
     finally { setBusy(false); }
   };
   const createAndAdd = async (e) => {
@@ -297,9 +303,14 @@ export function ContextMenuProvider({ children }) {
     if (!name || busy || plTrackId == null) return;
     setBusy(true);
     try { await createPlaylistWithTrack(name, newEmoji, plTrackId, toast); closeMenu(); }
-    catch { toast('No se pudo crear la playlist', { variant: 'warning' }); }
+    catch (err) {
+      toast(avisoFalloCrearYAgregar(err), { variant: 'warning' });
+      // Se creó pero no se pudo agregar: ya existe (vacía), así que no se deja el nombre para crearla dos veces.
+      if (err?.creada) { setNewName(''); setNewEmoji('🎵'); recargarPlaylists(); }
+    }
     finally { setBusy(false); }
   };
+  function recargarPlaylists() { api.playlists().then(setPlaylists).catch(() => {}); }
 
   // ── Selector de playlists para un VIDEO (V8d), la hoja de iOS (utils/videoPlaylistActions.js):
   //    sin "Mis favoritos" ni la playlist desde la que se abrió, "nueva playlist" arriba, y los

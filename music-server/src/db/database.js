@@ -13,7 +13,10 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 //
 // No se documenta como variable de despliegue a propósito: en producción no hay que
 // ponerla, y el default es el de siempre.
-const DB_PATH = process.env.MUSIC_DB_PATH ?? join(__dir, '../../data/music.db');
+//
+// Se exporta SOLO para estado/base.js, que mide el tamaño del archivo cuando el node:sqlite
+// no trae db.location(). Es una ruta del disco: no sale por ninguna respuesta.
+export const DB_PATH = process.env.MUSIC_DB_PATH ?? join(__dir, '../../data/music.db');
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 
@@ -129,6 +132,22 @@ for (const [col, type] of Object.entries(ADDED_COLUMNS)) {
 }
 
 db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre);');
+
+// Índice por album_artist: lo que filtran la foto de un artista (api/browse.js, una consulta por
+// cada /image que pide la vista Artistas), su detalle, sus álbumes y sus pistas. Sin él, cada una
+// recorre `tracks` entera. Medido con ~8000 pistas (Windows, base sintética): se crea en ~7 ms,
+// ocupa ~190 KB y no cambia el costo de las escrituras del escáner por encima del ruido.
+//
+// ⚠️ EN UN TRY, a diferencia de los de arriba, y no por gusto: los de arriba ya existen en toda
+// base y son un no-op, pero éste se CREA en el primer arranque, y crear un índice necesita el
+// lock de escritura. Si justo en ese momento el escáner está escribiendo (busy_timeout es 0 en
+// esta conexión), falla con "database is locked", y sin el try el servidor no arrancaría. Sin
+// índice las consultas dan exactamente lo mismo, solo más lentas; el próximo arranque lo crea.
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tracks_album_artist ON tracks(album_artist)');
+} catch (e) {
+  console.warn(`[migración] no se pudo crear idx_tracks_album_artist (${e.message}): se sigue sin él y se reintenta en el próximo arranque.`);
+}
 
 // Migración de playlists: emoji opcional por playlist (bases ya existentes).
 const playlistCols = new Set(db.prepare('PRAGMA table_info(playlists)').all().map(c => c.name));

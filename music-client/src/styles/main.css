@@ -290,6 +290,132 @@ button, input, select, textarea { font-family: inherit; }
   .settings-logout { display: flex; width: 100%; }
 }
 
+/* ── AJUSTES · SERVIDOR (EstadoServidor.jsx, sub-paso 3b) ─────────────
+   La tarjeta «Servidor» reusa .settings-section / .settings-card / .settings-row (y su apilado a
+   ≤700px, arriba); acá solo lo suyo, con clases .srv-* nuevas: ninguna clase existente se toca.
+   El estado lo dicen el TEXTO y el ICONO; el tono apoya. Sin rojo ni verde (son de los tiers de
+   calidad): lento en ámbar suave, mal en ámbar pleno con fondo y en negrita, sin dato en gris.
+   Sin movimiento → sin rama reduced-motion. */
+.srv-estado-celda { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; }
+.srv-estado { display: inline-flex; align-items: center; gap: 6px; }
+.srv-icono { flex-shrink: 0; }
+.srv-estado--normal { color: var(--text); }
+.srv-estado--ambar { color: var(--amber-soft); }
+.srv-estado--ambar-fuerte {
+  color: var(--amber); font-weight: 700;
+  background: var(--amber-dim); padding: 2px 8px; border-radius: 7px;
+}
+.srv-estado--gris { color: var(--text-muted); }
+/* «Si sigue, recarga la página»: debajo del estado, en el tono de las notas. */
+.srv-ayuda { font-size: 12.5px; font-weight: 400; color: var(--text-muted); }
+/* Sin respuesta: los últimos valores siguen, atenuados (son de antes, no de ahora). Con la
+   especificidad de `.settings-row dd` + 1, que si no le gana el color; sin opacidad: el gris de la
+   casa sobre la tarjeta ya es lo más tenue que sigue siendo legible. */
+.settings-row dd.srv-viejo { color: var(--text-muted); }
+.srv-pie {
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+  margin-top: 10px; font-size: 12.5px; color: var(--text-muted);
+}
+.srv-hace { font-variant-numeric: tabular-nums; }
+
+/* Detalle de admin (3c): un <details> neutro bajo la tarjeta, cerrado de inicio. */
+.srv-admin { margin-top: 16px; }
+.srv-admin-resumen {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.srv-admin-resumen:hover { background: var(--surface-hover); border-color: var(--surface-hover); }
+/* Con display flex el <summary> pierde su marcador nativo: un chevron dice si está abierto (sin animar). */
+.srv-admin-resumen { list-style: none; gap: 10px; }
+.srv-admin-resumen::-webkit-details-marker { display: none; }
+.srv-admin-resumen::after {
+  content: ''; width: 6px; height: 6px; margin-top: -3px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg);
+}
+.srv-admin[open] > .srv-admin-resumen::after { margin-top: 3px; transform: rotate(-135deg); }
+.srv-admin-resumen:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.srv-admin-cuerpo { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.srv-admin-aviso { margin: 0; font-size: 13.5px; color: var(--text-muted); }
+.srv-admin-aviso--fallo { display: flex; flex-direction: column; gap: 4px; }
+.srv-admin-fallo { display: inline-flex; align-items: center; gap: 6px; }
+/* Números largos (memoria en GB, contadores de 6 cifras): se parten antes que desbordar. */
+.srv-admin-valor { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+/* La gráfica: lienzo de alto fijo al ancho de la tarjeta; líneas en el color de texto (el p99) y en
+   gris tenue (el máximo); guías en ámbar punteado (100 suave, 500 pleno). Rótulos en HTML encima. */
+.srv-grafica {
+  margin: 0; padding: 12px 14px 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+}
+.srv-grafica-titulo { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+.srv-grafica-lienzo { position: relative; height: 160px; }
+.srv-grafica-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.srv-linea-p99 { fill: none; stroke: var(--text); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+/* Opacidad .75 y no menos (3e): el gris a .55 daba 2,39:1 contra la tarjeta, bajo el 3:1 de un trazo;
+   a .75 da ≈3,3:1 y sigue siendo más tenue que la línea del p99. */
+.srv-linea-max { fill: none; stroke: var(--text-muted); stroke-width: 1; opacity: .75; stroke-linejoin: round; stroke-linecap: round; }
+path.srv-linea-p99 { stroke-width: 5; }
+path.srv-linea-max { stroke-width: 4; }
+.srv-guia { stroke-width: 1; stroke-dasharray: 4 4; }
+.srv-guia--100 { stroke: var(--amber-soft); }
+.srv-guia--500 { stroke: var(--amber); }
+.srv-guia-etiqueta {
+  position: absolute; right: 0; transform: translateY(-100%); padding-bottom: 2px;
+  font-size: 11px; line-height: 1.2; white-space: nowrap; pointer-events: none;
+  /* Fondo de tarjeta: si un pico pasa por debajo del rótulo (a 390 pasa), el texto sigue legible. */
+  background: var(--surface); padding-left: 4px; padding-right: 2px;
+}
+.srv-guia-etiqueta--100 { color: var(--amber-soft); }
+.srv-guia-etiqueta--500 { color: var(--amber); }
+.srv-grafica-eje { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+.srv-grafica-pico { margin: 6px 0 0; font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.srv-grafica-vacia { margin: 0; font-size: 13px; color: var(--text-muted); }
+
+/* «Copiar diagnóstico» (3d): mismo botón neutro de la casa (≥44px). «Copiado» NO cambia de color de
+   estado (sin rojo ni verde): solo el texto y el icono, y el borde se aclara un punto. */
+.srv-copiar { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 12px; }
+.srv-copiar-boton {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; padding: 0 16px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.srv-copiar-boton:hover { background: var(--surface-hover); border-color: var(--surface-hover); }
+.srv-copiar-boton:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.srv-copiar-boton--hecho { color: var(--text); border-color: var(--text-muted); }
+/* Solo para lectores de pantalla (como .radio-solo-lector, con nombre propio para no tocarla). */
+.srv-solo-lector {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+/* Respaldo a mano: el texto a la vista, ya seleccionado. Aviso en ámbar (el «info» de la casa). */
+.srv-copiar-manual { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.srv-copiar-aviso { margin: 0; font-size: 12.5px; color: var(--amber); }
+.srv-copiar-texto {
+  box-sizing: border-box; width: 100%; max-width: 100%; min-height: 160px; resize: vertical;
+  padding: 10px 12px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* pre-wrap: a 390 la fecha y el navegador no caben; se parten A LA VISTA y lo copiado sigue con
+     un salto solo por línea «clave: valor». */
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto;
+}
+.srv-copiar-texto:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Con dedo o pantalla angosta, 16px: con menos, Safari de iOS agranda la página al enfocar (1.32.1). */
+@media (pointer: coarse), (max-width: 700px) {
+  .srv-copiar-texto { font-size: 16px; }
+}
+
+@media (max-width: 700px) {
+  .srv-estado-celda { align-items: flex-start; }
+  .srv-admin-resumen { display: flex; width: 100%; justify-content: center; }
+  .srv-copiar { align-items: stretch; }
+  .srv-copiar-boton { width: 100%; }
+}
+
 /* ── RADIO (vista Radio: cara "sin radio" y /radio/CODIGO) ─────────────
    Mismo vocabulario que Ajustes (tarjetas, títulos de sección en versalitas, botón neutro ≥44px)
    pero con clases propias: ninguna clase existente se toca. El campo va a 16px porque con menos

@@ -39,6 +39,70 @@ Novedades destacables de **SonoraRev**. El formato sigue
   sin conexión, se cierra a los 5 minutos, como hasta ahora.
 - Como siempre, al actualizar el servidor se cierran las radios abiertas.
 
+## [1.44.1] - 2026-11-22
+
+### Corregido
+- **Abrir Artistas ya no deja al servidor «pensando».** Antes, al entrar a la vista Artistas, el
+  servidor se quedaba ocupado unos instantes armando la lista, y lo demás que se le pidiera en ese
+  momento, tuyo o de otra persona, tenía que esperar. Ahora la lista de artistas se arma mucho más
+  rápido.
+
+## [1.44.0] - 2026-11-20
+
+### Nuevo
+- **Estado del servidor en Ajustes.** Hay una tarjeta nueva, «Servidor», que dice si el servidor
+  funciona con normalidad, va lento o tiene problemas, qué versión tiene, desde cuándo está
+  encendido y hace cuánto se actualizó el dato. Se revisa sola cada 30 segundos mientras la tienes
+  a la vista. Mide solo el servidor, no tu conexión: si no llega ninguna respuesta, dice «Sin
+  respuesta».
+- **«Copiar diagnóstico».** Un botón en la misma tarjeta copia ese estado como texto, listo para
+  pegarlo en un mensaje a quien te lo pida. Lleva la fecha, el estado, las versiones y el navegador
+  que usas; no lleva contraseñas, tu nombre ni tu correo. Si el navegador no deja copiar solo, el
+  texto aparece seleccionado para que lo copies a mano.
+
+### Para quien administra el servidor
+- **«Ver detalle (admin)»**, plegado debajo de la tarjeta, con una gráfica de cuánto se atrasó el
+  servidor en la última hora y su peor momento, la memoria que usa, el tamaño de la base de datos,
+  cuántas canciones tiene y cuándo fue el último escaneo, y cuántos errores hubo desde que arrancó.
+  Con el detalle abierto, «Copiar diagnóstico» lleva también esos números.
+
+### Para tener en cuenta
+- Los límites de «Va lento» y «Con problemas» son provisionales: se van a ajustar con lo que el
+  servidor mida en sus primeras semanas.
+
+## [1.43.1] - 2026-11-20
+
+### Corregido
+- **Agregar a una playlist ya no falla en silencio.** Si no se puede agregar una canción desde el
+  botón «+» del reproductor o desde el menú de una canción, ahora aparece un aviso que dice por qué:
+  «Esta canción cambió en la biblioteca. Recarga la página para agregarla.» (la canción se movió o
+  se renombró en el servidor mientras la página estaba abierta), «Esa playlist ya no existe.» (y la
+  lista se actualiza) o «No se pudo agregar a la playlist.». Antes el «+» no decía nada y dejaba un
+  error en la consola.
+- **El corazón de «Mis favoritos»** da ese mismo aviso cuando la canción cambió en la biblioteca, y
+  ya no confunde ese caso con que borraron la playlist: no la vuelve a buscar ni repite el envío.
+- **Crear una playlist con una canción ya no deja el nombre puesto si falla a medias.** Si la
+  playlist se crea pero no se puede agregar la canción, aparece el mismo aviso, el formulario se
+  limpia y la playlist nueva (vacía) sale en la lista, para no crearla dos veces con el mismo nombre.
+
+## [1.43.0] - 2026-11-14
+
+### Nuevo
+- **La sesión se renueva.** `POST /api/auth/renovar`: con una sesión vigente devuelve una nueva
+  de 90 días y tus datos (`{ token, me }`, como el login con Google). La app la va a pedir
+  cuando a la suya le queden menos de 60 días: mientras la abras al menos una vez cada tres
+  meses, no vuelves a ver el login. (La app necesita su propio cambio, aparte.)
+
+### Cambiado
+- **La sesión dura 90 días en vez de 7**, al entrar con contraseña, con Google (en la app y en
+  la web) y al cambiar tu nombre o tu contraseña. Las sesiones de 7 días que ya estaban abiertas
+  siguen valiendo hasta su fecha. En la web no cambia nada más: sus sesiones nuevas también
+  duran 90 días.
+
+### Para tener en cuenta
+- Una sesión robada sigue viva mientras alguien la renueve; se corta borrando la cuenta o
+  rotando `JWT_SECRET`, que cierra la sesión de todos.
+
 ## [1.42.0] - 2026-11-04
 
 ### Nuevo

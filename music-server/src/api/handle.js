@@ -1,4 +1,5 @@
 import { UserError } from '../users/service.js';
+import { contarBusy } from '../estado/contadores.js';
 
 // Traduce un UserError a su respuesta HTTP, y todo lo demás a un 500 genérico.
 //
@@ -17,6 +18,7 @@ export function handle(fn) {
       await fn(req, res);
     } catch (e) {
       if (e instanceof UserError) return res.status(e.status).json({ error: e.message });
+      contarBusy(e);   // solo cuenta (estado/contadores.js); la respuesta sigue igual
       console.error('[api]', e);
       res.status(500).json({ error: 'Internal error' });
     }

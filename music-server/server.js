@@ -17,6 +17,10 @@ import playsRoutes     from './src/api/plays.js';
 import meRoutes        from './src/api/me.js';
 import usersRoutes     from './src/api/users.js';
 import adminUsersRoutes from './src/api/admin-users.js';
+import servidorRoutes  from './src/api/servidor.js';
+import adminServidorRoutes from './src/api/admin-servidor.js';
+import { muestreador } from './src/estado/muestreo.js';
+import { contarErrores500 } from './src/estado/contadores.js';
 import radioRoutes     from './src/api/radio.js';
 import streamRoutes    from './src/stream/stream.js';
 import { videosApi, videosStream } from './src/videos/routes.js';
@@ -27,6 +31,10 @@ const DIST  = join(__dir, 'public');
 const app  = express();
 const PORT = process.env.PORT ?? 3000;
 const isDev = process.env.NODE_ENV !== 'production' && !existsSync(DIST);
+
+// Primero de todo: cuenta las respuestas 500, vengan de la ruta que vengan (estado/contadores.js).
+// Solo cuelga un listener de 'finish'; no toca la petición ni la respuesta.
+app.use(contarErrores500);
 
 // CORS solo en desarrollo (en prod el frontend viene del mismo origen)
 if (isDev) app.use(cors());
@@ -51,6 +59,9 @@ app.use('/api/me',        meRoutes);
 // son rutas distintas, no una anidada en la otra: esta no pide rol.
 app.use('/api/users',     usersRoutes);
 app.use('/api/admin/users', adminUsersRoutes);
+// Estado del servidor: /api/servidor (cualquiera con sesión) y el detalle para admins.
+app.use('/api/admin/servidor', adminServidorRoutes);
+app.use('/api/servidor',  servidorRoutes);
 app.use('/api/videos',    videosApi);
 // Antes que /stream: /stream/video/:id es del video, no un track con id "video".
 app.use('/stream/video',  videosStream);
@@ -80,6 +91,9 @@ if (existsSync(DIST)) {
   });
   console.log(`Serving frontend from ${DIST}`);
 }
+
+// El pulso del event loop (estado/muestreo.js): timer con unref, cada 10 s.
+muestreador.iniciar();
 
 app.listen(PORT, () => {
   console.log(`Music server running on http://localhost:${PORT}`);
