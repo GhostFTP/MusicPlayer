@@ -1,4 +1,4 @@
-// radio-mod-func.mjs — la moderación de punta a punta (1.43.0, W3): el ANFITRIÓN (SNAP_USER) y la
+// radio-mod-func.mjs — la moderación de punta a punta (1.45.0, W3): el ANFITRIÓN (SNAP_USER) y la
 // MODERADORA (SNAP2) en DOS navegadores, contra el backend REAL del runner (:3100, copia de la base) y el
 // build de producción (:4173). El audio es un WAV sintético por /stream (como radio-func).
 //
@@ -333,7 +333,7 @@ try {
     for (let k = 0; k < REPS; k++) {
       await desdeMenu('ahora', 'Poner ahora', (x, a, t) => x.id === t.id && x.playing && x.sonando === 1,
         (x, t) => x === `Tú pusiste «${t.title}»` || x === 'Ya suena en la radio');
-      // 1.44.0: en ORDEN DE LLEGADA. La de la vuelta anterior sigue pendiente ("ahora" no la consume), así
+      // 1.45.0: en ORDEN DE LLEGADA. La de la vuelta anterior sigue pendiente ("ahora" no la consume), así
       // que la nueva va al FINAL de las pedidas, que quedan juntas detrás de la actual (antes: justo detrás).
       // Con REPS = 3 llega a 3 pendientes, justo el tope (PETICIONES_POR_MODERADOR), sin pasarlo.
       await desdeMenu('a-continuacion', 'Poner a continuación', (x, a, t) => x.len === a.len + 1 && x.qid === a.qid

@@ -3,7 +3,7 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
-## [1.43.0] - 2026-11-07
+## [1.45.0] - 2026-11-07
 
 ### Nuevo
 - **Moderar la radio.** Quien transmite puede nombrar hasta 3 moderadores entre sus oyentes. Quien modera

@@ -1,4 +1,4 @@
-// radio-menu-func.mjs — el menú "En la radio" de quien modera (1.43.0, W5b-2), contra el BUILD DE PRODUCCIÓN
+// radio-menu-func.mjs — el menú "En la radio" de quien modera (1.45.0, W5b-2), contra el BUILD DE PRODUCCIÓN
 // (preview :4173) y el backend REAL del runner (:3100, copia de la base). Salió de radio-oyente-func (su bloque H,
 // tal cual) para que ninguna de las dos pase el tope de 5 min del runner.
 //
@@ -40,7 +40,7 @@ try {
   await p.waitForSelector('.player-bar', { timeout: 15000 });
   await p.waitForFunction(() => !!window.__player?.() && !!window.__radio?.() && !!window.__auth?.());
   const sondeoAntes = await sondeoPendiente();
-  // ── H. (1.43.0, W5b-2) el menú "En la radio" con la radio activa ──
+  // ── H. (1.45.0, W5b-2) el menú "En la radio" con la radio activa ──
   {
     const evH = (id, type, by, extra = {}) => ({ id, type, by, byName: by === HOST_FK.id ? 'Anfitriona' : 'Yo', target: null, targetName: null, trackId: null, title: null, at: Date.now(), ...extra });
     const leerMenu = () => p.evaluate(() => {

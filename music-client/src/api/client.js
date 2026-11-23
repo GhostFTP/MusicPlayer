@@ -124,7 +124,7 @@ async function radioPedir(ruta, method, path, exito, leer, cuerpo, opciones = {}
 const rutaRadio = (codigo) => `/api/radio/${encodeURIComponent(codigo)}`;
 const NO_ES_CODIGO = Object.freeze({ ok: false, error: 'no-existe' });
 
-// ---- Moderación y control remoto (1.43.0, W2) ----
+// ---- Moderación y control remoto (1.45.0, W2) ----
 // Todo lo nuevo es A PEDIDO: radioCrear(), radioPublicar(codigo, estado) y radioLeer(codigo) sin los
 // argumentos nuevos mandan EXACTAMENTE lo mismo que en 1.42.0 (mismo path, mismo cuerpo).
 const NO_VALE = Object.freeze({ ok: false, error: 'invalido' });
@@ -231,7 +231,7 @@ export const api = {
 
   // Radio (ver radioPedir arriba). `estado` = EstadoAnfitrion de utils/radioSync.js.
   // crear → { code, serverNow } · publicar → { serverNow, state } · leer → { radio, serverNow } · terminar → { serverNow, endedReason }
-  // 1.43.0, A PEDIDO (sin estos argumentos, lo de siempre):
+  // 1.45.0, A PEDIDO (sin estos argumentos, lo de siempre):
   //   · radioCrear({ capabilities: { orders: true } }): el reproductor de este anfitrión ejecuta órdenes
   //     (se declara solo al crear, decisión de S4). Solo cuenta un true de verdad.
   //   · radioPublicar(codigo, estado, { ordenHasta, aplicadas }): confirma órdenes; vuelve con `orders`.

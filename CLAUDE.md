@@ -179,13 +179,13 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   (siguiente → anterior → siguiente = la misma), "repetir todo" repite el mismo orden y **arrastrar
   con aleatorio encendido cambia lo que suena después**. `play()` respeta el orden recibido (la
   radio carga `[pista, siguiente]`); `{ vista: true }` = **tocar una fila**: tocada primero + resto
-  barajado si el aleatorio está encendido; `{ enOrden: true }` (1.44.0) = **«Reproducir» una lista**
+  barajado si el aleatorio está encendido; `{ enOrden: true }` (1.45.0) = **«Reproducir» una lista**
   (el «▶ Reproducir» de Álbum, Género y Playlist, y «Reproducir álbum/todo/género/año» del menú):
   **apaga el aleatorio** si estaba encendido y suena en el orden de la lista — quien pide
   «Reproducir» quiere la lista como se ve, y para barajarla está el Mix; `{ mezclar: true }` = el
   Mix (baraja todo y enciende el aleatorio). Prueba: `mix-orden-func.mjs` (11) y
   `pl-videos-func.mjs`. Contrato: `.claude/skills/actions-lab/SKILL.md`.
-  **"A continuación" en dos órdenes (1.44.0):** el menú local **apila** (`playAfterCurrent(t)`: justo
+  **"A continuación" en dos órdenes (1.45.0):** el menú local **apila** (`playAfterCurrent(t)`: justo
   detrás de la actual, la última pedida suena primero, como Apple Music). Una **petición de la radio**
   (orden `a-continuacion` que aplica el anfitrión: `playAfterCurrent(t, { pedidoPor: idModerador })`)
   va en **orden de llegada**: detrás de la última petición de la radio pendiente, o de la actual si no
@@ -198,7 +198,7 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   del tope; la mejora es una respuesta del servidor (nivel C).
   `jumpTo` **quita la marca** a lo "a continuación" que queda en la elegida o por encima (ya es
   "anterior"). Pruebas: `radio-anfitrion-mod-func.mjs` 19x y 19ab–19aj, `mix-orden-func.mjs` (10).
-  **"A continuación" que YA SONÓ y después se apaga el aleatorio (1.44.0, decidido: se queda así,
+  **"A continuación" que YA SONÓ y después se apaga el aleatorio (1.45.0, decidido: se queda así,
   sin cambio de código):** va al **final** de la cola y **vuelve a sonar** cuando la reproducción
   llega ahí. Por qué: al apagar, `toggleShuffle` arma la cola con `baseRef` (el orden de la vista,
   por `_qid`) y pone detrás lo que no está en él; `playAfterCurrent` inserta una **entrada nueva**
@@ -400,7 +400,7 @@ error, cola vacía, rechazo de un arrastre ajeno) — ahora también **sobre la 
 el handler: lo que se audite en una zona vale para la otra, porque es el mismo hook.
 
 ## Pendientes conocidos
-- **Peticiones de la radio (1.44.0), dos deudas menores** (`PlayerContext.jsx`):
+- **Peticiones de la radio (1.45.0), dos deudas menores** (`PlayerContext.jsx`):
   (a) `jumpTo` con un índice fuera de rango quita las marcas "a continuación" sin cambiar de pista;
   (b) `pedidosRef` solo se vacía en `play()`, así que las peticiones pendientes de una radio
   anterior siguen contando para el tope de la siguiente.

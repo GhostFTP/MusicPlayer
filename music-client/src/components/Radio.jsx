@@ -14,7 +14,7 @@ import {
 //  · "sin radio" (/radio): "Iniciar radio" (con una canción cargada; un video cuenta) y el campo
 //    "Unirse con código", que navega a /radio/CODIGO.
 //  · anfitrión (/radio, o /radio/TU-CÓDIGO, con la sala abierta): el código, copiar código/enlace,
-//    cuántos escuchan, la lista de quién escucha con "Hacer moderador" / "Quitar" (1.43.0, W4), lo
+//    cuántos escuchan, la lista de quién escucha con "Hacer moderador" / "Quitar" (1.45.0, W4), lo
 //    último que pasó en la radio y "Terminar radio" con confirmación en la misma página.
 //  · la ficha (/radio/OTRO-CÓDIGO): el código y "Escuchar", que llama unirse(); ese clic es el gesto
 //    que habilita el audio. NO lee la sala antes: la primera lectura es la que anota al oyente. Es un

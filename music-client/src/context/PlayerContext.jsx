@@ -63,7 +63,7 @@ export function PlayerProvider({ children }) {
   // _qid en el orden de la vista) para devolverlo al apagarlo; sin aleatorio vale null.
   const baseRef     = useRef(null);
   const forcedNextRef = useRef([]);          // FIFO de _qid "a continuación" (play-next; prioridad sobre el orden)
-  // Peticiones de la RADIO (1.44.0): _qid → id de quien la pidió. Solo marca de dónde vino: la que
+  // Peticiones de la RADIO (1.45.0): _qid → id de quien la pidió. Solo marca de dónde vino: la que
   // está pendiente es la que sigue en forcedNext. Sirve para ponerlas en orden de llegada (no apiladas
   // como el menú local) y para el tope por persona (pendientesDe).
   const pedidosRef = useRef(new Map());
@@ -347,7 +347,7 @@ export function PlayerProvider({ children }) {
   //    también suena. Con el aleatorio apagado, lo de siempre.
   //  · enOrden: true → «Reproducir» una lista entera (el botón «▶ Reproducir» de Álbum, Género y
   //    Playlist, y «Reproducir álbum/todo/género/año» del menú). Suena en el orden de la lista y, si el
-  //    aleatorio estaba encendido, lo APAGA (1.44.0): quien pide «Reproducir» quiere la lista como se
+  //    aleatorio estaba encendido, lo APAGA (1.45.0): quien pide «Reproducir» quiere la lista como se
   //    ve; para barajarla está el Mix. Tocar una fila NO es esto: va con `vista`.
   //  · mezclar: true → el Mix: la lista entera barajada desde la primera, y enciende el aleatorio.
   // Con el aleatorio encendido, baseRef queda con `tracks` en el orden recibido (el de la vista):
@@ -399,7 +399,7 @@ export function PlayerProvider({ children }) {
   // no entra en baseRef: si el aleatorio se apaga con eso pendiente, toggleShuffle lo deja justo
   // detrás de la actual; si ya sonó, va al final como todo lo agregado después.
   //
-  // DOS ÓRDENES (1.44.0). El menú local APILA: cada una va justo detrás de la actual, así que la
+  // DOS ÓRDENES (1.45.0). El menú local APILA: cada una va justo detrás de la actual, así que la
   // última pedida suena primero. Una petición de la RADIO (`pedidoPor`: el id de quien modera) va en
   // ORDEN DE LLEGADA: detrás de la última petición de la radio que siga pendiente (o de la actual, si
   // no hay), y en forcedNext justo después de esa. Así la cola y forcedNext siguen diciendo lo mismo
@@ -491,7 +491,7 @@ export function PlayerProvider({ children }) {
   // Salta a una pista de la cola por índice (tap en la vista de cola). Desde ahí se sigue por
   // posición: lo de abajo es lo que viene, lo de arriba es "anterior".
   //
-  // Lo "a continuación" que queda en la pista elegida o por ENCIMA de ella pierde la marca (1.44.0): ya
+  // Lo "a continuación" que queda en la pista elegida o por ENCIMA de ella pierde la marca (1.45.0): ya
   // es "anterior". Sin esto, playNext lo seguía buscando por _qid y volvía hacia atrás (y luego, por
   // posición, repetía lo que había entre medio); y saltar a una marcada la hacía sonar otra vez.
   const jumpTo = useCallback((index) => {

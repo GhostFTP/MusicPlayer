@@ -232,7 +232,7 @@ try {
     && Object.values(fnsIguales).every(Boolean),
     { lecturasEn10s: enL.length, huecosMs: huecosL, deOtraSala: otrasL, mismaIdentidad: fnsIguales });
 
-  // ── M (1.43.0): TODAS las lecturas del oyente declaran ?cap=mod — la de unirse (la primera de la sala)
+  // ── M (1.45.0): TODAS las lecturas del oyente declaran ?cap=mod — la de unirse (la primera de la sala)
   // y las de cada vuelta. El servidor anota el soporte en cada lectura: una sola sin cap lo apaga.
   { const deS1 = lecturas.filter((x) => x.codigo === s1.code);
     const sinCap = deS1.filter((x) => x.cap !== 'mod').map((x) => x.query);
@@ -453,7 +453,7 @@ try {
     await salirFk();
   }
 
-  // ── E. (1.43.0, W5a) eventos y aviso de rol para el oyente: el cursor, sin eventos viejos, lo ajeno con
+  // ── E. (1.45.0, W5a) eventos y aviso de rol para el oyente: el cursor, sin eventos viejos, lo ajeno con
   //    toast, lo propio sin toast, nombrado y quitado, eventsLost y que la región no repita anuncios ──
   {
     const T = { ajeno: 'Anfitriona nombró a Beto para moderar', propio: 'Tú pausaste', nombrado: 'Puedes moderar esta radio',

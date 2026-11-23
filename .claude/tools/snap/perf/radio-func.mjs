@@ -14,7 +14,7 @@
 // DevTools sobre el build de producción, ubicando los componentes por su DOM), y que al salir no
 // quede vivo ningún intervalo de la radio (07e, 08c).
 //
-// Las ÓRDENES de quien modera (19) y la cara del anfitrión con moderadores (20), de 1.43.0, viven en
+// Las ÓRDENES de quien modera (19) y la cara del anfitrión con moderadores (20), de 1.45.0, viven en
 // radio-anfitrion-mod-func (se partió para dejar margen frente al tope de 300 s del runner).
 // RADIO_SOLO=2,11 corre sólo esos escenarios (lo usan las mutaciones de control; el conteo no cuadra
 // con el baseline a propósito). Lo que no se puede medir va en "NO MEDIDO", fuera del conteo.

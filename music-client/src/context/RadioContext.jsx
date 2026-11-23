@@ -31,7 +31,7 @@ import {
 //    puente del oyente en refs.
 //
 //  · <PuenteAnfitrion/> — sin UI, montado SÓLO con fase === 'anfitrion'. Publica el estado, lee oyentes
-//    y (1.43.0) aplica las órdenes de quien modera.
+//    y (1.45.0) aplica las órdenes de quien modera.
 //  · <PuenteOyente/> — sin UI, montado SÓLO con fase === 'oyente'. Lee la sala y mueve el reproductor.
 //    Los dos son los únicos que leen usePlayer y usePlayerTime: re-renderizan a ~4 Hz mientras suena,
 //    pero son hojas aparte que devuelven null, así que eso no toca a Layout ni a las vistas.
@@ -61,14 +61,14 @@ const RadioContext = createContext(null);
 const MIRAR_CADA_MS = 500;
 /** Cada cuánto se lee la sala para saber quién escucha (iOS: OYENTES_CADA_MS). */
 const OYENTES_CADA_MS = 5000;
-/** 1.43.0: con moderadores la sala se lee además cada 2 s, porque ahí llegan las órdenes. Es un
+/** 1.45.0: con moderadores la sala se lee además cada 2 s, porque ahí llegan las órdenes. Es un
  *  intervalo APARTE, montado solo mientras haya moderadores: sin ellos quedan los dos de siempre. */
 const ORDENES_CADA_MS = 2000;
 /** Dos lecturas de la sala no más cerca que esto (el intervalo de 2 s y el de 5 s se cruzan). */
 const LECTURA_MIN_MS = 1500;
 /** Cuánto se espera a que el motor muestre lo que hizo una orden (otra pista, la pausa, la cola). */
 const ESPERA_MOTOR_MS = 1000;
-/** 1.43.0: cada lectura del OYENTE declara que esta app sabe moderar (?cap=mod). Va en TODAS (unirse
+/** 1.45.0: cada lectura del OYENTE declara que esta app sabe moderar (?cap=mod). Va en TODAS (unirse
  *  y cada vuelta): el servidor anota el soporte en cada lectura, y una sin cap lo apagaría. */
 const LECTURA_OYENTE = { cap: 'mod' };
 /** Cuánto dura el aviso breve de un evento ajeno. NO 2000 ms: radio-oyente-func cuenta los setTimeout
@@ -98,7 +98,7 @@ export function RadioProvider({ children }) {
   const [aviso, setAviso] = useState(null);           // null | 'sin-senal' | 'sin-respuesta' | 'esperando-anfitrion' | 'video' | 'falta-cancion' | 'no-se-pudo-cargar'
   const [silenciada, setSilenciada] = useState(false);   // el oyente pausó por su cuenta ("en pausa para ti")
   const [quiereSonar, setQuiereSonar] = useState(false);  // el anfitrión suena una canción (no en pausa ni en video)
-  // Sólo del anfitrión (1.43.0, W4): quién modera, lo que pasó en la radio y a quién no se puede nombrar.
+  // Sólo del anfitrión (1.45.0, W4): quién modera, lo que pasó en la radio y a quién no se puede nombrar.
   const [moderadores, setModeradores] = useState([]);           // [{ id, name, avatar }]
   const [eventos, setEventos] = useState([]);                   // los últimos EVENTOS_MAX, sin repetidos
   const [sinSoporte, setSinSoporte] = useState(() => new Set());   // ids con 409 sin-soporte (esta sala)
@@ -360,7 +360,7 @@ export function RadioProvider({ children }) {
     ponerFase('creando');
     setError(null);
     setFin(null);
-    // 1.43.0: este reproductor ejecuta órdenes de quien modera (se declara solo al crear).
+    // 1.45.0: este reproductor ejecuta órdenes de quien modera (se declara solo al crear).
     const r = await api.radioCrear({ capabilities: { orders: true } });
     if (gen !== genRef.current || !montadoRef.current) return false;
     if (!r.ok) {
@@ -584,7 +584,7 @@ const idsDeModeradores = (lista) => new Set((Array.isArray(lista) ? lista : []).
 // vuelo, Retry-After, reintento a los 3 s, canción rechazada) y alResponder (qué hacer con la
 // respuesta). Todo eso es puro y vive en radioSync.js.
 //
-// ÓRDENES (1.43.0). Llegan en la lectura de la sala (?desde=) y en la respuesta del PUT que confirma.
+// ÓRDENES (1.45.0). Llegan en la lectura de la sala (?desde=) y en la respuesta del PUT que confirma.
 //  · Un Set de ids vistos: una orden que vuelve a llegar (sigue pendiente hasta confirmarla) no se
 //    aplica dos veces.
 //  · De a UNA, en orden de id: la siguiente espera a que el motor muestre lo que hizo la anterior

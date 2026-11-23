@@ -1,4 +1,4 @@
-// radio-anfitrion-mod-func.mjs — la Radio web, ANFITRIÓN con MODERACIÓN (1.43.0), contra el BUILD DE PRODUCCIÓN
+// radio-anfitrion-mod-func.mjs — la Radio web, ANFITRIÓN con MODERACIÓN (1.45.0), contra el BUILD DE PRODUCCIÓN
 // (preview :4173) y el backend REAL del runner (:3100, copia de la base), con servidores de radio FALSOS
 // (page.route sobre /api/radio). Salió de radio-func (grupos 19 y 20, tal cual) para dejar margen frente al
 // tope de 300 s del runner; el montaje (cuentas, navegador, INIT, abrir, vista…) vive en radio-anfitrion-comun.mjs.
@@ -24,7 +24,7 @@ import {
   terminarUI, TXT
 } from './radio-anfitrion-comun.mjs';
 
-// ══════════════════════════ 19: ÓRDENES (1.43.0, W3), servidor de radio FALSO ══════════════════════════
+// ══════════════════════════ 19: ÓRDENES (1.45.0, W3), servidor de radio FALSO ══════════════════════════
 // Entrega órdenes como el real: en el GET con ?desde= (que suma moderators) y en la respuesta del PUT
 // que confirma (ordenHasta saca de la lista todo hasta ahí). La cola del anfitrión se ARMA desde la
 // prueba con el valor de PlayerContext (ubicado por la fibra, como fin-de-cola.mjs); la app no expone nada.
@@ -363,7 +363,7 @@ if (corre(19)) {
     // x: dos "a continuación" con pistas DISTINTAS, juntas (el mismo bucle): la 2.ª llama a
     // playAfterCurrent DESPUÉS de que la 1.ª cambió la cola, y tiene que ver la cola que dejó la 1.ª.
     // Con un playAfterCurrent viejo (que leyera la cola del render donde arrancó el bucle) la 2.ª
-    // pisaría a la 1.ª y el largo sería +1. Esperado: +2, en ORDEN DE LLEGADA (1.44.0; hasta 1.43.0 era
+    // pisaría a la 1.ª y el largo sería +1. Esperado: +2, en ORDEN DE LLEGADA (1.45.0; en el primer diseño de la moderación era
     // de pila): la petición de la radio va detrás de la última petición pendiente, así que la 1.ª pedida
     // suena primero.
     { await poner(Q.slice(0, 3), 0);
@@ -382,7 +382,7 @@ if (corre(19)) {
         && detras[0] === A.id && detras[1] === B.id,
         { juntas: FM.entregas.get(a.id) === FM.entregas.get(b.id), largo: [antes.len, m.len], esperado: [A.id, B.id], detras, cola: cola.ids, idx: cola.idx }); }
 
-    // ab–aj (1.44.0): las peticiones de la radio en ORDEN DE LLEGADA, con tope de 3 PENDIENTES por persona
+    // ab–aj (1.45.0): las peticiones de la radio en ORDEN DE LLEGADA, con tope de 3 PENDIENTES por persona
     // (PETICIONES_POR_MODERADOR en radioSync.js), y el menú local que sigue apilando. Cola base de una
     // pista (Q[0]) salvo donde se dice; las pedidas son Q[1..4], distintas de la base. `colaV` lee la cola,
     // la posición y las marcadas "a continuación" (upNext), en el orden de la cola.
@@ -509,7 +509,7 @@ if (corre(19)) {
           { cola: k.ids, esperado: [B0.id, P4.id, P3.id, P1.id, P2.id], marcadas: k.up }); }
     }
 
-    // Quitar el rol con órdenes ya recibidas (1.43.0): lo de esa persona que todavía no tocó el motor se
+    // Quitar el rol con órdenes ya recibidas (1.45.0): lo de esa persona que todavía no tocó el motor se
     // descarta sin evento y se confirma igual (ordenHasta la cubre). FM hace lo que hace el servidor al
     // quitar: la saca de la lista y borra sus pendientes.
     const SONIA = { id: 2, name: 'Sonia', avatar: null }, CARO = { id: 3, name: 'Caro', avatar: null };
@@ -666,7 +666,7 @@ if (corre(19)) {
   await ctx.close();
 }
 
-// ══════════════════════════ 20: LA CARA DEL ANFITRIÓN (1.43.0, W4), servidor de radio FALSO ══════════════════════════
+// ══════════════════════════ 20: LA CARA DEL ANFITRIÓN (1.45.0, W4), servidor de radio FALSO ══════════════════════════
 // La lista de quién escucha con "Hacer moderador" / "Quitar", el tope de 3, el 409 sin-soporte, la región
 // viva de los eventos y el toast (solo con eventos AJENOS), y que la lectura de 2 s arranque al nombrar,
 // sin esperar la de 5 s. Cuatro oyentes que admiten moderar (Sonia, Beto, Caro, Eva) y una que no (Dani).

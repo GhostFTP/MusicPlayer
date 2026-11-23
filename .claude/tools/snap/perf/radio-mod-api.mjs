@@ -1,4 +1,4 @@
-// radio-mod-api.mjs — la MODERACIÓN de la radio (1.43.0) por HTTP real, contra el backend de la corrida
+// radio-mod-api.mjs — la MODERACIÓN de la radio (1.45.0) por HTTP real, contra el backend de la corrida
 // (SNAP_BASE: el preview :4173 del runner, que pasa /api al backend :3100 sobre la copia de la base; o el
 // backend directo). Solo API: no abre navegador.
 //

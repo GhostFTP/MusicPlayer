@@ -21,26 +21,26 @@
 //   (f) red.*   radioTerminar con { keepalive } (cerrar la pestaña): qué recibe fetch, y que sin opciones
 //               siga idéntico a antes.
 //   (g) web.*   sin pista con la radio abierta: debePublicar no publica (nunca un trackId null al servidor).
-//   (j) mod.*   moderación y control remoto (1.43.0, W1): lecturas a pedido (una respuesta de 1.42.0 se
+//   (j) mod.*   moderación y control remoto (1.45.0, W1): lecturas a pedido (una respuesta de 1.42.0 se
 //               lee igual), planDeOrden, los textos de los eventos (neutros, "Tú", "Alguien"), quién
 //               modera y quién puede poner o pedir en la radio, y los fallos de moderar y ordenar.
-//   (k) redmod.* client.js de la moderación (1.43.0, W2), con fetch falso: radioCrear con capabilities,
+//   (k) redmod.* client.js de la moderación (1.45.0, W2), con fetch falso: radioCrear con capabilities,
 //               radioLeer con ?cap=mod/?desde=, radioPublicar con confirmación, radioModerador, radioOrdenar
 //               (clientId, reenvío con el MISMO, errores por reason) y que sin argumentos nuevos sea lo de 1.42.0.
-//   (l) w3.*    lo LOCAL del anfitrión para las órdenes (1.43.0, W3): siguienteDelMotor contra un MODELO de
+//   (l) w3.*    lo LOCAL del anfitrión para las órdenes (1.45.0, W3): siguienteDelMotor contra un MODELO de
 //               playNext (PlayerContext.jsx, transcrito como datos y recorrido en todos los estados chicos),
 //               alFinalDeLaCola, planDeOrden con sin-siguiente / verificar / "a continuación" al final,
 //               confirmacionDe (tandas de 10) y debePublicar con 'confirmar'.
-//   (m) w4.*    la lista de oyentes del anfitrión (1.43.0, W4): filaDeOyente (insignia, botón y nota: el tope
+//   (m) w4.*    la lista de oyentes del anfitrión (1.45.0, W4): filaDeOyente (insignia, botón y nota: el tope
 //               OCULTA "Hacer moderador", sin-soporte deja la nota), lineaDelTope, juntarEventos (sin
 //               repetidos, en orden y con tope) y avisarEvento (el toast, solo con eventos ajenos).
-//   (n) w5a.*   los eventos y el aviso de rol del OYENTE (1.43.0, W5a): pasoDeEventos (la primera lectura solo
+//   (n) w5a.*   los eventos y el aviso de rol del OYENTE (1.45.0, W5a): pasoDeEventos (la primera lectura solo
 //               fija la base, el cursor no retrocede, eventsLost no anuncia, nombrarme/quitarme sale como aviso
 //               de rol y no como evento, el toast solo con lo ajeno).
-//   (o) w5b1.*  las órdenes de quien modera (1.43.0, W5b-1): resolverOrden (perder el rol cancela; un evento
+//   (o) w5b1.*  las órdenes de quien modera (1.45.0, W5b-1): resolverOrden (perder el rol cancela; un evento
 //               MÍO la aplica; "siguiente" con otra canción sin evento mío es "Ya había cambiado"; pausa y
 //               reanudar se resuelven por el estado; 5 s "Esperando al anfitrión…", 30 s "No se aplicó").
-//   (p) w5b2.*  las órdenes del menú "En la radio" (1.43.0, W5b-2): "a continuación" solo la aplica un evento
+//   (p) w5b2.*  las órdenes del menú "En la radio" (1.45.0, W5b-2): "a continuación" solo la aplica un evento
 //               MÍO (de esa pista); "ahora" también el estado con esa pista; ninguna es "Ya había cambiado";
 //               los mismos 5 s / 30 s; perder el rol cancela; eventoDeOrden y los textos.
 //
@@ -1006,7 +1006,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     'lo que deja pasar leerAvatar sale con su token');
 }
 
-// ============================ (j) web: moderación y control remoto (1.43.0, W1) ============================
+// ============================ (j) web: moderación y control remoto (1.45.0, W1) ============================
 // Lo nuevo es A PEDIDO, como en el servidor: una respuesta sin `moderators` (la de 1.42.0) se lee
 // EXACTAMENTE igual que antes. Textos de eventos con redacción neutra de género.
 {
@@ -1143,7 +1143,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     S.puedePonerEnRadio(Q({ radio: S.leerRadio(V142) })), S.puedePonerEnRadio(null)],
     [false, false, false, false, false], 'poner en la radio: sin escuchar, terminada, con un anfitrión sin órdenes (iOS), sin lo nuevo, o sin datos: no');
   M([S.puedePedir(Q({ miId: 9 })), S.puedePedir(Q()), S.puedePedir(Q({ miId: 9, radio: { ...lm, capabilities: { orders: true, requests: true } } }))],
-    [false, false, true], 'pedir (1.43.1): hoy nunca (el servidor no declara requests); con requests, un oyente sin rol sí');
+    [false, false, true], 'pedir (modo Fiesta): hoy nunca (el servidor no declara requests); con requests, un oyente sin rol sí');
   M([S.puedePedir(Q({ radio: { ...lm, capabilities: { requests: true } } })), S.puedePedir(Q({ miId: 9, item: vid, radio: { ...lm, capabilities: { requests: true } } })),
     S.puedePedir(Q({ miId: 1, fase: 'anfitrion', radio: { ...lm, capabilities: { requests: true } } }))],
     [false, false, false], 'pedir: quien modera no pide (pone directo), un video no, el anfitrión no');
@@ -1177,7 +1177,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   M([...S.TIPOS_ORDEN], Object.keys(SERVIDOR.TIPOS_ORDEN), 'los tipos de orden son los del servidor');
 }
 
-// ============================ (k) red: moderación y control remoto en client.js (1.43.0, W2) ============================
+// ============================ (k) red: moderación y control remoto en client.js (1.45.0, W2) ============================
 // Las llamadas de 1.42.0 sin argumentos nuevos mandan lo mismo de siempre; lo nuevo, con fetch falso.
 {
   const K = (a, b, nombre) => igual('redmod', a, b, nombre);
@@ -1296,7 +1296,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   K(new Set(Array.from({ length: 200 }, () => C.nuevoIdCliente())).size, 200, 'nuevoIdCliente: 200 seguidos, ninguno repetido');
 }
 
-// ══════════════════ (l) w3.* lo local del anfitrión para las órdenes (1.43.0, W3) ══════════════════
+// ══════════════════ (l) w3.* lo local del anfitrión para las órdenes (1.45.0, W3) ══════════════════
 {
   const W = (a, b, nombre) => igual('w3', a, b, nombre);
   const cola = (n) => Array.from({ length: n }, (_, i) => ({ id: 100 + i, _qid: i + 1 }));
@@ -1368,13 +1368,13 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     [{ aplicar: false, motivo: 'video' }, { aplicar: true }, { aplicar: true }, { aplicar: false, motivo: 'sin-siguiente' }],
     'al final: un video sigue descartando; pausa y reanudar igual que siempre; siguiente no tiene a dónde');
   W(S.textoDeFallo('ordenar', { error: 'sin-siguiente' }), 'No hay una canción siguiente.', 'el texto de sin-siguiente');
-  // 1.44.0: tope de peticiones "a continuación" PENDIENTES por persona en la cola del anfitrión.
+  // 1.45.0: tope de peticiones "a continuación" PENDIENTES por persona en la cola del anfitrión.
   const TOPE = S.PETICIONES_POR_MODERADOR;
   W([TOPE, P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: TOPE - 1 }), P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: TOPE }), P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: TOPE + 2 })],
     [3, { aplicar: true }, { aplicar: false, motivo: 'tope' }, { aplicar: false, motivo: 'tope' }], 'tope: con 2 pendientes entra la 3.ª; con 3 (o más), tope');
   W([P(ord(1, 'ahora'), { pendientesDeQuienPide: TOPE }), P(ord(1, 'siguiente'), { haySiguiente: true, pendientesDeQuienPide: TOPE }),
     P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: undefined }), P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: '3' }), P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: 2.5 })],
-    [{ aplicar: true }, { aplicar: true }, { aplicar: true }, { aplicar: true }, { aplicar: true }], 'tope: solo "a continuación"; sin el dato (o uno raro), sin tope (lo de 1.43.0)');
+    [{ aplicar: true }, { aplicar: true }, { aplicar: true }, { aplicar: true }, { aplicar: true }], 'tope: solo "a continuación"; sin el dato (o uno raro), sin tope (como antes del tope)');
   W([P(ord(1, 'a-continuacion'), { pendientesDeQuienPide: TOPE, enPausaPorVideo: true, trackId: null }), P(ord(1, 'a-continuacion'), { ...fin, pendientesDeQuienPide: 0 })],
     [{ aplicar: false, motivo: 'video' }, { aplicar: true, como: 'ahora' }], 'tope: el video gana; sin pendientes, al final sigue siendo "ahora"');
 
@@ -1405,7 +1405,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     'a la hora del latido con algo por confirmar: "confirmar" (publica igual); solo un true de verdad');
 }
 
-// ══════════════════ (m) w4.* la lista de oyentes del anfitrión (1.43.0, W4) ══════════════════
+// ══════════════════ (m) w4.* la lista de oyentes del anfitrión (1.45.0, W4) ══════════════════
 {
   const W = (a, b, nombre) => igual('w4', a, b, nombre);
   const F = S.filaDeOyente;
@@ -1446,7 +1446,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     'tres moderando con dos ausentes: el tope sigue (cuenta a los tres) y los tres tienen "Quitar"');
 }
 
-// ══════════════════ (n) w5a.* los eventos y el aviso de rol del oyente (1.43.0, W5a) ══════════════════
+// ══════════════════ (n) w5a.* los eventos y el aviso de rol del oyente (1.45.0, W5a) ══════════════════
 {
   const W = (a, b, nombre) => igual('w5a', a, b, nombre);
   const P = S.pasoDeEventos;
@@ -1481,7 +1481,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
   W(P(b, radio({ events: [ev(3, 'algo-de-1.44'), ev(4)], eventsUntil: 4 }), YO).anuncios.map((a) => a.texto), ['Sonia pausó'], 'un tipo que esta versión no conoce no se anuncia');
 }
 
-// ══════════════════ (o) w5b1.* las órdenes de quien modera (1.43.0, W5b-1) ══════════════════
+// ══════════════════ (o) w5b1.* las órdenes de quien modera (1.45.0, W5b-1) ══════════════════
 {
   const W = (a, b, nombre) => igual('w5b1', a, b, nombre);
   const Z = S.resolverOrden;
@@ -1511,7 +1511,7 @@ const colgado = () => (_u, o) => new Promise((_, rej) => o.signal.addEventListen
     'los tiempos y los textos');
 }
 
-// ══════════════════ (p) w5b2.* las órdenes del menú "En la radio" (1.43.0, W5b-2) ══════════════════
+// ══════════════════ (p) w5b2.* las órdenes del menú "En la radio" (1.45.0, W5b-2) ══════════════════
 {
   const W = (a, b, nombre) => igual('w5b2', a, b, nombre);
   const Z = S.resolverOrden;

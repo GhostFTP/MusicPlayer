@@ -59,9 +59,9 @@ apruebe**. Si el encargo ya trae la decisión tomada, saltá a implementar.
   después va al final y lo pendiente queda justo detrás de la actual. Nunca toca el `<audio>`.
   `play()` sin opciones respeta el orden que recibe (la radio lo necesita); las opciones las
   elige **el gesto**: `{ vista: true }` tocar una fila (la tocada primero, el resto barajado si
-  hay aleatorio), `{ enOrden: true }` «Reproducir» una lista (apaga el aleatorio, 1.44.0),
+  hay aleatorio), `{ enOrden: true }` «Reproducir» una lista (apaga el aleatorio, 1.45.0),
   `{ mezclar: true }` el Mix.
-- **"A continuación" tiene DOS órdenes, a propósito (1.44.0).** El **menú local apila**:
+- **"A continuación" tiene DOS órdenes, a propósito (1.45.0).** El **menú local apila**:
   `playAfterCurrent(t)` va justo detrás de la actual y al frente de `forcedNextRef` (la última
   pedida suena primero). Una **petición de la radio** (`playAfterCurrent(t, { pedidoPor })`, la
   llama sólo `RadioContext`) va en **orden de llegada**: detrás de la última petición de la

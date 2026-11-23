@@ -20,7 +20,7 @@
 //
 // El backend es music-server/src/api/radio.js (1.29.0): POST /api/radio,
 // PUT /api/radio/:code/state, GET /api/radio/:code y DELETE /api/radio/:code. El estado vive en
-// la memoria del servidor: un redeploy cierra las radios. Desde 1.43.0, además, moderadores y
+// la memoria del servidor: un redeploy cierra las radios. Desde 1.45.0, además, moderadores y
 // control remoto (PUT/DELETE /:code/moderadores/:userId, POST /:code/ordenes): ver "Moderación".
 
 // ---- Las perillas ----
@@ -279,7 +279,7 @@ export function leerRadio(json) {
     host: leerPersona(r.host),
     listeners,
   };
-  // 1.43.0, a pedido: sin `moderators` (una respuesta de 1.42.0), exactamente lo de siempre.
+  // 1.45.0, a pedido: sin `moderators` (una respuesta de 1.42.0), exactamente lo de siempre.
   const mod = leerModeracion(r);
   return mod ? { ...leida, ...mod } : leida;
 }
@@ -298,7 +298,7 @@ export function leerPublicada(json) {
   if (!r || !finito(r.serverNow) || r.serverNow <= 0) return null;
   const state = leerEstado(r.state);
   if (!state) return null;
-  // 1.43.0: con una confirmación, el servidor devuelve las órdenes que siguen pendientes.
+  // 1.45.0: con una confirmación, el servidor devuelve las órdenes que siguen pendientes.
   return r.orders !== undefined ? { serverNow: r.serverNow, state, orders: leerOrdenes(r.orders) } : { serverNow: r.serverNow, state };
 }
 
@@ -309,7 +309,7 @@ export function leerTerminada(json) {
   return { serverNow: r.serverNow, endedReason: leerRazon(r.endedReason) ?? 'otro' };
 }
 
-// ---- Moderación y control remoto (1.43.0) ----
+// ---- Moderación y control remoto (1.45.0) ----
 //
 // Lo nuevo del servidor (music-server/src/api/radio.js, S4) llega SOLO a pedido: el GET con ?cap=mod
 // o ?desde=N trae moderators, capabilities, events, eventsUntil y eventsLost (y orders, solo al
@@ -326,7 +326,7 @@ const CON_PISTA = new Set(['a-continuacion', 'ahora']);
 export const TIPOS_EVENTO = Object.freeze([...TIPOS_ORDEN, 'moderador', 'sin-moderador']);
 /** Topes de lo que se acepta (los del servidor: MAX_MODERADORES, MAX_ORDENES, MAX_EVENTOS, TITULO_MAX). */
 export const MODERACION = Object.freeze({ MODERADORES_MAX: 3, ORDENES_MAX: 10, EVENTOS_MAX: 20, TITULO_MAX: 100 });
-/** Peticiones "a continuación" PENDIENTES por persona en la cola del anfitrión (1.44.0). Es solo del
+/** Peticiones "a continuación" PENDIENTES por persona en la cola del anfitrión (1.45.0). Es solo del
  *  cliente del anfitrión: el servidor no lo sabe. La que pasa el tope se descarta (planDeOrden, 'tope')
  *  y se confirma sin evento; quien la mandó no recibe aviso (resolverOrden: "No se aplicó" a los 30 s).
  *  Deuda: el aviso del tope necesita una respuesta del servidor (nivel C). */
@@ -437,11 +437,11 @@ const leerOrdenes = (v) => lista(v, leerOrdenRecibida, MODERACION.ORDENES_MAX).s
  *     (el anfitrión empieza a reproducir esa pista: playAfterCurrent arranca si la cola está vacía).
  *     Con la cola TERMINADA (alFinal), "a continuación" es "ahora" ({ aplicar: true, como: 'ahora' }):
  *     no hay nada después de lo que sonó, así que esperar a la siguiente sería esperar para siempre.
- *   · pendientesDeQuienPide (1.44.0, opcional): cuántas peticiones "a continuación" de quien mandó la
+ *   · pendientesDeQuienPide (1.45.0, opcional): cuántas peticiones "a continuación" de quien mandó la
  *     orden siguen pendientes en la cola del anfitrión. Con PETICIONES_POR_MODERADOR o más, 'tope'.
- *     Sin el dato, sin tope (lo de 1.43.0).
+ *     Sin el dato, sin tope (como antes del tope).
  * Al terminar la cola, el reproductor del anfitrión se queda en la ÚLTIMA pista, en pausa y al final
- * (medido en la web, 1.43.0): `actual` trae esa pista, no null. "reanudar" ahí vuelve a empezar esa
+ * (medido en la web, 1.45.0): `actual` trae esa pista, no null. "reanudar" ahí vuelve a empezar esa
  * pista (medido): se deja así, es lo que haría el botón de play del anfitrión.
  */
 export function planDeOrden(orden, actual) {
@@ -764,7 +764,7 @@ export function puedePonerEnRadio(p) {
 }
 
 /**
- * ¿El submenú ofrece "Pedir en la radio"? Es de 1.43.1 (pedidos de los oyentes comunes): hoy el
+ * ¿El submenú ofrece "Pedir en la radio"? Es del modo Fiesta (pedidos de los oyentes comunes, después de 1.45.0): hoy el
  * servidor no declara esa capacidad (`capabilities.requests`), así que da false siempre. Queda la
  * regla para que el menú pregunte una sola vez: quien escucha y NO modera (quien modera pone directo).
  */
@@ -781,7 +781,7 @@ export function puedePedir(p) {
 // { error: 'sin-respuesta' | 'sesion' | 'invalido' | 'no-es-tuya' | 'no-existe' | 'sin-servicio'
 //          | 'demasiadas' | 'llena' | 'cuerpo' | 'cancion' }
 // | { error: 'terminada', razon } | { error: 'frecuencia', esperaMs } | { error: 'servidor', status }
-// Desde 1.43.0, en 'moderar' y 'ordenar': 'sin-permiso' (403, NUNCA 'no-es-tuya': ese hace abandonar
+// Desde 1.45.0, en 'moderar' y 'ordenar': 'sin-permiso' (403, NUNCA 'no-es-tuya': ese hace abandonar
 // la radio), el motivo del 409 ('es-el-anfitrion' | 'no-escucha' | 'sin-soporte' | 'moderadores-llenos'
 // | 'ordenes-llenas' | 'obsoleta') y el del 422 ('video' | 'sin-pista'). Lo demás, como las otras rutas.
 //
@@ -961,7 +961,7 @@ export function esperaDelSondeo(fallo) {
 
 /** ¿Hay algo que publicar? → 'primero' | 'video' | 'cancion' | 'pausa' | 'siguiente' | 'salto'
  *  | 'confirmar' | 'latido' | null. Sin canción y sin video no se publica nada (el servidor exige una
- *  de dos). `confirmar` (1.43.0, opcional): hay órdenes resueltas sin confirmar; sin ese argumento,
+ *  de dos). `confirmar` (1.45.0, opcional): hay órdenes resueltas sin confirmar; sin ese argumento,
  *  exactamente lo de 1.42.0. Un cambio de estado tiene prioridad (la confirmación viaja igual). */
 export function debePublicar(ultimo, actual, ahoraMs, confirmar = false) {
   if (actual.trackId == null && !actual.enPausaPorVideo) return null;
@@ -1104,7 +1104,7 @@ export function textoDeFin(rol, razon) {
 
 // ---- Qué decirle a la persona (vista.ts) ----
 //
-// accion: 'iniciar' | 'unirse' | 'terminar' (y desde 1.43.0 'moderar' | 'ordenar'). `fallo` es un
+// accion: 'iniciar' | 'unirse' | 'terminar' (y desde 1.45.0 'moderar' | 'ordenar'). `fallo` es un
 // valor de falloDeStatus o el { error: 'sin-respuesta' } de client.js. Los textos son los de iOS, palabra por palabra. Una
 // sola diferencia, de forma y no de texto: si no llega un fallo (null), no se rompe y cae al
 // mensaje genérico de la acción (en iOS el tipo no lo permite).
@@ -1126,7 +1126,7 @@ export function textoDeFallo(accion, fallo) {
     case 'frecuencia': return 'Demasiados intentos. Espera unos segundos e intenta de nuevo.';
     case 'no-es-tuya': return 'Esa radio no es tuya.';
     case 'sin-servicio': return 'El servidor todavía no tiene la radio. Intenta más tarde.';
-    // 1.43.0: moderar (el anfitrión nombra o quita) y ordenar (quien modera).
+    // 1.45.0: moderar (el anfitrión nombra o quita) y ordenar (quien modera).
     case 'sin-permiso':
       return accion === 'moderar' ? 'Solo quien creó la radio puede elegir quién modera.' : 'Ya no puedes moderar esta radio.';
     case 'es-el-anfitrion': return 'La radio ya es tuya: no hace falta que la moderes.';

@@ -136,7 +136,7 @@ barra y el expandido, no copias.
 
 | Acción | Origen | Nota |
 |---|---|---|
-| Reproducir álbum/artista/género/año | `play(tracks, 0, { enOrden: true })` de **PlayerContext** | las pistas se cargan con los MISMOS parámetros que la vista (`albumTracks` / `artistTracks` / `genreTracks` / `yearTracks`) → el orden que se encola es el que se ve; con el aleatorio encendido lo apaga (1.44.0) |
+| Reproducir álbum/artista/género/año | `play(tracks, 0, { enOrden: true })` de **PlayerContext** | las pistas se cargan con los MISMOS parámetros que la vista (`albumTracks` / `artistTracks` / `genreTracks` / `yearTracks`) → el orden que se encola es el que se ve; con el aleatorio encendido lo apaga (1.45.0) |
 | Reproducir a continuación | `playAfterCurrent(item)` de **PlayerContext** | |
 | Agregar a la cola | `addToQueue(item \| tracks)` de **PlayerContext** | acepta una o muchas |
 | Quitar de la cola | `removeFromQueue(_qid)` de **PlayerContext** | ver abajo |
@@ -177,14 +177,14 @@ orden que recibe (la radio lo necesita). Las opciones las elige **el gesto**, no
 | Gesto | Llamada | Con aleatorio encendido |
 |---|---|---|
 | Tocar una **fila** | `play(lista, i, { vista: true })` | la tocada primero y el resto barajado; sigue encendido |
-| **«Reproducir»** la lista (botón «▶ Reproducir», «Reproducir álbum/todo/género/año» del menú) | `play(lista, 0, { enOrden: true })` | **lo apaga** (1.44.0) y suena en el orden de la lista |
+| **«Reproducir»** la lista (botón «▶ Reproducir», «Reproducir álbum/todo/género/año» del menú) | `play(lista, 0, { enOrden: true })` | **lo apaga** (1.45.0) y suena en el orden de la lista |
 | **Mix** (botón y tecla M) | `play(lista, 0, { mezclar: true })` | baraja todo; lo enciende si estaba apagado |
 
 «Reproducir» apaga el aleatorio porque quien lo pide quiere la lista como se ve; para barajarla
 está el Mix. Antes (M4) «Reproducir» con el aleatorio encendido daba la primera y el resto
 barajado, igual que tocar la fila 0.
 
-**"A continuación" en dos órdenes (1.44.0):** el menú local **apila** (`playAfterCurrent(item)`:
+**"A continuación" en dos órdenes (1.45.0):** el menú local **apila** (`playAfterCurrent(item)`:
 justo detrás de la actual y al frente de `forcedNextRef`; la última pedida suena primero). Una
 **petición de la radio** (`playAfterCurrent(item, { pedidoPor })`, la usa solo `RadioContext` al
 aplicar `a-continuacion`) va en **orden de llegada**: detrás de la última petición de la radio
@@ -303,7 +303,7 @@ inventar una capa nueva — mismo patrón que `.exp-scrim`.
 - **Álbum o artista sin pistas**: el fetch devuelve vacío → **toast de aviso**. Sin eso,
   "reproducir álbum" no haría nada y parecería un bug.
 - **Cola vacía + "agregar a la cola"**: arranca la reproducción.
-- **"A continuación" que YA SONÓ y después se apaga el aleatorio** (1.44.0, decidido: se queda
+- **"A continuación" que YA SONÓ y después se apaga el aleatorio** (1.45.0, decidido: se queda
   así, sin cambio de código): va al **final** de la cola y **vuelve a sonar** al llegar ahí.
   `toggleShuffle` devuelve `baseRef` (el orden de la vista, por `_qid`) y pone detrás lo que no
   está en él; lo de `playAfterCurrent` es una entrada nueva (otro `_qid`) que nunca entra en

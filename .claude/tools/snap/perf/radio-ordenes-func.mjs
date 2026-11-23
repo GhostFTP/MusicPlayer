@@ -1,10 +1,10 @@
-// radio-ordenes-func.mjs — los BOTONES de quien modera y los estados de sus órdenes (1.43.0, W5b-1), contra el BUILD
+// radio-ordenes-func.mjs — los BOTONES de quien modera y los estados de sus órdenes (1.45.0, W5b-1), contra el BUILD
 // DE PRODUCCIÓN (preview :4173) y el backend REAL del runner (:3100, copia de la base). Salió de radio-oyente-func (sus
 // bloques F y G, tal cual) para que ninguna suite se acerque al tope de 5 min del runner. El montaje (sesión, página,
 // servidor falso FK…) es el de radio-oyente-comun.mjs, compartido con radio-oyente-func y radio-menu-func.
 //
 // Casos:
-//   F_*  (1.43.0, W5b-1) los botones de quien modera, en vivo: solo con el rol y orders: true (insignia,
+//   F_*  (1.45.0, W5b-1) los botones de quien modera, en vivo: solo con el rol y orders: true (insignia,
 //        "Siguiente canción de la radio", "Pausar la radio", 44 px); "siguiente" lleva la base (seqBase) y
 //        "Enviando…" con aria-busy; resuelta por el cambio de canción + mi evento; "Ya había cambiado"; pausa
 //        resuelta por el estado (el foco sigue en el botón); los errores inmediatos en la línea; perder el rol
@@ -34,7 +34,7 @@ try {
   await p.waitForFunction(() => !!window.__player?.() && !!window.__radio?.() && !!window.__auth?.());
   const sondeoAntes = await sondeoPendiente();
 
-  // ── F. (1.43.0, W5b-1) los botones de quien modera y los estados de sus órdenes (en vivo; lo del reloj, en G) ──
+  // ── F. (1.45.0, W5b-1) los botones de quien modera y los estados de sus órdenes (en vivo; lo del reloj, en G) ──
   {
     const evF = (id, type, by, extra = {}) => ({ id, type, by, byName: by === HOST_FK.id ? 'Anfitriona' : 'Yo', target: null, targetName: null, trackId: null, title: null, at: Date.now(), ...extra });
     const tarjeta = () => p.evaluate(() => {

@@ -22,10 +22,10 @@
 //     pista con el aleatorio encendido la pone PRIMERA y el resto barajado trae todas las demás;
 //     «Reproducir a continuación» sigue sonando justo después de la actual; mover en la cola
 //     (moveInQueue, y el arrastre real del drawer con el mouse) cambia lo que suena después;
-//   · (sólo canciones, 1.44.0) en el detalle de un género SINTÉTICO (/api/browse/genres y ?genre=
+//   · (sólo canciones, 1.45.0) en el detalle de un género SINTÉTICO (/api/browse/genres y ?genre=
 //     interceptados), «▶ Reproducir» con el aleatorio encendido lo APAGA y suena en el orden de la lista,
 //     igual «Reproducir género» del menú de la tarjeta; tocar una fila del mismo detalle no lo apaga;
-//   · (sólo canciones, 1.44.0, sin cambio de código) una «a continuación» que ya sonó va al final al
+//   · (sólo canciones, 1.45.0, sin cambio de código) una «a continuación» que ya sonó va al final al
 //     apagar el aleatorio y vuelve a sonar ahí. Apagarlo MIENTRAS suena una se registra en `medidas`.
 // Los casos comunes corren con canciones (_canciones) y con videos (_videos), mismo código.
 //
@@ -444,7 +444,7 @@ try {
     const s9b = await paso(p, 'next');
     ok('arrastrar_con_aleatorio_es_lo_que_suena_despues_canciones', s9b.qid === arrastrada, { arrastrada: a9b.cola[a9b.idx + 4], sono: s9b.t });
 
-    // 10. (1.44.0) Sin aleatorio: «Reproducir a continuación» del menú local sigue APILANDO, y jumpTo (tocar
+    // 10. (1.45.0) Sin aleatorio: «Reproducir a continuación» del menú local sigue APILANDO, y jumpTo (tocar
     // una fila del drawer) con marcadas pendientes: las que quedan en la elegida o por encima pierden la
     // marca. Antes, «siguiente» volvía a ellas (y luego repetía lo de en medio), y saltar a una marcada la
     // hacía sonar dos veces.
@@ -475,7 +475,7 @@ try {
     const s10c = await paso(p, 'next');
     ok('jumpto_a_una_marcada_no_la_repite_canciones', llego10c && eq(m10c, []) && s10c.t === LIB[1].title, { marcadas: m10c, sono: s10c.t, esperado: LIB[1].title });
 
-    // 11. (1.44.0) «▶ Reproducir» con el aleatorio ENCENDIDO lo apaga y suena en el orden de la lista; tocar
+    // 11. (1.45.0) «▶ Reproducir» con el aleatorio ENCENDIDO lo apaga y suena en el orden de la lista; tocar
     // una FILA sigue igual (la tocada primero y el resto barajado). En el detalle de un género sintético
     // (las 10 pistas) y con «Reproducir género» del menú de su tarjeta. Contra el código de antes (1.43/M4)
     // fallan los reproducir_*: el aleatorio seguía encendido y el resto salía barajado.
@@ -533,7 +533,7 @@ try {
     ok('reproducir_genero_del_menu_con_aleatorio_lo_apaga_en_orden_canciones', a11e.shuffle === true && e11e.shuffle === false && eq(e11e.cola, vistaG) && e11e.idx === 0,
       { aleatorio_antes: a11e.shuffle, aleatorio_despues: e11e.shuffle, cola: e11e.cola, idx: e11e.idx });
 
-    // 12. (1.44.0, sin cambio de código) «A continuación» que YA SONÓ y después se apaga el aleatorio: va
+    // 12. (1.45.0, sin cambio de código) «A continuación» que YA SONÓ y después se apaga el aleatorio: va
     // al FINAL de la cola y vuelve a sonar al llegar ahí. Es lo agregado después: no está en baseRef (el
     // orden de la vista), así que al apagar cae detrás de todo, como «Agregar a la cola». Lo pendiente,
     // en cambio, queda justo detrás de la actual (eso ya lo dice el código de toggleShuffle).

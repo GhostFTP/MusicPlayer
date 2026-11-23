@@ -35,10 +35,10 @@ cada hallazgo va con evidencia `archivo:línea`** (buscá por nombre: las línea
    al final y lo pendiente justo detrás de la actual; no toca el `<audio>`. "Repetir todo"
    vuelve a la primera **sin rebarajar**. `play()` sin opciones respeta el orden recibido (la
    radio); con `vista` (tocar fila) la tocada va primero y el resto se baraja si hay aleatorio;
-   con `enOrden` («Reproducir» una lista, 1.44.0) **apaga** el aleatorio y suena en orden; con
+   con `enOrden` («Reproducir» una lista, 1.45.0) **apaga** el aleatorio y suena en orden; con
    `mezclar` (el Mix) baraja todo y lo enciende. Un «▶ Reproducir» o un «Reproducir
    álbum/todo/género/año» que no pase `enOrden` → hallazgo.
-3. **"A continuación" en DOS órdenes (deliberado, 1.44.0).** Menú local = **pila**
+3. **"A continuación" en DOS órdenes (deliberado, 1.45.0).** Menú local = **pila**
    (`playAfterCurrent(t)`: justo detrás de la actual y al frente de `forcedNextRef`).
    Petición de la radio = **orden de llegada** (`playAfterCurrent(t, { pedidoPor })`, sólo
    desde `RadioContext`): detrás de la última petición de la radio pendiente, y en

@@ -1,4 +1,4 @@
-// radio-e2e-func.mjs — la moderación de la radio web DE PUNTA A PUNTA (1.43.0) con TRES navegadores, contra el BUILD
+// radio-e2e-func.mjs — la moderación de la radio web DE PUNTA A PUNTA (1.45.0) con TRES navegadores, contra el BUILD
 // DE PRODUCCIÓN (preview :4173) y el backend REAL del runner (:3100, copia de la base). Nada de servidor falso y nada
 // por API que la app haga con un botón: el anfitrión transmite, nombra y quita desde su lista, y cierra la pestaña.
 //
@@ -34,7 +34,7 @@
 // e2e_5 ES INTERMITENTE CONOCIDA: falló 5 de 33 corridas y no se le encontró la causa. Probablemente es el mismo
 // mecanismo que hace intermitente a 10c (radio-func), pero eso es una SUPOSICIÓN, no está medido. Regla: si es la
 // ÚNICA falla de la suite, se repite una vez, igual que 10c; no se marca como tolerada. Ya descartado: Chromium, el
-// proxy de vite preview, la espera y un límite de frecuencia. La investigación va aparte, después de 1.43.0.
+// proxy de vite preview, la espera y un límite de frecuencia. La investigación va aparte, después de 1.45.0.
 //
 // CONTROL NEGATIVO: con el botón de nombrar sin marcar la insignia en la cara del moderador (modera = false) caen
 // e2e_2b y, por arrastre, e2e_3a/e2e_3b (no hay botones que pulsar); con "quitar" que no apaga los botones, cae e2e_4b.
