@@ -68,7 +68,7 @@ console.log('leer lo que publica el anfitrión');
   check(!('clientNow' in conReloj) && !('publishedAtServerMs' in conReloj) && !('seq' in conReloj), 'un reloj o una secuencia del cliente se ignoran');
 }
 
-console.log('leer una orden de un moderador (1.43.0)');
+console.log('leer una orden de un moderador (1.45.0)');
 {
   const O = (b) => leerOrden(b);
   const ID = 'k3J9x2';
@@ -110,7 +110,7 @@ console.log('leer una orden de un moderador (1.43.0)');
   check(Buffer.byteLength(mayor) <= REGLAS.CUERPO_MAX_BYTES, `la orden más grande cabe en ${REGLAS.CUERPO_MAX_BYTES} bytes`, `${Buffer.byteLength(mayor)} bytes`);
 }
 
-console.log('las reglas de la moderación (1.43.0)');
+console.log('las reglas de la moderación (1.45.0)');
 check(igual([REGLAS.MAX_MODERADORES, REGLAS.MAX_ORDENES, REGLAS.ORDEN_TTL_MS, REGLAS.MAX_ORDENES_PERSONA, REGLAS.VENTANA_ORDENES_MS, REGLAS.MAX_EVENTOS],
   [3, 10, 30_000, 10, 10_000, 20]), 'los valores por defecto: 3 moderadores, 10 órdenes, 30 s, 10 por persona cada 10 s, 20 eventos');
 check(Object.isFrozen(REGLAS), 'REGLAS sigue congelado');
@@ -312,7 +312,7 @@ console.log('límites');
   check(a.publicar(codigo, 1, SUENA).estado?.seq === REGLAS.MAX_PUBLICACIONES + 1, 'al vencer la ventana vuelve a publicar');
 }
 
-console.log('moderadores (1.43.0)');
+console.log('moderadores (1.45.0)');
 const MOD = { capacidades: { moderar: true } };
 /** Desde S3, leer() da moderadores y capacidades solo a pedido: así lo pide el anfitrión. */
 const PIDE = { desde: 0 };
@@ -433,7 +433,7 @@ function salaConOyentes() {
   check(igual(a.leer(raro, 2, MOD).capacidades, { ordenes: false }), 'un "true" en texto no cuenta');
 }
 
-// ════ S3 (1.43.0): órdenes, confirmación, eventos, cursor, título, a pedido ════
+// ════ S3 (1.45.0): órdenes, confirmación, eventos, cursor, título, a pedido ════
 let nCli = 0;
 /** Una orden como la deja leerOrden. */
 const ORD = (tipo, extra = {}) => ({ tipo, trackId: null, seqBase: null, idCliente: `cli${String(++nCli).padStart(4, '0')}`, ...extra });
@@ -448,7 +448,7 @@ function salaModerada({ ordenes = true } = {}) {
 }
 const ANF = { desde: 0 };
 
-console.log('a pedido: sin pedirlo, lo de 1.42.0 (1.43.0)');
+console.log('a pedido: sin pedirlo, lo de 1.42.0 (1.45.0)');
 {
   const { a, codigo } = salaModerada();
   const CLAVES = ['ok', 'serverNow', 'codigo', 'status', 'motivo', 'estado', 'anfitrion', 'oyentes'];
@@ -466,7 +466,7 @@ console.log('a pedido: sin pedirlo, lo de 1.42.0 (1.43.0)');
   check(igual([fin.moderadores, fin.eventos, fin.ordenes], [[], [], []]), 'terminada, a pedido: sin moderadores, eventos ni órdenes');
 }
 
-console.log('órdenes (1.43.0)');
+console.log('órdenes (1.45.0)');
 {
   const { a, codigo } = salaModerada();
   const r1 = a.ordenar(codigo, 2, ORD('siguiente', { seqBase: 1 }));
@@ -553,7 +553,7 @@ console.log('órdenes (1.43.0)');
   check(igual(a.ordenar('ZZZZZZ', 2, ORD('pausa')), { ok: false, motivo: 'no-existe' }), 'en una que no existe: no-existe');
 }
 
-console.log('órdenes repetidas (1.43.0)');
+console.log('órdenes repetidas (1.45.0)');
 {
   const { a, codigo, pasar } = salaModerada();
   a.otorgar(codigo, 1, 3, { nombre: 'Beto' });
@@ -584,7 +584,7 @@ console.log('órdenes repetidas (1.43.0)');
   check(igual(a.ordenar(codigo, 2, { ...X }), { ok: false, motivo: 'sin-permiso' }), 'el reintento de quien perdió el rol: sin-permiso, no repetida');
 }
 
-console.log('confirmación y eventos (1.43.0)');
+console.log('confirmación y eventos (1.45.0)');
 {
   const { a, codigo } = salaModerada();
   const base = a.leer(codigo, 1, ANF).eventosHasta;
@@ -618,7 +618,7 @@ console.log('confirmación y eventos (1.43.0)');
   check(igual(a.ordenar(codigo, 2, ORD('pausa')), { ok: false, motivo: 'sin-permiso' }), 'el rol quitado ya no ordena');
 }
 
-console.log('el cursor de los eventos (1.43.0)');
+console.log('el cursor de los eventos (1.45.0)');
 {
   const { a, codigo } = salaModerada();   // evento 1: otorgar a 2
   a.otorgar(codigo, 1, 3, { nombre: 'Beto' });   // evento 2
@@ -641,7 +641,7 @@ console.log('el cursor de los eventos (1.43.0)');
   check(a.leer(codigo, 4, { ...MOD, desde: 5 }).eventosPerdidos === false, 'desde justo antes del más viejo guardado: nada perdido');
 }
 
-console.log('el título de los eventos (1.43.0)');
+console.log('el título de los eventos (1.45.0)');
 {
   check(REGLAS.TITULO_MAX === 100, 'el tope: 100 caracteres');
   check(tituloPublico('x'.repeat(150)).length === 100, 'uno de 150 se corta a 100');
@@ -656,7 +656,7 @@ console.log('el título de los eventos (1.43.0)');
   check(o[0].titulo.length === 100 && o[1].titulo === null, 'en una orden: cortado, y un título que queda vacío va como null');
 }
 
-console.log('publicar sin confirmación: como en 1.42.0 (1.43.0)');
+console.log('publicar sin confirmación: como en 1.42.0 (1.45.0)');
 {
   const L = (b) => leerPublicacion(b);
   const viejos = [
@@ -681,7 +681,7 @@ console.log('publicar sin confirmación: como en 1.42.0 (1.43.0)');
     'aplicadas que no es una lista de hasta 10 ids: no');
 }
 
-console.log('lo que se olvida de las órdenes (1.43.0)');
+console.log('lo que se olvida de las órdenes (1.45.0)');
 {
   const { a, codigo, pasar } = salaModerada();
   a.ordenar(codigo, 2, ORD('pausa'));

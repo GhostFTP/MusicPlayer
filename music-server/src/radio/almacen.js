@@ -10,17 +10,17 @@
 // sin esperar minutos (`npm run test:radio`). Nunca se usa un reloj del cliente.
 //
 // Las respuestas: `{ ok: true, ... }` o `{ ok: false, motivo }`, con motivo en
-// 'no-existe' | 'no-es-tuya' | 'terminada' | 'frecuencia' | 'demasiadas' | 'llena', y desde 1.43.0
+// 'no-existe' | 'no-es-tuya' | 'terminada' | 'frecuencia' | 'demasiadas' | 'llena', y desde 1.45.0
 // (moderadores) 'sin-permiso' | 'es-el-anfitrion' | 'no-escucha' | 'sin-soporte' | 'moderadores-llenos'.
 // 'no-es-tuya' queda SOLO para publicar: la web y la app de iOS abandonan la radio ante ese motivo,
 // así que nada de la moderación lo devuelve (por eso existe 'sin-permiso'). Las órdenes suman
 // 'obsoleta' | 'ordenes-llenas'.
 //
-// MODERADORES (1.43.0): el anfitrión nombra a quien está escuchando. El rol dura hasta que el
+// MODERADORES (1.45.0): el anfitrión nombra a quien está escuchando. El rol dura hasta que el
 // anfitrión lo quite o la radio termine: NO caduca por dejar de escuchar (leer() limpia los
 // oyentes, nunca los moderadores). Para ORDENAR, en cambio, tiene que estar escuchando.
 //
-// ÓRDENES (1.43.0, control remoto): un moderador ordena, el reproductor del anfitrión ejecuta y
+// ÓRDENES (1.45.0, control remoto): un moderador ordena, el reproductor del anfitrión ejecuta y
 // confirma en su próxima publicación (`ordenHasta`, `aplicadas`). Cada orden aplicada queda como
 // EVENTO ("Sonia pasó a la siguiente"), igual que nombrar o quitar un moderador.
 //
@@ -147,7 +147,7 @@ export function crearAlmacen({ ahora = Date.now, azar = randomInt, reglas = REGL
   /**
    * El anfitrión publica su estado. `estado` ya viene validado y acotado por la ruta:
    * `{ trackId, positionMs, playing, nextTrackId, enPausaPorVideo }`. Sirve de latido.
-   * `confirmacion` (1.43.0, la de leerPublicacion): sin ella, la respuesta es la de siempre; con
+   * `confirmacion` (1.45.0, la de leerPublicacion): sin ella, la respuesta es la de siempre; con
    * ella, se confirman las órdenes y vuelven las que siguen pendientes.
    */
   function publicar(codigo, quien, estado, confirmacion) {

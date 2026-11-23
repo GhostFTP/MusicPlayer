@@ -69,7 +69,7 @@ pista(501, 200.5);      // 200 500 ms
 pista(502, 31);
 pista(503, null);       // sin duración en la base
 // Un video EN tracks no debería existir nunca (el escáner solo mira audio); está para probar
-// que una orden lo rechaza por su mime_type (1.43.0).
+// que una orden lo rechaza por su mime_type (1.45.0).
 db.prepare('INSERT INTO tracks (id, title, duration, file_path, mime_type) VALUES (?, ?, ?, ?, ?)').run(504, 'Video 504', 60, '/music/smoke-504.mp4', 'video/mp4');
 const FANTASMA = 777777; // no es ninguna pista
 
@@ -358,7 +358,7 @@ try {
     check(igual(cr, [...Array(REGLAS.MAX_CREACIONES - 2).fill(201), 429]), `la creación ${REGLAS.MAX_CREACIONES + 1} de la misma cuenta en un minuto: 429`, cr.join(','));
   }
 
-  // ---- [13] Órdenes con un video (1.43.0) ----
+  // ---- [13] Órdenes con un video (1.45.0) ----
   // Antes de mirar quién manda: un video no entra ni como pista de la base ni como id de video.
   // En el servidor "corto" (el normal quedó con el tope de radios lleno).
   console.log('[13] órdenes con un video');

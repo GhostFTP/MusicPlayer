@@ -50,7 +50,7 @@ export const REGLAS = Object.freeze({
   /** Tope de posición para una pista sin duración en la base (24 h). */
   POSICION_MAX_MS: 24 * 60 * 60_000,
 
-  // ---- Moderación y control remoto (1.43.0) ----
+  // ---- Moderación y control remoto (1.45.0) ----
   /** Moderadores a la vez en una radio. Los nombra el anfitrión entre quienes escuchan. */
   MAX_MODERADORES: 3,
   /** Órdenes pendientes (mandadas y todavía sin confirmar por el anfitrión) en una radio. */
@@ -99,7 +99,7 @@ const esId = (v) => Number.isSafeInteger(v) && v > 0;
  * Devuelve `{ ok: true, pedido }` o `{ ok: false, error }` (un texto para un 400).
  * El reloj del cliente NO se lee nunca: si el cuerpo trae uno, se ignora.
  *
- * Desde 1.43.0 el anfitrión que ejecuta órdenes puede sumar `ordenHasta` (la última orden que
+ * Desde 1.45.0 el anfitrión que ejecuta órdenes puede sumar `ordenHasta` (la última orden que
  * vio, aplicada o descartada) y `aplicadas` (las que de verdad aplicó): eso vuelve APARTE, en
  * `confirmacion`, nunca dentro de `pedido`. Sin esos dos campos (la app de iOS, la web de 1.42.0)
  * la lectura es exactamente la de antes: mismas respuestas, mismos errores, mismo orden.
@@ -166,7 +166,7 @@ export function acotarPosicion(positionMs, duracionS, reglas = REGLAS) {
   return Math.min(Math.max(0, Math.round(positionMs)), tope);
 }
 
-// ---- Lo que ordena un moderador (1.43.0) ----
+// ---- Lo que ordena un moderador (1.45.0) ----
 //
 // El control remoto: un moderador no publica el estado, MANDA una orden que el reproductor del
 // anfitrión ejecuta (y después publica, como siempre). Pausa y reanudar son absolutas, no un

@@ -5,7 +5,7 @@
 //   GET    /api/radio/:code        cualquiera con sesión lee el estado (y queda de oyente)
 //   DELETE /api/radio/:code        el anfitrión, o un admin, la termina
 //
-// Desde 1.43.0 (moderadores y control remoto):
+// Desde 1.45.0 (moderadores y control remoto):
 //   PUT    /api/radio/:code/moderadores/:userId  el anfitrión nombra moderador a quien escucha
 //   DELETE /api/radio/:code/moderadores/:userId  y se lo quita
 //   POST   /api/radio/:code/ordenes              un moderador manda una orden → 202 { id }
@@ -74,7 +74,7 @@ function persona(id) {
 // códigos al azar no aprende nada de la respuesta.
 const NO_EXISTE = 'No existe esa radio.';
 
-/** El motivo del almacén → la respuesta. Los de la moderación (1.43.0) llevan `reason`, para
+/** El motivo del almacén → la respuesta. Los de la moderación (1.45.0) llevan `reason`, para
  *  que el cliente decida sin leer el texto; los de antes, no (son los de 1.42.0, tal cual). */
 function rechazar(res, r) {
   const conMotivo = (status, error) => res.status(status).json({ error, reason: r.motivo });
@@ -139,7 +139,7 @@ const pideVideo = (b) => b?.kind === 'video' || (typeof b?.trackId === 'string' 
 const VIDEO = { error: 'Los videos no se pueden poner desde el control remoto.', reason: 'video' };
 
 router.post('/', (req, res) => {
-  // `{ capabilities: { orders: true } }` (1.43.0): el reproductor de este anfitrión ejecuta
+  // `{ capabilities: { orders: true } }` (1.45.0): el reproductor de este anfitrión ejecuta
   // órdenes. Solo cuenta un true de verdad; sin cuerpo, o con uno raro, la radio de siempre.
   const b = req.body;
   const pide = b && typeof b === 'object' && !Array.isArray(b) ? b.capabilities : null;
@@ -213,7 +213,7 @@ router.delete('/:code', (req, res) => {
   res.json({ serverNow: r.serverNow, status: 'ended', endedReason: r.motivo });
 });
 
-// ---- Moderadores (1.43.0) ----
+// ---- Moderadores (1.45.0) ----
 // Quién puede (solo el anfitrión) lo decide el almacén: acá solo se lee la URL y se ponen nombres.
 function moderar(req, res, otorgar) {
   const codigo = leerCodigo(req.params.code);
@@ -230,7 +230,7 @@ function moderar(req, res, otorgar) {
 router.put('/:code/moderadores/:userId', (req, res) => moderar(req, res, true));
 router.delete('/:code/moderadores/:userId', (req, res) => moderar(req, res, false));
 
-// ---- Órdenes (1.43.0) ----
+// ---- Órdenes (1.45.0) ----
 // Cuerpo: { type, trackId?, seqBase?, clientId } (los tipos, en reglas.js: TIPOS_ORDEN). Quién
 // puede (un moderador que está escuchando) lo decide el almacén; acá, la pista y su título.
 router.post('/:code/ordenes', (req, res) => {
