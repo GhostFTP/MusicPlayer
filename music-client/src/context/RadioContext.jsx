@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from './AuthContext.jsx';
+import { useToast } from '../components/Toast.jsx';
+import { registrarRadioEnMenu } from '../components/ContextMenu.jsx';
 import { usePlayer, usePlayerTime } from './PlayerContext.jsx';
 import {
   PUERTA_INICIAL, puertaAbierta, alPublicar, alResponder, debePublicar,
@@ -8,6 +10,9 @@ import {
   mejorReloj, horaServidor, posicionProyectada, SINCRO_INICIAL, decidirCorreccion, pasoDelOyente,
   esperaDelSondeo, resolverColaDelOyente, fotoDeLaCola, planDeRestauracion, pausaDelOyente,
   idDeCancion, DESAJUSTE_MS,
+  planDeOrden, siguienteDelMotor, alFinalDeLaCola, confirmacionDe, colaDelOyente,
+  juntarEventos, avisarEvento, textoDeEvento, pasoDeEventos,
+  esModerador, resolverOrden, ORDEN_ESPERANDO_MS, ORDEN_VENCE_MS, ORDENES_DE_LA_TARJETA, ORDENES_DEL_MENU, eventoDeOrden, TEXTOS_ORDEN, textoDeEspera,
 } from '../utils/radioSync.js';
 
 // RADIO WEB: EL ANFITRIÓN (fase 1, sub-paso 3) Y EL OYENTE (sub-paso 4). Port de los puentes de iOS
@@ -25,7 +30,8 @@ import {
 //    que necesita del motor (la foto al entrar, play/seek/pause para devolverla) se lo deja el
 //    puente del oyente en refs.
 //
-//  · <PuenteAnfitrion/> — sin UI, montado SÓLO con fase === 'anfitrion'. Publica el estado y lee oyentes.
+//  · <PuenteAnfitrion/> — sin UI, montado SÓLO con fase === 'anfitrion'. Publica el estado, lee oyentes
+//    y (1.45.0) aplica las órdenes de quien modera.
 //  · <PuenteOyente/> — sin UI, montado SÓLO con fase === 'oyente'. Lee la sala y mueve el reproductor.
 //    Los dos son los únicos que leen usePlayer y usePlayerTime: re-renderizan a ~4 Hz mientras suena,
 //    pero son hojas aparte que devuelven null, así que eso no toca a Layout ni a las vistas.
@@ -41,6 +47,10 @@ import {
 //    aleatorio encendido, al terminar la pista el motor puede saltar a lo encolado (medido: 11 de 20)
 //    hasta que el desajuste (DESAJUSTE_MS, 6 s) vuelve a poner la de la radio. Arreglo propuesto: un
 //    setShuffleMode(bool) idempotente en el motor (P-h), apagarlo al unirse y devolverlo al salir.
+//    M4 (aleatorio con orden fijo): el motor camina por posición y play() respeta [pista, siguiente];
+//    lo encolado va al final. Medido A NIVEL MOTOR (play([A, B]) + aleatorio + addToQueue(X), A termina
+//    sola): antes 13 de 20 saltaban a X, con M4 0 de 20. Falta medirlo de punta a punta con la radio
+//    real antes de dar la deuda por cerrada y descartar P-h.
 //  · Un 403 durante (Cloudflare Access, no el servidor) se toma como pasajero: si es permanente, el
 //    aviso "sin respuesta" queda para siempre. Igual que iOS.
 
@@ -51,6 +61,25 @@ const RadioContext = createContext(null);
 const MIRAR_CADA_MS = 500;
 /** Cada cuánto se lee la sala para saber quién escucha (iOS: OYENTES_CADA_MS). */
 const OYENTES_CADA_MS = 5000;
+/** 1.45.0: con moderadores la sala se lee además cada 2 s, porque ahí llegan las órdenes. Es un
+ *  intervalo APARTE, montado solo mientras haya moderadores: sin ellos quedan los dos de siempre. */
+const ORDENES_CADA_MS = 2000;
+/** Dos lecturas de la sala no más cerca que esto (el intervalo de 2 s y el de 5 s se cruzan). */
+const LECTURA_MIN_MS = 1500;
+/** Cuánto se espera a que el motor muestre lo que hizo una orden (otra pista, la pausa, la cola). */
+const ESPERA_MOTOR_MS = 1000;
+/** 1.45.0: cada lectura del OYENTE declara que esta app sabe moderar (?cap=mod). Va en TODAS (unirse
+ *  y cada vuelta): el servidor anota el soporte en cada lectura, y una sin cap lo apagaría. */
+const LECTURA_OYENTE = { cap: 'mod' };
+/** Cuánto dura el aviso breve de un evento ajeno. NO 2000 ms: radio-oyente-func cuenta los setTimeout
+ *  de 2000 ms pendientes (es la demora del sondeo del oyente). */
+const AVISO_EVENTO_MS = 3500;
+/** W5b-1: lo que ve de la radio quien escucha, para sus botones de moderar. Sin el seq: sube con cada
+ *  publicación del anfitrión (también el latido) y re-renderizaría la sala cada vez sin que cambie nada
+ *  visible. El seq (la base de "siguiente") vive solo en vistaModRef; acá, si lo hay (conBase). */
+const VISTA_MOD_VACIA = Object.freeze({ modera: false, admite: false, playing: null, conBase: false, trackId: null });
+/** W5b-2: ¿se está fuera de la vista Radio? Ahí la línea de estado no se ve y va también como toast. */
+const fueraDeLaRadio = () => typeof window !== 'undefined' && !/^\/radio(\/|$)/.test(window.location.pathname);
 /** Unirse a la sala propia (decisión del usuario: el texto). */
 const TEXTO_SALA_PROPIA = 'Esta radio es tuya.';
 
@@ -69,6 +98,26 @@ export function RadioProvider({ children }) {
   const [aviso, setAviso] = useState(null);           // null | 'sin-senal' | 'sin-respuesta' | 'esperando-anfitrion' | 'video' | 'falta-cancion' | 'no-se-pudo-cargar'
   const [silenciada, setSilenciada] = useState(false);   // el oyente pausó por su cuenta ("en pausa para ti")
   const [quiereSonar, setQuiereSonar] = useState(false);  // el anfitrión suena una canción (no en pausa ni en video)
+  // Sólo del anfitrión (1.45.0, W4): quién modera, lo que pasó en la radio y a quién no se puede nombrar.
+  const [moderadores, setModeradores] = useState([]);           // [{ id, name, avatar }]
+  const [eventos, setEventos] = useState([]);                   // los últimos EVENTOS_MAX, sin repetidos
+  const [sinSoporte, setSinSoporte] = useState(() => new Set());   // ids con 409 sin-soporte (esta sala)
+  const eventosVistosRef = useRef(new Set());   // ids ya vistos: un evento avisa una sola vez
+  // Del oyente (W5a): lo último que se anunció de la radio (eventos y aviso de rol) → { texto, n } | null.
+  const [anuncio, setAnuncio] = useState(null);
+  // Del oyente que modera (W5b-1): lo que ve de la radio, sus órdenes en vuelo, la línea de estado y la
+  // cuenta de un 429. Las órdenes viven en un ref (con sus temporizadores); el estado es lo que pinta.
+  const [vistaMod, setVistaMod] = useState(VISTA_MOD_VACIA);
+  const [ordenando, setOrdenando] = useState({});        // tipo → true mientras está en vuelo
+  const [lineaOrden, setLineaOrden] = useState(null);    // { texto, n } | null
+  const [esperaOrden, setEsperaOrden] = useState(0);     // segundos que faltan por un 429 (0 = ninguno)
+  const vistaModRef = useRef({ ...VISTA_MOD_VACIA, estado: null, cursor: 0 });
+  const ordenesRef = useRef(new Map());   // tipo → { tipo, baseTrackId, cursor, enviadaEn, enviando, resuelta, esperando, timers }
+  const esperaRef = useRef({ t: null, s: 0 });
+  const lineaDeRef = useRef(null);        // de quién es la línea: un tipo, 'espera' o null
+  // Lo pone el puente del anfitrión: (moderadores) → arranca o corta la lectura de 2 s en el acto.
+  const moderarRef = useRef(null);
+  const toast = useToast();
 
   // Espejos síncronos: un segundo clic llega antes del re-render, y pagehide lee la fase en el acto.
   const faseRef = useRef('sin-radio');
@@ -92,11 +141,104 @@ export function RadioProvider({ children }) {
   const tocarRef = useRef(null);
   const primeraRef = useRef(null);
 
+  // ── Las órdenes de quien modera (W5b-1). Funciones de render que solo tocan refs y setters. ──
+  /** La línea de estado. Un texto nuevo es un nodo nuevo (key n): así un texto repetido se vuelve a
+   *  anunciar. `mismo`: la cuenta regresiva cambia el texto sin montar otro nodo. `fallo`: es un error
+   *  (textoDeFallo): su toast va con la variante de aviso, no con la de éxito. */
+  const decirOrden = (texto, de = null, mismo = false, fallo = false) => {
+    lineaDeRef.current = texto ? de : null;
+    setLineaOrden((l) => (texto ? { texto, n: mismo && l ? l.n : (l?.n ?? 0) + 1 } : null));
+    // W5b-2: fuera de la vista Radio la línea no se ve → el mismo texto sale también como toast. No el
+    // "Enviando…" (dura lo que la petición) ni cada segundo de la cuenta (mismo).
+    if (texto && !mismo && texto !== TEXTOS_ORDEN.enviando && fueraDeLaRadio()) toast(texto, { duration: AVISO_EVENTO_MS, ...(fallo ? { variant: 'warning' } : {}) });
+  };
+  const cerrarOrden = (tipo) => {
+    const o = ordenesRef.current.get(tipo);
+    if (!o) return;
+    for (const t of o.timers) clearTimeout(t);
+    ordenesRef.current.delete(tipo);
+    setOrdenando((x) => { const y = { ...x }; delete y[tipo]; return y; });
+  };
+  const cortarEspera = () => {
+    clearTimeout(esperaRef.current.t);
+    esperaRef.current = { t: null, s: 0 };
+    setEsperaOrden(0);
+  };
+  /** Sin órdenes ni cuenta ni línea (salir, terminar, perder el rol, otra sala). */
+  const limpiarOrdenes = () => {
+    for (const tipo of [...ordenesRef.current.keys()]) cerrarOrden(tipo);
+    cortarEspera();
+    lineaDeRef.current = null;
+    setLineaOrden(null);
+  };
+  /** Lo que dijo resolverOrden, a la línea. */
+  const cerrarCon = (tipo, res, aviso = null) => {
+    const o = ordenesRef.current.get(tipo);
+    if (!o) return;
+    switch (res) {
+      case 'cancelada': cerrarOrden(tipo); if (lineaDeRef.current === tipo) decirOrden(null); break;
+      // Aplicada: la línea se vacía y lo dice el evento ("Tú pausaste") en SU región: nada se pisa.
+      // W5b-2: una orden del menú, fuera de la vista Radio, lo avisa con un toast (el texto del evento).
+      case 'aplicada':
+        cerrarOrden(tipo);
+        if (lineaDeRef.current === tipo) decirOrden(null);
+        if (aviso && fueraDeLaRadio()) toast(aviso, { duration: AVISO_EVENTO_MS });
+        break;
+      case 'ya-cambio': cerrarOrden(tipo); decirOrden(TEXTOS_ORDEN.yaCambio, tipo); break;
+      case 'no-se-aplico': cerrarOrden(tipo); decirOrden(TEXTOS_ORDEN.noSeAplico, tipo); break;
+      case 'esperando': if (!o.esperando) { o.esperando = true; decirOrden(TEXTOS_ORDEN.esperando, tipo); } break;
+      default: break;
+    }
+  };
+  /** Mira una orden contra lo último que se vio. Mientras se envía, solo se anota lo que la resuelve. */
+  const revisarOrden = (tipo, nuevos = []) => {
+    const o = ordenesRef.current.get(tipo);
+    if (!o) return;
+    const v = vistaModRef.current;
+    const yo = Number(userIdRef.current);
+    const res = resolverOrden(o, { ahoraMs: Date.now(), modera: v.modera, estado: v.estado, eventos: nuevos, yo });
+    let aviso = null;
+    if (res === 'aplicada' && ORDENES_DEL_MENU.includes(tipo)) {
+      const ev = eventoDeOrden(o, nuevos, yo);
+      aviso = (ev && textoDeEvento(ev, yo)) || TEXTOS_ORDEN.yaSuena;
+    }
+    if (o.enviando) { if (res === 'aplicada' || res === 'ya-cambio' || res === 'cancelada') { o.resuelta = res; o.aviso = aviso; } return; }
+    cerrarCon(tipo, res, aviso);
+  };
+  /** La cuenta de un 429: una cadena de setTimeout de 1000 ms (nunca setInterval). */
+  const empezarEspera = (s) => {
+    clearTimeout(esperaRef.current.t);
+    const paso = (n) => {
+      esperaRef.current.s = n;
+      setEsperaOrden(n);
+      if (n <= 0) { esperaRef.current.t = null; if (lineaDeRef.current === 'espera') decirOrden(null); return; }
+      decirOrden(textoDeEspera(n), 'espera', lineaDeRef.current === 'espera');
+      esperaRef.current.t = setTimeout(() => paso(n - 1), 1000);
+    };
+    paso(s);
+  };
+
+  /** Lo de la moderación vuelve a cero (otra sala, o ninguna). */
+  const limpiarModeracion = () => {
+    setModeradores([]);
+    setEventos([]);
+    setSinSoporte(new Set());
+    eventosVistosRef.current = new Set();
+    setAnuncio(null);
+    limpiarOrdenes();
+    vistaModRef.current = { ...VISTA_MOD_VACIA, estado: null, cursor: 0 };
+    setVistaMod(VISTA_MOD_VACIA);
+  };
+
   useEffect(() => {
     montadoRef.current = true;
     return () => {
       montadoRef.current = false;
       genRef.current += 1;
+      // W5b-1: ningún temporizador de las órdenes sobrevive al provider.
+      for (const o of ordenesRef.current.values()) for (const t of o.timers) clearTimeout(t);
+      ordenesRef.current.clear();
+      clearTimeout(esperaRef.current.t);
       // Logout (o reauth) siendo oyente: el reproductor vive por encima y seguiría sonando lo de la
       // radio. Se calla y se devuelve el repeat; la cola NO se restaura. La salida normal no pasa por
       // acá: finOyente ya dejó la fase en 'sin-radio' antes de desmontar.
@@ -115,6 +257,7 @@ export function RadioProvider({ children }) {
     ponerFase('sin-radio');
     setCodigo(null);
     setOyentes([]);
+    limpiarModeracion();
     setFin({ razon, texto: textoDeFin('anfitrion', razon) });
   }, []);
 
@@ -145,6 +288,7 @@ export function RadioProvider({ children }) {
     setAviso(null);
     setSilenciada(false);
     setQuiereSonar(false);
+    limpiarModeracion();
     if (razon) setFin({ razon, texto: textoDeFin('oyente', razon) });
   }, []);
 
@@ -152,6 +296,45 @@ export function RadioProvider({ children }) {
     if (gen !== genRef.current || !montadoRef.current) return;
     setOyentes((prev) => (mismosOyentes(prev, lista) ? prev : lista));
   }, []);
+
+  /** Del puente del anfitrión, en cada lectura con moderación: quién modera y los eventos nuevos. A la
+   *  región viva van todos; al aviso breve, solo el último de OTRA persona (lo propio ya se vio). */
+  const alModeracion = useCallback((gen, lista, llegados) => {
+    if (gen !== genRef.current || !montadoRef.current) return;
+    setModeradores((prev) => (mismosOyentes(prev, lista) ? prev : lista));
+    const nuevos = (llegados ?? []).filter((e) => !eventosVistosRef.current.has(e.id));
+    if (!nuevos.length) return;
+    for (const e of nuevos) eventosVistosRef.current.add(e.id);
+    setEventos((prev) => juntarEventos(prev, nuevos));
+    const ajenos = nuevos.filter((e) => avisarEvento(e, userIdRef.current));
+    if (ajenos.length) toast(textoDeEvento(ajenos[ajenos.length - 1], userIdRef.current), { duration: AVISO_EVENTO_MS });
+  }, [toast]);
+
+  /** Del puente del oyente (W5a): los eventos nuevos y lo que hay que anunciar (pasoDeEventos). A la región
+   *  viva va TODO lo de esta lectura junto (así nada se pisa); al toast, lo último que lleva toast. */
+  const alEventosOyente = useCallback((gen, nuevos, anuncios) => {
+    if (gen !== genRef.current || !montadoRef.current) return;
+    if (nuevos.length) setEventos((prev) => juntarEventos(prev, nuevos));
+    if (!anuncios.length) return;
+    const texto = anuncios.map((a) => a.texto).join('. ');
+    setAnuncio((a) => ({ texto, n: (a?.n ?? 0) + 1 }));
+    const conToast = anuncios.filter((a) => a.toast);
+    if (conToast.length) toast(conToast[conToast.length - 1].texto, { duration: AVISO_EVENTO_MS });
+  }, [toast]);
+
+  /** Del puente del oyente (W5b-1), en cada lectura con moderación: lo que ve (si modera, si la radio
+   *  admite órdenes, el estado y el cursor de eventos) y los eventos nuevos. Con eso se revisan las
+   *  órdenes en vuelo; perder el rol las cancela sin error. */
+  const alVistaOyente = useCallback((gen, obs) => {
+    if (gen !== genRef.current || !montadoRef.current) return;
+    const antes = vistaModRef.current;
+    const e = obs.estado ?? null;
+    vistaModRef.current = { modera: obs.modera, admite: obs.admite, playing: e?.playing ?? null, seq: e?.seq ?? null, trackId: e?.trackId ?? null, estado: e, cursor: obs.cursor ?? 0 };
+    const v = { modera: obs.modera, admite: obs.admite, playing: e?.playing ?? null, conBase: e?.seq != null, trackId: e?.trackId ?? null };
+    setVistaMod((prev) => (Object.keys(v).every((k) => prev[k] === v[k]) ? prev : v));
+    if (!obs.modera) { if (antes.modera) limpiarOrdenes(); return; }
+    for (const tipo of [...ordenesRef.current.keys()]) revisarOrden(tipo, obs.nuevos);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const alAviso = useCallback((gen, a) => {
     if (gen !== genRef.current || !montadoRef.current) return;
@@ -177,7 +360,8 @@ export function RadioProvider({ children }) {
     ponerFase('creando');
     setError(null);
     setFin(null);
-    const r = await api.radioCrear();
+    // 1.45.0: este reproductor ejecuta órdenes de quien modera (se declara solo al crear).
+    const r = await api.radioCrear({ capabilities: { orders: true } });
     if (gen !== genRef.current || !montadoRef.current) return false;
     if (!r.ok) {
       ponerFase('sin-radio');
@@ -188,6 +372,7 @@ export function RadioProvider({ children }) {
     setCodigo(r.code);
     setGenSala(gen);
     setOyentes([]);
+    limpiarModeracion();
     ponerFase('anfitrion');   // monta el puente, que publica en el acto
     return true;
   }, []);
@@ -206,6 +391,7 @@ export function RadioProvider({ children }) {
     ponerFase('sin-radio');
     setCodigo(null);
     setOyentes([]);
+    limpiarModeracion();
     if (r.ok) setFin({ razon: 'anfitrion', texto: textoDeFin('anfitrion', 'anfitrion') });
     else if (r.error === 'terminada') setFin({ razon: r.razon, texto: textoDeFin('anfitrion', r.razon) });
     else if (r.error === 'no-existe') setFin({ razon: 'no-existe', texto: textoDeFin('anfitrion', 'no-existe') });
@@ -221,7 +407,8 @@ export function RadioProvider({ children }) {
     setError(null);
     setFin(null);
     setAviso(null);
-    const r = await api.radioLeer(codigoSala);
+    limpiarModeracion();
+    const r = await api.radioLeer(codigoSala, LECTURA_OYENTE);
     if (gen !== genRef.current || !montadoRef.current) return false;
     if (!r.ok) {
       ponerFase('sin-radio');
@@ -271,6 +458,72 @@ export function RadioProvider({ children }) {
 
   const limpiarFin = useCallback(() => { setFin(null); setError(null); }, []);
 
+  /** El anfitrión nombra (si) o quita (no) a quien modera → { ok } | { ok: false, error }. Al salir bien,
+   *  la lista entra ya y el puente arranca (o corta) la lectura de 2 s en el acto, sin esperar la de 5 s.
+   *  Un 409 sin-soporte deja a esa persona sin botón en esta sala (no se reintenta); lo demás, al aviso. */
+  const moderar = useCallback(async (userId, si) => {
+    if (faseRef.current !== 'anfitrion') return { ok: false, error: 'fase' };
+    const gen = genRef.current;
+    const r = await api.radioModerador(codigoRef.current, userId, si);
+    if (gen !== genRef.current || !montadoRef.current) return { ok: false, error: 'vieja' };
+    if (r.ok) {
+      setModeradores(r.moderators);
+      moderarRef.current?.(r.moderators, r.serverNow);
+      return { ok: true };
+    }
+    if (r.error === 'sin-soporte') setSinSoporte((s) => new Set(s).add(userId));
+    else setError(textoDeFallo('moderar', r));
+    return { ok: false, error: r.error };
+  }, []);
+  /** Quien modera manda una orden desde su tarjeta (W5b-1) o desde el menú "En la radio" (W5b-2, con la
+   *  pista): una en vuelo por tipo. "siguiente" lleva la base (el seq del estado que se ve). → lo de
+   *  api.radioOrdenar, o { ok: false, error } sin mandar. Sin el rol (el menú no lo refresca abierto)
+   *  cancela sin error; del menú, una segunda del mismo tipo en vuelo lo dice en la línea. */
+  const ordenar = useCallback(async (tipo, trackId = null) => {
+    const delMenu = ORDENES_DEL_MENU.includes(tipo);
+    if (faseRef.current !== 'oyente' || !(delMenu || ORDENES_DE_LA_TARJETA.includes(tipo))) return { ok: false, error: 'fase' };
+    const v = vistaModRef.current;
+    if (!v.modera || !v.admite) return { ok: false, error: 'sin-rol' };
+    if (ordenesRef.current.has(tipo) || esperaRef.current.s > 0) {
+      if (delMenu) {
+        if (esperaRef.current.s > 0) decirOrden(textoDeEspera(esperaRef.current.s), 'espera');
+        else decirOrden(TEXTOS_ORDEN.anterior, tipo);
+      }
+      return { ok: false, error: 'ocupado' };
+    }
+    if (tipo === 'siguiente' && v.seq == null) return { ok: false, error: 'sin-estado' };
+    const gen = genRef.current;
+    const o = { tipo, trackId: delMenu ? trackId : null, baseTrackId: v.trackId, cursor: v.cursor, enviadaEn: Date.now(), enviando: true, resuelta: null, aviso: null, esperando: false, timers: [] };
+    ordenesRef.current.set(tipo, o);
+    setOrdenando((x) => ({ ...x, [tipo]: true }));
+    decirOrden(TEXTOS_ORDEN.enviando, tipo);
+    const r = await api.radioOrdenar(codigoRef.current,
+      tipo === 'siguiente' ? { type: tipo, seqBase: v.seq } : delMenu ? { type: tipo, trackId } : { type: tipo });
+    if (gen !== genRef.current || !montadoRef.current || ordenesRef.current.get(tipo) !== o) return { ok: false, error: 'vieja' };
+    o.enviando = false;
+    if (!r.ok) {
+      cerrarOrden(tipo);
+      if (r.error === 'frecuencia') empezarEspera(Math.max(1, Math.ceil(r.esperaMs / 1000)));
+      else decirOrden(textoDeFallo('ordenar', r), tipo, false, true);
+      return r;
+    }
+    if (o.resuelta) { cerrarCon(tipo, o.resuelta, o.aviso); return r; }
+    if (lineaDeRef.current === tipo) decirOrden(null);
+    o.timers = [setTimeout(() => revisarOrden(tipo), ORDEN_ESPERANDO_MS), setTimeout(() => revisarOrden(tipo), ORDEN_VENCE_MS)];
+    return r;
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // W5b-2: el menú contextual (montado POR ENCIMA de este provider) lee lo que ve quien modera y manda
+  // las órdenes "En la radio" por acá. Es un ref, no un contexto: el menú lo lee solo al armar sus
+  // acciones, así que ni la radio re-renderiza el menú ni el menú a la radio.
+  useEffect(() => registrarRadioEnMenu({
+    vista: () => (faseRef.current === 'oyente' ? vistaModRef.current : null),
+    ordenar,
+  }), [ordenar]);
+
+  const nombrarModerador = useCallback((userId) => moderar(userId, true), [moderar]);
+  const quitarModerador = useCallback((userId) => moderar(userId, false), [moderar]);
+
   // Cerrar la pestaña (o navegar fuera): DELETE con keepalive, que sobrevive a la descarga y lleva el
   // Bearer. Si la página no se descarga sino que queda en la caché del navegador (event.persisted) y
   // vuelve, la sala ya está cerrada: el próximo latido recibe 410 y el puente sale limpio, con su texto.
@@ -289,22 +542,27 @@ export function RadioProvider({ children }) {
     () => ({
       fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar,
       iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
+      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
+      vistaMod, ordenando, lineaOrden, esperaOrden, ordenar,
     }),
-    [fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar, iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar],
+    [fase, codigo, oyentes, fin, error, anfitrion, aviso, silenciada, quiereSonar, iniciar, terminar, limpiarFin, unirse, salir, tocarParaEscuchar,
+      moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
+      vistaMod, ordenando, lineaOrden, esperaOrden, ordenar],
   );
 
   return (
     <RadioContext.Provider value={value}>
       {children}
       {fase === 'anfitrion' && codigo && (
-        <PuenteAnfitrion key={codigo} codigo={codigo} gen={genSala} genRef={genRef} salir={finAnfitrion} alOyentes={alOyentes} />
+        <PuenteAnfitrion key={codigo} codigo={codigo} gen={genSala} genRef={genRef} salir={finAnfitrion} alOyentes={alOyentes}
+          alModeracion={alModeracion} moderarRef={moderarRef} />
       )}
       {fase === 'oyente' && codigo && (
         <PuenteOyente
           key={codigo} codigo={codigo} gen={genSala} genRef={genRef}
           primeraRef={primeraRef} fotoRef={fotoRef} motorRef={motorRef} tocarRef={tocarRef}
           salir={finOyente} alOyentes={alOyentes} alAviso={alAviso} alSilenciada={alSilenciada}
-          alQuiereSonar={alQuiereSonar}
+          alQuiereSonar={alQuiereSonar} alEventos={alEventosOyente} alVista={alVistaOyente} yoRef={userIdRef}
         />
       )}
     </RadioContext.Provider>
@@ -315,63 +573,262 @@ export function useRadio() {
   return useContext(RadioContext);
 }
 
-// ── El puente del anfitrión: publica lo que suena y lee quién escucha ──
+/** Los ids de una lista de moderadores (personas ya leídas por leerPersona) → Set. */
+const idsDeModeradores = (lista) => new Set((Array.isArray(lista) ? lista : []).map((p) => p?.id).filter(Number.isSafeInteger));
+
+// ── El puente del anfitrión: publica lo que suena, lee quién escucha y aplica las órdenes ──
 //
 // Publica por CAMBIOS (pista, pausa, siguiente, salto, posición: cada render trae el estado nuevo y
 // se mira en el acto) y con un temporizador de respaldo cada MIRAR_CADA_MS para la pausa, el latido
 // y los reintentos. Quién decide: debePublicar (¿hay algo?), la puerta (¿se puede ahora?: una sola en
 // vuelo, Retry-After, reintento a los 3 s, canción rechazada) y alResponder (qué hacer con la
 // respuesta). Todo eso es puro y vive en radioSync.js.
-function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
-  const { currentTrack, isPlaying, queue, queueIndex } = usePlayer();
-  const { currentTime } = usePlayerTime();
+//
+// ÓRDENES (1.45.0). Llegan en la lectura de la sala (?desde=) y en la respuesta del PUT que confirma.
+//  · Un Set de ids vistos: una orden que vuelve a llegar (sigue pendiente hasta confirmarla) no se
+//    aplica dos veces.
+//  · De a UNA, en orden de id: la siguiente espera a que el motor muestre lo que hizo la anterior
+//    (esperarMotor, tope ESPERA_MOTOR_MS). Así el cambio de pista de una no se toma por el de otra,
+//    y cada una se decide (planDeOrden) con lo que suena de verdad.
+//  · planDeOrden recibe, además de lo publicado, dos datos LOCALES que no se publican: haySiguiente
+//    (siguienteDelMotor) y alFinal (alFinalDeLaCola). Lo que se publica es lo de 1.42.0.
+//  · "siguiente" cuando no se sabe si el motor tiene a dónde ir (haySiguiente null): se llama next() y
+//    cuenta como aplicada SOLO si cambió la pista o el índice en ESPERA_MOTOR_MS; si no, se descarta
+//    ('sin-siguiente'), sin evento. Hasta M4 era el caso del aleatorio sin repetir la cola (el motor
+//    sorteaba entre las no sonadas); desde M4 el aleatorio camina por posición y siguienteDelMotor
+//    siempre sabe, así que el camino queda como red.
+//    CASO RARO, aceptado: si el propio anfitrión cambia de pista (o quita una de antes y corre el
+//    índice) dentro de esa ventana, ese cambio se cuenta como efecto de la orden.
+//  · Resuelta (aplicada o descartada), va a resueltasRef y sale en el próximo PUT (confirmacionDe:
+//    ordenHasta y las aplicadas, en tandas de 10). Con algo por confirmar, debePublicar da
+//    'confirmar' aunque el estado no cambie. Si el PUT falla (429, red), queda para el siguiente.
+//    Lo aplicado se confirma en el MISMO render que muestra el cambio, antes de mirar(): el PUT lleva
+//    el estado nuevo y la confirmación juntos.
+//  · Al desmontar (terminar, salir, cerrar sesión, otra radio: key={codigo}) se corta la espera del
+//    motor y una orden a medio traer su pista (api.track) se abandona: vigente() antes de tocar nada.
+function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, moderarRef }) {
+  const { currentTrack, isPlaying, queue, queueIndex, shuffle, repeat, upNext, next, pause, resume, playAfterCurrent, pendientesDe } = usePlayer();
+  const { currentTime, duration } = usePlayerTime();
 
   const actual = estadoDelAnfitrion({ current: currentTrack, queue, queueIndex, playing: isPlaying, posicionSeg: currentTime });
   const actualRef = useRef(actual);   // lo último, para el temporizador (se escribe en un efecto, no en el render)
+  const motorRef = useRef(null);      // lo local del motor para las órdenes (tampoco se publica)
 
   const puertaRef = useRef(PUERTA_INICIAL);
   const publicadoRef = useRef(null);
   const leyendoRef = useRef(false);
+  const leidaEnRef = useRef(0);       // hora local de la última lectura de la sala
+  const cursorRef = useRef(0);        // eventsUntil: el último evento visto (?desde=)
+  const [conModeradores, setConModeradores] = useState(false);
+
+  const vivoRef = useRef(true);
+  const vistasRef = useRef(new Set());   // ids de órdenes ya recibidas
+  const porAplicarRef = useRef([]);      // recibidas y sin aplicar, en orden de id
+  const aplicandoRef = useRef(false);
+  const resueltasRef = useRef([]);       // [{ id, aplicada }] sin confirmar
+  const esperaRef = useRef(null);        // { listo(motor), fin(cambio), timer } | null
+  const modsRef = useRef(null);          // ids de quienes moderan AHORA (lo último del servidor); null: todavía nada
+  const modsEnRef = useRef(-Infinity);   // el serverNow de esa lista: una más vieja que llega tarde no la pisa
+
+  const vigente = useCallback(() => vivoRef.current && gen === genRef.current, [gen, genRef]);
+  // ¿Quien mandó la orden sigue moderando? Sin lista todavía, sí: las órdenes llegan junto con ella
+  // (la lectura con ?desde= las trae con moderators, y el PUT solo las devuelve después de esa).
+  const sigueModerando = (o) => modsRef.current == null || modsRef.current.has(o.by);
+  // La lista nueva, solo si es la más nueva vista (por serverNow, el reloj del servidor): una lectura que
+  // salió antes de nombrar y llega después no la pisa. Solo refs: no hay render.
+  const ponerModeradores = (lista, serverNow) => {
+    if (!Number.isFinite(serverNow) || serverNow < modsEnRef.current) return;
+    modsEnRef.current = serverNow;
+    modsRef.current = idsDeModeradores(lista);
+  };
+
+  // Las órdenes y mirar() se llaman entre sí (mirar recibe las del PUT; resolver una pide publicar):
+  // se cruzan por refs para no encadenar dependencias.
+  const mirarRef = useRef(null);
+  const recibirRef = useRef(null);
 
   const mirar = useCallback(async () => {
-    const vigente = () => gen === genRef.current;
     if (!vigente()) return;
     const ahora = Date.now();
     const a = actualRef.current;
     if (!puertaAbierta(puertaRef.current, a, ahora)) return;
-    if (!debePublicar(publicadoRef.current, a, ahora)) return;
+    const conf = confirmacionDe(resueltasRef.current);
+    if (!debePublicar(publicadoRef.current, a, ahora, conf != null)) return;
     puertaRef.current = alPublicar(puertaRef.current);
     const salidaMs = Date.now();
-    const r = await api.radioPublicar(codigo, a);
+    // Sin nada que confirmar, la llamada (y el cuerpo) de 1.42.0.
+    const r = conf ? await api.radioPublicar(codigo, a, conf) : await api.radioPublicar(codigo, a);
     if (!vigente()) return;
     const x = alResponder(puertaRef.current, r, a, salidaMs, Date.now());
     puertaRef.current = x.puerta;
     if (x.publicado) publicadoRef.current = x.publicado;
-    if (x.expulsar) salir(gen, x.expulsar);
-  }, [codigo, gen, genRef, salir]);
+    if (x.expulsar) { salir(gen, x.expulsar); return; }
+    if (r.ok && conf) {
+      resueltasRef.current = resueltasRef.current.filter((o) => o.id > conf.ordenHasta);
+      if (r.orders) recibirRef.current?.(r.orders);
+    }
+  }, [codigo, gen, salir, vigente]);
+  mirarRef.current = mirar;
+
+  /** Una orden resuelta: queda para el próximo PUT, y se intenta publicar ya. */
+  const anotar = (id, aplicada) => {
+    resueltasRef.current.push({ id, aplicada });
+    mirarRef.current?.();
+  };
+
+  /** Espera a que el motor cumpla `listo` (lo mira cada render) o a ESPERA_MOTOR_MS. `alTerminar()`
+   *  corre SÍNCRONA dentro del render que lo muestra, antes de mirar(); al vencer el tope, en el temporizador. */
+  const esperarMotor = (listo, alTerminar) => new Promise((resolve) => {
+    const e = {
+      listo,
+      fin: () => {
+        if (esperaRef.current !== e) return;
+        clearTimeout(e.timer);
+        esperaRef.current = null;
+        alTerminar();
+        resolve();
+      },
+    };
+    e.timer = setTimeout(() => e.fin(), ESPERA_MOTOR_MS);
+    esperaRef.current = e;
+    if (listo(motorRef.current)) e.fin();   // ya estaba así (p. ej. pausa sobre algo en pausa)
+  });
+
+  /** Lo que planDeOrden necesita saber AHORA: lo publicado más lo local del motor (y, para el tope, cuántas
+   *  peticiones de quien mandó `o` siguen pendientes). */
+  const loLocal = (o) => {
+    const a = actualRef.current;
+    const m = motorRef.current;
+    const haySiguiente = siguienteDelMotor(m);
+    return { ...a, haySiguiente, alFinal: alFinalDeLaCola({ playing: a.playing, posicionMs: a.positionMs, duracionMs: m.duracionMs, haySiguiente }),
+      pendientesDeQuienPide: pendientesDe(o.by) };
+  };
+
+  const aplicarOrden = async (o) => {
+    let plan = planDeOrden(o, loLocal(o));
+    if (!plan.aplicar) return anotar(o.id, false);
+    const m = motorRef.current;
+    // ¿Pasó a otra entrada de la cola? (la pista o el índice: el estado real del motor)
+    const otraPista = (antes) => (x) => (x.currentTrack?.id ?? null) !== (antes.currentTrack?.id ?? null) || x.queueIndex !== antes.queueIndex;
+    // Lo que pone otra pista (next, "ahora") la hace SONAR (playIndex): se espera a que suene, así el PUT
+    // que confirma no la publica "en pausa" por el instante entre el cambio y el evento play del <audio>.
+    const otraSonando = (antes) => (x) => otraPista(antes)(x) && x.isPlaying;
+    switch (o.type) {
+      case 'pausa': pause(); return esperarMotor((x) => !x.isPlaying, () => anotar(o.id, true));
+      case 'reanudar': resume(); return esperarMotor((x) => x.isPlaying, () => anotar(o.id, true));
+      case 'siguiente':
+        next();
+        // Con lo que se sabe, se aplica igual; si no se sabía (verificar), solo si de verdad cambió de
+        // pista (aunque el navegador no la deje sonar: eso no la hace menos aplicada).
+        return esperarMotor(otraSonando(m), () => anotar(o.id, plan.verificar ? otraPista(m)(motorRef.current) : true));
+      default: {   // 'a-continuacion' | 'ahora': primero la pista
+        let cola = null;
+        try { const t = await api.track(o.trackId); cola = colaDelOyente(() => t, o.trackId, null); } catch { cola = null; }
+        if (!vigente()) return;
+        if (!sigueModerando(o)) return anotar(o.id, false);   // le quitaron el rol mientras llegaba la pista
+        if (!cola) return anotar(o.id, false);
+        plan = planDeOrden(o, loLocal(o));  // pudo cambiar mientras llegaba la pista (un video, otra canción)
+        if (!plan.aplicar) return anotar(o.id, false);
+        const m2 = motorRef.current;
+        const sonabaAlgo = m2.queueIndex >= 0;
+        const ahora = o.type === 'ahora' || plan.como === 'ahora';
+        // "a continuación" de la radio va en ORDEN DE LLEGADA (pedidoPor); "ahora" se inserta como el menú
+        // local y next() la hace sonar. Sin nada sonando, ya arranca con ella.
+        playAfterCurrent(cola, ahora ? undefined : { pedidoPor: o.by });
+        if (ahora && sonabaAlgo) next();       // "a continuación" gana: suena ella
+        const listo = ahora || !sonabaAlgo ? otraSonando(m2) : (x) => x.queue !== m2.queue;
+        return esperarMotor(listo, () => anotar(o.id, true));
+      }
+    }
+  };
+
+  const procesar = async () => {
+    if (aplicandoRef.current) return;
+    aplicandoRef.current = true;
+    try {
+      while (vigente() && porAplicarRef.current.length) {
+        const o = porAplicarRef.current.shift();
+        // Quien la mandó dejó de moderar mientras esperaba su turno: se descarta sin evento (el servidor
+        // ya anotó el "sin-moderador" al quitar) y se confirma como descartada, para que no quede colgada.
+        if (!sigueModerando(o)) { anotar(o.id, false); continue; }
+        try { await aplicarOrden(o); } catch { if (vigente()) anotar(o.id, false); }
+      }
+    } finally { aplicandoRef.current = false; }
+  };
+
+  recibirRef.current = (lista) => {
+    if (!vigente() || !Array.isArray(lista)) return;
+    for (const o of lista) {
+      if (vistasRef.current.has(o.id)) continue;   // sigue pendiente hasta confirmarla: llega otra vez
+      vistasRef.current.add(o.id);
+      porAplicarRef.current.push(o);
+    }
+    porAplicarRef.current.sort((a, b) => a.id - b.id);
+    procesar();
+  };
 
   const leerOyentes = useCallback(async () => {
-    const vigente = () => gen === genRef.current;
     if (!vigente() || leyendoRef.current) return;
+    if (Date.now() - leidaEnRef.current < LECTURA_MIN_MS) return;
     leyendoRef.current = true;
-    const r = await api.radioLeer(codigo);
+    leidaEnRef.current = Date.now();
+    const r = await api.radioLeer(codigo, { desde: cursorRef.current });
     leyendoRef.current = false;
     if (!vigente()) return;
     if (r.ok) {
       if (r.radio.status === 'ended') { salir(gen, r.radio.endedReason ?? 'otro'); return; }
       const host = r.radio.host?.id;
       alOyentes(gen, r.radio.listeners.filter((p) => p.id !== host));
+      // Lo de la moderación, si el servidor lo trae (uno sin moderación no lo manda: nada cambia).
+      if (r.radio.moderators) {
+        ponerModeradores(r.radio.moderators, r.serverNow);
+        if (r.radio.eventsUntil != null) cursorRef.current = r.radio.eventsUntil;
+        setConModeradores(r.radio.moderators.length > 0);
+        alModeracion(gen, r.radio.moderators, r.radio.events);   // W4: la lista y los eventos, a la vista
+        if (r.radio.orders) recibirRef.current?.(r.radio.orders);
+      }
       return;
     }
     if (r.error === 'no-existe') salir(gen, 'no-existe');
     else if (r.error === 'terminada') salir(gen, r.razon);
     else if (r.error === 'sesion') salir(gen, 'sesion');
     // red caída, 429, 5xx: se vuelve a intentar en el próximo turno, sin salir.
-  }, [codigo, gen, genRef, salir, alOyentes]);
+  }, [codigo, gen, salir, alOyentes, alModeracion, vigente]);
 
-  // Por cambios: en cada render se guarda lo último y se mira (debePublicar devuelve null casi
-  // siempre, y es barato). El primer render publica en el acto ('primero').
-  useEffect(() => { actualRef.current = actual; mirar(); });
+  // W4: al nombrar o quitar desde la vista, la lectura de 2 s arranca (o se corta) en ESE render, sin
+  // esperar a la de 5 s, y se lee ya para traer lo nuevo (LECTURA_MIN_MS evita una lectura pegada).
+  useEffect(() => {
+    moderarRef.current = (lista, serverNow) => {
+      if (!vigente()) return;
+      ponerModeradores(lista, serverNow);
+      setConModeradores(lista.length > 0);
+      leerOyentes();
+    };
+    return () => { moderarRef.current = null; };
+  }, [moderarRef, vigente, leerOyentes]);
+
+  // Vivo mientras está montado (va PRIMERO: el doble montaje de StrictMode lo vuelve a poner en true
+  // antes de que el efecto de abajo publique); al desmontar se corta la espera del motor (su temporizador).
+  useEffect(() => {
+    vivoRef.current = true;
+    return () => {
+      vivoRef.current = false;
+      const e = esperaRef.current;
+      esperaRef.current = null;
+      if (e) clearTimeout(e.timer);
+    };
+  }, []);
+
+  // Por cambios: en cada render se guarda lo último, se resuelve la orden que esperaba al motor (su
+  // confirmación sale en ESTE mirar, junto con el estado nuevo) y se mira (debePublicar devuelve null
+  // casi siempre, y es barato). El primer render publica en el acto ('primero').
+  useEffect(() => {
+    actualRef.current = actual;
+    motorRef.current = { currentTrack, queue, queueIndex, shuffle, repeat, upNext, isPlaying, duracionMs: duration > 0 ? duration * 1000 : null };
+    const e = esperaRef.current;
+    if (e && e.listo(motorRef.current)) e.fin(true);
+    mirar();
+  });
 
   // Respaldo y oyentes. Se montan una vez por sala; al desmontar (salida, terminar, logout) se cortan.
   useEffect(() => {
@@ -380,6 +837,13 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
     const t2 = setInterval(leerOyentes, OYENTES_CADA_MS);
     return () => { clearInterval(t1); clearInterval(t2); };
   }, [mirar, leerOyentes]);
+
+  // Con moderadores, la lectura más seguida (ver ORDENES_CADA_MS). Sin ellos no existe.
+  useEffect(() => {
+    if (!conModeradores) return undefined;
+    const t = setInterval(leerOyentes, ORDENES_CADA_MS);
+    return () => clearInterval(t);
+  }, [conModeradores, leerOyentes]);
 
   return null;
 }
@@ -397,7 +861,7 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes }) {
 // Cada orden propia anota cuándo fue (la gracia de pausaDelOyente) y reinicia la sincro.
 // Si no se pudo cargar la canción (api.track), se pausa lo que sonaba, se avisa y `seguido` vuelve
 // a lo de antes: el próximo sondeo da 'arrancar' otra vez y reintenta, sin sacar al oyente.
-function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar }) {
+function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar, alEventos, alVista, yoRef }) {
   const { currentTrack, isPlaying, playBlocked, queue, queueIndex, repeat, play, seek, pause, resume, setRepeatMode } = usePlayer();
   const { currentTime, duration } = usePlayerTime();
 
@@ -419,6 +883,8 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
 
   useEffect(() => {
     let vivo = true;
+    // W5a: { cursor, moderaba } de los eventos; null hasta la primera lectura (la de unirse fija la base).
+    let eventos = null;
     let timer = null;
     const vigente = () => vivo && gen === genRef.current;
 
@@ -517,7 +983,8 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
       if (!vigente()) return;
       let lectura = primeraRef.current;
       primeraRef.current = null;
-      if (!lectura) lectura = await api.radioLeer(codigo);
+      // Con la base fijada, la MISMA vuelta lee además los eventos desde el cursor (?desde=).
+      if (!lectura) lectura = await api.radioLeer(codigo, eventos ? { ...LECTURA_OYENTE, desde: eventos.cursor } : LECTURA_OYENTE);
       if (!vigente()) return;
       if (lectura.ok) {
         relojRef.current = mejorReloj(relojRef.current, lectura.muestra);
@@ -525,6 +992,16 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
           const host = lectura.radio.host?.id;
           alOyentes(gen, lectura.radio.listeners.filter((p) => p.id !== host));
           if (lectura.radio.state) estadoRef.current = lectura.radio.state;
+          const pe = pasoDeEventos(eventos, lectura.radio, Number(yoRef.current));
+          eventos = pe.estado;
+          if (pe.nuevos.length || pe.anuncios.length) alEventos(gen, pe.nuevos, pe.anuncios);
+          // W5b-1: lo que ve quien modera (después de los eventos: la región ya tiene el "Tú pausaste").
+          if (Array.isArray(lectura.radio.moderators)) {
+            alVista(gen, {
+              modera: esModerador(lectura.radio, Number(yoRef.current)), admite: lectura.radio.capabilities?.orders === true,
+              estado: lectura.radio.state ?? null, cursor: eventos?.cursor ?? 0, nuevos: pe.nuevos,
+            });
+          }
         }
       }
       const previo = seguidoRef.current;

@@ -5,13 +5,17 @@ import { avatarUrl } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useRadio } from '../context/RadioContext.jsx';
-import { limpiarCodigoEscrito, codigoPegado, normalizarCodigo, cuentaDeOyentes, LARGO_CODIGO } from '../utils/radioSync.js';
+import {
+  limpiarCodigoEscrito, codigoPegado, normalizarCodigo, cuentaDeOyentes, LARGO_CODIGO,
+  filaDeOyente, lineaDelTope, textoDeEvento, INSIGNIA, personasDeLaLista, TEXTOS_ORDEN,
+} from '../utils/radioSync.js';
 
 // Vista Radio. Cuatro caras:
 //  · "sin radio" (/radio): "Iniciar radio" (con una canción cargada; un video cuenta) y el campo
 //    "Unirse con código", que navega a /radio/CODIGO.
 //  · anfitrión (/radio, o /radio/TU-CÓDIGO, con la sala abierta): el código, copiar código/enlace,
-//    cuántos escuchan y "Terminar radio" con confirmación en la misma página.
+//    cuántos escuchan, la lista de quién escucha con "Hacer moderador" / "Quitar" (1.45.0, W4), lo
+//    último que pasó en la radio y "Terminar radio" con confirmación en la misma página.
 //  · la ficha (/radio/OTRO-CÓDIGO): el código y "Escuchar", que llama unirse(); ese clic es el gesto
 //    que habilita el audio. NO lee la sala antes: la primera lectura es la que anota al oyente. Es un
 //    DETALLE como los de las otras vistas (setDetailOpen → swipe-atrás del teléfono; BackButton → history.back).
@@ -71,9 +75,17 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   const {
     fase, codigo: miCodigo, oyentes, fin, error, iniciar, terminar, limpiarFin,
     anfitrion, aviso: avisoRadio, silenciada, quiereSonar, unirse, salir, tocarParaEscuchar,
+    moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
+    vistaMod, ordenando, lineaOrden, esperaOrden, ordenar,
   } = useRadio();
+  const [moderando, setModerando] = useState(null);   // id con un nombrar/quitar en vuelo (un clic a la vez)
+  const [focoNota, setFocoNota] = useState(null);     // id cuya nota "sin soporte" toma el foco (su botón se fue)
+  const [focoLista, setFocoLista] = useState(false);  // quitar a quien no escucha: su fila se va y el foco pasa a la lista
+  const listaRef = useRef(null);
   const { user } = useAuth();
   const toast = useToast();
+  const ultimoEvento = eventos.length ? eventos[eventos.length - 1] : null;
+  const textoUltimo = ultimoEvento ? textoDeEvento(ultimoEvento, user?.id) : null;
 
   const h1Ref = useRef(null);
   const copiarRef = useRef(null);
@@ -172,6 +184,28 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
       toast('No se pudo copiar', { variant: 'warning' });
     }
   };
+  // Nombrar o quitar. El botón es el MISMO nodo antes y después (cambia su texto), así que el foco se
+  // queda en él; si la persona no lo admite, el botón se va y el foco pasa a su nota.
+  const onModerar = async (persona, si) => {
+    if (moderando != null) return;
+    limpiarFin();
+    setModerando(persona.id);
+    const r = await (si ? nombrarModerador(persona.id) : quitarModerador(persona.id));
+    setModerando(null);
+    if (!r.ok && r.error === 'sin-soporte') setFocoNota(persona.id);
+    if (r.ok && !si && persona.ausente) setFocoLista(true);
+  };
+  useEffect(() => {
+    if (!focoLista) return;
+    listaRef.current?.focus();
+    setFocoLista(false);
+  }, [focoLista]);
+  useEffect(() => {
+    if (focoNota == null) return;
+    document.getElementById(`radio-persona-nota-${focoNota}`)?.focus();
+    setFocoNota(null);
+  }, [focoNota]);
+
   const onConfirmarKey = (e) => {
     if (e.key !== 'Escape') return;
     e.stopPropagation();   // un Esc = una cosa: que no cierre además la cola o el expandido
@@ -196,6 +230,37 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
             onClick={() => copiar(`${window.location.origin}/radio/${miCodigo}`, 'Enlace copiado')}>Copiar enlace</button>
         </div>
         <p className="radio-oyentes" aria-live="polite">{cuentaDeOyentes(oyentes.length)}</p>
+        <ul className="radio-personas" aria-label="Quién está en la radio" ref={listaRef} tabIndex={-1}>
+          <li className="radio-persona">
+            <Avatar persona={{ name: user?.username, avatar: null }} />
+            <span className="radio-persona-nombre">Tú</span>
+            <span className="radio-insignia radio-insignia--anfitrion">{INSIGNIA.anfitrion}</span>
+          </li>
+          {personasDeLaLista({ oyentes, moderadores }).map((o) => {
+            const f = filaDeOyente({ id: o.id, moderadores, sinSoporte, ausente: o.ausente });
+            const nombre = o.name || 'Alguien';
+            return (
+              <li key={o.id} className="radio-persona">
+                <Avatar key="avatar" persona={o} />
+                <span key="nombre" className="radio-persona-nombre">{nombre}</span>
+                {f.insignia && <span key="insignia" className="radio-insignia">{f.insignia}</span>}
+                {f.boton && (
+                  <button key="boton" type="button" className="radio-btn radio-btn--persona" data-persona={o.id}
+                    disabled={terminando} aria-busy={moderando === o.id ? 'true' : undefined}
+                    aria-label={f.boton === 'quitar' ? `Quitar a ${nombre} de moderar` : `Hacer moderador a ${nombre}`}
+                    onClick={() => onModerar(o, f.boton === 'nombrar')}>
+                    {f.boton === 'quitar' ? 'Quitar' : 'Hacer moderador'}
+                  </button>
+                )}
+                {f.nota && <span key="nota" id={`radio-persona-nota-${o.id}`} className="radio-persona-nota" tabIndex={-1}>{f.nota}</span>}
+              </li>
+            );
+          })}
+        </ul>
+        {lineaDelTope(moderadores) && <p className="radio-nota radio-tope">{lineaDelTope(moderadores)}</p>}
+        {/* Siempre montada (vacía sin eventos): una región viva que aparece de golpe no siempre se anuncia. Cada
+            evento es un hijo con key (su id): dos eventos con el mismo texto montan dos nodos y se anuncian los dos. */}
+        <p className="radio-evento" role="status">{ultimoEvento && textoUltimo ? <span key={ultimoEvento.id}>{textoUltimo}</span> : null}</p>
         <div className="radio-terminar">
           {confirmando ? (
             <div className="radio-confirmar" role="group" aria-labelledby="radio-confirmar-pregunta" onKeyDown={onConfirmarKey}>
@@ -221,9 +286,18 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
     const caras = oyentes.slice(0, MAX_CARAS);
     const yo = user?.id != null ? Number(user.id) : null;
     const nombres = oyentes.map((o) => (o.id === yo ? 'tú' : o.name || 'alguien'));
+    // W5b-1: quien modera ve sus botones (si la radio admite órdenes) o la nota (si no). Pausar o
+    // reanudar según lo que ve de la radio. aria-disabled (no disabled) durante la espera de un 429:
+    // el botón conserva el foco.
+    const modera = vistaMod.modera;
+    const pausada = vistaMod.playing === false;
+    const tipoPausa = pausada ? 'reanudar' : 'pausa';
+    const textoPausa = pausada ? 'Reanudar la radio' : 'Pausar la radio';
+    const ocupadoPausa = !!(ordenando.pausa || ordenando.reanudar);
+    const enEspera = esperaOrden > 0;
     cara = (
       <section className="radio-card radio-card--oyente">
-        <p className="radio-card-title">En vivo</p>
+        <p className="radio-card-title">En vivo{modera && <span className="radio-insignia radio-insignia--titulo">Modera</span>}</p>
         <div className="radio-anfitrion">
           <Avatar persona={anfitrion} grande />
           <h2 className="radio-anfitrion-nombre" ref={oyenteRef} tabIndex={-1}>
@@ -246,6 +320,29 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
         )}
         {/* Siempre montada (vacía sin aviso): una región viva que aparece de golpe no siempre se anuncia. */}
         <p className={`radio-aviso-vivo radio-aviso-vivo--${tono}`} role="status" aria-live="polite">{textoAviso}</p>
+        {/* W5a: lo que pasó en la radio (eventos y aviso de rol), en su PROPIA región: así no pisa el aviso de
+            arriba ni al revés. Siempre montada (vacía sin nada que anunciar). Cada anuncio es un hijo con key (su
+            contador: un anuncio puede juntar varios eventos y el aviso de rol): un texto repetido monta un nodo nuevo. */}
+        <p className="radio-evento" role="status" aria-live="polite">{anuncio ? <span key={anuncio.n}>{anuncio.texto}</span> : null}</p>
+        {modera && (vistaMod.admite ? (
+          <div className="radio-fila radio-ordenes">
+            {vistaMod.conBase && (
+              <button type="button" className="radio-btn radio-btn--orden" aria-label="Siguiente canción de la radio"
+                aria-busy={ordenando.siguiente || undefined} aria-disabled={enEspera || undefined}
+                onClick={() => { if (!ordenando.siguiente && !enEspera) ordenar('siguiente'); }}>
+                Siguiente canción de la radio
+              </button>
+            )}
+            <button type="button" className="radio-btn radio-btn--orden" aria-label={textoPausa}
+              aria-busy={ocupadoPausa || undefined} aria-disabled={enEspera || undefined}
+              onClick={() => { if (!ocupadoPausa && !enEspera) ordenar(tipoPausa); }}>
+              {textoPausa}
+            </button>
+          </div>
+        ) : <p className="radio-nota radio-ordenes-nota">{TEXTOS_ORDEN.sinOrdenes}</p>)}
+        {/* W5b-1: cómo va la orden de quien modera, en SU región (aparte de las de arriba): siempre montada,
+            vacía sin nada que decir (y para quien no modera). Un texto nuevo es un nodo nuevo (key n). */}
+        <p className="radio-orden-estado" role="status" aria-live="polite">{lineaOrden ? <span key={lineaOrden.n}>{lineaOrden.texto}</span> : null}</p>
         <div className="radio-oyentes radio-oyentes--oyente">
           {caras.length > 0 && (
             <span className="radio-oyentes-caras" aria-hidden="true">

@@ -3,6 +3,7 @@ import {
 } from 'react';
 import { streamUrl, coverUrl, videoStreamUrl, videoCoverUrl } from '../api/client.js';
 import { resolveTrackMeta, isComplete } from '../utils/trackMeta.js';
+import { shuffled } from '../utils/mixPlayback.js';
 import { useAuth } from './AuthContext.jsx';
 import VideoFullscreenControls from '../components/VideoFullscreenControls.jsx';
 
@@ -56,9 +57,16 @@ export function PlayerProvider({ children }) {
   // <audio> se registra una vez y necesita leer el valor actual, no el del montaje.
   const shuffleRef  = useRef(false);
   const repeatRef   = useRef('off');         // 'off' | 'all' | 'one'
-  const playedRef   = useRef(new Set());     // _qid ya sonados en el ciclo de shuffle
-  const historyRef  = useRef([]);            // orden real de reproducción por _qid (para "anterior" en shuffle)
-  const forcedNextRef = useRef([]);          // FIFO de _qid "a continuación" (play-next; prioridad sobre shuffle/secuencial)
+  // ALEATORIO (M4): la cola ES el orden de reproducción, también en aleatorio. Encenderlo baraja la
+  // cola de verdad (sólo lo que viene después de la actual) y siguiente/anterior caminan por posición,
+  // así que siguiente → anterior → siguiente da la misma pista. baseRef guarda el orden ORIGINAL (los
+  // _qid en el orden de la vista) para devolverlo al apagarlo; sin aleatorio vale null.
+  const baseRef     = useRef(null);
+  const forcedNextRef = useRef([]);          // FIFO de _qid "a continuación" (play-next; prioridad sobre el orden)
+  // Peticiones de la RADIO (1.45.0): _qid → id de quien la pidió. Solo marca de dónde vino: la que
+  // está pendiente es la que sigue en forcedNext. Sirve para ponerlas en orden de llegada (no apiladas
+  // como el menú local) y para el tope por persona (pendientesDe).
+  const pedidosRef = useRef(new Map());
 
   const [queue,        setQueue]        = useState([]);    // cola reactiva para la UI; queueRef es su espejo
   const [upNextIds,    setUpNextIds]    = useState([]);    // espejo REACTIVO de forcedNextRef → el pill "a continuación" no cuelga de un ref invisible a React
@@ -123,17 +131,16 @@ export function PlayerProvider({ children }) {
     if (!track) return;
     const isVideo = track.kind === 'video';
     // Un video que va a EMPEZAR con la página oculta se salta: en segundo plano sólo suena audio.
-    // Se marca como sonado y se pide el siguiente; el tope corta una cola sólo de videos.
+    // El cursor queda en su posición y se pide el siguiente (por posición, también en aleatorio); el
+    // tope corta una cola sólo de videos.
     if (isVideo && document.hidden) {
       idxRef.current = idx;
-      playedRef.current.add(track._qid);
       if (++skipRunRef.current > queueRef.current.length) { skipRunRef.current = 0; getActive().pause(); setIsPlaying(false); return; }
       playNextRef.current?.(false);
       return;
     }
     skipRunRef.current = 0;
     idxRef.current = idx;
-    playedRef.current.add(track._qid);     // marca como sonada por _qid (regla shuffle sin repetir)
     setCurrentTrack(track);
     const audio = getAudio();
     const video = videoRef.current;
@@ -163,7 +170,9 @@ export function PlayerProvider({ children }) {
     else setIsPlaying(false);   // cambiar el src deja el elemento en pausa sin garantizar un 'pause'
   }, []);
 
-  // Decide y reproduce la siguiente pista respetando shuffle + repeat.
+  // Decide y reproduce la siguiente pista respetando repeat. Va POR POSICIÓN, con o sin aleatorio:
+  // en aleatorio la cola ya está barajada (toggleShuffle / play), así que la de después es la que se
+  // ve debajo en la cola.
   // natural = true cuando la canción terminó sola (la única vez que aplica "repetir una").
   // manual = true cuando lo pidió la persona (botón, MediaSession, swipe): si no hay siguiente, no
   // pasa nada y lo que suena sigue sonando.
@@ -175,43 +184,26 @@ export function PlayerProvider({ children }) {
     if (natural && repeatRef.current === 'one') { playIndex(idxRef.current); return; }
 
     const q = queueRef.current;
-    const curQid = q[idxRef.current]?._qid;
 
-    // Cola manual "a continuación" (play-next): tiene PRIORIDAD sobre el pick shuffle/secuencial
-    // → hace que playAfterCurrent suene a continuación incluso en shuffle. FIFO por _qid; se
-    // descartan los _qid que ya no estén en la cola (por si se quitó en un paso futuro).
+    // Cola manual "a continuación" (play-next): tiene PRIORIDAD sobre el orden de la cola. FIFO por
+    // _qid; se descartan los _qid que ya no estén en la cola (por si se quitó en un paso futuro).
     while (forcedNextRef.current.length) {
       const qid = forcedNextRef.current.shift();
       const i = q.findIndex((t) => t._qid === qid);
       if (i >= 0) {
         setUpNextIds([...forcedNextRef.current]);   // el consumido (y descartes previos) ya salieron del ref → sacarlos del pill
-        if (curQid != null) historyRef.current.push(curQid);
         playIndex(i);
         return;
       }
     }
 
+    // Repetir todo: al final vuelve a la primera, en el MISMO orden (no se rebaraja).
     let nextIdx = -1;
-    if (shuffleRef.current && len > 1) {
-      // candidatas: las que aún no han sonado en este ciclo (sin la actual), por _qid
-      let pool = [];
-      for (let i = 0; i < len; i++) {
-        if (i !== idxRef.current && !playedRef.current.has(q[i]._qid)) pool.push(i);
-      }
-      // ciclo agotado: si repetimos la cola, reinicia el ciclo (conserva la actual como sonada)
-      if (pool.length === 0 && repeatRef.current === 'all') {
-        playedRef.current = new Set(curQid != null ? [curQid] : []);
-        for (let i = 0; i < len; i++) if (i !== idxRef.current) pool.push(i);
-      }
-      if (pool.length) nextIdx = pool[Math.floor(Math.random() * pool.length)];
-    } else {
-      const n = idxRef.current + 1;
-      if (n < len) nextIdx = n;
-      else if (repeatRef.current === 'all') nextIdx = 0;   // fin de cola → vuelve a la primera
-    }
+    const n = idxRef.current + 1;
+    if (n < len) nextIdx = n;
+    else if (repeatRef.current === 'all') nextIdx = 0;
 
     if (nextIdx >= 0) {
-      if (curQid != null) historyRef.current.push(curQid);   // orden real por _qid (para "anterior")
       playIndex(nextIdx);
     } else if (!manual) {
       // Fin sin repetición. Sólo cuando el medio YA se detuvo (terminó solo, o no cargó): un
@@ -346,23 +338,50 @@ export function PlayerProvider({ children }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
-  const play = useCallback((tracks, startIndex = 0, { sonar = true } = {}) => {
+  // play(tracks, startIndex, opciones) REEMPLAZA la cola entera. Sin opciones respeta el orden de
+  // `tracks` TAL CUAL aunque el aleatorio esté encendido: la radio carga [pista, siguiente] y
+  // devuelve la cola guardada con esto, y necesita ese orden. Opciones:
+  //  · sonar: false → cargada y en pausa (la radio al devolver la cola).
+  //  · vista: true → `tracks` es una lista de la app y se TOCÓ una fila. Con el aleatorio encendido,
+  //    la tocada va PRIMERO y TODO el resto de la lista barajado detrás: lo de antes de la tocada
+  //    también suena. Con el aleatorio apagado, lo de siempre.
+  //  · enOrden: true → «Reproducir» una lista entera (el botón «▶ Reproducir» de Álbum, Género y
+  //    Playlist, y «Reproducir álbum/todo/género/año» del menú). Suena en el orden de la lista y, si el
+  //    aleatorio estaba encendido, lo APAGA (1.45.0): quien pide «Reproducir» quiere la lista como se
+  //    ve; para barajarla está el Mix. Tocar una fila NO es esto: va con `vista`.
+  //  · mezclar: true → el Mix: la lista entera barajada desde la primera, y enciende el aleatorio.
+  // Con el aleatorio encendido, baseRef queda con `tracks` en el orden recibido (el de la vista):
+  // apagarlo lo devuelve.
+  const play = useCallback((tracks, startIndex = 0, { sonar = true, vista = false, enOrden = false, mezclar = false } = {}) => {
     // Cada entrada recibe un _qid estable (identidad interna de la cola; NO viaja a la API ni a
-    // MediaSession). play() REEMPLAZA la cola entera, como antes.
+    // MediaSession).
     setPlayBlocked(false);                 // un intento nuevo: si lo vuelven a bloquear, el catch lo pone otra vez
     const items = tracks.map((t) => ({ ...t, _qid: ++uidRef.current }));
-    queueRef.current = items;              // espejo síncrono para los callbacks
-    setQueue(items);                       // estado reactivo para la UI
-    playedRef.current = new Set();         // nuevo origen de cola → reinicia ciclo shuffle e historial
-    historyRef.current = [];
+    let order = items;
+    let start = startIndex;
+    if (mezclar) {
+      order = shuffled(items);
+      start = 0;
+      if (!shuffleRef.current) { shuffleRef.current = true; setShuffle(true); }
+    } else if (enOrden) {
+      if (shuffleRef.current) { shuffleRef.current = false; setShuffle(false); }   // y baseRef queda en null, abajo
+    } else if (vista && shuffleRef.current && items[startIndex]) {
+      order = [items[startIndex], ...shuffled(items.filter((_, i) => i !== startIndex))];
+      start = 0;
+    }
+    queueRef.current = order;              // espejo síncrono para los callbacks
+    setQueue(order);                       // estado reactivo para la UI
+    baseRef.current = shuffleRef.current ? items.map((t) => t._qid) : null;   // orden a devolver al apagar
     forcedNextRef.current = [];            // reemplazar la cola entera también limpia lo "a continuación"
+    pedidosRef.current.clear();            // y las peticiones de la radio
     setUpNextIds([]);                      // espejo reactivo
-    playIndex(startIndex, sonar);          // sonar: false → cargada y en pausa (la radio al devolver la cola)
+    playIndex(start, sonar);
   }, [playIndex]);
 
   // Encola pistas AL FINAL sin resetear. Acepta una o muchas. Si nada suena (sin pista actual),
   // arranca la reproducción con la primera agregada — si no, la acción sería invisible. Append
-  // no corre índices → played/history (por _qid) no se tocan.
+  // no corre índices. Con aleatorio va al final del orden barajado (no se mezcla con lo que viene) y
+  // NO entra en baseRef: al apagar el aleatorio queda al final, después del orden de la vista.
   const addToQueue = useCallback((tracks) => {
     const list = Array.isArray(tracks) ? tracks : [tracks];
     if (!list.length) return;
@@ -375,26 +394,59 @@ export function PlayerProvider({ children }) {
   }, [playIndex]);
 
   // Inserta pistas JUSTO DESPUÉS de la actual y las marca para sonar a continuación (forcedNext,
-  // así vale también en shuffle). Acepta una o muchas. Nada suena → arranca. Como played/history
-  // son por _qid, insertar NO remapea nada; solo se recomputa idxRef por _qid.
-  const playAfterCurrent = useCallback((tracks) => {
+  // así vale también en aleatorio). Acepta una o muchas. Nada suena → arranca. Como baseRef y
+  // forcedNext son por _qid, insertar NO remapea nada; solo se recomputa idxRef por _qid. Lo insertado
+  // no entra en baseRef: si el aleatorio se apaga con eso pendiente, toggleShuffle lo deja justo
+  // detrás de la actual; si ya sonó, va al final como todo lo agregado después.
+  //
+  // DOS ÓRDENES (1.45.0). El menú local APILA: cada una va justo detrás de la actual, así que la
+  // última pedida suena primero. Una petición de la RADIO (`pedidoPor`: el id de quien modera) va en
+  // ORDEN DE LLEGADA: detrás de la última petición de la radio que siga pendiente (o de la actual, si
+  // no hay), y en forcedNext justo después de esa. Así la cola y forcedNext siguen diciendo lo mismo
+  // (la cola ES el orden de reproducción, M4) y "siguiente" da la primera que llegó.
+  const playAfterCurrent = useCallback((tracks, { pedidoPor = null } = {}) => {
     const list = Array.isArray(tracks) ? tracks : [tracks];
     if (!list.length) return;
     const items = list.map((t) => ({ ...t, _qid: ++uidRef.current }));
-    const curQid = queueRef.current[idxRef.current]?._qid;
-    const at = idxRef.current + 1;                     // idx=-1 (nada suena) → at=0
-    const next = [...queueRef.current];
+    const q = queueRef.current;
+    const idx = idxRef.current;
+    const curQid = q[idx]?._qid;
+    const forced = forcedNextRef.current;
+    // La última petición de la radio pendiente, por delante de la actual: su lugar en la cola y en forcedNext.
+    let ultima = -1, ultimaEn = -1;
+    if (pedidoPor != null && idx >= 0) {
+      forced.forEach((qid, k) => {
+        if (!pedidosRef.current.has(qid)) return;
+        const i = q.findIndex((t) => t._qid === qid);
+        if (i > idx && i > ultimaEn) { ultima = k; ultimaEn = i; }
+      });
+    }
+    const at = ultimaEn >= 0 ? ultimaEn + 1 : idx + 1;   // idx=-1 (nada suena) → at=0
+    const next = [...q];
     next.splice(at, 0, ...items);
     queueRef.current = next;
     setQueue(next);
-    if (idxRef.current < 0) {
+    if (idx < 0) {
       playIndex(at);                                  // nada sonaba → arranca con la primera insertada
     } else {
-      forcedNextRef.current.unshift(...items.map((t) => t._qid));   // que suenen a continuación (incl. shuffle)
-      setUpNextIds([...forcedNextRef.current]);                     // espejo reactivo para el pill
+      const qids = items.map((t) => t._qid);
+      if (pedidoPor != null) {
+        for (const qid of qids) pedidosRef.current.set(qid, pedidoPor);
+        forcedNextRef.current = [...forced.slice(0, ultima + 1), ...qids, ...forced.slice(ultima + 1)];
+      } else {
+        forcedNextRef.current = [...qids, ...forced];   // el menú local: apilada, suena primero
+      }
+      setUpNextIds([...forcedNextRef.current]);       // espejo reactivo para el pill
       if (curQid != null) idxRef.current = next.findIndex((t) => t._qid === curQid);  // recomputar posición actual
     }
   }, [playIndex]);
+
+  // Cuántas peticiones de la radio de esta persona siguen pendientes (marcadas "a continuación" y sin
+  // sonar). Lo usa el anfitrión para el tope por persona; lee refs, así que siempre da lo de este instante.
+  const pendientesDe = useCallback((por) => {
+    if (por == null) return 0;
+    return forcedNextRef.current.filter((qid) => pedidosRef.current.get(qid) === por).length;
+  }, []);
 
   const togglePlay = useCallback(() => {
     const el = getActive();
@@ -426,31 +478,34 @@ export function PlayerProvider({ children }) {
   // (pulsar siguiente debe pasar de canción, no repetir la misma).
   const next = useCallback(() => playNext(false, true), [playNext]);
 
+  // "Anterior": con más de 3 s vuelve al inicio de la pista; si no, la de ARRIBA en la cola. Por
+  // posición también en aleatorio (la cola ya es el orden barajado): siguiente → anterior →
+  // siguiente da la misma pista.
   const prev = useCallback(() => {
     const el = getActive();
     if (el.currentTime > 3) { el.currentTime = 0; return; }
-    if (shuffleRef.current && historyRef.current.length) {
-      const qid = historyRef.current.pop();  // en shuffle, "anterior" = la realmente sonada antes
-      const i = queueRef.current.findIndex(t => t._qid === qid);
-      if (i >= 0) playIndex(i);
-      return;
-    }
     const p = idxRef.current - 1;
     if (p >= 0) playIndex(p);
   }, [playIndex]);
 
-  // Salta a una pista de la cola por índice (tap en la vista de cola). Empuja el _qid actual a
-  // history para que "anterior" vuelva a donde saltaste; playIndex ya marca la nueva como sonada
-  // (playedRef.add(_qid)) → en shuffle el ciclo NO la vuelve a elegir.
+  // Salta a una pista de la cola por índice (tap en la vista de cola). Desde ahí se sigue por
+  // posición: lo de abajo es lo que viene, lo de arriba es "anterior".
+  //
+  // Lo "a continuación" que queda en la pista elegida o por ENCIMA de ella pierde la marca (1.45.0): ya
+  // es "anterior". Sin esto, playNext lo seguía buscando por _qid y volvía hacia atrás (y luego, por
+  // posición, repetía lo que había entre medio); y saltar a una marcada la hacía sonar otra vez.
   const jumpTo = useCallback((index) => {
-    const curQid = queueRef.current[idxRef.current]?._qid;
-    if (curQid != null) historyRef.current.push(curQid);
+    const pasadas = new Set(queueRef.current.slice(0, Math.max(0, index + 1)).map((t) => t._qid));
+    if (forcedNextRef.current.some((qid) => pasadas.has(qid))) {
+      forcedNextRef.current = forcedNextRef.current.filter((qid) => !pasadas.has(qid));
+      setUpNextIds([...forcedNextRef.current]);
+    }
     playIndex(index);
   }, [playIndex]);
 
   // Quita UNA entrada de la cola por `_qid`. Es exactamente la operación para la que se eligió
-  // el keying por _qid (actions-lab, "el paso 2 muerde"): como played/history/forcedNext se
-  // llevan por _qid y NO por índice, quitar no remapea nada — sólo hay que recomputar idxRef
+  // el keying por _qid (actions-lab, "el paso 2 muerde"): como el orden original (baseRef) y
+  // forcedNext se llevan por _qid y NO por índice, quitar no remapea nada — sólo hay que recomputar idxRef
   // (la posición de la actual, que se corrió si lo quitado estaba antes) y sacar el _qid de las
   // estructuras para que no queden apuntando a algo que ya no existe.
   //
@@ -465,8 +520,7 @@ export function PlayerProvider({ children }) {
     if (next.length === queueRef.current.length) return;   // no estaba en la cola
     queueRef.current = next;
     setQueue(next);
-    playedRef.current.delete(qid);                          // ciclo de shuffle
-    historyRef.current = historyRef.current.filter((h) => h !== qid);   // "anterior" no vuelve a un fantasma
+    if (baseRef.current) baseRef.current = baseRef.current.filter((b) => b !== qid);   // al apagar no vuelve
     if (forcedNextRef.current.includes(qid)) {              // pill "a continuación"
       forcedNextRef.current = forcedNextRef.current.filter((f) => f !== qid);
       setUpNextIds([...forcedNextRef.current]);
@@ -475,7 +529,7 @@ export function PlayerProvider({ children }) {
   }, []);
 
   // Mueve UNA entrada de la cola a otra posición (reorder por arrastre en desktop). Es la tercera
-  // pata del trípode que habilita el keying por _qid: como played/history/forcedNext se llevan por
+  // pata del trípode que habilita el keying por _qid: como baseRef/forcedNext se llevan por
   // _qid y NO por índice, PERMUTAR el array no corrompe nada — igual que en removeFromQueue, lo
   // único posicional del motor es idxRef, y se recomputa por findIndex.
   //
@@ -486,8 +540,8 @@ export function PlayerProvider({ children }) {
   // `toIndex` es la posición destino en la cola YA SIN la pista movida (convención
   // splice-remove-then-insert): mover la 0 con toIndex=2 la deja en el índice 2 del array final.
   //
-  // played/history NO se tocan a propósito: son Set/array de _qid y reordenar no agrega ni quita
-  // entradas. El historial es lo que YA sonó — permutar el plan no lo reescribe.
+  // baseRef (el orden original del aleatorio) NO se toca a propósito: mover cambia lo que suena
+  // después, pero apagar el aleatorio sigue devolviendo el orden de la vista.
   //
   // forcedNext SÍ: mover a mano una pista marcada "a continuación" REVOCA su marca. Sin esto el
   // arrastre mentiría — forcedNext tiene prioridad sobre el orden (playNext lo consume antes de
@@ -495,9 +549,9 @@ export function PlayerProvider({ children }) {
   // queda simple y explicable: si la moviste a mano, manda el orden. Simétrico con
   // removeFromQueue, y sale del ref Y de su espejo reactivo (el pill).
   //
-  // En SHUFFLE el motor no mira el orden (playNext elige del pool de no-sonadas), así que reordenar
-  // es cosmético: shuffle sigue activo y sólo se reacomoda lo que se ve. El aviso ya está en el
-  // header de la cola ("Aleatorio · orden de la cola").
+  // En ALEATORIO también manda el orden (M4): la cola es el orden barajado y playNext camina por
+  // posición, así que arrastrar cambia lo que suena después, igual que sin aleatorio. Lo que no
+  // cambia es baseRef: apagar el aleatorio devuelve el orden de la vista y deshace el arrastre.
   const moveInQueue = useCallback((qid, toIndex) => {
     if (qid == null) return;
     const q = queueRef.current;
@@ -534,18 +588,51 @@ export function PlayerProvider({ children }) {
     setVolumeState(v);
   }, []);
 
+  // Encender/apagar el aleatorio REORDENA la cola; nunca toca el <audio>: lo que suena sigue sonando
+  // en el mismo segundo (sólo se recomputa idxRef por _qid). La verdad es shuffleRef y no el updater
+  // de setShuffle: el updater no puede tener efectos (StrictMode lo llama dos veces).
+  //  · Encender: guarda el orden actual como el original (baseRef) y baraja SÓLO lo que viene
+  //    después de la actual; lo de antes queda intacto. Lo marcado "a continuación" que está después
+  //    no se baraja: queda justo detrás de la actual, en su orden, porque igual suena primero (si se
+  //    barajara, al terminar se seguiría desde donde cayó y se saltarían pistas).
+  //  · Apagar: devuelve el orden original con lo que sigue en la cola, y lo agregado después (que no
+  //    estaba en el original) va al final. Lo "a continuación" pendiente queda justo detrás de la
+  //    actual por la misma razón de arriba.
   const toggleShuffle = useCallback(() => {
-    setShuffle((s) => {
-      const v = !s;
-      shuffleRef.current = v;
-      if (v) {
-        // al activar: arranca un ciclo nuevo dejando la actual como ya sonada (por _qid)
-        const curQid = queueRef.current[idxRef.current]?._qid;
-        playedRef.current = new Set(curQid != null ? [curQid] : []);
-        historyRef.current = [];
-      }
-      return v;
-    });
+    const v = !shuffleRef.current;
+    shuffleRef.current = v;
+    setShuffle(v);
+    const q = queueRef.current;
+    const cur = q[idxRef.current] ?? null;
+    const forced = forcedNextRef.current;
+    let next;
+    if (v) {
+      baseRef.current = q.map((t) => t._qid);
+      if (q.length < 2) return;
+      const at = idxRef.current + 1;                      // nada suena (−1) → se baraja todo
+      const head = q.slice(0, at);
+      const tail = q.slice(at);
+      const pend = forced.map((qid) => tail.find((t) => t._qid === qid)).filter(Boolean);
+      next = [...head, ...pend, ...shuffled(tail.filter((t) => !forced.includes(t._qid)))];
+    } else {
+      const base = baseRef.current;
+      baseRef.current = null;
+      if (!base) return;
+      const byQid = new Map(q.map((t) => [t._qid, t]));
+      const inBase = new Set(base);
+      const restored = [
+        ...base.map((qid) => byQid.get(qid)).filter(Boolean),
+        ...q.filter((t) => !inBase.has(t._qid)),
+      ];
+      const pend = forced.map((qid) => byQid.get(qid)).filter((t) => t && t !== cur);
+      next = restored.filter((t) => !pend.includes(t));
+      const ci = cur ? next.indexOf(cur) : -1;
+      if (ci >= 0) next.splice(ci + 1, 0, ...pend);
+      else next = restored;
+    }
+    queueRef.current = next;
+    setQueue(next);
+    if (cur) idxRef.current = next.indexOf(cur);
   }, []);
 
   const cycleRepeat = useCallback(() => {
@@ -778,11 +865,11 @@ export function PlayerProvider({ children }) {
     currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex,
     shuffle, repeat,
     queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
+    play, addToQueue, playAfterCurrent, pendientesDe, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   }), [
     currentTrack, trackMeta, isPlaying, playBlocked, volume, queueIndex, shuffle, repeat, queue, upNext, notice,
-    play, addToQueue, playAfterCurrent, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
+    play, addToQueue, playAfterCurrent, pendientesDe, removeFromQueue, moveInQueue, jumpTo, togglePlay, pause, resume, next, prev, seek, setVolume, toggleShuffle, cycleRepeat, setRepeatMode,
     isVideoFullscreen, enterVideoFullscreen, exitVideoFullscreen,
   ]);
 

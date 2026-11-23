@@ -10,7 +10,8 @@
 // Comprueba (reglas de la PANTALLA de iOS, app/(tabs)/explore/playlist.tsx + videos-datos.ts):
 //   · con canciones y videos: sección "Videos · 2" al pie (después de las canciones), contador
 //     "2 canciones · 2 videos" en el encabezado y en la lista; tocar una fila arma la cola de videos
-//     desde la tocada; Reproducir = canciones visibles y los videos al final; Mix = todo, sin que
+//     desde la tocada; Reproducir = canciones visibles y los videos al final (y apaga el aleatorio que
+//     dejó el Mix, 1.45.0); Mix = todo, sin que
 //     suenen dos a la vez;
 //   · 0 canciones + 2 videos: sin "Sin canciones." ni "Playlist vacía", botones visibles;
 //   · available false / null: filas apagadas con su nota, afuera de la cola y con el aviso de iOS;
@@ -108,7 +109,7 @@ async function newPage(w, h, mobile) {
     window.__cola = () => {
       const v = window.__player();
       const name = (t) => (t.kind === 'video' ? `video:${t.title}` : `audio:${t.title}`);
-      return { cola: v.queue.map(name), actual: v.currentTrack ? name(v.currentTrack) : null, idx: v.queueIndex };
+      return { cola: v.queue.map(name), actual: v.currentTrack ? name(v.currentTrack) : null, idx: v.queueIndex, shuffle: v.shuffle };
     };
   }, token);
   await ctx.route((u) => u.pathname.startsWith('/stream/') && !u.pathname.startsWith('/stream/video/'), (r) => {
@@ -201,6 +202,11 @@ for (const [w, h, mobile] of [[1440, 900, false], [390, 844, true]]) {
   const ambos = [...c3.cola].sort().join('|') === [...esperado].sort().join('|');
   const maxBoth = await p.evaluate(() => window.__maxBoth);
   ok(`mix_canciones_y_videos_${w}`, ambos && maxBoth <= 1 && c3.idx === 0, { ...c3, maxBoth });
+  // 1.45.0: el Mix dejó el aleatorio encendido; «Reproducir» lo apaga y vuelve al orden de la lista.
+  await reproducir(p);
+  await sleep(500);
+  const c3b = await p.evaluate(() => window.__cola());
+  ok(`reproducir_tras_el_mix_apaga_el_aleatorio_en_orden_${w}`, c3.shuffle === true && c3b.shuffle === false && JSON.stringify(c3b.cola) === JSON.stringify(esperado) && c3b.idx === 0, { ...c3b, aleatorio_tras_el_mix: c3.shuffle, esperado });
 
   // ── P2: 0 canciones + 2 videos ──
   await abrir(p, P2);

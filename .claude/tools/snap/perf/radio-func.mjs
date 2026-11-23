@@ -2,149 +2,28 @@
 // :4173) y el backend REAL del runner (:3100, copia de la base). El audio sale de un WAV sintético por
 // /stream (page.route, como fav-bar-desktop-func); los videos son los sintéticos del runner (VIDEO_DIR).
 // La segunda cuenta (SNAP2_USER/SNAP2_PASS) la crea el runner en su copia: es el "oyente" que lee la sala.
+// El montaje (cuentas, navegador, INIT, abrir, vista…) vive en radio-anfitrion-comun.mjs.
 //
 // Dos partes:
 //   · 1-10  contra el servidor de radio REAL: crear, publicar (pausa, salto, pista, latido), oyentes,
-//           terminar con confirmación, reemplazada, video, pagehide.
+//           terminar con confirmación, reemplazada, video, pagehide. 10c (cerrar la página de verdad) es
+//           INTERMITENTE conocida: si es la única falla de la suite, se repite una vez (no se tolera).
 //   · 11-18 con un servidor de radio FALSO (page.route sobre /api/radio): cómo reacciona la app a 429,
 //           403, 410, 401, 409, red caída, 422 y terminar sin red. No toca el límite de 6 salas/min.
-// Además: que Layout y la vista NO se re-rendericen con el reloj mientras se transmite (gancho de
+// Además: que Layout y la vista NO se re-rendericen con el reloj mientras se transmite (05b: gancho de
 // DevTools sobre el build de producción, ubicando los componentes por su DOM), y que al salir no
-// quede vivo ningún intervalo de la radio.
+// quede vivo ningún intervalo de la radio (07e, 08c).
 //
+// Las ÓRDENES de quien modera (19) y la cara del anfitrión con moderadores (20), de 1.45.0, viven en
+// radio-anfitrion-mod-func (se partió para dejar margen frente al tope de 300 s del runner).
 // RADIO_SOLO=2,11 corre sólo esos escenarios (lo usan las mutaciones de control; el conteo no cuadra
 // con el baseline a propósito). Lo que no se puede medir va en "NO MEDIDO", fuera del conteo.
+// RADIO_FUNC_SALIDA=<archivo>: deja ahí los resultados con sus valores.
 // Uso: SNAP_BASE=http://localhost:4173 SNAP2_USER=… SNAP2_PASS=… node radio-func.mjs
-import { getToken, preflight, loadPlaywright, BASE } from '../session.mjs';
-
-await preflight();
-const T0 = Date.now();
-const SOLO = process.env.RADIO_SOLO ? new Set(process.env.RADIO_SOLO.split(',').map(Number)) : null;
-const corre = (n) => !SOLO || SOLO.has(n);
-const R = {};
-const ok = (k, v, extra) => { R[k] = extra === undefined ? !!v : { ok: !!v, ...extra }; };
-const NO_MEDIDO = [];
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const tokHost = await getToken();
-const login2 = await fetch(BASE + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: process.env.SNAP2_USER, password: process.env.SNAP2_PASS }) });
-const tokOye = (await login2.json()).token;
-if (!tokOye) { console.error('[radio-func] no entra la segunda cuenta (SNAP2_USER/SNAP2_PASS)'); process.exit(1); }
-
-const api = async (tok, method, path, body) => {
-  const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  let j = null; try { j = await r.json(); } catch {}
-  return { status: r.status, j };
-};
-const sala = (c) => api(tokHost, 'GET', `/api/radio/${c}`);   // el anfitrión lee sin contarse como oyente
-
-// Un álbum con al menos 3 pistas, para tener siguiente y poder saltar.
-const albums = (await api(tokHost, 'GET', '/api/albums')).j ?? [];
-const alb = albums.find((a) => (a.track_count ?? a.tracks ?? a.count ?? 3) >= 3 && a.album) ?? albums[0];
-const RUTA_ALBUM = `/albums/${alb.album_artist ? encodeURIComponent(alb.album_artist) : '@'}/${encodeURIComponent(alb.album)}`;
-
-function wav(sec = 180, sr = 8000) {
-  const n = sec * sr, b = Buffer.alloc(44 + n * 2);
-  b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16);
-  b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(sr, 24); b.writeUInt32LE(sr * 2, 28);
-  b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
-  return b;
-}
-const WAV = wav();
-
-const { chromium } = await loadPlaywright();
-const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
-
-// Init de cada página: token; intervalos vivos (para ver que la radio no deja ninguno al salir); y un
-// gancho de DevTools que cuenta los renders de Layout y de la vista de <main>, ubicados por su DOM
-// (el build de producción no tiene nombres de componentes).
-const INIT = (t) => {
-  localStorage.setItem('token', t);
-  const si = window.setInterval.bind(window), ci = window.clearInterval.bind(window);
-  window.__intervalos = new Map();
-  window.setInterval = (fn, ms, ...a) => { const id = si(fn, ms, ...a); window.__intervalos.set(id, ms); return id; };
-  window.clearInterval = (id) => { window.__intervalos.delete(id); return ci(id); };
-  window.__renders = { layout: 0, vista: 0 }; window.__contar = false;
-  const fibra = (el) => { if (!el) return null; const k = Object.keys(el).find((x) => x.startsWith('__reactFiber$')); return k ? el[k] : null; };
-  const funcionArriba = (f, n) => { let x = f; let c = 0; while (x) { x = x.return; if (x && typeof x.type === 'function' && ++c === n) return x; } return null; };
-  const funcionAbajo = (f) => { let x = f?.child; while (x && typeof x.type !== 'function') x = x.child; return x; };
-  const previo = new Map();
-  const mirar = (nombre, f) => {
-    if (!f) return;
-    const p = previo.get(nombre);
-    const cambio = !p || (p.f !== f && p.f !== f.alternate) || p.props !== f.memoizedProps || p.state !== f.memoizedState;
-    if (p && cambio && window.__contar) window.__renders[nombre]++;
-    previo.set(nombre, { f, props: f.memoizedProps, state: f.memoizedState });
-  };
-  window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
-    supportsFiber: true, renderers: new Map(), inject() { return 1; }, isDisabled: false,
-    onCommitFiberRoot() {
-      try {
-        // Layout: la 2.ª función hacia arriba desde div.layout (la 1.ª es DragQueueProvider).
-        mirar('layout', funcionArriba(fibra(document.querySelector('.layout')), 2));
-        // La vista: la 1.ª función dentro de <main class="main-content">.
-        mirar('vista', funcionAbajo(fibra(document.querySelector('.main-content'))));
-      } catch { /* sin DOM todavía */ }
-    },
-    onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, checkDCE() {},
-  };
-};
-
-async function abrir({ mobile = false, falso = null } = {}) {
-  const ctx = await browser.newContext(mobile ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } : { viewport: { width: 1440, height: 900 } });
-  await ctx.route('**/stream/**', (r) => {
-    if (r.request().url().includes('/stream/video/')) return r.continue();   // los videos sintéticos, de verdad
-    const h = r.request().headers().range; const total = WAV.length;
-    if (!h) return r.fulfill({ status: 200, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes' }, body: WAV });
-    const [, a, b] = h.match(/bytes=(\d*)-(\d*)/); const start = a ? +a : 0; const end = b ? +b : total - 1;
-    r.fulfill({ status: 206, contentType: 'audio/wav', headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${total}` }, body: WAV.subarray(start, end + 1) });
-  });
-  if (falso) await ctx.route('**/api/radio**', falso);
-  await ctx.addInitScript(INIT, tokHost);
-  const p = await ctx.newPage();
-  const pedidos = []; p.on('request', (q) => { if (new URL(q.url()).pathname.startsWith('/api/radio')) pedidos.push({ t: Date.now(), m: q.method(), u: new URL(q.url()).pathname }); });
-  const errores = []; p.on('pageerror', (e) => errores.push(e.message));
-  return { ctx, p, pedidos, errores };
-}
-const vista = (p) => p.evaluate(() => ({
-  path: location.pathname,
-  codigo: document.querySelector('.radio-codigo')?.textContent ?? null,
-  anfitrion: !!document.querySelector('.radio-terminar'),
-  estado: document.querySelector('.radio-estado')?.textContent ?? null,
-  oyentes: document.querySelector('.radio-oyentes')?.textContent ?? null,
-  iniciar: (() => { const b = [...document.querySelectorAll('.main-content .radio-btn')].find((x) => /Iniciar|Creando/.test(x.textContent)); return b ? { texto: b.textContent.trim(), off: b.disabled } : null; })(),
-  notas: [...document.querySelectorAll('.main-content .radio-nota')].map((n) => n.textContent),
-  foco: document.activeElement?.textContent?.trim().slice(0, 30) ?? null,
-  login: !!document.querySelector('input[type="password"]'),
-  intervalosRadio: [...window.__intervalos.values()].filter((ms) => ms === 500 || ms === 5000).length,
-}));
-const esperar = async (fn, ms = 6000, paso = 150) => { const t = Date.now(); while (Date.now() - t < ms) { const v = await fn(); if (v) return { v, ms: Date.now() - t }; await sleep(paso); } return { v: null, ms: null }; };
-async function sonar(p) {
-  await p.goto(BASE + RUTA_ALBUM);
-  await p.waitForSelector('.track-row', { timeout: 10_000 });
-  await p.locator('.track-row').first().click();
-  await sleep(1200);
-}
-const irA = async (p, nombre) => { await p.locator('.sidebar-nav button', { hasText: new RegExp(`^${nombre}$`) }).click(); await sleep(600); };
-const iniciar = async (p) => { await p.locator('.main-content .radio-btn', { hasText: 'Iniciar radio' }).click(); return esperar(async () => (await vista(p)).anfitrion, 5000); };
-const espacio = async (p) => { await p.evaluate(() => document.activeElement?.blur()); await p.keyboard.press('Space'); };
-const tecla = async (p, k) => { await p.evaluate(() => document.activeElement?.blur()); await p.keyboard.press(k); };
-const terminarUI = async (p) => {
-  await p.getByRole('button', { name: 'Terminar radio' }).click(); await sleep(250);
-  await p.getByRole('button', { name: 'Sí, terminar' }).click();
-  return esperar(async () => !(await vista(p)).anfitrion, 5000);
-};
-const pedidosDesde = (pedidos, t) => pedidos.filter((x) => x.t > t).map((x) => `${x.m} ${x.u}`);
-const TXT = {
-  terminaste: 'Terminaste la radio.',
-  reemplazada: 'Empezaste otra radio desde otra pestaña o dispositivo.',
-  noEsTuya: 'Esta radio ya no es tuya.',
-  pausa: 'La radio se cerró por estar mucho tiempo en pausa.',
-  demasiadas: 'Hay demasiadas radios en vivo ahora. Intenta más tarde.',
-  frecuencia: 'Demasiados intentos. Espera unos segundos e intenta de nuevo.',
-  conexion: 'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.',
-  noTerminar: 'No se pudo terminar la radio. Intenta de nuevo.',
-};
+import {
+  T0, corre, R, ok, NO_MEDIDO, sleep, tokHost, tokOye, api, sala, browser, abrir, vista, esperar, sonar,
+  irA, iniciar, espacio, tecla, terminarUI, pedidosDesde, TXT, BASE
+} from './radio-anfitrion-comun.mjs';
 
 // ══════════════════════════ 1-10: servidor de radio REAL ══════════════════════════
 if ([1, 2, 3, 4, 5, 6, 7].some(corre)) {

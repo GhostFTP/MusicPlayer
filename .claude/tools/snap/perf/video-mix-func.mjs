@@ -209,14 +209,15 @@ try {
     const elFin = await p.evaluate(() => { const v = document.querySelector('video.player-video'); return { ended: v.ended, paused: v.paused }; });
     ok('repetir_apagado_se_detiene_al_final', fin.repeat === 'off' && fin.actual === ultimo && fin.isPlaying === false && elFin.ended && elFin.paused, { fin, elemento: elFin });
 
-    // Repetir TODO: otro ciclo, que no empieza por el último que sonó ni repite hasta agotarse.
+    // Repetir TODO: otro ciclo, que no empieza por el último que sonó ni repite hasta agotarse, y desde
+    // M4 en el MISMO orden que el primero (la cola no se rebaraja al dar la vuelta).
     await p.locator('.player-bar .repeat-btn, .player-bar [aria-label^="Repetir"]').first().click();
     const rep = (await estado(p)).repeat;
     await mezclar(p);
     const c1 = await recorrer(p, TOTAL - 1);
     const c2 = (await recorrer(p, TOTAL - 1)).slice(1);
     ok('repetir_todo_otro_ciclo_sin_repetir', rep === 'all' && new Set(c1).size === TOTAL && c2.length === TOTAL - 1 && new Set(c2).size === TOTAL - 1 && !c2.includes(c1[c1.length - 1]) && c2[0] !== c1[c1.length - 1]
-      && (await estado(p)).kind === 'video', { repeat: rep, ciclo1: c1, ciclo2: c2 });
+      && c2.join('|') === c1.slice(0, TOTAL - 1).join('|') && (await estado(p)).kind === 'video', { repeat: rep, ciclo1: c1, ciclo2: c2 });
     for (let i = 0; i < 3 && (await estado(p)).repeat !== 'off'; i++) await p.locator('.player-bar .repeat-btn, .player-bar [aria-label^="Repetir"]').first().click();
 
     // Anterior en una cola barajada: vuelve al que sonó antes.
@@ -228,8 +229,8 @@ try {
     const vuelve2 = await cambia(p, vuelve);
     ok('anterior_en_cola_barajada', vuelve === a[1] && vuelve2 === a[0] && (await estado(p)).kind === 'video', { sonaron: a, anterior: vuelve, anterior_otra_vez: vuelve2 });
 
-    // Apagar el aleatorio de la barra a mitad de la cola barajada: el que suena sigue sonando, la cola
-    // no cambia y «siguiente» pasa a recorrerla EN SU ORDEN desde ahí (lo de antes de ese punto no vuelve).
+    // Apagar el aleatorio de la barra a mitad de la cola barajada (M4): el que suena sigue sonando, la
+    // cola VUELVE al orden de la vista y «siguiente» la recorre en ese orden desde donde quedó el que suena.
     await mezclar(p);
     await recorrer(p, 1);
     const m0 = await estado(p);
@@ -238,8 +239,8 @@ try {
     const idx = m1.cola.indexOf(m1.actual);
     const sigue = await p.evaluate(() => { const v = document.querySelector('video.player-video'); return !v.paused && v.currentTime > 0; });
     const despues = (await recorrer(p, m1.cola.length - 1 - idx)).slice(1);
-    ok('apagar_aleatorio_sigue_en_orden', m0.shuffle === true && m1.shuffle === false && m1.actual === m0.actual && sigue && m1.cola.join('|') === m0.cola.join('|')
-      && despues.join('|') === m1.cola.slice(idx + 1).join('|'), { sonaba: m0.actual, posicion_en_la_cola: idx, cola: m1.cola, despues });
+    ok('apagar_aleatorio_sigue_en_orden', m0.shuffle === true && m1.shuffle === false && m1.actual === m0.actual && sigue && m1.cola.join('|') === todos.join('|')
+      && despues.join('|') === m1.cola.slice(idx + 1).join('|'), { sonaba: m0.actual, posicion_en_la_cola: idx, cola_barajada: m0.cola, cola: m1.cola, vista: todos, despues });
 
     // Teclado: foco con Tab desde el buscador, Enter activa, el foco se queda.
     await p.locator(INPUT).focus();

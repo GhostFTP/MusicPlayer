@@ -3,6 +3,42 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.45.0] - 2026-11-23
+
+### Nuevo
+- **Moderar la radio.** Si transmites una radio, puedes elegir hasta 3 personas de las que te están
+  escuchando para que te ayuden a llevarla: en tu tarjeta de la radio, junto a cada oyente, aparece
+  «Hacer moderador». Quien modera puede pasar a la siguiente canción, pausar y seguir desde su vista
+  de Radio, y desde el menú de cualquier canción, «En la radio» → «Poner a continuación» o «Poner
+  ahora».
+- **Todos ven quién hizo qué.** Cuando alguien que modera pausa, salta o pone una canción, todos los
+  que escuchan ven quién fue. Si te nombran moderador, o dejas de serlo, te llega un aviso.
+- **Las canciones pedidas suenan en el orden en que llegaron.** Si quienes moderan ponen varias
+  canciones «a continuación», suena primero la que se pidió primero, como en una fila. Cada persona
+  puede tener hasta 3 canciones esperando su turno.
+
+### Cambiado
+- **El aleatorio se ve en la cola.** Al encender el aleatorio, la cola se revuelve de verdad: lo que
+  ves en ella es lo que va a sonar, en ese orden. «Anterior» regresa a la canción que acaba de sonar,
+  y si repites toda la cola, la siguiente vuelta repite el mismo orden. Al apagarlo, la cola vuelve a su
+  orden y lo que agregaste mientras tanto queda al final.
+- **«Reproducir» toca la lista en orden.** El botón «▶ Reproducir» de un álbum, un género o una
+  playlist, y «Reproducir álbum», «Reproducir todo», «Reproducir género» y «Reproducir año» del menú,
+  apagan el aleatorio si estaba encendido. Para revolver, usa «Mix aleatorio», o toca una canción con
+  el aleatorio encendido: suena esa y el resto va revuelto detrás.
+
+### Para tener en cuenta
+- En tu propio reproductor, «Reproducir a continuación» sigue como siempre: la última que pones es la
+  primera que suena. La fila por orden de llegada es solo para lo que piden quienes moderan la radio.
+- Si alguien que modera ya tiene 3 canciones esperando, la siguiente que pida no entra; por ahora solo
+  se entera porque, al rato, le aparece «No se aplicó».
+- La app de iPhone todavía no modera: si transmites desde ahí, nadie puede moderar tu radio; si
+  escuchas desde ahí, te unes igual, pero no te pueden nombrar moderador.
+- Moderar funciona mientras el reproductor de quien transmite siga abierto. Si cierra la pestaña, la
+  radio se cierra al momento, siempre que el navegador alcance a avisar; si apaga la compu o se queda
+  sin conexión, se cierra a los 5 minutos, como hasta ahora.
+- Como siempre, al actualizar el servidor se cierran las radios abiertas.
+
 ## [1.44.1] - 2026-11-22
 
 ### Corregido

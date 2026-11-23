@@ -12,11 +12,15 @@
 //      byte a byte —con su -wal si existe; el original no se abre con SQLite— a un directorio temporal
 //      ÚNICO, y el backend arranca contra la COPIA (fav-func, plays-func, nav-real… escriben, y la
 //      creación perezosa de "Mis favoritos" no es determinista contra una base ya usada). La copia se
-//      borra al cerrar. Crea en la copia la SEGUNDA CUENTA que necesita albview-func con el CLI que el
-//      backend ya trae (src/admin/users.js create --generate, lo mismo que `npm run users`): usuario
-//      aleatorio, contraseña generada por el CLI, pasadas al script por env (SNAP2_USER/SNAP2_PASS);
-//      nunca se imprimen ni se escriben. Levanta SU backend (node server.js, PORT=3100) y SU preview
-//      (vite preview en 4173, config en el mismo directorio temporal, proxy a :3100). Nunca sonorarev.com.
+//      borra al cerrar. Crea en la copia la SEGUNDA CUENTA (albview-func, albums-filter-func, radio-func,
+//      radio-oyente-func) y la TERCERA (radio-mod-api: la moderación necesita anfitrión y dos oyentes)
+//      con el CLI que el backend ya trae (src/admin/users.js create --generate, lo mismo que
+//      `npm run users`): usuario aleatorio, contraseña generada por el CLI, pasadas a los scripts por env
+//      (SNAP2_USER/SNAP2_PASS y SNAP3_USER/SNAP3_PASS); nunca se imprimen ni se escriben. Si una no se
+//      crea, sus dos variables se BORRAN (también las que viniesen del entorno) y las filas que la piden
+//      en "requiere" salen NO CORRIÓ; las demás corren igual. Levanta SU backend (node server.js,
+//      PORT=3100) y SU preview (vite preview en 4173, config en el mismo directorio temporal, proxy a
+//      :3100). Nunca sonorarev.com.
 //      VIDEOS: genera los 3 fixtures sintéticos de video-fixtures.mjs en <temporal>/videos y le pasa
 //      VIDEO_DIR=<esa carpeta> al backend SIEMPRE (pisa cualquier VIDEO_DIR del entorno o del .env: el
 //      real nunca se lee). Se borran con el resto del temporal. Sin ffmpeg: fila "video-fixtures" NO
@@ -301,13 +305,18 @@ try {
   } catch (e) { log(`⚠ no se pudo poner la letra fixture (${e.message}): func va a salir NO CORRIÓ`); }
   const serverEnv = { ...process.env, PORT: String(PORT_API), MUSIC_DB_PATH: dbCopy, VIDEO_DIR: videoDir };
 
-  // Segunda cuenta para albview-func, creada EN LA COPIA con el CLI del backend (sin tocar el backend).
-  const u2 = `regresion-${randomBytes(4).toString('hex')}@local`;
-  const mk = spawnSync(process.execPath, ['--env-file-if-exists=.env', 'src/admin/users.js', 'create', u2, '--generate'], { cwd: SERVER, env: serverEnv, encoding: 'utf8', windowsHide: true, timeout: 60000 });
-  // El CLI imprime: [USERS] Usuario "<u>" creado (id=…, rol=user).  <línea vacía>  "  <contraseña>"
-  const pw = mk.status === 0 ? mk.stdout.match(/creado \(id=\d+[^)]*\)\.\s*\r?\n\s*\r?\n\s+(\S+)\s*\r?\n/)?.[1] : null;
-  if (pw) { process.env.SNAP2_USER = u2; process.env.SNAP2_PASS = pw; log(`segunda cuenta creada en la copia: ${u2} (contraseña generada, no se muestra)`); }
-  else { delete process.env.SNAP2_USER; delete process.env.SNAP2_PASS; log(`⚠ no se pudo crear la segunda cuenta en la copia (exit ${mk.status}): albview-func va a salir NO CORRIÓ`); }
+  // Cuentas extra, creadas EN LA COPIA con el CLI del backend (sin tocar el backend). `pre` es el prefijo
+  // de sus variables (SNAP2 → SNAP2_USER/SNAP2_PASS); `cual` y `quienes`, solo para el log.
+  const cuenta = (pre, cual, quienes) => {
+    const u = `regresion-${randomBytes(4).toString('hex')}@local`;
+    const mk = spawnSync(process.execPath, ['--env-file-if-exists=.env', 'src/admin/users.js', 'create', u, '--generate'], { cwd: SERVER, env: serverEnv, encoding: 'utf8', windowsHide: true, timeout: 60000 });
+    // El CLI imprime: [USERS] Usuario "<u>" creado (id=…, rol=user).  <línea vacía>  "  <contraseña>"
+    const pw = mk.status === 0 ? mk.stdout.match(/creado \(id=\d+[^)]*\)\.\s*\r?\n\s*\r?\n\s+(\S+)\s*\r?\n/)?.[1] : null;
+    if (pw) { process.env[`${pre}_USER`] = u; process.env[`${pre}_PASS`] = pw; log(`${cual} cuenta creada en la copia: ${u} (contraseña generada, no se muestra)`); }
+    else { delete process.env[`${pre}_USER`]; delete process.env[`${pre}_PASS`]; log(`⚠ no se pudo crear la ${cual} cuenta en la copia (exit ${mk.status}): ${quienes} va a salir NO CORRIÓ`); }
+  };
+  cuenta('SNAP2', 'segunda', 'albview-func');
+  cuenta('SNAP3', 'tercera', 'radio-mod-api');
 
   // 2. Build
   if (!SIN_BUILD) {

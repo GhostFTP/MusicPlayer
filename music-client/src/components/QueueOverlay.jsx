@@ -446,7 +446,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
   // ÍNDICE sin cambiar la pista (idxRef la sigue por _qid), y con la dep vieja la lista se
   // auto-centraba sola a mitad del arrastre. Por _qid dispara exactamente cuando cambia la pista
   // —que es lo que este efecto siempre quiso decir— y de paso distingue duplicados.
-  // behavior:'auto' (salto directo, SIEMPRE): con shuffle + cola larga "siguiente" salta cientos de
+  // behavior:'auto' (salto directo, SIEMPRE): si la pista nueva queda lejos en la cola, el trayecto son cientos de
   // filas y animar ese trayecto marea; el salto instantáneo orienta sin recorrerlo (auto = sin
   // motion → también respeta prefers-reduced-motion). block:'center' orienta mejor en saltos grandes.
   //
@@ -528,7 +528,7 @@ export default function QueueOverlay({ onClose, acceptsDrop = false }) {
             En cola · {queue.length} {queue.length === 1 ? 'pista' : 'pistas'}
           </span>
           {shuffle && (
-            <span className="queue-shuf" title="En aleatorio, el orden real de reproducción no sigue esta lista">
+            <span className="queue-shuf" title="En aleatorio la cola está barajada: suena en este orden">
               ⇄ Aleatorio · orden de la cola
             </span>
           )}

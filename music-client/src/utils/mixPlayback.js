@@ -12,7 +12,8 @@ export const ERROR_TOAST_MS = 3500;
 // Mismo texto que el menú contextual y el arrastre a la cola cuando no se pudo pedir la lista.
 export const MIX_ERROR_TEXT = 'No se pudieron cargar las pistas';
 
-// Baraja una copia (Fisher–Yates) sin mutar el original.
+// Baraja una copia (Fisher–Yates) sin mutar el original. Desde M4 la usa sólo el motor
+// (PlayerContext): el Mix, encender el aleatorio y tocar una fila con el aleatorio encendido.
 export function shuffled(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {

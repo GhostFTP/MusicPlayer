@@ -3,12 +3,12 @@ import { usePlayer } from '../context/PlayerContext.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { useContextMenu } from '../components/ContextMenu.jsx';
 import { libraryTracks } from './viewTracks.js';
-import { shuffled, MIN_TRACKS, ERROR_TOAST_MS, MIX_ERROR_TEXT } from './mixPlayback.js';
+import { MIN_TRACKS, ERROR_TOAST_MS, MIX_ERROR_TEXT } from './mixPlayback.js';
 
 // Atajo global "M" (Frente 2, M3): mezcla TODA la biblioteca, desde cualquier vista. El botón de
 // cada vista mezcla SU vista; esto no mira la vista ni la búsqueda: siempre la biblioteca completa
 // (la lista 'tracks:all' de viewCache, por usuario; si no está, UN pedido que además la deja en caché).
-// Mismo barajado, misma reproducción y mismo aviso de error que ShuffleButton (utils/mixPlayback.js).
+// Misma reproducción (play con { mezclar: true }) y mismo aviso de error que ShuffleButton (utils/mixPlayback.js).
 //
 // Se monta en Layout, que sólo existe con sesión iniciada. NO toca PlayerContext: escucha su propio
 // keydown en window. Guardas, en orden:
@@ -27,12 +27,12 @@ const TEXT_FIELDS = 'input, textarea, select, [contenteditable=""], [contentedit
 const BLOCKING = '.ctx-menu, .ptp-menu, .emoji-grid, .info-overlay, [role="dialog"], [aria-modal="true"]';
 
 export function useMixShortcut() {
-  const { play, shuffle, toggleShuffle } = usePlayer();
+  const { play } = usePlayer();
   const toast = useToast();
   const { menuOpen } = useContextMenu();
   // Lo que cambia entre renders se lee por ref: el listener se registra UNA vez.
   const live = useRef(null);
-  live.current = { play, shuffle, toggleShuffle, toast, menuOpen };
+  live.current = { play, toast, menuOpen };
   const inFlight = useRef(false);
   const lastErrorToast = useRef(0);
 
@@ -60,9 +60,8 @@ export function useMixShortcut() {
           return;
         }
         if (!list || list.length < MIN_TRACKS) return;
-        const { play: p, shuffle: on, toggleShuffle: toggle } = live.current;
-        p(shuffled(list), 0);
-        if (!on) toggle();
+        // Mismo Mix que el botón: baraja todo, enciende el aleatorio y guarda el orden de la vista.
+        live.current.play(list, 0, { mezclar: true });
       } finally {
         inFlight.current = false;
       }

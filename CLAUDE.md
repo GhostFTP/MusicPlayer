@@ -145,8 +145,8 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   **siempre** por `album_artist`. La cola y la navegación no se implementan acá, se **reúnen**:
   salen de `PlayerContext` y del host (`Player.jsx` vía `registerHost`).
   **Motor:** se sumó **`removeFromQueue(qid)`** — toma un **`_qid`**, no un índice; se niega
-  sobre la que suena, y limpia `playedRef`/`historyRef`/`forcedNext` (+ su espejo `upNextIds`)
-  recomputando `idxRef` por `findIndex`. Es el caso canónico de por qué la cola se keyea por
+  sobre la que suena, y limpia `forcedNext` (+ su espejo `upNextIds`) y, con aleatorio, `baseRef`
+  (en v1.10.0 eran `playedRef`/`historyRef`, que M4 quitó), recomputando `idxRef` por `findIndex`. Es el caso canónico de por qué la cola se keyea por
   `_qid`. **No toca MediaSession.**
   **Ya no falta cablear nada** — lo que v1.10.0 dejó pendiente se cerró en v1.10.1 (abajo).
   Contrato completo: `.claude/skills/actions-lab/SKILL.md`; lo táctil:
@@ -168,13 +168,45 @@ antes de recomendar), no en supuestos genéricos. Conservador con producción.
   suena** — no llama a `playIndex` ni al `<audio>`, y MediaSession (que cuelga de
   `currentTrack`/`isPlaying`) ni se entera: reordenar cambia el **plan**, nunca la reproducción en
   curso. Lo único posicional del motor es `idxRef`, recomputado por `findIndex(_qid)`. `toIndex` es
-  la posición **ya sin la pista movida** (splice-remove-then-insert). `played`/`history` **no** se
-  tocan (son `_qid`; permutar el plan no reescribe lo que ya sonó); `forcedNext` **sí**: mover a
+  la posición **ya sin la pista movida** (splice-remove-then-insert). `baseRef` (el orden original
+  del aleatorio) **no** se toca; `forcedNext` **sí**: mover a
   mano una pista marcada "a continuación" **revoca el pill**, porque forcedNext gana sobre el orden
   y si no el arrastre mentiría.
-  ⚠️ **Con aleatorio encendido el reorden es cosmético**: el motor elige del pool de no-sonadas y
-  no mira el orden. Es **decisión tomada, no olvido** — el aviso vive en el header de la cola
-  ("Aleatorio · orden de la cola") desde v1.8.0, y por eso tampoco se menciona en el CHANGELOG.
+  **Aleatorio con orden fijo (M4, reemplaza el "reorden cosmético" de v1.8.0–v1.11.0):** el motor
+  ya no sortea entre no-sonadas. La cola **es** el orden de reproducción también en aleatorio:
+  encenderlo baraja lo que viene después de la actual y guarda el orden previo en `baseRef`;
+  apagarlo lo devuelve (lo agregado después va al final). `playNext`/`prev` caminan por posición
+  (siguiente → anterior → siguiente = la misma), "repetir todo" repite el mismo orden y **arrastrar
+  con aleatorio encendido cambia lo que suena después**. `play()` respeta el orden recibido (la
+  radio carga `[pista, siguiente]`); `{ vista: true }` = **tocar una fila**: tocada primero + resto
+  barajado si el aleatorio está encendido; `{ enOrden: true }` (1.45.0) = **«Reproducir» una lista**
+  (el «▶ Reproducir» de Álbum, Género y Playlist, y «Reproducir álbum/todo/género/año» del menú):
+  **apaga el aleatorio** si estaba encendido y suena en el orden de la lista — quien pide
+  «Reproducir» quiere la lista como se ve, y para barajarla está el Mix; `{ mezclar: true }` = el
+  Mix (baraja todo y enciende el aleatorio). Prueba: `mix-orden-func.mjs` (11) y
+  `pl-videos-func.mjs`. Contrato: `.claude/skills/actions-lab/SKILL.md`.
+  **"A continuación" en dos órdenes (1.45.0):** el menú local **apila** (`playAfterCurrent(t)`: justo
+  detrás de la actual, la última pedida suena primero, como Apple Music). Una **petición de la radio**
+  (orden `a-continuacion` que aplica el anfitrión: `playAfterCurrent(t, { pedidoPor: idModerador })`)
+  va en **orden de llegada**: detrás de la última petición de la radio pendiente, o de la actual si no
+  hay. `pedidosRef` (`_qid` → quién) marca de dónde vino; `pendientesDe(id)` cuenta las pendientes de
+  esa persona y `planDeOrden` descarta la que pase `PETICIONES_POR_MODERADOR` (3, `radioSync.js`,
+  motivo `'tope'`: solo cliente, el servidor no lo sabe). La descartada el anfitrión la **confirma
+  sin evento** (`ordenHasta` sin `aplicadas`); quien modera no recibe nada, así que su propio
+  temporizador dice "Esperando al anfitrión…" a los 5 s y "No se aplicó" a los 30 s, y mientras
+  tanto el menú no le deja mandar otra "a continuación". **Deuda:** el moderador no recibe aviso
+  del tope; la mejora es una respuesta del servidor (nivel C).
+  `jumpTo` **quita la marca** a lo "a continuación" que queda en la elegida o por encima (ya es
+  "anterior"). Pruebas: `radio-anfitrion-mod-func.mjs` 19x y 19ab–19aj, `mix-orden-func.mjs` (10).
+  **"A continuación" que YA SONÓ y después se apaga el aleatorio (1.45.0, decidido: se queda así,
+  sin cambio de código):** va al **final** de la cola y **vuelve a sonar** cuando la reproducción
+  llega ahí. Por qué: al apagar, `toggleShuffle` arma la cola con `baseRef` (el orden de la vista,
+  por `_qid`) y pone detrás lo que no está en él; `playAfterCurrent` inserta una **entrada nueva**
+  (otro `_qid`) que nunca entra en `baseRef`, igual que "Agregar a la cola". Mientras está
+  **pendiente** sigue en `forcedNextRef` y por eso `toggleShuffle` la deja justo detrás de la
+  actual; al sonar sale de `forcedNextRef` y desde ahí es "lo agregado después". Sin apagar el
+  aleatorio no pasa (lo ya sonado queda arriba de la actual y no se repite). Prueba:
+  `mix-orden-func.mjs` (12).
   **El gesto** (`QueueOverlay.jsx`): pointer events **a mano**, sin librerías; handlers en el `<ul>`
   con filtro por target, así las filas memoizadas no reciben ni una prop nueva (sólo un `data-qid`).
   Durante el arrastre **no se pasa por React** —transforms y marcas se escriben sobre los nodos— y
@@ -351,7 +383,7 @@ cierres). El subagente `actions-qa` sigue disponible para auditarlo contra el co
 escritorio** al cerrar la serie, y los tres commits pasaron build. Lo que **no** se ejercitó es
 la interacción del reorden con el resto del motor: mover la pista marcada **"a continuación"**
 (que debe hacer desaparecer el pill), reordenar **cruzando la pista actual**, reordenar con
-**aleatorio** encendido (donde el efecto es cosmético a propósito), y confirmar que en el
+**aleatorio** encendido (cosmético hasta M4; desde M4 cambia lo que suena después), y confirmar que en el
 **teléfono** el gesto sigue sin existir. Mismo subagente `actions-qa` para auditarlo.
 
 **QA de v1.12.0 — validado a mano, fase por fase:** el usuario probó en escritorio las tres
@@ -368,6 +400,19 @@ error, cola vacía, rechazo de un arrastre ajeno) — ahora también **sobre la 
 el handler: lo que se audite en una zona vale para la otra, porque es el mismo hook.
 
 ## Pendientes conocidos
+- **Peticiones de la radio (1.45.0), dos deudas menores** (`PlayerContext.jsx`):
+  (a) `jumpTo` con un índice fuera de rango quita las marcas "a continuación" sin cambiar de pista;
+  (b) `pedidosRef` solo se vacía en `play()`, así que las peticiones pendientes de una radio
+  anterior siguen contando para el tope de la siguiente.
+- **Apagar el aleatorio MIENTRAS suena una "a continuación" corta la cola** (`toggleShuffle`,
+  `PlayerContext.jsx`): la que suena no está en `baseRef` (es una entrada nueva de
+  `playAfterCurrent`), así que al apagar cae al **final** con lo agregado después, y todo lo que
+  queda de la vista termina **por encima** de la actual → después de ella no sigue nada (o, con
+  "repetir todo", vuelve a la primera). Medido **sólo leyendo el código**; la sección 12 de
+  `mix-orden-func.mjs` lo registra en `medidas.apagar_con_a_continuacion_sonando` (no cuenta).
+  Mejora posible, **no implementada**: al apagar, dejar la actual donde estaba en `baseRef`, o
+  ponerla de modo que lo que no sonó de la vista quede **debajo** de ella. Distinto de la que ya sonó (va al final y vuelve a sonar:
+  decidido, se queda así).
 - Agregar 2 correos a la política de Cloudflare Access: `fakkis14@…`, `joana.michelle.riv.so@…`.
 - **Novedades sin color:** `Changelog.jsx:95` ya emite el hook por sección
   (`cl-${slug(título)}`), pero `main.css:1752-1753` sólo pinta **`.cl-nuevo`** (verde) y

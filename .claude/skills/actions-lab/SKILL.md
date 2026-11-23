@@ -136,7 +136,7 @@ barra y el expandido, no copias.
 
 | Acción | Origen | Nota |
 |---|---|---|
-| Reproducir álbum/artista | `play(tracks, 0)` de **PlayerContext** | las pistas se cargan con los MISMOS parámetros que la vista (`albumTracks` / `artistTracks`) → el orden que se encola es el que se ve |
+| Reproducir álbum/artista/género/año | `play(tracks, 0, { enOrden: true })` de **PlayerContext** | las pistas se cargan con los MISMOS parámetros que la vista (`albumTracks` / `artistTracks` / `genreTracks` / `yearTracks`) → el orden que se encola es el que se ve; con el aleatorio encendido lo apaga (1.45.0) |
 | Reproducir a continuación | `playAfterCurrent(item)` de **PlayerContext** | |
 | Agregar a la cola | `addToQueue(item \| tracks)` de **PlayerContext** | acepta una o muchas |
 | Quitar de la cola | `removeFromQueue(_qid)` de **PlayerContext** | ver abajo |
@@ -152,8 +152,7 @@ Recibe un **`_qid`**, no un índice ni un `track.id`. Se niega a quitar la que s
 (`qid === curQid` → return) y, al filtrar la cola, limpia **todas** las estructuras que podrían
 quedar apuntando a un fantasma:
 
-- `playedRef.delete(qid)` → el ciclo de shuffle no cuenta una pista que ya no está.
-- `historyRef` se filtra → `prev()` no vuelve a un fantasma.
+- si hay aleatorio, sale también de `baseRef` (el orden original) → al apagarlo no vuelve.
 - si estaba en `forcedNextRef`, sale de ahí **y** del espejo reactivo `upNextIds` (el pill
   "a continuación").
 - `idxRef` se **recomputa** con `findIndex(_qid === curQid)`.
@@ -163,10 +162,40 @@ Es el ejemplo canónico de la regla `_qid`: **quitar no remapea nada**.
 ## El motor de cola: `_qid`, no índices (regla dura, no re-litigar)
 
 Cada entrada de cola lleva un **`_qid` estable** (contador `uidRef`), y
-`playedRef`/`historyRef`/`forcedNextRef` se llevan **por `_qid`**. Así insertar/quitar/reordenar
-nunca corrompe played/history (son posición-independientes) y los **duplicados** funcionan (la
-misma pista dos veces = dos `_qid` distintos). `idxRef` se recomputa con
+`baseRef`/`forcedNextRef` se llevan **por `_qid`**. Así insertar/quitar/reordenar
+nunca corrompe el orden original del aleatorio (es posición-independiente) y los **duplicados**
+funcionan (la misma pista dos veces = dos `_qid` distintos). `idxRef` se recomputa con
 `findIndex(current._qid)` tras cada mutación — un solo lugar, no per-estructura.
+
+**Aleatorio con orden fijo (M4):** ya no hay `playedRef` ni `historyRef`. La cola **es** el orden
+de reproducción también en aleatorio: encenderlo baraja la cola de verdad (sólo lo que viene
+después de la actual; lo "a continuación" pendiente queda justo detrás de la actual) y guarda el
+orden previo en `baseRef`; apagarlo lo devuelve (lo agregado después va al final). `playNext` y
+`prev` caminan por posición; "repetir todo" vuelve a la primera sin rebarajar. `play()` respeta el
+orden que recibe (la radio lo necesita). Las opciones las elige **el gesto**, no la vista:
+
+| Gesto | Llamada | Con aleatorio encendido |
+|---|---|---|
+| Tocar una **fila** | `play(lista, i, { vista: true })` | la tocada primero y el resto barajado; sigue encendido |
+| **«Reproducir»** la lista (botón «▶ Reproducir», «Reproducir álbum/todo/género/año» del menú) | `play(lista, 0, { enOrden: true })` | **lo apaga** (1.45.0) y suena en el orden de la lista |
+| **Mix** (botón y tecla M) | `play(lista, 0, { mezclar: true })` | baraja todo; lo enciende si estaba apagado |
+
+«Reproducir» apaga el aleatorio porque quien lo pide quiere la lista como se ve; para barajarla
+está el Mix. Antes (M4) «Reproducir» con el aleatorio encendido daba la primera y el resto
+barajado, igual que tocar la fila 0.
+
+**"A continuación" en dos órdenes (1.45.0):** el menú local **apila** (`playAfterCurrent(item)`:
+justo detrás de la actual y al frente de `forcedNextRef`; la última pedida suena primero). Una
+**petición de la radio** (`playAfterCurrent(item, { pedidoPor })`, la usa solo `RadioContext` al
+aplicar `a-continuacion`) va en **orden de llegada**: detrás de la última petición de la radio
+pendiente (o de la actual) y, en `forcedNextRef`, justo después de esa. Así cola y `forcedNextRef`
+siguen diciendo lo mismo. `pedidosRef` (`_qid` → id de quien la pidió) solo marca el origen;
+`pendientesDe(id)` cuenta las de esa persona que siguen en `forcedNextRef` (tope
+`PETICIONES_POR_MODERADOR` = 3 en `radioSync.js`; la que lo pasa se confirma sin evento y quien
+modera solo ve, por su temporizador, "Esperando al anfitrión…" a los 5 s y "No se aplicó" a los
+30 s; **deuda:** sin aviso del tope, la mejora es una respuesta del servidor, nivel C).
+**`jumpTo` quita la marca** a lo "a continuación" que queda en la fila elegida o por encima: ya es
+"anterior" (antes `playNext` volvía a ellas).
 
 - Se descartó remapear índices: la fragilidad mordía justo en "quitar de la cola".
 - Se descartó keyear por `track.id`: **se rompe con duplicados** (no distingue instancias).
@@ -240,7 +269,7 @@ inventar una capa nueva — mismo patrón que `.exp-scrim`.
 
 1. **MediaSession** vive en `PlayerContext.jsx`: los cambios de cola **NO tocan** esos efectos.
    Si uno pretende entrar, **parar y avisar**.
-2. **`playedRef`/`historyRef`/`forcedNextRef` se llevan por `_qid`, NUNCA por índice.**
+2. **`baseRef`/`forcedNextRef` se llevan por `_qid`, NUNCA por índice.**
 3. **UN menú, un provider.** Si aparece un segundo componente de menú, algo se hizo mal.
 4. **Las acciones que no aplican se OCULTAN, no se deshabilitan.** Un menú con ítems grises es
    ruido.
@@ -274,6 +303,14 @@ inventar una capa nueva — mismo patrón que `.exp-scrim`.
 - **Álbum o artista sin pistas**: el fetch devuelve vacío → **toast de aviso**. Sin eso,
   "reproducir álbum" no haría nada y parecería un bug.
 - **Cola vacía + "agregar a la cola"**: arranca la reproducción.
+- **"A continuación" que YA SONÓ y después se apaga el aleatorio** (1.45.0, decidido: se queda
+  así, sin cambio de código): va al **final** de la cola y **vuelve a sonar** al llegar ahí.
+  `toggleShuffle` devuelve `baseRef` (el orden de la vista, por `_qid`) y pone detrás lo que no
+  está en él; lo de `playAfterCurrent` es una entrada nueva (otro `_qid`) que nunca entra en
+  `baseRef`, como lo de "agregar a la cola". Pendiente, en cambio, sigue en `forcedNextRef` y
+  queda justo detrás de la actual; al sonar sale de `forcedNextRef` y pasa a ser "lo agregado
+  después". Sin apagar el aleatorio no pasa: lo ya sonado queda arriba de la actual. Prueba:
+  `mix-orden-func.mjs` (12).
 
 ## Deudas conocidas (anotadas a propósito)
 
@@ -293,10 +330,14 @@ inventar una capa nueva — mismo patrón que `.exp-scrim`.
 **Cola:**
 1. `addToQueue` con la cola **vacía** → arranca la reproducción.
 2. `addToQueue` durante reproducción → **no interrumpe** lo que suena.
-3. `playAfterCurrent` → la insertada suena **inmediatamente después** de la actual.
-4. **`playAfterCurrent` + shuffle**: ninguna ya sonada vuelve a sonar en el ciclo, y ninguna sin
-   sonar se saltea. *(Test del keying por `_qid`.)*
-5. **`playAfterCurrent` + `prev()` en shuffle** → vuelve a la realmente sonada antes.
+3. `playAfterCurrent` → la insertada suena **inmediatamente después** de la actual. Dos seguidas
+   del menú local: suena primero la **última** (pila). Dos peticiones de la radio: suena primero la
+   **primera** (orden de llegada), y la cuarta pendiente de una misma persona se descarta (tope 3).
+   Tocar en el drawer una fila por debajo de las marcadas les quita la marca y se sigue por posición.
+4. **`playAfterCurrent` + aleatorio**: la insertada suena justo después, y después se sigue por
+   el orden de la cola sin saltear ni repetir. *(Test del keying por `_qid`.)*
+5. **Aleatorio: siguiente → anterior → siguiente** da la misma pista; la cola visible es el orden
+   real (`mix-orden-func.mjs`).
 6. **`removeFromQueue`**: quitar una pista NO altera qué suena después; quitar una que estaba
    "a continuación" la saca también del pill; sobre la que suena la acción **no aparece**.
 7. `repeat: 'all'` con cola crecida → el ciclo cubre las nuevas.

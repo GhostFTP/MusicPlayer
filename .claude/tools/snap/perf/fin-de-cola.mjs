@@ -1,13 +1,13 @@
 // fin-de-cola.mjs — «siguiente» MANUAL en el último de la cola. Lo comparten queue-func.mjs (con
 // canciones) y video-mix-func.mjs (con videos): es el mismo motor y las mismas comprobaciones.
 //
-// La regla (1.31.0): si no hay siguiente —en orden, el último con repetir ≠ «todo»; en aleatorio, el
-// ciclo agotado con repetir ≠ «todo»— y lo pide la persona, NO PASA NADA: lo que suena sigue sonando
+// La regla (1.31.0): si no hay siguiente —el último de la cola con repetir ≠ «todo», en orden o en
+// aleatorio (desde M4 la cola es el orden barajado; antes era el ciclo agotado)— y lo pide la persona, NO PASA NADA: lo que suena sigue sonando
 // y el reproductor sigue diciendo que suena. Antes el estado pasaba a «en pausa» con el medio
 // sonando (botón en «Reproducir», MediaSession en paused). El FIN NATURAL del último no cambia: se
 // detiene, y ahí «en pausa» es verdad.
 //
-// Comprueba, con una cola de 3 y repetir apagado, en orden y en aleatorio con el ciclo agotado:
+// Comprueba, con una cola de 3 y repetir apagado, en orden y en aleatorio, en el último:
 //   · «siguiente» por el botón de la barra, el del expandido y MediaSession nexttrack (el handler que
 //     registró la app, llamado a mano) a 1440, y por el botón de la mini a 390 con tap; en videos,
 //     también por el botón de la pantalla completa. Después de cada uno: la pista es la misma, el
@@ -73,8 +73,9 @@ export async function probarFinDeCola({ browser, token, base, ok: okDeQuienLlama
   const estado = (p) => p.evaluate(() => window.__fdcEstado());
   const suena = (p) => p.waitForFunction(() => { const e = window.__fdcEstado(); return e.isPlaying && e.sonando === 1 && e.t > 0.15; }, null, { timeout: 8000 }).then(() => true, () => false);
 
-  // Deja sonando un ítem del que NO hay siguiente: en orden, el último; en aleatorio, el que quede al
-  // agotar el ciclo (se avanza por la API, que es el mismo `next` de los botones).
+  // Deja sonando un ítem del que NO hay siguiente: el último de la cola, en orden y en aleatorio. Desde
+  // M4 el aleatorio camina por posición: encenderlo con el último sonando no deja nada después, y los
+  // `next` de abajo (los mismos de los botones) ya no hacen nada; antes agotaban el ciclo del sorteo.
   async function alFinal(p, { aleatorio, repetir = 'off' }) {
     await p.evaluate(([q, sh, rep]) => {
       const v = window.__fdcPlayer();

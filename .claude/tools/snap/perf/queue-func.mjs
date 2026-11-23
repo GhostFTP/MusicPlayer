@@ -110,7 +110,7 @@ const playingTitle = (p) => p.evaluate(() => document.querySelector('.player-bar
   const { ctx, p } = await newCtx({ viewport: { width: 1440, height: 900 } });
   await p.click('.library-actions .mix-btn');
   await p.waitForTimeout(1200);
-  // el mix arranca SIEMPRE en la 0 de la lista barajada: un "siguiente" (aleatorio) la lleva a mitad
+  // el mix arranca SIEMPRE en la 0 de la lista barajada; un "siguiente" pasa a la 1 (M4: por posición)
   await p.click('.player-bar .ctrl-next'); await p.waitForTimeout(900);
   await p.click('.player-bar .action-btn[aria-label="Cola"]');
   await p.waitForSelector('.queue-row.current');

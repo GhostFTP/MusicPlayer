@@ -155,7 +155,7 @@ export default function Search({ target, clearTarget, navigate }) {
                 artistLink={matchArtist(v.artist, libArtists)}
                 onArtist={openArtist}
                 press={bindVideoPress(v, {
-                  onClick: () => play(shown, i),
+                  onClick: () => play(shown, i, { vista: true }),
                   onContextMenu: (e) => openMenu(e, videoMenu(v)),
                 })}
               />

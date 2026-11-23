@@ -123,6 +123,17 @@ const MENU_LABEL = {
   'year':           'Acciones del año',
 };
 
+// W5b-2 · "EN LA RADIO". La radio (RadioProvider) vive DEBAJO de este provider (App.jsx), así que el
+// menú no puede leer su contexto. RadioProvider se registra acá en un ref de módulo con dos funciones
+// —vista() (lo que ve quien modera, o null fuera de la radio) y ordenar(tipo, trackId)— y el menú lo lee
+// SOLO al armar sus acciones al abrir. Sin contexto nuevo: ningún render de más en ninguno de los dos.
+const radioDelMenu = { current: null };
+export function registrarRadioEnMenu(r) {
+  radioDelMenu.current = r;
+  return () => { if (radioDelMenu.current === r) radioDelMenu.current = null; };
+}
+const esIdPista = (id) => Number.isSafeInteger(id) && id > 0;
+
 export function ContextMenuProvider({ children }) {
   const [menu, setMenu] = useState(null);   // { type, item, x, y } | null — x/y = posición CRUDA del cursor
   const [pos, setPos]   = useState(null);   // posición YA resuelta (flip + clamp), null hasta medir
@@ -133,7 +144,7 @@ export function ContextMenuProvider({ children }) {
   // padre ya volteó), y un modal sería un overlay nuevo que habría que meter en la escalera de
   // nav-lab. Así se reusa TODO lo que ya funciona: mismo ancla, mismo z-index, mismos cierres
   // (clic afuera, scroll, Esc por la escalera) y el mismo flip — que se vuelve a medir al crecer.
-  const [panel,     setPanel]     = useState(null);    // null = acciones · 'playlist' = selector
+  const [panel,     setPanel]     = useState(null);    // null = acciones · 'playlist' = selector · 'radio' = En la radio
   const [playlists, setPlaylists] = useState(null);    // null = cargando
   const [newName,   setNewName]   = useState('');
   const [newEmoji,  setNewEmoji]  = useState('🎵');
@@ -339,6 +350,10 @@ export function ContextMenuProvider({ children }) {
     const it = menu.item;
     const host = hostRef.current;
     const list = [];
+    // W5b-2: quien modera una radio que admite órdenes, escuchándola. Se lee al abrir (no se refresca
+    // con el menú abierto: ordenar vuelve a validar y, sin el rol, cancela sin error).
+    const vr = radioDelMenu.current?.vista?.() ?? null;
+    const moderaRadio = !!(vr && vr.modera === true && vr.admite === true);
 
     // Navegar SIEMPRE por album_artist, NUNCA por el `artist` mostrado (rompería Various Artists
     // y los feats; el backend además filtra album_artist IS NOT NULL). Sin album_artist no hay
@@ -367,6 +382,17 @@ export function ContextMenuProvider({ children }) {
     // fila de lista y para una fila de playlist: si mañana cambia el texto o el toast, cambia en
     // los dos lados o en ninguno. (La fila de la COLA no las usa: ver su case.)
     const pushQueueActions = (t) => {
+      // W5b-2: quien modera manda a la RADIO, no a su cola local: "En la radio" reemplaza a las dos.
+      // Se oculta sobre la pista que ya suena en la radio y en un video (no hay pista en la biblioteca).
+      if (moderaRadio) {
+        if (esIdPista(t.id) && t.kind !== 'video' && t.id !== vr.trackId) {
+          list.push({
+            id: 'radio', label: 'En la radio', short: 'En la radio', tone: 'queue', icon: <IconRadio />,
+            chev: true, keepOpen: true, run: () => setPanel('radio'),
+          });
+        }
+        return;
+      }
       // "A continuación" sobre la pista que YA suena es un no-op → se oculta.
       if (currentTrack?.id !== t.id) {
         list.push({
@@ -468,7 +494,7 @@ export function ContextMenuProvider({ children }) {
       case 'album': {
         list.push({
           id: 'play', label: 'Reproducir álbum', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
-          run: () => onTracks(() => albumTracks(it), (ts) => play(ts, 0), 'Ese álbum no tiene pistas'),
+          run: () => onTracks(() => albumTracks(it), (ts) => play(ts, 0, { enOrden: true }), 'Ese álbum no tiene pistas'),
         });
         list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
@@ -488,7 +514,7 @@ export function ContextMenuProvider({ children }) {
       case 'artist': {
         list.push({
           id: 'play', label: 'Reproducir todo', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
-          run: () => onTracks(() => artistTracks(it), (ts) => play(ts, 0), 'Ese artista no tiene pistas'),
+          run: () => onTracks(() => artistTracks(it), (ts) => play(ts, 0, { enOrden: true }), 'Ese artista no tiene pistas'),
         });
         list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
@@ -507,7 +533,7 @@ export function ContextMenuProvider({ children }) {
       case 'genre': {
         list.push({
           id: 'play', label: 'Reproducir género', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
-          run: () => onTracks(() => genreTracks(it), (ts) => play(ts, 0), 'Ese género no tiene pistas'),
+          run: () => onTracks(() => genreTracks(it), (ts) => play(ts, 0, { enOrden: true }), 'Ese género no tiene pistas'),
         });
         list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
@@ -527,7 +553,7 @@ export function ContextMenuProvider({ children }) {
       case 'year': {
         list.push({
           id: 'play', label: 'Reproducir año', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
-          run: () => onTracks(() => yearTracks(it), (ts) => play(ts, 0), 'Ese año no tiene pistas'),
+          run: () => onTracks(() => yearTracks(it), (ts) => play(ts, 0, { enOrden: true }), 'Ese año no tiene pistas'),
         });
         list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
@@ -610,6 +636,25 @@ export function ContextMenuProvider({ children }) {
     return true;
   }, [menu, panel, closeMenu]);
 
+  // W5b-2 · Las dos acciones del panel "En la radio". Sin confirmación: cierran el menú y mandan la orden;
+  // lo que pase lo dice RadioProvider (su línea de estado y, fuera de la vista Radio, su toast).
+  const radioItems = panel === 'radio' && menu ? [
+    { id: 'radio-next', label: 'Poner a continuación', short: 'A continuación', icon: <IconPlayNext />,
+      run: () => radioDelMenu.current?.ordenar('a-continuacion', menu.item?.id) },
+    { id: 'radio-now', label: 'Poner ahora', short: 'Ahora', icon: <IconPlay />,
+      run: () => radioDelMenu.current?.ordenar('ahora', menu.item?.id) },
+  ] : [];
+
+  // Foco del panel "En la radio": al entrar, a su primera acción; al volver, a "En la radio".
+  const panelAntesRef = useRef(null);
+  useEffect(() => {
+    const antes = panelAntesRef.current;
+    panelAntesRef.current = panel;
+    if (!menu || !elRef.current) return;
+    if (panel === 'radio') elRef.current.querySelector('[data-accion="radio-next"]')?.focus();
+    else if (antes === 'radio' && panel === null) elRef.current.querySelector('[data-accion="radio"]')?.focus();
+  }, [panel, menu]);
+
   const value = useMemo(
     () => ({ openMenu, closeMenu, dismissMenu, registerHost, menuOpen: menu !== null }),
     [openMenu, closeMenu, dismissMenu, registerHost, menu],
@@ -633,7 +678,7 @@ export function ContextMenuProvider({ children }) {
           ref={elRef}
           className={`ctx-menu${panel === 'playlist' ? ' ctx-menu--wide' : ''}${menu.tiles ? ' ctx-menu--tiles' : ''}`}
           role="menu"
-          aria-label={panel === 'playlist' ? 'Agregar a playlist' : (MENU_LABEL[menu.type] ?? 'Acciones')}
+          aria-label={panel === 'playlist' ? 'Agregar a playlist' : panel === 'radio' ? 'En la radio' : (MENU_LABEL[menu.type] ?? 'Acciones')}
           style={{
             // La pasada de MEDICIÓN va en 0,0 — no en el ancla. Puesto en el ancla, un menú
             // cerca del borde derecho queda con poco espacio a su derecha y el shrink-to-fit lo
@@ -767,6 +812,30 @@ export function ContextMenuProvider({ children }) {
                 <button className="ptp-new-btn" type="submit" title="Crear y añadir" disabled={busy}>+</button>
               </form>
             </>
+          ) : panel === 'radio' ? (
+            <>
+              <button type="button" className="ctx-back" onClick={() => setPanel(null)}>
+                <IconChevronLeft />
+                <span>En la radio</span>
+              </button>
+              {menu.tiles ? (
+                <div className="ctx-grid" role="none">
+                  {radioItems.map((it) => (
+                    <button key={it.id} type="button" role="menuitem" data-accion={it.id} className="ctx-tile tone-queue"
+                      aria-label={it.label} onClick={() => { closeMenu(); it.run(); }}>
+                      {it.icon}
+                      <span className="ctx-tile-label">{it.short}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : radioItems.map((it) => (
+                <button key={it.id} type="button" role="menuitem" data-accion={it.id} className="ctx-item tone-queue"
+                  onClick={() => { closeMenu(); it.run(); }}>
+                  {it.icon}
+                  <span>{it.label}</span>
+                </button>
+              ))}
+            </>
           ) : menu.tiles ? (
             /* C2b · GRID DE TILES (móvil). Rama de render propia y no un override de CSS sobre la
                lista: el tile es otra composición (icono ARRIBA, etiqueta corta abajo) y los
@@ -784,6 +853,7 @@ export function ContextMenuProvider({ children }) {
                   // La etiqueta LARGA sigue siendo la accesible: el tile recorta por espacio,
                   // no porque "Artista" describa mejor la acción que "Ir al artista".
                   aria-label={it.label}
+                  data-accion={it.id}
                   onClick={() => { if (!it.keepOpen) closeMenu(); it.run(); }}
                 >
                   {it.icon}
@@ -799,6 +869,7 @@ export function ContextMenuProvider({ children }) {
                   type="button"
                   role="menuitem"
                   className={`ctx-item tone-${it.tone}`}
+                  data-accion={it.id}
                   onClick={() => { if (!it.keepOpen) closeMenu(); it.run(); }}
                 >
                   {it.icon}
@@ -905,6 +976,14 @@ function IconRemove() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <line x1="3" y1="6" x2="15" y2="6" /><line x1="3" y1="12" x2="15" y2="12" /><line x1="3" y1="18" x2="12" y2="18" />
       <line x1="15" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+function IconRadio() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+      <path d="M8.5 15.5a5 5 0 0 1 0-7M15.5 8.5a5 5 0 0 1 0 7M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8" />
     </svg>
   );
 }

@@ -116,7 +116,7 @@ export default function Genres({ target, clearTarget, setDetailOpen, navigate })
             mismo --h del encabezado (el hue del emoji del género) para no perder el color. */}
         {tracks && tracks.length > 0 && (
           <div className="view-actions" style={{ '--h': emojiHue(genreEmoji(sel.genre)) }}>
-            <button className="btn-primary" onClick={() => play(tracks, 0)}>▶ Reproducir</button>
+            <button className="btn-primary" onClick={() => play(tracks, 0, { enOrden: true })}>▶ Reproducir</button>
             <ShuffleButton tracks={tracks} />
           </div>
         )}
