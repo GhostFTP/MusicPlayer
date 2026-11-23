@@ -3,6 +3,14 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.44.1] - 2026-11-22
+
+### Corregido
+- **Abrir Artistas ya no deja al servidor «pensando».** Antes, al entrar a la vista Artistas, el
+  servidor se quedaba ocupado unos instantes armando la lista, y lo demás que se le pidiera en ese
+  momento, tuyo o de otra persona, tenía que esperar. Ahora la lista de artistas se arma mucho más
+  rápido.
+
 ## [1.44.0] - 2026-11-20
 
 ### Nuevo
