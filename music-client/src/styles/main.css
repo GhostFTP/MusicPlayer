@@ -2855,6 +2855,21 @@ path.srv-linea-max { stroke-width: 4; }
 
 .ctx-sep { height: 1px; margin: 5px 8px; background: rgba(255, 255, 255, .08); }
 
+/* 1.45.1 · Una LÍNEA, no una acción: quien escucha una radio ve dónde está en lugar de las acciones de
+   cola, que se perdían. Texto apagado, sin hover ni puntero: no hay nada que tocar. El ámbar del icono
+   es el de "info" (.tone-info). */
+.ctx-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: default;
+  user-select: none;
+}
+.ctx-info svg { flex: none; color: var(--amber); }
+
 /* ── Selector de playlists dentro del propio menú (fase D) ────────────────────
    El menú no abre un submenú lateral ni un modal: cambia su contenido EN EL MISMO SITIO y
    se ensancha al ancho del popover del "+" (288px), cuyas clases .ptp-list/.ptp-item/.ptp-new
@@ -3008,6 +3023,8 @@ path.srv-linea-max { stroke-width: 4; }
     box-shadow: 0 0 20px rgba(var(--t), .38);
   }
   .ctx-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* 1.45.1 · La línea de "Estás en la radio de…" en la cuadrícula: ocupa la fila entera, es texto. */
+  .ctx-info--tile { grid-column: 1 / -1; padding: 2px 4px; }
 
   /* Sub-selector de playlists. NO hacía falta resolver nada nuevo: ya en desktop es un PANEL EN
      EL MISMO SITIO (la caja cambia de contenido), no un flyout lateral — ver el comentario de

@@ -9,7 +9,9 @@
 // Casos (con la radio ACTIVA):
 //   H_conteos_del_menu_con_la_radio_activa   los menús EN PANTALLA de pista, la que suena, pista de playlist, filas de
 //        la cola y tarjeta de video, sin el rol y con él: para quien modera "En la radio" reemplaza a "Reproducir a
-//        continuación" y "Agregar a la cola"; en la que suena no hay panel; la cola y el video no cambian.
+//        continuación" y "Agregar a la cola"; en la que suena no hay panel; la cola y el video no cambian. Desde 1.45.1
+//        quien escucha SIN el rol tampoco tiene esas dos: en su lugar, la línea «Estás en la radio de Anfitriona» (no
+//        es un botón); con el rol, "En la radio" va donde estaba la línea.
 //   H_panel_en_la_radio_y_su_foco             el panel (dos acciones), el foco al entrar y al volver con Esc.
 //   H_poner_a_continuacion_lleva_la_pista_y_avisa_con_toast   el cuerpo lleva trackId; fuera de la vista Radio el aviso
 //        es el toast de RadioProvider (no "Enviando…"); los temporizadores 5 s / 30 s vuelven a cero.
@@ -17,7 +19,8 @@
 //        tipo) sale y la resuelve el estado.
 //   H_sin_panel_sobre_la_que_suena_en_la_radio · H_422_video_y_sin_pista_con_su_texto (y su toast con la variante de
 //        aviso, no la de éxito; el de éxito sigue con ✓) · H_perder_el_rol_con_el_panel_abierto
-//   H_radio_sin_ordenes_sin_panel · H_temporizadores_de_vuelta (ninguno de órdenes vivo; el sondeo, UNO de 2000 ms).
+//   H_radio_sin_ordenes_sin_panel (1.45.1: tampoco las dos de cola, la línea en su lugar) · H_temporizadores_de_vuelta
+//        (ninguno de órdenes vivo; el sondeo, UNO de 2000 ms).
 // Los toasts se cuentan una vez por NODO (.toast): dos toasts iguales son dos nodos y cuentan dos.
 //
 // CONTROL NEGATIVO: sin trackId en la orden caen H_poner_a_continuacion, H_una_en_vuelo y H_422; con el panel para quien
@@ -47,7 +50,8 @@ try {
       const m = document.querySelector('.ctx-menu'); if (!m) return null;
       const a = document.activeElement;
       return { label: m.getAttribute('aria-label'), acciones: [...m.querySelectorAll('.ctx-item, .ctx-tile')].map((x) => x.getAttribute('aria-label') ?? x.textContent.trim()),
-        volver: m.querySelector('.ctx-back')?.textContent.trim() ?? null, foco: a && m.contains(a) ? (a.getAttribute('aria-label') ?? a.textContent.trim()) : null };
+        volver: m.querySelector('.ctx-back')?.textContent.trim() ?? null, foco: a && m.contains(a) ? (a.getAttribute('aria-label') ?? a.textContent.trim()) : null,
+        info: m.querySelector('.ctx-info')?.textContent.trim() ?? null };   // 1.45.1: la línea de quien escucha
     });
     const cerrarMenu = async () => { for (let k = 0; k < 3 && (await p.$('.ctx-menu')); k++) { await p.keyboard.press('Escape'); await sleep(200); } };
     const menuDe = async (loc) => { await cerrarMenu(); await loc.click({ button: 'right' }); await sleep(300); return leerMenu(); };
@@ -60,6 +64,7 @@ try {
     const filaOtra = () => p.locator('.main-content .track-row:not(.playing)').first();
     const filaSuena = () => p.locator('.main-content .track-row.playing').first();
     const COLA = ['Reproducir a continuación', 'Agregar a la cola'];
+    const EN_LA_RADIO = 'Estás en la radio de Anfitriona';   // 1.45.1: la línea de quien escucha sin moderar
     let pl = null; let s = null;
     try {
       const e = await entrarFk({ mod: { moderators: [], events: [], until: 0, lost: false } });
@@ -105,13 +110,17 @@ try {
       const conRol = await contar();
       const A0 = sinRol.m, A1 = conRol.m;
       const quitar = (l, fuera) => l.filter((x) => !fuera.includes(x));
-      const conPanel = (l) => { const i = l.indexOf(COLA[0]) >= 0 ? l.indexOf(COLA[0]) : l.indexOf(COLA[1]); const r = quitar(l, COLA); r.splice(i, 0, 'En la radio'); return r; };
+      // 1.45.1: sin el rol ya no hay acciones de cola (está la línea); con el rol, "En la radio" en su lugar.
+      const sinPanel = (x) => quitar(x?.acciones ?? [], ['En la radio']);
+      const sinCola = (x) => !!x && !x.acciones.some((y) => COLA.includes(y));
       const n = (x) => (x && typeof x === 'object' ? x.acciones.length : x);
       const igualL = (a, b) => JSON.stringify(a?.acciones) === JSON.stringify(b);
       ok('H_conteos_del_menu_con_la_radio_activa', !!rol.v
-        && A0.pista.acciones.includes(COLA[0]) && A0.pista.acciones.includes(COLA[1]) && !A0.pista.acciones.includes('En la radio')
-        && igualL(A1.pista, conPanel(A0.pista.acciones)) && igualL(A1.playlist, conPanel(A0.playlist.acciones))
-        && !!A0.suena && igualL(A1.suena, quitar(A0.suena.acciones, COLA)) && !A1.suena.acciones.includes('En la radio')
+        && sinCola(A0.pista) && A0.pista.info === EN_LA_RADIO && !A0.pista.acciones.includes('En la radio')
+        && sinCola(A0.playlist) && A0.playlist.info === EN_LA_RADIO
+        && A1.pista.acciones.includes('En la radio') && A1.pista.info === null && sinCola(A1.pista) && JSON.stringify(sinPanel(A1.pista)) === JSON.stringify(A0.pista.acciones)
+        && A1.playlist.acciones.includes('En la radio') && A1.playlist.info === null && JSON.stringify(sinPanel(A1.playlist)) === JSON.stringify(A0.playlist.acciones)
+        && !!A0.suena && sinCola(A0.suena) && A0.suena.info === EN_LA_RADIO && igualL(A1.suena, A0.suena.acciones) && A1.suena.info === null && !A1.suena.acciones.includes('En la radio')
         && igualL(A1.colaActual, A0.colaActual.acciones) && igualL(A1.colaOtra, A0.colaOtra.acciones)
         && (typeof A0.video === 'string' || igualL(A1.video, A0.video.acciones)),
         { sinRol: Object.fromEntries(Object.entries(A0).map(([k, v]) => [k, n(v)])), conRol: Object.fromEntries(Object.entries(A1).map(([k, v]) => [k, n(v)])),
@@ -227,7 +236,7 @@ try {
       await sleep(3800);
       const mSin = await menuDe(filaOtra());
       await cerrarMenu();
-      ok('H_radio_sin_ordenes_sin_panel', !!sinOrd.v && !!mSin && !mSin.acciones.includes('En la radio') && COLA.every((x) => mSin.acciones.includes(x)), { acciones: mSin?.acciones, vio: !!sinOrd.v, radio: await radioV() });
+      ok('H_radio_sin_ordenes_sin_panel', !!sinOrd.v && !!mSin && !mSin.acciones.includes('En la radio') && COLA.every((x) => !mSin.acciones.includes(x)) && mSin.info === EN_LA_RADIO, { acciones: mSin?.acciones, info: mSin?.info, vio: !!sinOrd.v, radio: await radioV() });
 
       // Los temporizadores: ninguno de órdenes vivo, el sondeo sigue siendo UNO de 2000 ms
       ok('H_temporizadores_de_vuelta', (await pendientesDe([5000, 30000])) === pend0 && (await sondeoPendiente()) === 1,

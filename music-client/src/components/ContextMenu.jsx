@@ -393,6 +393,14 @@ export function ContextMenuProvider({ children }) {
         }
         return;
       }
+      // 1.45.1: quien ESCUCHA una radio sin moderarla (o moderando una que no admite órdenes) no tiene cola
+      // propia que valga: cada canción nueva de la radio la reemplaza y el desajuste vuelve a la de la radio,
+      // así que "Reproducir a continuación" y "Agregar a la cola" avisaban "listo" y se perdían. En su lugar,
+      // una LÍNEA que dice dónde está y no hace nada (`info`: se pinta como texto, no como botón).
+      if (vr) {
+        list.push({ id: 'en-la-radio', info: true, label: vr.enLaRadio ?? 'Estás en una radio', tone: 'info', icon: <IconRadio /> });
+        return;
+      }
       // "A continuación" sobre la pista que YA suena es un no-op → se oculta.
       if (currentTrack?.id !== t.id) {
         list.push({
@@ -844,7 +852,13 @@ export function ContextMenuProvider({ children }) {
                Se reusan `items` tal cual: mismas acciones, mismo orden, mismos iconos y los mismos
                `run` — lo único que cambia es la caja y que la etiqueta usa `short`. */
             <div className="ctx-grid" role="none">
-              {items.map((it) => (
+              {items.map((it) => (it.info ? (
+                // 1.45.1: una línea (no un tile): ocupa la fila entera y no se puede tocar.
+                <div key={it.id} className="ctx-info ctx-info--tile" role="none" data-info={it.id}>
+                  {it.icon}
+                  <span>{it.label}</span>
+                </div>
+              ) : (
                 <button
                   key={it.id}
                   type="button"
@@ -859,12 +873,19 @@ export function ContextMenuProvider({ children }) {
                   {it.icon}
                   <span className="ctx-tile-label">{it.short ?? it.label}</span>
                 </button>
-              ))}
+              )))}
             </div>
           ) : (
             items.map((it, i) => (
               <div key={it.id}>
                 {it.sep && i > 0 && <div className="ctx-sep" role="separator" />}
+                {it.info ? (
+                  // 1.45.1: una línea, no una acción (ver pushQueueActions).
+                  <div className="ctx-info" role="none" data-info={it.id}>
+                    {it.icon}
+                    <span>{it.label}</span>
+                  </div>
+                ) : (
                 <button
                   type="button"
                   role="menuitem"
@@ -876,6 +897,7 @@ export function ContextMenuProvider({ children }) {
                   <span>{it.label}</span>
                   {it.chev && <IconChevronRight />}
                 </button>
+                )}
               </div>
             ))
           )}
