@@ -132,6 +132,16 @@ export function registrarRadioEnMenu(r) {
   radioDelMenu.current = r;
   return () => { if (radioDelMenu.current === r) radioDelMenu.current = null; };
 }
+/** 1.45.1: la línea «Estás en la radio de…» si quien usa la app ESCUCHA una radio (con el rol o sin él);
+ *  null fuera de una radio. UNA regla para los menús y para el drop (DragQueueContext): lo que entrara en la
+ *  cola propia se perdería en la próxima canción de la radio (arrancar → PlayerContext.play reemplaza la cola),
+ *  también para quien modera. La única excepción es el menú de UNA canción para quien modera una radio con
+ *  órdenes: ahí sigue "En la radio" (pushQueueActions lo resuelve antes de mirar esta línea). */
+export function lineaDeLaRadio() {
+  const vr = radioDelMenu.current?.vista?.() ?? null;
+  if (!vr) return null;
+  return vr.enLaRadio ?? 'Estás en una radio';
+}
 const esIdPista = (id) => Number.isSafeInteger(id) && id > 0;
 
 export function ContextMenuProvider({ children }) {
@@ -354,6 +364,11 @@ export function ContextMenuProvider({ children }) {
     // con el menú abierto: ordenar vuelve a validar y, sin el rol, cancela sin error).
     const vr = radioDelMenu.current?.vista?.() ?? null;
     const moderaRadio = !!(vr && vr.modera === true && vr.admite === true);
+    // 1.45.1: quien escucha la radio ve esta LÍNEA (texto, no botón) en lugar de las acciones de cola de
+    // CUALQUIER menú: pista, álbum, artista, género, año y video. "Reproducir" se queda. Quien modera una radio
+    // con órdenes también, salvo en el menú de una canción, donde tiene "En la radio".
+    const enLaRadio = lineaDeLaRadio();
+    const pushEnLaRadio = () => list.push({ id: 'en-la-radio', info: true, label: enLaRadio, tone: 'info', icon: <IconRadio /> });
 
     // Navegar SIEMPRE por album_artist, NUNCA por el `artist` mostrado (rompería Various Artists
     // y los feats; el backend además filtra album_artist IS NOT NULL). Sin album_artist no hay
@@ -391,6 +406,14 @@ export function ContextMenuProvider({ children }) {
             chev: true, keepOpen: true, run: () => setPanel('radio'),
           });
         }
+        return;
+      }
+      // 1.45.1: quien ESCUCHA una radio sin moderarla (o moderando una que no admite órdenes) no tiene cola
+      // propia que valga: cada canción nueva de la radio la reemplaza y el desajuste vuelve a la de la radio,
+      // así que "Reproducir a continuación" y "Agregar a la cola" avisaban "listo" y se perdían. En su lugar,
+      // una LÍNEA que dice dónde está y no hace nada (`info`: se pinta como texto, no como botón).
+      if (enLaRadio) {
+        pushEnLaRadio();
         return;
       }
       // "A continuación" sobre la pista que YA suena es un no-op → se oculta.
@@ -496,7 +519,8 @@ export function ContextMenuProvider({ children }) {
           id: 'play', label: 'Reproducir álbum', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
           run: () => onTracks(() => albumTracks(it), (ts) => play(ts, 0, { enOrden: true }), 'Ese álbum no tiene pistas'),
         });
-        list.push({
+        if (enLaRadio) pushEnLaRadio();   // 1.45.1: quien escucha la radio, la línea en lugar de "a la cola"
+        else list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
           run: () => onTracks(() => albumTracks(it), (ts) => {
             addToQueue(ts);
@@ -516,7 +540,8 @@ export function ContextMenuProvider({ children }) {
           id: 'play', label: 'Reproducir todo', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
           run: () => onTracks(() => artistTracks(it), (ts) => play(ts, 0, { enOrden: true }), 'Ese artista no tiene pistas'),
         });
-        list.push({
+        if (enLaRadio) pushEnLaRadio();   // 1.45.1: quien escucha la radio, la línea en lugar de "a la cola"
+        else list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
           run: () => onTracks(() => artistTracks(it), (ts) => {
             addToQueue(ts);
@@ -535,7 +560,8 @@ export function ContextMenuProvider({ children }) {
           id: 'play', label: 'Reproducir género', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
           run: () => onTracks(() => genreTracks(it), (ts) => play(ts, 0, { enOrden: true }), 'Ese género no tiene pistas'),
         });
-        list.push({
+        if (enLaRadio) pushEnLaRadio();   // 1.45.1: quien escucha la radio, la línea en lugar de "a la cola"
+        else list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
           run: () => onTracks(() => genreTracks(it), (ts) => {
             addToQueue(ts);
@@ -555,7 +581,8 @@ export function ContextMenuProvider({ children }) {
           id: 'play', label: 'Reproducir año', short: 'Reproducir', tone: 'queue', icon: <IconPlay />,
           run: () => onTracks(() => yearTracks(it), (ts) => play(ts, 0, { enOrden: true }), 'Ese año no tiene pistas'),
         });
-        list.push({
+        if (enLaRadio) pushEnLaRadio();   // 1.45.1: quien escucha la radio, la línea en lugar de "a la cola"
+        else list.push({
           id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
           run: () => onTracks(() => yearTracks(it), (ts) => {
             addToQueue(ts);
@@ -571,16 +598,20 @@ export function ContextMenuProvider({ children }) {
       //    de videos desde ésa), ni favorito, playlist, compartir, artista o info: son de pista.
       //    El aviso de la cola va en masculino, como iOS (avisoCola).
       case 'video': {
-        if (currentTrack?.id !== it.id) {
+        if (enLaRadio) {
+          pushEnLaRadio();   // 1.45.1: quien escucha la radio, la línea en lugar de las dos de cola
+        } else {
+          if (currentTrack?.id !== it.id) {
+            list.push({
+              id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
+              run: () => { playAfterCurrent(it); toast('Suena a continuación'); },
+            });
+          }
           list.push({
-            id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
-            run: () => { playAfterCurrent(it); toast('Suena a continuación'); },
+            id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
+            run: () => { addToQueue(it); toast('Añadido a la cola'); },
           });
         }
-        list.push({
-          id: 'queue', label: 'Agregar a la cola', short: 'A la cola', tone: 'queue', icon: <IconQueue />,
-          run: () => { addToQueue(it); toast('Añadido a la cola'); },
-        });
         // V8d: un video de la lista está en el índice → se puede agregar (sin red, el selector lo dice).
         if (accionesHoja({ offline: videoOffline, disponibilidad: 'si', desdePlaylist: false }).agregar !== 'no') pushAddToPlaylist();
         // 1.32.0 · «Ir al artista» sólo si la vista encontró al artista del video en la biblioteca
@@ -595,7 +626,9 @@ export function ContextMenuProvider({ children }) {
       //    (filaQuitable). Lo que hace quitar lo sabe el detalle: viaja en el payload, como el
       //    `onRemove` de las canciones.
       case 'playlist-video': {
-        if (menu.playable) {
+        if (menu.playable && enLaRadio) {
+          pushEnLaRadio();   // 1.45.1: quien escucha la radio, la línea en lugar de las dos de cola
+        } else if (menu.playable) {
           if (currentTrack?.id !== it.id) {
             list.push({
               id: 'next', label: 'Reproducir a continuación', short: 'A continuación', tone: 'queue', icon: <IconPlayNext />,
@@ -844,7 +877,13 @@ export function ContextMenuProvider({ children }) {
                Se reusan `items` tal cual: mismas acciones, mismo orden, mismos iconos y los mismos
                `run` — lo único que cambia es la caja y que la etiqueta usa `short`. */
             <div className="ctx-grid" role="none">
-              {items.map((it) => (
+              {items.map((it) => (it.info ? (
+                // 1.45.1: una línea (no un tile): ocupa la fila entera y no se puede tocar.
+                <div key={it.id} className="ctx-info ctx-info--tile" role="none" data-info={it.id}>
+                  {it.icon}
+                  <span>{it.label}</span>
+                </div>
+              ) : (
                 <button
                   key={it.id}
                   type="button"
@@ -859,12 +898,19 @@ export function ContextMenuProvider({ children }) {
                   {it.icon}
                   <span className="ctx-tile-label">{it.short ?? it.label}</span>
                 </button>
-              ))}
+              )))}
             </div>
           ) : (
             items.map((it, i) => (
               <div key={it.id}>
                 {it.sep && i > 0 && <div className="ctx-sep" role="separator" />}
+                {it.info ? (
+                  // 1.45.1: una línea, no una acción (ver pushQueueActions).
+                  <div className="ctx-info" role="none" data-info={it.id}>
+                    {it.icon}
+                    <span>{it.label}</span>
+                  </div>
+                ) : (
                 <button
                   type="button"
                   role="menuitem"
@@ -876,6 +922,7 @@ export function ContextMenuProvider({ children }) {
                   <span>{it.label}</span>
                   {it.chev && <IconChevronRight />}
                 </button>
+                )}
               </div>
             ))
           )}

@@ -9,7 +9,7 @@ import {
   estadoDelAnfitrion, textoDeFin, textoDeFallo,
   mejorReloj, horaServidor, posicionProyectada, SINCRO_INICIAL, decidirCorreccion, pasoDelOyente,
   esperaDelSondeo, resolverColaDelOyente, fotoDeLaCola, planDeRestauracion, pausaDelOyente,
-  idDeCancion, DESAJUSTE_MS,
+  idDeCancion, DESAJUSTE_MS, avisarVuelta, textoDeVuelta, textoEnLaRadio,
   planDeOrden, siguienteDelMotor, alFinalDeLaCola, confirmacionDe, colaDelOyente,
   juntarEventos, avisarEvento, textoDeEvento, pasoDeEventos,
   esModerador, resolverOrden, ORDEN_ESPERANDO_MS, ORDEN_VENCE_MS, ORDENES_DE_LA_TARJETA, ORDENES_DEL_MENU, eventoDeOrden, TEXTOS_ORDEN, textoDeEspera,
@@ -74,6 +74,9 @@ const LECTURA_OYENTE = { cap: 'mod' };
 /** Cuánto dura el aviso breve de un evento ajeno. NO 2000 ms: radio-oyente-func cuenta los setTimeout
  *  de 2000 ms pendientes (es la demora del sondeo del oyente). */
 const AVISO_EVENTO_MS = 3500;
+/** 1.45.1: cuánto dura el "Volviste a la radio de…" (es más largo que un evento). Ni 2000 ni 5000/30000:
+ *  radio-oyente-func cuenta los setTimeout de 2000 y radio-menu-func los de 5000 y 30000 (las órdenes). */
+const AVISO_VUELTA_MS = 4500;
 /** W5b-1: lo que ve de la radio quien escucha, para sus botones de moderar. Sin el seq: sube con cada
  *  publicación del anfitrión (también el latido) y re-renderizaría la sala cada vez sin que cambie nada
  *  visible. El seq (la base de "siguiente") vive solo en vistaModRef; acá, si lo hay (conBase). */
@@ -112,6 +115,10 @@ export function RadioProvider({ children }) {
   const [lineaOrden, setLineaOrden] = useState(null);    // { texto, n } | null
   const [esperaOrden, setEsperaOrden] = useState(0);     // segundos que faltan por un 429 (0 = ninguno)
   const vistaModRef = useRef({ ...VISTA_MOD_VACIA, estado: null, cursor: 0 });
+  // 1.45.1: quien transmite, síncrono (el menú lo lee al abrirse, no en el render), y cuándo fue el último
+  // "Volviste a la radio de…" (como mucho uno cada AVISO_VUELTA_CADA_MS, en esta y en la próxima radio).
+  const anfitrionRef = useRef(null);
+  const ultimaVueltaRef = useRef(null);
   const ordenesRef = useRef(new Map());   // tipo → { tipo, baseTrackId, cursor, enviadaEn, enviando, resuelta, esperando, timers }
   const esperaRef = useRef({ t: null, s: 0 });
   const lineaDeRef = useRef(null);        // de quién es la línea: un tipo, 'espera' o null
@@ -284,6 +291,7 @@ export function RadioProvider({ children }) {
     ponerFase('sin-radio');
     setCodigo(null);
     setOyentes([]);
+    anfitrionRef.current = null;
     setAnfitrion(null);
     setAviso(null);
     setSilenciada(false);
@@ -345,6 +353,16 @@ export function RadioProvider({ children }) {
     if (gen !== genRef.current || !montadoRef.current) return;
     setQuiereSonar(q);
   }, []);
+
+  // 1.45.1: el desajuste devolvió al oyente a la de la radio (PuenteOyente). Un toast que dice por qué, si
+  // avisarVuelta lo pide: no cuando la canción terminó sola, y como mucho uno cada 30 s.
+  const alVuelta = useCallback((gen, d) => {
+    if (gen !== genRef.current || !montadoRef.current) return;
+    const ahora = Date.now();
+    if (!avisarVuelta({ ...d, ahoraMs: ahora, ultimoMs: ultimaVueltaRef.current })) return;
+    ultimaVueltaRef.current = ahora;
+    toast(textoDeVuelta(anfitrionRef.current?.name), { duration: AVISO_VUELTA_MS });
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const alSilenciada = useCallback((gen, s) => {
     if (gen !== genRef.current || !montadoRef.current) return;
@@ -432,6 +450,7 @@ export function RadioProvider({ children }) {
     codigoRef.current = r.radio.code;
     setCodigo(r.radio.code);
     setGenSala(gen);
+    anfitrionRef.current = r.radio.host ?? null;
     setAnfitrion(r.radio.host);
     setOyentes(r.radio.listeners.filter((p) => p.id !== r.radio.host?.id));
     setSilenciada(false);
@@ -517,7 +536,10 @@ export function RadioProvider({ children }) {
   // las órdenes "En la radio" por acá. Es un ref, no un contexto: el menú lo lee solo al armar sus
   // acciones, así que ni la radio re-renderiza el menú ni el menú a la radio.
   useEffect(() => registrarRadioEnMenu({
-    vista: () => (faseRef.current === 'oyente' ? vistaModRef.current : null),
+    // 1.45.1: además, quién transmite y la línea "Estás en la radio de…" para quien escucha sin moderar.
+    vista: () => (faseRef.current === 'oyente'
+      ? { ...vistaModRef.current, anfitrion: anfitrionRef.current?.name ?? null, enLaRadio: textoEnLaRadio(anfitrionRef.current?.name) }
+      : null),
     ordenar,
   }), [ordenar]);
 
@@ -561,7 +583,7 @@ export function RadioProvider({ children }) {
         <PuenteOyente
           key={codigo} codigo={codigo} gen={genSala} genRef={genRef}
           primeraRef={primeraRef} fotoRef={fotoRef} motorRef={motorRef} tocarRef={tocarRef}
-          salir={finOyente} alOyentes={alOyentes} alAviso={alAviso} alSilenciada={alSilenciada}
+          salir={finOyente} alOyentes={alOyentes} alAviso={alAviso} alSilenciada={alSilenciada} alVuelta={alVuelta}
           alQuiereSonar={alQuiereSonar} alEventos={alEventosOyente} alVista={alVistaOyente} yoRef={userIdRef}
         />
       )}
@@ -861,7 +883,7 @@ function PuenteAnfitrion({ codigo, gen, genRef, salir, alOyentes, alModeracion, 
 // Cada orden propia anota cuándo fue (la gracia de pausaDelOyente) y reinicia la sincro.
 // Si no se pudo cargar la canción (api.track), se pausa lo que sonaba, se avisa y `seguido` vuelve
 // a lo de antes: el próximo sondeo da 'arrancar' otra vez y reintenta, sin sacar al oyente.
-function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar, alEventos, alVista, yoRef }) {
+function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alVuelta, alQuiereSonar, alEventos, alVista, yoRef }) {
   const { currentTrack, isPlaying, playBlocked, queue, queueIndex, repeat, play, seek, pause, resume, setRepeatMode } = usePlayer();
   const { currentTime, duration } = usePlayerTime();
 
@@ -878,6 +900,9 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
   const ordenEnRef = useRef(0);           // hora local de la última orden propia
   const silenciadaRef = useRef(false);
   const desajusteDesdeRef = useRef(null);
+  // 1.45.1: cómo empezó el desajuste (para el aviso) y la duración MEDIDA de la de la radio mientras sonaba.
+  const desvioRef = useRef(null);
+  const durRadioRef = useRef(null);
   const cargaFallidaRef = useRef(null);   // null | 'falta-cancion' | 'no-se-pudo-cargar'
   const ctPrevioRef = useRef(null);
 
@@ -909,6 +934,7 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
       }
       cargaFallidaRef.current = null;
       desajusteDesdeRef.current = null;
+      durRadioRef.current = null;   // es otra canción (o la misma desde otro punto): se vuelve a medir
       orden();
       const t = res.cola[0];
       const dur = Number.isFinite(t.duration) && t.duration > 0 ? t.duration * 1000 : null;
@@ -958,13 +984,24 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
 
       if (!esLaDeLaRadio) {
         if (silenciadaRef.current) return;
-        if (desajusteDesdeRef.current == null) { desajusteDesdeRef.current = ahora; return; }
+        if (desajusteDesdeRef.current == null) {
+          desajusteDesdeRef.current = ahora;
+          // 1.45.1: qué sonaba, la siguiente que publicó el anfitrión y lo que le faltaba a la de la radio.
+          const dr = durRadioRef.current;
+          desvioRef.current = { sonaba: idDeCancion(j.currentTrack), siguienteId: estadoRef.current?.nextTrackId ?? null, restanteMs: dr ? dr - objetivo(dr) : null };
+          return;
+        }
         if (ahora - desajusteDesdeRef.current < DESAJUSTE_MS) return;
         const e = estadoRef.current;
+        const desvio = desvioRef.current;
+        desvioRef.current = null;
         await arrancar(s.trackId, e?.trackId === s.trackId ? e.nextTrackId : null, s.playing, s);
+        if (vigente() && !cargaFallidaRef.current && desvio) alVuelta(gen, desvio);
         return;
       }
       desajusteDesdeRef.current = null;
+      desvioRef.current = null;
+      { const dm = durMs(); if (dm) durRadioRef.current = dm; }
 
       const sonando = j.isPlaying && avanza;
       const dur = durMs();
@@ -1038,7 +1075,7 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
     };
     vuelta();
     return () => { vivo = false; clearTimeout(timer); };
-  }, [codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alQuiereSonar, play, seek, pause, resume, setRepeatMode]);
+  }, [codigo, gen, genRef, primeraRef, fotoRef, motorRef, tocarRef, salir, alOyentes, alAviso, alSilenciada, alVuelta, alQuiereSonar, play, seek, pause, resume, setRepeatMode]);
 
   // El oyente le dio play estando "en pausa para ti": salta al vivo y la radio vuelve a moverlo.
   useEffect(() => {

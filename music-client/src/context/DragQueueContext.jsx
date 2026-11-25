@@ -4,6 +4,7 @@ import { genreEmoji } from '../utils/genreEmoji.js';
 import { albumTracks, artistTracks, genreTracks, yearTracks } from '../utils/itemTracks.js';
 import { usePlayer } from './PlayerContext.jsx';
 import { useToast } from '../components/Toast.jsx';
+import { lineaDeLaRadio } from '../components/ContextMenu.jsx';
 
 // ── Drag-to-enqueue: arrastrar cosas hasta la cola ──────────────────────────────────────────
 //
@@ -291,6 +292,11 @@ export function useQueueDropTarget({ active = true } = {}) {
     const payload = takeDrag();
     if (!payload) return;                    // dragend ya limpió, o el payload nunca se armó
     const { kind, item } = payload;
+
+    // 1.45.1: quien escucha una radio (con el rol o sin él) no tiene cola propia que valga (la próxima canción
+    // de la radio la reemplaza): no se encola nada y se dice por qué, con la misma línea del menú.
+    const enLaRadio = lineaDeLaRadio();
+    if (enLaRadio) { toast(enLaRadio, { variant: 'warning' }); return; }
 
     if (kind === 'track') {
       addToQueue(item);                      // el motor no se toca: se invoca y nada más

@@ -1187,6 +1187,47 @@ export const CERCA_DEL_FINAL_MS = 2500;
  *  también la pista local que termina antes de que el anfitrión publique la siguiente. */
 export const DESAJUSTE_MS = 6000;
 
+// ---- Los avisos de quien escucha (1.45.1) ----
+//
+// Quien escucha no tiene cola propia que valga: cada canción nueva de la radio la reemplaza (arrancar →
+// PlayerContext.play) y, si pone otra cosa, el desajuste vuelve a la de la radio. Dos avisos lo dicen en
+// vez de dejar que parezca un error: una línea en el menú de una canción (en lugar de "Reproducir a
+// continuación" y "Agregar a la cola", que avisaban "listo" y se perdían) y un toast cuando el desajuste
+// lo devuelve.
+
+/** Como mucho un "Volviste a la radio de…" cada tanto, por más que el oyente insista. */
+export const AVISO_VUELTA_CADA_MS = 30_000;
+/** Si a la canción de la radio le faltaba esto o menos, terminó SOLA: la pista local acabó un poco antes
+ *  que la del anfitrión y el motor pasó a la siguiente (CERCA_DEL_FINAL_MS más la tolerancia). */
+export const FIN_NATURAL_MS = CERCA_DEL_FINAL_MS + RADIO.TOLERANCIA_MS;
+
+const laRadioDe = (nombre) => {
+  const n = typeof nombre === 'string' ? nombre.trim() : '';
+  return n ? `la radio de ${n}` : 'la radio';
+};
+/** La línea del menú de una canción para quien escucha (no es un botón). */
+export const textoEnLaRadio = (nombre) => `Estás en ${laRadioDe(nombre)}`;
+/** El toast cuando el desajuste lo devuelve a la de la radio. */
+export const textoDeVuelta = (nombre) => `Volviste a ${laRadioDe(nombre)}. Para escuchar otra cosa, sal de la radio.`;
+
+/**
+ * ¿El desajuste que se acaba de corregir merece el "Volviste a la radio de…"?
+ * d: { sonaba, siguienteId, restanteMs, ahoraMs, ultimoMs }
+ *   · sonaba: la pista que sonaba cuando EMPEZÓ el desajuste; siguienteId: la siguiente que había publicado
+ *     el anfitrión; restanteMs: lo que le faltaba en ese momento a la de la radio (null si no se sabía).
+ *   · ultimoMs: cuándo fue el último aviso (null: nunca).
+ * NO avisa cuando el oyente no hizo nada: la de la radio terminó sola (le faltaba ≤ FIN_NATURAL_MS, o no se
+ * sabía) y el motor pasó a la siguiente de la radio antes de que el anfitrión la publicara. Tampoco a menos de
+ * AVISO_VUELTA_CADA_MS del último. Puro: la hora entra por parámetro.
+ */
+export function avisarVuelta(d) {
+  const x = objeto(d);
+  if (!x) return false;
+  if (finito(x.ultimoMs) && finito(x.ahoraMs) && x.ahoraMs - x.ultimoMs < AVISO_VUELTA_CADA_MS) return false;
+  const pasoSola = x.sonaba != null && x.sonaba === x.siguienteId && (!finito(x.restanteMs) || x.restanteMs <= FIN_NATURAL_MS);
+  return !pasoSola;
+}
+
 /** Sin las marcas que el motor le pone a cada entrada de la cola. */
 function limpia(item) {
   if (item == null || typeof item !== 'object') return item;
