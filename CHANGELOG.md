@@ -6,11 +6,13 @@ Novedades destacables de **SonoraRev**. El formato sigue
 ## [1.45.1] - 2026-11-24
 
 ### Corregido
-- **En la radio, el menú de una canción ya no promete lo que no puede hacer.** Si escuchas la radio de
-  otra persona, «Reproducir a continuación» y «Agregar a la cola» decían que la canción quedaba en tu
-  cola, pero se perdía en cuanto cambiaba la canción de la radio. Ahora, en su lugar, el menú dice
-  «Estás en la radio de …», con el nombre de quien transmite. Si moderas la radio, sigues teniendo
-  «En la radio» como hasta ahora.
+- **En la radio, los menús ya no prometen lo que no pueden hacer.** Si escuchas la radio de otra
+  persona, «Reproducir a continuación» y «Agregar a la cola» decían que la música quedaba en tu cola,
+  pero se perdía en cuanto cambiaba la canción de la radio. Pasaba en los menús de una canción, un álbum,
+  un artista, un género, un año y un video, y también al arrastrar algo a la cola. Ahora, en su lugar,
+  los menús dicen «Estás en la radio de …», con el nombre de quien transmite, y al arrastrar sale ese
+  mismo aviso. Si moderas la radio, también ves esa línea, salvo en el menú de una canción, donde sigues
+  teniendo «En la radio» como hasta ahora.
 - **Si pones otra canción mientras escuchas la radio, te dice por qué vuelves.** Si tocas otra canción,
   o pasas a la siguiente con los botones del reproductor, a los pocos segundos regresas a lo que suena en
   la radio. Ahora un aviso te lo dice: «Volviste a la radio de …», y te recuerda que para escuchar otra

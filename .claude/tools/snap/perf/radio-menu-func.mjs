@@ -11,7 +11,8 @@
 //        la cola y tarjeta de video, sin el rol y con él: para quien modera "En la radio" reemplaza a "Reproducir a
 //        continuación" y "Agregar a la cola"; en la que suena no hay panel; la cola y el video no cambian. Desde 1.45.1
 //        quien escucha SIN el rol tampoco tiene esas dos: en su lugar, la línea «Estás en la radio de Anfitriona» (no
-//        es un botón); con el rol, "En la radio" va donde estaba la línea.
+//        es un botón); con el rol, "En la radio" va donde estaba la línea. En la tarjeta de VIDEO (1.45.1): la línea, con
+//        el rol y sin él (la radio no admite videos y lo de la cola propia se perdería igual).
 //   H_panel_en_la_radio_y_su_foco             el panel (dos acciones), el foco al entrar y al volver con Esc.
 //   H_poner_a_continuacion_lleva_la_pista_y_avisa_con_toast   el cuerpo lleva trackId; fuera de la vista Radio el aviso
 //        es el toast de RadioProvider (no "Enviando…"); los temporizadores 5 s / 30 s vuelven a cero.
@@ -122,7 +123,7 @@ try {
         && A1.playlist.acciones.includes('En la radio') && A1.playlist.info === null && JSON.stringify(sinPanel(A1.playlist)) === JSON.stringify(A0.playlist.acciones)
         && !!A0.suena && sinCola(A0.suena) && A0.suena.info === EN_LA_RADIO && igualL(A1.suena, A0.suena.acciones) && A1.suena.info === null && !A1.suena.acciones.includes('En la radio')
         && igualL(A1.colaActual, A0.colaActual.acciones) && igualL(A1.colaOtra, A0.colaOtra.acciones)
-        && (typeof A0.video === 'string' || igualL(A1.video, A0.video.acciones)),
+        && (typeof A0.video === 'string' || (sinCola(A0.video) && A0.video.info === EN_LA_RADIO && igualL(A1.video, A0.video.acciones) && A1.video.info === EN_LA_RADIO)),
         { sinRol: Object.fromEntries(Object.entries(A0).map(([k, v]) => [k, n(v)])), conRol: Object.fromEntries(Object.entries(A1).map(([k, v]) => [k, n(v)])),
           pierdeQuienModera: { pista: quitar(A0.pista.acciones, A1.pista.acciones), suena: quitar(A0.suena?.acciones ?? [], A1.suena?.acciones ?? []), playlist: quitar(A0.playlist.acciones, A1.playlist.acciones) },
           acciones: { sinRol: A0, conRol: A1 } });

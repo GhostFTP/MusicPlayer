@@ -12,7 +12,17 @@
 //   AV1_la_que_suena_tambien                         el menú de la pista que suena: lo mismo.
 //   AV1_en_el_telefono_la_linea_ocupa_la_fila        el menú de tiles (long-press, 390 px): la línea ocupa la fila entera
 //        de la cuadrícula y no es un tile; las dos de cola tampoco están.
+//   AV1_menus_de_album_artista_genero_y_anio         (1.45.1, paso 2) los menús de una tarjeta de álbum, un retrato de
+//        artista, una tarjeta de género y una fila de año: "Reproducir …" sigue, "Agregar a la cola" no, la línea sí.
+//   AV1_menus_de_video_con_la_linea                  el menú de una tarjeta de video y el de un video en una playlist:
+//        sin "Reproducir a continuación" ni "Agregar a la cola", con la línea.
+//   AV1_arrastrar_a_la_barra_no_encola_y_avisa       arrastrar un álbum a la barra del reproductor: la cola no cambia y
+//        sale el aviso «Estás en la radio de Anfitriona».
 //   AV1_quien_modera_sigue_con_en_la_radio           con el rol (y órdenes): "En la radio", sin la línea ni las de cola.
+//   AV1_quien_modera_album_con_la_linea              con el rol (y órdenes), el menú de un álbum: "Reproducir álbum"
+//        sigue, "Agregar a la cola" no, la línea sí (la cola propia se perdería igual).
+//   AV1_quien_modera_arrastrar_no_encola_y_avisa     con el rol (y órdenes), arrastrar un álbum a la barra: la cola no
+//        cambia y sale el aviso «Estás en la radio de Anfitriona».
 //   AV2_la_radio_cambia_de_cancion_sin_aviso         la anfitriona pasa a B: el oyente la sigue y NO hay aviso.
 //   AV2_termina_sola_sin_aviso                       B termina sola en el oyente antes que en la anfitriona (el motor
 //        pasa a C, la siguiente, y el desajuste lo devuelve a B): NO hay aviso. Que el desajuste actuó se ve en que el
@@ -21,18 +31,21 @@
 //   AV2_otra_cancion_vuelve_con_el_aviso             el oyente pone otra canción: a los DESAJUSTE_MS vuelve la de la
 //        radio y sale UNA vez «Volviste a la radio de Anfitriona. Para escuchar otra cosa, sal de la radio.».
 //   AV2_no_se_repite_en_30_s                         lo mismo enseguida: vuelve, sin otro aviso.
-//   AV1_fuera_de_la_radio_todo_igual                 después de salir: las dos de cola están y la línea no.
+//   AV1_fuera_de_la_radio_todo_igual                 después de salir: las dos de cola están y la línea no (en el
+//        menú de una pista y en el de un álbum).
 //   AV_sin_errores_de_pagina
 // Los toasts se cuentan una vez por NODO (.toast).
 //
-// CONTROL NEGATIVO (a mano): sin la rama `if (vr)` de pushQueueActions caen los AV1 del oyente (vuelven las dos de
+// CONTROL NEGATIVO (a mano): con la excepción vieja de quien modera en lineaDeLaRadio caen los dos AV1_quien_modera_* de
+// álbum y arrastre; sin la rama `if (enLaRadio)` de pushQueueActions (o sin `pushEnLaRadio` en los menús de
+// álbum, artista, género, año y video, o sin `lineaDeLaRadio` en el drop) caen los AV1 del oyente (vuelven las de
 // cola); sin el alVuelta del desajuste cae AV2_otra_cancion; sin el tope de 30 s cae AV2_no_se_repite; avisando en
 // cualquier desajuste cae AV2_termina_sola.
 // Uso: SNAP_BASE=http://localhost:4173 SNAP2_USER=… SNAP2_PASS=… node radio-oyente-avisos-func.mjs
 // AVISOS_DUMP=<archivo>: deja ahí los resultados con sus valores.
 import {
   R, ok, sleep, SONDEO_MS, DESAJUSTE_MS, A, B, C, D, ctx, p, errores, esperar, foto, FK, YO_FK, estadoFk, irA,
-  entrarFk, salirFk, BASE, browser, pedidosTrk,
+  entrarFk, salirFk, BASE, browser, pedidosTrk, api, tokOye,
 } from './radio-oyente-comun.mjs';
 
 const T0 = Date.now();
@@ -63,6 +76,7 @@ const filaSuena = () => p.locator('.main-content .track-row.playing').first();
 const sinCola = (m) => !!m && !m.acciones.some((x) => COLA.includes(x));
 /** Espera a que suene `id` (en la radio) y devuelve cuánto tardó. */
 const vuelveA = (id, ms) => esperar(async () => { const f = await foto(); return f.fase === 'oyente' && f.actual === id && !f.paused ? f : null; }, ms, 100);
+let plV = null;   // la playlist con un video (se borra al final)
 
 try {
   await p.goto(BASE + '/');
@@ -111,6 +125,42 @@ try {
   ok('AV1_en_el_telefono_la_linea_ocupa_la_fila', !!mTiles && mTiles.info === EN_LA_RADIO && sinCola(mTiles) && !!cu && !cu.tile && cu.ancho > 0 && cu.ancho === cu.anchoGrid,
     { acciones: mTiles?.acciones, info: mTiles?.info, cuadricula: cu });
 
+  // Los menús de CONJUNTO: "Reproducir …" se queda; "Agregar a la cola" no; la línea en su lugar.
+  const menuEn = async (ruta, sel) => { await irA(ruta); await p.waitForSelector(sel, { timeout: 8000 }); await sleep(400); const m = await menuDe(p.locator(sel).first()); await cerrarMenu(); return m; };
+  const conjuntos = {
+    album: await menuEn('/albums', '.main-content .album-card'),
+    artista: await menuEn('/artists', '.main-content .artist-portrait'),
+    genero: await menuEn('/genres', '.main-content .genre-item'),
+    anio: await menuEn('/years', '.main-content .browse-list .browse-item'),
+  };
+  const REPRODUCIR = { album: 'Reproducir álbum', artista: 'Reproducir todo', genero: 'Reproducir género', anio: 'Reproducir año' };
+  ok('AV1_menus_de_album_artista_genero_y_anio', Object.entries(conjuntos).every(([k, m]) => !!m && m.acciones.includes(REPRODUCIR[k]) && sinCola(m) && m.info === EN_LA_RADIO),
+    Object.fromEntries(Object.entries(conjuntos).map(([k, m]) => [k, { acciones: m?.acciones ?? null, info: m?.info ?? null }])));
+
+  // Video: la tarjeta (vista Videos) y la fila de un video en una playlist (playable).
+  const vids = (await api(tokOye, 'GET', '/api/videos')).j?.videos ?? [];
+  let mVideo = null; let mPlVideo = null;
+  if (vids.length) {
+    plV = (await api(tokOye, 'POST', '/api/playlists', { name: 'Avisos 1.45.1', emoji: '🎵' })).j;
+    if (plV?.id) await api(tokOye, 'POST', `/api/playlists/${plV.id}/videos`, { video_ids: [vids[0].id] });
+    mVideo = await menuEn('/videos', '.video-card');
+    if (plV?.id) mPlVideo = await menuEn(`/playlists/${plV.id}`, '.pl-video-row');
+  }
+  ok('AV1_menus_de_video_con_la_linea', vids.length > 0 && sinCola(mVideo) && mVideo.info === EN_LA_RADIO && sinCola(mPlVideo) && mPlVideo.info === EN_LA_RADIO,
+    { videos: vids.length, video: { acciones: mVideo?.acciones ?? null, info: mVideo?.info ?? null }, playlist: { acciones: mPlVideo?.acciones ?? null, info: mPlVideo?.info ?? null } });
+
+  // Arrastrar un álbum a la barra del reproductor: la cola no cambia y sale la misma línea, como aviso.
+  await irA('/albums'); await p.waitForSelector('.main-content .album-card', { timeout: 8000 }); await sleep(400);
+  const colaAntes = (await foto()).cola;
+  const tArr = (await toasts()).length;
+  const arrastrable = await p.locator('.main-content .album-card').first().getAttribute('draggable');
+  await p.locator('.main-content .album-card').first().dragTo(p.locator('.player-bar .player-progress'), { timeout: 5000 }).catch(() => {});
+  const avisoArr = await esperar(async () => ((await toasts()).slice(tArr).includes(EN_LA_RADIO) ? true : null), 4000, 100);
+  await sleep(800);
+  const colaDespues = (await foto()).cola;
+  ok('AV1_arrastrar_a_la_barra_no_encola_y_avisa', arrastrable === 'true' && !!avisoArr.v && JSON.stringify(colaDespues) === JSON.stringify(colaAntes),
+    { arrastrable, aviso: !!avisoArr.v, avisos: (await toasts()).slice(tArr), colaAntes: colaAntes.length, colaDespues: colaDespues.length });
+
   // Con el rol: "En la radio", sin la línea.
   s.mod.moderators = [YO_FK];
   const rol = await esperar(async () => ((await radioV()).modera === true ? true : null), 8000, 100);
@@ -120,6 +170,19 @@ try {
   await cerrarMenu();
   ok('AV1_quien_modera_sigue_con_en_la_radio', !!rol.v && !!mMod && mMod.acciones.includes('En la radio') && mMod.info === null && sinCola(mMod),
     { acciones: mMod?.acciones, info: mMod?.info, rol: !!rol.v });
+  // Con el rol, fuera del menú de una canción: la línea, igual que sin el rol.
+  const mModAlbum = await menuEn('/albums', '.main-content .album-card');
+  ok('AV1_quien_modera_album_con_la_linea', !!rol.v && (await radioV()).modera === true && !!mModAlbum && mModAlbum.acciones.includes('Reproducir álbum') && sinCola(mModAlbum) && mModAlbum.info === EN_LA_RADIO,
+    { acciones: mModAlbum?.acciones ?? null, info: mModAlbum?.info ?? null });
+  await irA('/albums'); await p.waitForSelector('.main-content .album-card', { timeout: 8000 }); await sleep(400);
+  const colaAntesMod = (await foto()).cola;
+  const tArrMod = (await toasts()).length;
+  await p.locator('.main-content .album-card').first().dragTo(p.locator('.player-bar .player-progress'), { timeout: 5000 }).catch(() => {});
+  const avisoArrMod = await esperar(async () => ((await toasts()).slice(tArrMod).includes(EN_LA_RADIO) ? true : null), 4000, 100);
+  await sleep(800);
+  const colaDespuesMod = (await foto()).cola;
+  ok('AV1_quien_modera_arrastrar_no_encola_y_avisa', (await radioV()).modera === true && !!avisoArrMod.v && JSON.stringify(colaDespuesMod) === JSON.stringify(colaAntesMod),
+    { aviso: !!avisoArrMod.v, avisos: (await toasts()).slice(tArrMod), colaAntes: colaAntesMod.length, colaDespues: colaDespuesMod.length });
   s.mod.moderators = [];
   await esperar(async () => ((await radioV()).modera === false ? true : null), 8000, 100);
   await sleep(3800);   // que pase el toast de "Ya no puedes moderar esta radio"
@@ -173,14 +236,19 @@ try {
   await enAlbum();
   const mFuera = await menuDe(filaOtra());
   await cerrarMenu();
-  ok('AV1_fuera_de_la_radio_todo_igual', (await foto()).fase === 'sin-radio' && !!mFuera && COLA.every((x) => mFuera.acciones.includes(x)) && mFuera.info === null,
-    { acciones: mFuera?.acciones, info: mFuera?.info });
+  await irA('/albums'); await p.waitForSelector('.main-content .album-card', { timeout: 8000 }); await sleep(400);
+  const mFueraAlbum = await menuDe(p.locator('.main-content .album-card').first());
+  await cerrarMenu();
+  ok('AV1_fuera_de_la_radio_todo_igual', (await foto()).fase === 'sin-radio' && !!mFuera && COLA.every((x) => mFuera.acciones.includes(x)) && mFuera.info === null
+    && !!mFueraAlbum && mFueraAlbum.acciones.includes('Agregar a la cola') && mFueraAlbum.info === null,
+    { acciones: mFuera?.acciones, info: mFuera?.info, album: { acciones: mFueraAlbum?.acciones ?? null, info: mFueraAlbum?.info ?? null } });
 
   ok('AV_sin_errores_de_pagina', errores.length === 0, { errores });
 } catch (x) {
   ok('AV_excepcion', false, { error: String(x?.message ?? x).split('\n')[0].slice(0, 200) });
 }
 
+if (plV?.id) await api(tokOye, 'DELETE', `/api/playlists/${plV.id}`).catch(() => {});
 await ctx.close();
 const fails = Object.entries(R).filter(([, v]) => (typeof v === 'object' ? !v.ok : !v));
 console.log(JSON.stringify(R, null, 1));
