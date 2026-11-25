@@ -3,6 +3,19 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.45.2] - 2026-11-25
+
+### Nuevo
+- **Si moderas una radio, puedes pasar a la siguiente canción desde el reproductor.** El botón
+  «Siguiente» de la barra de abajo, de la pantalla de reproducción y de la barra pequeña del teléfono
+  ahora cambia la canción para todos los que escuchan, igual que «Siguiente canción de la radio».
+  «Anterior» queda apagado, porque la radio no tiene anterior.
+
+### Corregido
+- **Si solo escuchas la radio, «Anterior» y «Siguiente» ya no te cambian la canción por unos segundos.**
+  Antes saltaban a otra canción y a los pocos segundos volvías a la de la radio. Ahora están apagados y,
+  si pasas el puntero por encima o usas un lector de pantalla, dicen «Estás en la radio de …».
+
 ## [1.45.1] - 2026-11-24
 
 ### Corregido

@@ -11,6 +11,7 @@ import SearchFab from './SearchFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
+import BotonPaso from './RadioPasos.jsx';
 import { useContextMenu } from './ContextMenu.jsx';
 import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
 import { useToast } from './Toast.jsx';
@@ -1368,17 +1369,18 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 <ShuffleIcon size={24} />
               </span>
             </button>
-            <button className="exp-btn exp-prev" onClick={prev} aria-label="Anterior">
+            {/* 1.45.2: en una radio, Anterior/Siguiente siguen a la radio (RadioPasos.jsx). Fuera, lo de siempre. */}
+            <BotonPaso dir="prev" className="exp-btn exp-prev" label="Anterior">
               <PrevIcon size={28} />
-            </button>
+            </BotonPaso>
             <button className="exp-btn play" onClick={togglePlay} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
               <span key={isPlaying ? 'pause' : 'play'} className="exp-play-swap">
                 {isPlaying ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
               </span>
             </button>
-            <button className="exp-btn exp-next" onClick={next} aria-label="Siguiente">
+            <BotonPaso dir="next" className="exp-btn exp-next" label="Siguiente">
               <NextIcon size={28} />
-            </button>
+            </BotonPaso>
             <button
               className={`exp-btn exp-repeat${repeat !== 'off' ? ' active' : ''}`}
               onClick={() => { cycleRepeat(); setRepeatSpin(true); }}
@@ -1618,9 +1620,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 </span>
               </button>
             </BarTip>
-            <BarTip tip="Anterior">
-              <button className="ctrl-btn ctrl-prev" onClick={e => { e.stopPropagation(); prev(); }} aria-label="Anterior"><PrevIcon /></button>
-            </BarTip>
+            {/* 1.45.2: en una radio, Anterior/Siguiente siguen a la radio (RadioPasos.jsx); el tooltip dice por qué. */}
+            <BotonPaso dir="prev" className="ctrl-btn ctrl-prev" label="Anterior" parar envolver={(tip, b) => <BarTip tip={tip}>{b}</BarTip>}><PrevIcon /></BotonPaso>
             <BarTip tip={<>{isPlaying ? 'Pausa' : 'Reproducir'} <span className="bar-tip-kbd">espacio</span></>}>
               <button
                 className="ctrl-btn play"
@@ -1632,9 +1633,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 </span>
               </button>
             </BarTip>
-            <BarTip tip="Siguiente">
-              <button className="ctrl-btn ctrl-next" onClick={e => { e.stopPropagation(); next(); }} aria-label="Siguiente"><NextIcon /></button>
-            </BarTip>
+            <BotonPaso dir="next" className="ctrl-btn ctrl-next" label="Siguiente" parar envolver={(tip, b) => <BarTip tip={tip}>{b}</BarTip>}><NextIcon /></BotonPaso>
             <BarTip tip={<>Repetir: <span className={`bar-tip-state${repeat === 'off' ? ' dim' : ''}`}>{repeatState}</span></>}>
               <button
                 className={`ctrl-btn${repeat !== 'off' ? ' active' : ''}`}
@@ -1768,13 +1767,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           >
             {isPlaying ? <PauseIcon size={24} /> : <PlayIcon size={24} />}
           </button>
-          <button
-            className="mini-btn mini-next"
-            onClick={e => { e.stopPropagation(); next(); }}
-            aria-label="Siguiente"
-          >
+          {/* 1.45.2: en una radio, Siguiente sigue a la radio (RadioPasos.jsx). Fuera, lo de siempre. */}
+          <BotonPaso dir="next" className="mini-btn mini-next" label="Siguiente" parar>
             <NextIcon size={22} />
-          </button>
+          </BotonPaso>
         </div>
 
       </div>

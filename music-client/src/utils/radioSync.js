@@ -1228,6 +1228,33 @@ export function avisarVuelta(d) {
   return !pasoSola;
 }
 
+// ---- Anterior y Siguiente del reproductor en una radio (1.45.2) ----
+//
+// Los usa components/RadioPasos.jsx en la barra, el expandido y la mini-barra. Como oyente, cambiar de canción en
+// tu reproductor no sirve (el desajuste te devuelve a la de la radio), así que esos dos botones hacen otra cosa.
+
+/** El motivo de «Anterior» para quien modera: la radio va hacia adelante. */
+export const TXT_SIN_ANTERIOR = 'La radio no tiene anterior';
+/** La etiqueta de «Siguiente» cuando manda la orden a la radio (la misma del botón de Radio.jsx). */
+export const TXT_SIGUIENTE_RADIO = 'Siguiente canción de la radio';
+
+/**
+ * Qué hacen «Anterior» y «Siguiente» del reproductor. r: { fase, modera, admite, anfitrion }.
+ *   · Fuera de una radio (y para quien transmite: fase 'anfitrion'): lo de siempre ('motor').
+ *   · Quien modera una radio con órdenes: siguiente = la orden 'siguiente' ('radio'); anterior, 'bloqueado'.
+ *   · Quien escucha (o modera una radio sin órdenes): los dos 'bloqueado', con «Estás en la radio de…».
+ * → { siguiente: 'motor'|'radio'|'bloqueado', anterior: 'motor'|'bloqueado', motivoSiguiente, motivoAnterior }
+ */
+export function pasosDeLaBarra(r) {
+  const x = objeto(r) ?? {};
+  if (x.fase !== 'oyente') return { siguiente: 'motor', anterior: 'motor', motivoSiguiente: null, motivoAnterior: null };
+  if (x.modera === true && x.admite === true) {
+    return { siguiente: 'radio', anterior: 'bloqueado', motivoSiguiente: null, motivoAnterior: TXT_SIN_ANTERIOR };
+  }
+  const enLa = textoEnLaRadio(x.anfitrion);
+  return { siguiente: 'bloqueado', anterior: 'bloqueado', motivoSiguiente: enLa, motivoAnterior: enLa };
+}
+
 /** Sin las marcas que el motor le pone a cada entrada de la cola. */
 function limpia(item) {
   if (item == null || typeof item !== 'object') return item;
