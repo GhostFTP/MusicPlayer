@@ -6,24 +6,26 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useRadio } from '../context/RadioContext.jsx';
 import RadioInicio from './RadioInicio.jsx';
+import RadioAnfitrion from './RadioAnfitrion.jsx';
 import {
-  limpiarCodigoEscrito, codigoPegado, normalizarCodigo, cuentaDeOyentes, LARGO_CODIGO,
-  filaDeOyente, lineaDelTope, textoDeEvento, INSIGNIA, personasDeLaLista, TEXTOS_ORDEN,
+  limpiarCodigoEscrito, codigoPegado, normalizarCodigo, cuentaDeOyentes, LARGO_CODIGO, textoDeEvento, TEXTOS_ORDEN,
 } from '../utils/radioSync.js';
 
 // Vista Radio. Cuatro caras:
 //  · "sin radio" (/radio): «Inicia tu radio» eligiendo qué suena (1.46.0: RadioInicio.jsx; ya no hace falta tener
 //    algo sonando) y el campo "Unirse con código", que navega a /radio/CODIGO.
-//  · anfitrión (/radio, o /radio/TU-CÓDIGO, con la sala abierta): el código, copiar código/enlace,
-//    cuántos escuchan, la lista de quién escucha con "Hacer moderador" / "Quitar" (1.45.0, W4), lo
-//    último que pasó en la radio y "Terminar radio" con confirmación en la misma página.
+//  · anfitrión (/radio, o /radio/TU-CÓDIGO, con la sala abierta): RadioAnfitrion.jsx (1.46.0, R2) — dos columnas en
+//    escritorio y pestañas Radio / Fila / Gente en el teléfono: el código grande, lo que suena con pausar / siguiente
+//    para todos, la fila de lo pedido, quién escucha (sin contarte) con "Hacer moderador" / "Quitar rol", lo que pasó
+//    y "Terminar radio" con confirmación que dice a cuántas personas se les cierra. Acá quedan el estado y el foco.
 //  · la ficha (/radio/OTRO-CÓDIGO): el código y "Escuchar", que llama unirse(); ese clic es el gesto
 //    que habilita el audio. NO lee la sala antes: la primera lectura es la que anota al oyente. Es un
 //    DETALLE como los de las otras vistas (setDetailOpen → swipe-atrás del teléfono; BackButton → history.back).
 //  · oyente (/radio, o /radio/SU-CÓDIGO, adentro): quién transmite, qué suena, el aviso de la radio,
 //    "Toca para escuchar" si el navegador bloqueó el play, quién más escucha y "Salir de la radio"
 //    (sin confirmación: salir no rompe nada, la cola vuelve sola). Debajo, "Tu radio" bloqueada.
-// La vista NO usa usePlayerTime (nada a 4 Hz): de usePlayer sólo lee currentTrack y playBlocked.
+// La vista NO usa usePlayerTime (nada a 4 Hz): de usePlayer sólo lee currentTrack y playBlocked. El avance de la cara
+// del anfitrión vive en un hijo propio de RadioAnfitrion, que es lo único que escucha el reloj.
 // El estado de la sala vive en RadioContext (por encima de las vistas): salir de esta vista no la corta.
 // El código de la ruta ya viene normalizado (routes.js). Un enlace con un código que no vale llega
 // como { invalido: true } y Layout reescribe la URL a /radio: el aviso se guarda ACÁ, en estado.
@@ -215,64 +217,14 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
 
   let cara;
   if (esAnfitrion) {
-    const terminando = fase === 'terminando';
     cara = (
-      <section className="radio-card">
-        <h2 className="radio-card-title">Código de tu radio</h2>
-        <p className="radio-codigo">{miCodigo}</p>
-        <div className="radio-fila radio-acciones">
-          <button type="button" ref={copiarRef} className="radio-btn" disabled={terminando}
-            onClick={() => copiar(miCodigo, 'Código copiado')}>Copiar código</button>
-          <button type="button" className="radio-btn" disabled={terminando}
-            onClick={() => copiar(`${window.location.origin}/radio/${miCodigo}`, 'Enlace copiado')}>Copiar enlace</button>
-        </div>
-        <p className="radio-oyentes" aria-live="polite">{cuentaDeOyentes(oyentes.length)}</p>
-        <ul className="radio-personas" aria-label="Quién está en la radio" ref={listaRef} tabIndex={-1}>
-          <li className="radio-persona">
-            <Avatar persona={{ name: user?.username, avatar: null }} />
-            <span className="radio-persona-nombre">Tú</span>
-            <span className="radio-insignia radio-insignia--anfitrion">{INSIGNIA.anfitrion}</span>
-          </li>
-          {personasDeLaLista({ oyentes, moderadores }).map((o) => {
-            const f = filaDeOyente({ id: o.id, moderadores, sinSoporte, ausente: o.ausente });
-            const nombre = o.name || 'Alguien';
-            return (
-              <li key={o.id} className="radio-persona">
-                <Avatar key="avatar" persona={o} />
-                <span key="nombre" className="radio-persona-nombre">{nombre}</span>
-                {f.insignia && <span key="insignia" className="radio-insignia">{f.insignia}</span>}
-                {f.boton && (
-                  <button key="boton" type="button" className="radio-btn radio-btn--persona" data-persona={o.id}
-                    disabled={terminando} aria-busy={moderando === o.id ? 'true' : undefined}
-                    aria-label={f.boton === 'quitar' ? `Quitar a ${nombre} de moderar` : `Hacer moderador a ${nombre}`}
-                    onClick={() => onModerar(o, f.boton === 'nombrar')}>
-                    {f.boton === 'quitar' ? 'Quitar' : 'Hacer moderador'}
-                  </button>
-                )}
-                {f.nota && <span key="nota" id={`radio-persona-nota-${o.id}`} className="radio-persona-nota" tabIndex={-1}>{f.nota}</span>}
-              </li>
-            );
-          })}
-        </ul>
-        {lineaDelTope(moderadores) && <p className="radio-nota radio-tope">{lineaDelTope(moderadores)}</p>}
-        {/* Siempre montada (vacía sin eventos): una región viva que aparece de golpe no siempre se anuncia. Cada
-            evento es un hijo con key (su id): dos eventos con el mismo texto montan dos nodos y se anuncian los dos. */}
-        <p className="radio-evento" role="status">{ultimoEvento && textoUltimo ? <span key={ultimoEvento.id}>{textoUltimo}</span> : null}</p>
-        <div className="radio-terminar">
-          {confirmando ? (
-            <div className="radio-confirmar" role="group" aria-labelledby="radio-confirmar-pregunta" onKeyDown={onConfirmarKey}>
-              <span id="radio-confirmar-pregunta" className="radio-confirmar-pregunta">¿Seguro?</span>
-              <button type="button" className="radio-btn radio-btn--terminar" disabled={terminando} onClick={terminar}>
-                {terminando ? 'Terminando…' : 'Sí, terminar'}
-              </button>
-              <button type="button" ref={noRef} className="radio-btn" disabled={terminando} onClick={() => setConfirmando(false)}>No</button>
-            </div>
-          ) : (
-            <button type="button" ref={terminarRef} className="radio-btn radio-btn--terminar" disabled={terminando}
-              onClick={() => { limpiarFin(); setConfirmando(true); }}>Terminar radio</button>
-          )}
-        </div>
-      </section>
+      <RadioAnfitrion
+        Avatar={Avatar} miCodigo={miCodigo} oyentes={oyentes} moderadores={moderadores} sinSoporte={sinSoporte}
+        eventos={eventos} yo={user?.id ?? null} fase={fase} moderando={moderando} onModerar={onModerar} copiar={copiar}
+        confirmando={confirmando} setConfirmando={setConfirmando} onConfirmarKey={onConfirmarKey} terminar={terminar}
+        limpiarFin={limpiarFin} copiarRef={copiarRef} terminarRef={terminarRef} noRef={noRef} listaRef={listaRef}
+        ultimoEvento={ultimoEvento} textoUltimo={textoUltimo}
+      />
     );
   } else if (esOyente) {
     // La línea de aviso: lo de la radio (red, carga, video, espera) gana sobre la pausa propia, y
@@ -392,7 +344,7 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   }
 
   return (
-    <div className="radio">
+    <div className={`radio${esAnfitrion ? ' radio--anfitrion' : ''}`}>
       {codigo ? <BackButton label="Radio" view="radio" onList={() => navigate('radio')} /> : null}
       <div className="section-header">
         <div className="lib-heading">

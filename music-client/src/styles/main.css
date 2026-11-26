@@ -539,8 +539,96 @@ path.srv-linea-max { stroke-width: 4; }
 .radio-orden-estado:empty { margin-top: 0; }
 .radio-confirmar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .radio-confirmar-pregunta { font-size: 14px; font-weight: 600; color: var(--text); margin-right: 4px; }
-.radio-btn--terminar { color: var(--amber); border-color: var(--amber-dim); }
-.radio-btn--terminar:hover:not(:disabled) { background: var(--amber-dim); border-color: var(--amber-dim); }
+/* 1.46.0 (R2): «Terminar radio» en gris neutro (terminar no es un error; el ámbar queda para los rechazos). */
+.radio-btn--terminar { color: var(--text); }
+
+/* 1.46.0 (R2) · La vista de QUIEN TRANSMITE (RadioAnfitrion.jsx). En escritorio usa el ancho (antes 640 px pegados a
+   la izquierda): dos columnas, a la izquierda el código, lo que suena y la fila; a la derecha quién escucha, lo que
+   pasó y «Terminar radio». Con la cola abierta (roba --queue-w) o con poco ancho, una sola columna. En el teléfono,
+   pestañas Radio / Fila / Gente (una a la vez). Lila para lo activo; nada de verde ni rojo. */
+.radio--anfitrion { max-width: 1120px; }
+.radio--anfitrion > .radio-card { max-width: 640px; }   /* «Unirse con código» no se estira a lo ancho */
+.radio-transmite-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 0 20px; align-items: start; }
+.radio-transmite-col { min-width: 0; }
+.radio-transmite .radio-card { margin-bottom: 16px; }
+.radio-codigo--grande { display: flex; flex-wrap: wrap; gap: 0 .45em; font-size: 46px; line-height: 1.1; letter-spacing: .14em; }
+.radio-card--codigo .radio-acciones { margin-top: 14px; }
+.radio-ahora { display: flex; align-items: flex-start; gap: 18px; }
+.radio-ahora .radio-card-title { margin-bottom: 6px; }
+.radio-portada {
+  flex: none; display: grid; place-items: center; width: 136px; height: 136px; overflow: hidden;
+  border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border);
+}
+.radio-portada img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.radio-portada-glifo { font-size: 30px; color: var(--text-muted); }
+.radio-portada--chica { width: 40px; height: 40px; border-radius: 6px; }
+.radio-portada--chica .radio-portada-glifo { font-size: 15px; }
+.radio-ahora-datos { flex: 1 1 auto; min-width: 0; }
+.radio-ahora-cancion { font-size: 19px; font-weight: 700; line-height: 1.3; color: var(--text); overflow-wrap: anywhere; }
+.radio-ahora-artista { margin-top: 2px; font-size: 14px; color: var(--text-muted); overflow-wrap: anywhere; }
+.radio-ahora-pidio {
+  display: inline-block; margin-top: 8px; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-dim);
+}
+.radio-avance { margin-top: 12px; }
+.radio-avance-barra { height: 4px; border-radius: 2px; overflow: hidden; background: var(--surface-2); }
+.radio-avance-barra span { display: block; height: 100%; background: var(--accent); }
+.radio-avance-tiempos { display: flex; justify-content: space-between; margin-top: 4px; font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.radio-ahora-controles { margin-top: 14px; }
+.radio-cola { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.radio-cola-item { display: flex; align-items: center; gap: 10px; min-height: 48px; min-width: 0; }
+.radio-cola-n { flex: none; width: 18px; text-align: right; font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.radio-cola-texto { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.radio-cola-titulo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text); }
+.radio-cola-pidio { font-size: 12px; color: var(--text-muted); }
+.radio-btn--cola { flex: none; min-width: 44px; padding: 0 12px; font-size: 13px; }
+.radio-cola-vacia { margin-top: 0; }
+.radio-cola-luego { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 12.5px; color: var(--text-muted); }
+.radio-eventos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.radio-eventos li { font-size: 13px; line-height: 1.45; color: var(--text); }
+.radio-eventos li + li { color: var(--text-muted); }
+.radio-transmite .radio-terminar { margin: 0 0 20px; padding-top: 0; border-top: 0; }
+/* Lo último que pasó: en escritorio ya está arriba de «Lo que pasó», así que la región viva queda sólo para el lector
+   (sigue montada y anunciando); en el teléfono se ve, porque la pestaña Gente puede no estar a la vista. */
+.radio-transmite > .radio-evento { margin: 0 0 12px; }
+.radio-transmite > .radio-evento:empty { margin: 0; }
+.radio-transmite:not(.radio-transmite--pestanas) > .radio-evento {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+/* Pestañas del teléfono: botones de 44 px, la elegida en lila. */
+.radio-pestanas {
+  display: flex; gap: 4px; margin-bottom: 12px; padding: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+}
+.radio-pestana {
+  flex: 1 1 0; min-height: 44px; padding: 0 8px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--text-muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.radio-pestana--on { background: var(--accent-dim); color: var(--accent); }
+.radio-pestana:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.radio-pestana-n { font-weight: 500; }
+.radio-ver-fila {
+  display: flex; align-items: center; width: 100%; min-height: 48px; margin-bottom: 16px; padding: 0 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.radio-ver-fila::after { content: '›'; margin-left: auto; font-size: 18px; color: var(--text-muted); }
+.radio-ver-fila:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 960px) {
+  .radio-transmite-cols { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1280px) {
+  .layout--queue .radio-transmite-cols { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+  .radio-codigo--grande { font-size: 40px; }
+  .radio-ahora { flex-direction: column; align-items: stretch; }
+  .radio-ahora .radio-portada { width: 200px; height: 200px; align-self: center; }
+  .radio-ahora-controles .radio-btn { flex: 1 1 140px; }
+  .radio-transmite .radio-terminar .radio-btn { width: 100%; }
+  .radio-transmite .radio-confirmar .radio-btn { flex: 1 1 120px; width: auto; }
+}
 /* Oyente: la ficha ("Escuchar") y la tarjeta de adentro. "Escuchar" y "Toca para escuchar" son los
    únicos botones con acento morado de la vista: son LA acción. El aviso de la radio va siempre
    montado (vacío sin texto): ámbar si es de red o de carga, neutro si es informativo, morado suave

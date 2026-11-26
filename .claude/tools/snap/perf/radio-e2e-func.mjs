@@ -181,7 +181,7 @@ try {
   const labelNombrar = (await fila(idOye))?.boton?.label;
   const t2 = Date.now();
   await H.pg.getByRole('button', { name: labelNombrar, exact: true }).click();
-  const f2 = await esperar(async () => { const f = await fila(idOye); return f?.insignia === 'Modera' && f.boton?.texto === 'Quitar' ? f : null; }, 6000, 100);
+  const f2 = await esperar(async () => { const f = await fila(idOye); return f?.insignia === 'Modera' && f.boton?.texto === 'Quitar rol' ? f : null; }, 6000, 100);
   ok('e2e_2a_el_boton_de_nombrar_marca_modera_en_la_lista', labelNombrar === `Hacer moderador a ${MOD}` && pedidos.some((x) => x.t >= t2 && x.m === 'PUT' && x.ruta.endsWith(`/moderadores/${idOye}`)) && !!f2.v
     && f2.v.boton.label === `Quitar a ${MOD} de moderar`, { label: labelNombrar, pedidos: pedidos.filter((x) => x.t >= t2).map((x) => `${x.m} ${x.ruta}`), fila: f2.v ?? await fila(idOye) });
 
