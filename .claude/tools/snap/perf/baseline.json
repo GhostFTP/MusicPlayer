@@ -39,6 +39,7 @@
     { "nombre": "radio-inicio-func", "archivo": "radio-inicio-func.mjs", "modo": "name-line", "esperado": { "ok": 14, "total": 14 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
     { "nombre": "radio-vista-anfitrion-func", "archivo": "radio-vista-anfitrion-func.mjs", "modo": "name-line", "esperado": { "ok": 19, "total": 19 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
     { "nombre": "radio-vista-oyente-func", "archivo": "radio-vista-oyente-func.mjs", "modo": "name-line", "esperado": { "ok": 13, "total": 13 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
+    { "nombre": "radio-unirse-func", "archivo": "radio-unirse-func.mjs", "modo": "name-line", "esperado": { "ok": 14, "total": 14 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
     { "nombre": "radio-anfitrion-mod-func", "archivo": "radio-anfitrion-mod-func.mjs", "modo": "name-line", "esperado": { "ok": 46, "total": 46 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
     { "nombre": "radio-oyente-func", "archivo": "radio-oyente-func.mjs", "modo": "name-line", "esperado": { "ok": 44, "total": 44 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },
     { "nombre": "radio-oyente-sondeo-func", "archivo": "radio-oyente-sondeo-func.mjs", "modo": "name-line", "esperado": { "ok": 9, "total": 9 }, "requiere": { "env": ["SNAP2_USER", "SNAP2_PASS"] } },

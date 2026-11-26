@@ -14,7 +14,8 @@
 //   VO_lo_que_paso                    el evento, en «Lo que pasó».
 //   VO_sin_tarjetas_apagadas_ni_fila_ni_chat   sin «Tu radio» ni «Iniciar radio» mientras escuchas; sin fila ni chat.
 //   VO_pausar_para_mi_y_volver_al_vivo   te silencia a ti («En pausa para ti…», el botón dice «Volver al vivo») y vuelve.
-//   VO_chip_oyente_en_la_barra_abre_radio   «En la radio de Anfitriona» en la barra; desde Álbumes, tocarlo abre /radio.
+//   VO_chip_oyente_en_la_barra_abre_radio   «Radio de Anfitriona» en la barra (R4: el texto corto; el largo lo cubre
+//        radio-unirse-func); desde Álbumes, tocarlo abre /radio.
 //   VO_390_pestanas_radio_y_gente     pestañas Radio / Gente (sin Fila ni Chat), una a la vez, teclado ← →, sin scroll.
 //   VO_390_chip_en_la_barra_pequena_sin_tapar   el chip va en la barra pequeña, dentro de ella y sin pisar sus botones.
 //   VO_moderador_siguiente_manda_la_orden   quien modera: «Modera» en la cabecera y en «Tú», «Siguiente» (nombre
@@ -138,7 +139,7 @@ try {
   const vAlb = await leer();
   await p.locator('.radio-chip--barra').click(); await sleep(700);
   const vChip = await leer();
-  ok('VO_chip_oyente_en_la_barra_abre_radio', vAlb.chipBarra === 'En la radio de Anfitriona' && vAlb.chipMini === null && vChip.path === '/radio' && vChip.hay,
+  ok('VO_chip_oyente_en_la_barra_abre_radio', vAlb.chipBarra === 'Radio de Anfitriona' && vAlb.chipMini === null && vChip.path === '/radio' && vChip.hay,
     { chip: vAlb.chipBarra, mini: vAlb.chipMini, path: vChip.path, vista: vChip.hay });
   await sacar('5-chip-oyente-barra', [1440, 390], true);
 
@@ -156,7 +157,7 @@ try {
     && t2.pestanas[0].sel === 'true' && t2.focoRol === 'tab' && t2.cancion != null && [t0, t1, t2].every((x) => x.ancho <= 390 && !x.chat && !x.fila),
     { pestanas: t0.pestanas, paneles: t0.paneles, gente: t1.personas.length, foco: t2.focoRol, anchos: [t0.ancho, t1.ancho, t2.ancho] });
   const solapa = (a, b) => !!a && !!b && a.x < b.r && b.x < a.r && a.y < b.b && b.y < a.b;
-  ok('VO_390_chip_en_la_barra_pequena_sin_tapar', t0.chipMini === 'En la radio de Anfitriona' && t0.chipBarra === null && !!t0.cajaChip && !solapa(t0.cajaChip, t0.cajaBotones)
+  ok('VO_390_chip_en_la_barra_pequena_sin_tapar', t0.chipMini === 'Radio de Anfitriona' && t0.chipBarra === null && !!t0.cajaChip && !solapa(t0.cajaChip, t0.cajaBotones)
     && t0.cajaChip.y >= t0.cajaBarra.y && t0.cajaChip.b <= t0.cajaBarra.b,
     { chip: t0.chipMini, cajaChip: t0.cajaChip, botones: t0.cajaBotones, barra: t0.cajaBarra });
   await p.setViewportSize({ width: 1440, height: 900 }); await sleep(500);

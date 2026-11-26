@@ -8,20 +8,23 @@ import { useRadio } from '../context/RadioContext.jsx';
 import RadioInicio from './RadioInicio.jsx';
 import RadioAnfitrion from './RadioAnfitrion.jsx';
 import RadioOyente from './RadioOyente.jsx';
+import { CasillasCodigo, CodigoEnCasillas } from './RadioCasillas.jsx';
 import {
   limpiarCodigoEscrito, codigoPegado, normalizarCodigo, LARGO_CODIGO, textoDeEvento,
 } from '../utils/radioSync.js';
 
 // Vista Radio. Cuatro caras:
-//  · "sin radio" (/radio): «Inicia tu radio» eligiendo qué suena (1.46.0: RadioInicio.jsx; ya no hace falta tener
-//    algo sonando) y el campo "Unirse con código", que navega a /radio/CODIGO. Mientras transmites, «Unirse con código»
-//    no se muestra (1.46.0, R3: era una tarjeta apagada que estorbaba).
+//  · "sin radio" (/radio): en escritorio dos columnas — «Inicia tu radio» eligiendo qué suena (1.46.0: RadioInicio.jsx;
+//    ya no hace falta tener algo sonando) y «Unirse con código» en seis casillas (R4, RadioCasillas.jsx). «Unirse» ENTRA
+//    directo (ese clic es el gesto que habilita el audio) y, si no se puede, lo dice en ámbar dentro de la tarjeta.
+//    Mientras transmites, «Unirse con código» no se muestra (R3: era una tarjeta apagada que estorbaba).
 //  · anfitrión (/radio, o /radio/TU-CÓDIGO, con la sala abierta): RadioAnfitrion.jsx (1.46.0, R2) — dos columnas en
 //    escritorio y pestañas Radio / Fila / Gente en el teléfono: el código grande, lo que suena con pausar / siguiente
 //    para todos, la fila de lo pedido, quién escucha (sin contarte) con "Hacer moderador" / "Quitar rol", lo que pasó
 //    y "Terminar radio" con confirmación que dice a cuántas personas se les cierra. Acá quedan el estado y el foco.
-//  · la ficha (/radio/OTRO-CÓDIGO): el código y "Escuchar", que llama unirse(); ese clic es el gesto
-//    que habilita el audio. NO lee la sala antes: la primera lectura es la que anota al oyente. Es un
+//  · la ficha (/radio/OTRO-CÓDIGO, lo que abre un ENLACE de invitación; R4): «Te invitaron a escuchar», el código en
+//    casillas grandes y "Escuchar", que llama unirse(); ese clic es el gesto que habilita el audio. Al lado, «¿Otro
+//    código?». NO lee la sala antes: la primera lectura es la que anota al oyente. Es un
 //    DETALLE como los de las otras vistas (setDetailOpen → swipe-atrás del teléfono; BackButton → history.back).
 //  · oyente (/radio, o /radio/SU-CÓDIGO, adentro): RadioOyente.jsx (1.46.0, R3) — «La radio de <nombre>» con «En
 //    vivo», cuántos escuchan y "Salir de la radio" (sin confirmación: salir no rompe nada, la cola vuelve sola); lo que
@@ -71,6 +74,10 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   const [texto, setTexto] = useState('');       // lo escrito en el campo, ya limpio
   const [aviso, setAviso] = useState(null);     // clave de AVISOS, o null
   const [confirmando, setConfirmando] = useState(false);   // "Terminar radio" pasó a "¿Seguro?"
+  // R4: de dónde salió el último intento de unirse (la tarjeta de casillas o "Escuchar" de la ficha) y si hay uno sin
+  // resolver: un fallo de la tarjeta se dice EN la tarjeta, y el fin de una radio a la que se intentaba entrar va en ámbar.
+  const [desdeTarjeta, setDesdeTarjeta] = useState(false);
+  const [intento, setIntento] = useState(false);
 
   const { currentTrack, playBlocked } = usePlayer();
   const {
@@ -92,6 +99,7 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   const terminarRef = useRef(null);
   const noRef = useRef(null);
   const escucharRef = useRef(null);
+  const campoRef = useRef(null);
   const oyenteRef = useRef(null);
 
   // Consumo del target de navegación (mismo contrato que las demás vistas): reset vuelve a /radio
@@ -122,8 +130,14 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
     faseAntes.current = fase;
     if (antes === 'creando' && fase === 'anfitrion') copiarRef.current?.focus();
     else if ((antes === 'anfitrion' || antes === 'terminando' || antes === 'oyente') && fase === 'sin-radio') h1Ref.current?.focus();
-    else if (antes === 'uniendose' && fase === 'oyente') oyenteRef.current?.focus();
-    else if (antes === 'uniendose' && fase === 'sin-radio') escucharRef.current?.focus();   // falló o canceló: reintentar a mano
+    else if (antes === 'uniendose' && fase === 'oyente') {
+      // Entró desde «¿Otro código?» de una ficha: a /radio, donde está su cara de oyente.
+      if (desdeTarjeta && codigo) navigate('radio');
+      setTexto('');   // entró: la próxima vez las casillas empiezan vacías
+      oyenteRef.current?.focus();
+    }
+    else if (antes === 'uniendose' && fase === 'sin-radio') (desdeTarjeta ? campoRef : escucharRef).current?.focus();   // falló o canceló: reintentar a mano
+    if (fase !== 'sin-radio' && fase !== 'uniendose') setIntento(false);
     if (fase !== 'anfitrion' && fase !== 'terminando') setConfirmando(false);
   }, [fase]);
   // La confirmación: al abrirla el foco va a "No" (lo que no rompe nada); al cancelarla vuelve a
@@ -161,11 +175,13 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
     const c = normalizarCodigo(texto);
     if (!c) { setAviso('corto'); return; }
     setAviso(null);
-    navigate('radio', { codigo: c });
+    setDesdeTarjeta(true); setIntento(true);
+    unirse(c);   // R4: directo, sin pasar por la ficha (este clic ya es el gesto que habilita el audio)
   };
 
   const onEscuchar = () => {
     limpiarFin();
+    setDesdeTarjeta(false); setIntento(true);
     unirse(codigo);   // ignora un segundo clic mientras 'uniendose' (RadioContext)
   };
 
@@ -208,9 +224,14 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
     setConfirmando(false);
   };
 
-  const estado = error || fin?.texto || '';
+  // Por qué terminó o qué falló. Si falló entrar desde la tarjeta, se dice EN la tarjeta (no dos veces). Va en ámbar un
+  // error, o el fin de una radio a la que se estaba intentando entrar (ya terminó); el fin de la propia, neutro.
+  const textoFallo = error || fin?.texto || '';
+  const falloEnTarjeta = desdeTarjeta && intento && fase === 'sin-radio' && !!textoFallo;
+  const estado = falloEnTarjeta ? '' : textoFallo;
+  const estadoAmbar = !!error || (!!fin && intento);
   const subtitulo = esAnfitrion ? 'Tu radio está en vivo' : esOyente ? 'Escuchando en vivo'
-    : codigo && fase === 'uniendose' ? 'Uniéndose…' : codigo ? 'Unirse con código' : 'Escucha en vivo con otros';
+    : codigo && fase === 'uniendose' && !desdeTarjeta ? 'Uniéndose…' : codigo ? 'Te invitaron a escuchar' : 'Escucha en vivo con otros';
 
   let cara;
   if (esAnfitrion) {
@@ -239,29 +260,58 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
     const otraSala = fase !== 'sin-radio' && !uniendose;
     const notaOtra = fase === 'oyente' ? 'Ya estás escuchando otra radio. Sal de ella para unirte a esta.'
       : 'Termina tu radio para unirte a otra.';
+    const uniendoAca = uniendose && !desdeTarjeta;
     cara = (
-      <section className="radio-card">
-        <h2 className="radio-card-title">Código</h2>
-        <p className="radio-codigo">{codigo}</p>
+      <section className="radio-card radio-ficha">
+        <h2 className="radio-card-title">Código de la radio</h2>
+        <CodigoEnCasillas codigo={codigo} />
+        <p className="radio-ficha-lema">Escucha lo mismo que suena en esa radio, en vivo.</p>
+        <p id="radio-escuchar-nota" className="radio-nota">{otraSala ? notaOtra : 'Tu cola se guarda y vuelve al salir.'}</p>
         <div className="radio-fila radio-acciones">
           <button type="button" ref={escucharRef} className="radio-btn radio-btn--escuchar" onClick={onEscuchar}
-            disabled={fase !== 'sin-radio'} aria-busy={uniendose || undefined} aria-describedby="radio-escuchar-nota">
-            {uniendose ? 'Uniéndose…' : 'Escuchar'}
+            disabled={fase !== 'sin-radio'} aria-busy={uniendoAca || undefined} aria-describedby="radio-escuchar-nota">
+            {uniendoAca ? 'Uniéndose…' : 'Escuchar'}
           </button>
-          {uniendose && <button type="button" className="radio-btn" onClick={salir}>Cancelar</button>}
+          {uniendoAca && <button type="button" className="radio-btn" onClick={salir}>Cancelar</button>}
         </div>
-        <p id="radio-escuchar-nota" className="radio-nota">
-          {otraSala ? notaOtra : 'Vas a escuchar lo mismo que el anfitrión, en vivo. Al salir, vuelve tu cola, en pausa.'}
-        </p>
+        {!otraSala && <p className="radio-nota">Al entrar verás quién transmite y qué suena.</p>}
       </section>
     );
   }
   // "Tu radio": en la cara "sin radio", «Inicia tu radio» eligiendo qué suena (1.46.0, RadioInicio.jsx). Mientras
   // escuchas (o te unes) no se muestra: antes era una tarjeta apagada con su nota que estorbaba (R3, problema 7).
-  const tuRadio = !esAnfitrion && !soyOyente && !codigo ? <RadioInicio antes={limpiarFin} /> : null;
+  const tuRadio = !esAnfitrion && !codigo && fase !== 'oyente' ? <RadioInicio antes={limpiarFin} /> : null;
+
+  // «Unirse con código» (R4): seis casillas; en la ficha, «¿Otro código?». No se muestra mientras transmites, ni en la
+  // ficha si ya estás en otra radio. Mientras escuchas (en /radio) queda bloqueada con su nota, como antes.
+  const uniendoTarjeta = fase === 'uniendose' && desdeTarjeta;
+  const avisoTarjeta = aviso ? AVISOS[aviso] : falloEnTarjeta ? textoFallo : '';
+  const tarjetaUnirse = !esAnfitrion && (!codigo || fase === 'sin-radio' || uniendoTarjeta) ? (
+    <section className="radio-card radio-unirse">
+      <form onSubmit={onSubmit} noValidate>
+        <label htmlFor="radio-codigo-campo" className="radio-card-title">{codigo ? '¿Otro código?' : 'Unirse con código'}</label>
+        <CasillasCodigo id="radio-codigo-campo" inputRef={campoRef} value={texto} onChange={onChange} onPaste={onPaste}
+          disabled={unirseBloqueado} invalido={!!avisoTarjeta}
+          describedBy={unirseBloqueado && !uniendoTarjeta ? 'radio-unirse-nota radio-aviso' : 'radio-unirse-pista radio-aviso'} />
+        {(!unirseBloqueado || uniendoTarjeta) && <p id="radio-unirse-pista" className="radio-nota">Pídele el código a quien transmite, o abre su enlace.</p>}
+        <div className="radio-fila radio-acciones">
+          <button type="submit" className="radio-btn" disabled={unirseBloqueado} aria-busy={uniendoTarjeta || undefined}>
+            {uniendoTarjeta ? 'Uniéndose…' : 'Unirse'}
+          </button>
+          {uniendoTarjeta && <button type="button" className="radio-btn" onClick={salir}>Cancelar</button>}
+        </div>
+        {unirseBloqueado && !uniendoTarjeta && <p id="radio-unirse-nota" className="radio-nota">{soyOyente ? 'Sal de la radio para unirte a otra.' : 'Termina tu radio para unirte a otra.'}</p>}
+        {/* Siempre montado (vacío sin aviso): un role="alert" que aparece de golpe no siempre se anuncia. En ámbar:
+            lo mal escrito, y por qué no se pudo entrar (no existe, ya terminó, está llena). */}
+        <p id="radio-aviso" className="radio-aviso" role="alert">{avisoTarjeta}</p>
+      </form>
+    </section>
+  ) : null;
+  // Sin radio (o en la ficha): dos columnas en escritorio, como en las maquetas 1-iniciar y 4-unirse.
+  const enDos = !esAnfitrion && !esOyente;
 
   return (
-    <div className={`radio${esAnfitrion ? ' radio--anfitrion' : esOyente ? ' radio--oyente' : ''}`}>
+    <div className={`radio${esAnfitrion ? ' radio--anfitrion' : esOyente ? ' radio--oyente' : ' radio--inicio'}`}>
       {codigo ? <BackButton label="Radio" view="radio" onList={() => navigate('radio')} /> : null}
       <div className="section-header">
         <div className="lib-heading">
@@ -275,40 +325,20 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
 
       {/* Por qué terminó la radio o qué falló. Siempre montado (vacío sin texto) y en el MISMO lugar en
           las tres caras: un role="alert" que aparece de golpe no siempre se anuncia. */}
-      <p className={`radio-estado${error ? ' radio-estado--error' : ''}`} role="alert">{estado}</p>
+      <p className={`radio-estado${estadoAmbar ? ' radio-estado--error' : ''}`} role="alert">{estado}</p>
 
-      {cara}
-      {tuRadio}
-
-      {!codigo && !esAnfitrion && (
-        <section className="radio-card">
-          <form onSubmit={onSubmit} noValidate>
-            <label htmlFor="radio-codigo-campo" className="radio-card-title">Unirse con código</label>
-            <div className="radio-fila">
-              <input
-                id="radio-codigo-campo"
-                className="radio-input"
-                type="text"
-                value={texto}
-                onChange={onChange}
-                onPaste={onPaste}
-                placeholder="Código"
-                autoCapitalize="characters"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                enterKeyHint="go"
-                disabled={unirseBloqueado}
-                aria-invalid={aviso ? true : undefined}
-                aria-describedby={unirseBloqueado ? 'radio-unirse-nota radio-aviso' : 'radio-aviso'}
-              />
-              <button type="submit" className="radio-btn" disabled={unirseBloqueado}>Unirse</button>
-            </div>
-            {unirseBloqueado && <p id="radio-unirse-nota" className="radio-nota">{soyOyente ? 'Sal de la radio para unirte a otra.' : 'Termina tu radio para unirte a otra.'}</p>}
-            {/* Siempre montado (vacío sin aviso): un role="alert" que aparece de golpe no siempre se anuncia. */}
-            <p id="radio-aviso" className="radio-aviso" role="alert">{aviso ? AVISOS[aviso] : ''}</p>
-          </form>
-        </section>
+      {enDos ? (
+        <div className="radio-dos">
+          {cara}
+          {tuRadio}
+          {tarjetaUnirse}
+        </div>
+      ) : (
+        <>
+          {cara}
+          {tuRadio}
+          {tarjetaUnirse}
+        </>
       )}
     </div>
   );

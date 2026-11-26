@@ -358,7 +358,7 @@ try {
     const fF = await foto();
     ok('V_ficha_sin_leer_la_sala_antes_del_clic', FK[code].lecturas.length === 0 && fF.fase === 'sin-radio' && fF.nPlay === 0
       && ficha.escuchar === 'Escuchar' && !ficha.cancelar && ficha.enPagina
-      && ficha.nota === 'Vas a escuchar lo mismo que el anfitrión, en vivo. Al salir, vuelve tu cola, en pausa.',
+      && ficha.nota === 'Tu cola se guarda y vuelve al salir.',   // 1.46.0 (R4): el texto nuevo de la ficha del enlace
       { lecturasEn3s: FK[code].lecturas.length, fase: fF.fase, nPlay: fF.nPlay, ficha });
 
     // La primera lectura tarda 3 s: "Uniéndose…" ocupado + Cancelar; Cancelar vuelve a la ficha y la

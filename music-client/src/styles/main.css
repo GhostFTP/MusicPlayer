@@ -666,10 +666,57 @@ path.srv-linea-max { stroke-width: 4; }
 .radio-chip--mini { display: none; }
 @media (max-width: 700px) {
   .radio-chip--barra { display: none; }
-  .radio-chip--mini { display: inline-flex; align-self: flex-start; margin-top: 3px; padding: 1px 8px; font-size: 11px; }
+  /* R4: en la barra pequeña hay ~100 px entre la portada y los botones: sin el punto y con menos relleno, para que
+     «Radio de <nombre>» entre entero con nombres cortos (los largos se cortan con …; el nombre entero va en el title). */
+  .radio-chip--mini { display: inline-flex; align-self: flex-start; margin-top: 3px; padding: 1px 6px; font-size: 10.5px; }
+  .radio-chip--mini .radio-chip-punto { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .radio-chip { transition: none; }
+}
+
+/* 1.46.0 (R4) · Unirse: el código en SEIS CASILLAS (RadioCasillas.jsx) y la ficha del enlace de invitación. Sin radio
+   (y en la ficha), dos columnas en escritorio: «Inicia tu radio» / la ficha a la izquierda, «Unirse con código» /
+   «¿Otro código?» a la derecha. Las casillas solo dibujan: encima va UN <input> invisible de 16 px (con menos, Safari
+   de iOS agranda la página al enfocar), que es el que escribe, pega y lee el lector. La casilla que sigue se marca en
+   lila con el foco; lo mal escrito y por qué no se pudo entrar, en ámbar. */
+.radio--inicio { max-width: 1120px; }
+.radio-dos { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 0 20px; align-items: start; }
+.radio-dos > * { min-width: 0; }
+@media (max-width: 960px) {
+  .radio-dos { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1280px) {
+  .layout--queue .radio-dos { grid-template-columns: minmax(0, 1fr); }
+}
+.radio-casillas { position: relative; display: inline-flex; max-width: 100%; }
+.radio-casillas-input {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0;
+  opacity: 0; font-size: 16px; cursor: text;
+}
+.radio-casillas-input:disabled { cursor: not-allowed; }
+.radio-casillas-celdas { display: flex; gap: 6px; }
+.radio-casilla {
+  display: grid; place-items: center; width: 44px; height: 52px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  font: 700 22px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.radio-casilla:not(.radio-casilla--llena)::after { content: '·'; color: var(--text-muted); }
+.radio-casillas:focus-within .radio-casilla--cursor,
+.radio-casillas--llenas:focus-within .radio-casilla:last-child { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.radio-casillas--mal .radio-casilla { border-color: var(--amber); }
+.radio-casillas--off { opacity: .5; }
+.radio-unirse .radio-nota { margin-top: 10px; }
+.radio-unirse .radio-acciones { margin-top: 12px; }
+.radio-ficha { text-align: center; padding: 28px 18px; }
+.radio-ficha .radio-acciones { justify-content: center; margin-top: 14px; }
+.radio-codigo--casillas { display: flex; justify-content: center; gap: 6px; letter-spacing: normal; }
+.radio-codigo--casillas .radio-casilla { width: 48px; height: 58px; font-size: 26px; }
+.radio-ficha-lema { margin-top: 18px; font-size: 16px; font-weight: 700; color: var(--text); }
+.radio-ficha .radio-btn--escuchar { min-width: 160px; }
+@media (max-width: 700px) {
+  .radio-codigo--casillas .radio-casilla { width: 44px; height: 54px; font-size: 24px; }
+  .radio-ficha .radio-btn--escuchar { flex: 1 1 100%; }
 }
 /* Oyente: la ficha ("Escuchar") y la tarjeta de adentro. "Escuchar" y "Toca para escuchar" son los
    únicos botones con acento morado de la vista: son LA acción. El aviso de la radio va siempre
