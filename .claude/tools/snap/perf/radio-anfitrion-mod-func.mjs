@@ -739,11 +739,12 @@ if (corre(20)) {
   const trasUnaLectura = async () => { const n = gets(); await esperar(async () => gets() > n, 7000, 25); };
 
   await iniciar(p);
-  const lista = await esperar(async () => ((await filas()).length === 6 ? true : null), 8000, 100);
+  // 1.46.0 (R2): la lista ya no te cuenta (antes la 1.ª fila era «Tú · Anfitrión»): 5 oyentes = 5 filas.
+  const lista = await esperar(async () => ((await filas()).length === 5 ? true : null), 8000, 100);
   const f0 = await filas();
   const region0 = await p.evaluate(() => { const r = document.querySelector('.radio-evento'); return r ? { rol: r.getAttribute('role'), texto: r.textContent } : null; });
-  ok('20a_lista_con_insignias_y_hacer_moderador', !!lista.v && f0[0].nombre === 'Tú' && f0[0].insignia === 'Anfitrión' && !f0[0].boton
-    && f0.slice(1).every((x) => x.insignia === null && x.boton?.texto === 'Hacer moderador' && x.boton.label === `Hacer moderador a ${x.nombre}` && !x.boton.off)
+  ok('20a_lista_con_insignias_y_hacer_moderador', !!lista.v && !f0.some((x) => x.nombre === 'Tú' || x.insignia === 'Anfitrión')
+    && f0.every((x) => x.insignia === null && x.boton?.texto === 'Hacer moderador' && x.boton.label === `Hacer moderador a ${x.nombre}` && !x.boton.off)
     && region0?.rol === 'status' && region0.texto === '' && (await intervalos(2000)) === 0,
     { filas: f0, region: region0 });
 
@@ -755,7 +756,7 @@ if (corre(20)) {
   const msDos = dos.v ? Date.now() - tB : null;
   await sleep(200);
   const fB = await fila('Sonia'); const focoB = await foco();
-  ok('20b_nombrar_marca_modera_y_arranca_la_lectura_de_2s_en_el_acto', tras(tB, '/moderadores/9002').some((x) => x.m === 'PUT') && fB.insignia === 'Modera' && fB.boton?.texto === 'Quitar'
+  ok('20b_nombrar_marca_modera_y_arranca_la_lectura_de_2s_en_el_acto', tras(tB, '/moderadores/9002').some((x) => x.m === 'PUT') && fB.insignia === 'Modera' && fB.boton?.texto === 'Quitar rol'
     && fB.boton.label === 'Quitar a Sonia de moderar' && focoB.persona === '9002' && msDos != null && msDos < 1000,
     { fila: fB, foco: focoB, ms2s: msDos });
 
@@ -785,7 +786,7 @@ if (corre(20)) {
   await sleep(2500);
   const fG = await fila('Dani'); const focoG = await foco();
   const estadoG = await p.evaluate(() => document.querySelector('.radio-estado')?.textContent ?? null);
-  ok('20g_sin_soporte_deja_la_nota_y_no_reintenta', fG.nota === 'Su versión todavía no lo admite.' && fG.boton === null && focoG.id === 'radio-persona-nota-9005'
+  ok('20g_sin_soporte_deja_la_nota_y_no_reintenta', fG.nota === 'Solo escucha: su versión todavía no permite moderar.' && fG.boton === null && focoG.id === 'radio-persona-nota-9005'
     && tras(tG, '/moderadores/9005').length === 1 && estadoG === '', { fila: fG, foco: focoG, pedidos: tras(tG, '/moderadores/9005').length, estado: estadoG });
 
   // f: tres moderando → a Eva se le OCULTA el botón (no está en el DOM) y aparece la línea del tope

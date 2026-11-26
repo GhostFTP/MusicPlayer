@@ -358,7 +358,7 @@ try {
     const fF = await foto();
     ok('V_ficha_sin_leer_la_sala_antes_del_clic', FK[code].lecturas.length === 0 && fF.fase === 'sin-radio' && fF.nPlay === 0
       && ficha.escuchar === 'Escuchar' && !ficha.cancelar && ficha.enPagina
-      && ficha.nota === 'Vas a escuchar lo mismo que el anfitrión, en vivo. Al salir, vuelve tu cola, en pausa.',
+      && ficha.nota === 'Tu cola se guarda y vuelve al salir.',   // 1.46.0 (R4): el texto nuevo de la ficha del enlace
       { lecturasEn3s: FK[code].lecturas.length, fase: fF.fase, nPlay: fF.nPlay, ficha });
 
     // La primera lectura tarda 3 s: "Uniéndose…" ocupado + Cancelar; Cancelar vuelve a la ficha y la
@@ -403,7 +403,9 @@ try {
     await irA('/radio');
     await sleep(500);
     const ini = await iniciarRadio();
-    ok('V_iniciar_bloqueado_con_su_nota_siendo_oyente', ini.hay && ini.disabled === true && ini.nota === 'Sal de la radio para iniciar la tuya.'
+    // 1.46.0 (R3): mientras escuchas ya NO se muestra la tarjeta «Tu radio» apagada (problema 7 del ANTES): no hay
+    // «Iniciar radio» en la cara. «Unirse con código» sigue, bloqueado con su nota.
+    ok('V_iniciar_bloqueado_con_su_nota_siendo_oyente', !ini.hay && ini.disabled === null && ini.nota === null
       && ini.oyente && ini.campoDisabled === true && ini.notaUnirse === 'Sal de la radio para unirte a otra.', ini);
     await p.click('.radio-card--oyente .radio-terminar .radio-btn');
     await esperar(async () => ((await foto()).fase === 'sin-radio' ? true : null), 3000);
@@ -556,24 +558,26 @@ try {
       { id: 990079, name: 'Ciro', avatar: { kind: 'emoji', value: '🎧' } },
       { id: 990080, name: 'Dani', avatar: { kind: 'photo', url: '/api/users/990080/avatar' } }];
     const e = await entrarFk({ host, listeners });
-    // [anfitrión, yo, Bea, Ciro, Dani]; se espera a que carguen las dos fotos y caiga la rota.
+    // 1.46.0 (R3): [anfitrión grande (cabecera), y la lista: anfitrión, Bea, Ciro, Dani y tú al final]; se espera a que
+    // carguen las dos fotos y caiga la rota.
     const caras = await esperar(() => p.evaluate(() => {
       const c = [...document.querySelectorAll('.radio-card--oyente .radio-avatar')].map((el) => {
         const img = el.querySelector('img');
         return { src: img ? img.getAttribute('src') : null, cargada: img ? img.complete && img.naturalWidth > 0 : null,
           emoji: el.querySelector('.radio-avatar-emoji')?.textContent ?? null, texto: el.textContent, grande: el.classList.contains('radio-avatar--grande') };
       });
-      return c.length === 5 && c[0].cargada && c[4].cargada && c[2].src === null ? c : null;
+      return c.length === 6 && c[0].cargada && c[1].cargada && c[4].cargada && c[2].src === null ? c : null;
     }), 6000);
     const c = caras.v ?? [];
     const conTok = (u) => `${u}${u.includes('?') ? '&' : '?'}token=${tokOye}`;
     const pidio = (u) => pedidosAvatar.includes(conTok(u));
-    ok('A_avatares_foto_con_token_inicial_si_falla_y_emoji', e.sono && c.length === 5
+    ok('A_avatares_foto_con_token_inicial_si_falla_y_emoji', e.sono && c.length === 6
       && c[0].grande && c[0].src === conTok(host.avatar.url) && c[0].cargada
-      && c[1].src === null && c[1].texto === 'Y'
+      && !c[1].grande && c[1].src === conTok(host.avatar.url) && c[1].cargada
       && c[2].src === null && c[2].texto === 'B'
       && c[3].emoji === '🎧'
       && c[4].src === conTok('/api/users/990080/avatar') && c[4].cargada
+      && c[5].src === null && c[5].texto === 'Y'
       && pidio(host.avatar.url) && pidio(`/api/users/${AVATAR_ROTO}/avatar?v=5`) && pidio('/api/users/990080/avatar'),
       { caras: c.map((x) => ({ ...x, src: sinToken(x.src) })), pedidos: pedidosAvatar.map(sinToken) });
     await salirFk();

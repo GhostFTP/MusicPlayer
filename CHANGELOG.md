@@ -3,6 +3,53 @@
 Novedades destacables de **SonoraRev**. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es/1.1.0/).
 
+## [1.46.0] - 2026-11-25
+
+### Nuevo
+- **Inicia una radio eligiendo qué suena.** En Radio, «Inicia tu radio» ahora te deja elegir: lo que estás
+  escuchando, un mix de toda tu biblioteca, una de tus playlists, un álbum, un género o un año. Ya no hace
+  falta tener algo sonando antes. Si la radio no se pudo abrir, lo que elegiste sigue sonando solo para ti y
+  puedes volver a intentarlo con «Reintentar».
+- **La radio, siempre a la vista.** Mientras estás en una radio, la barra del reproductor muestra «Tu radio»
+  si la transmites, o «Radio de …» con el nombre de quien la transmite si la escuchas. Al tocarlo vuelves al
+  apartado Radio. En el teléfono también aparece, en la barra pequeña, sin tapar los botones.
+
+### Mejorado
+- **El apartado Radio, renovado para quien transmite.** El código de tu radio se ve grande y partido en
+  dos, fácil de dictar en voz alta, con «Copiar código» y «Copiar enlace». Ves lo que suena con su portada
+  y cuánto lleva, y desde ahí puedes «Pausar para todos» o pasar a la «Siguiente». Debajo está la fila: las
+  canciones que pidieron quienes moderan, en el orden en que van a sonar, con quién pidió cada una y
+  «Quitar»; después sigue tu música. También ves quién te escucha (ya no te cuenta a ti), con «Hacer
+  moderador» y «Quitar rol», y lo que pasó en la radio. En la computadora todo se reparte en dos columnas
+  y aprovecha la pantalla; en el teléfono va en pestañas: Radio, Fila y Gente.
+- **Terminar la radio pregunta antes.** «Terminar radio» te pide confirmar y te dice a cuántas personas se
+  les va a cerrar.
+- **El apartado Radio, renovado para quien escucha.** Arriba dice «La radio de …», que está en vivo y
+  cuántos escuchan contigo, con «Salir de la radio» a la mano. Ves lo que suena con su portada, quién la
+  pidió y cuánto lleva, lo que suena después, quién está en la radio (quién transmite, quién modera y tú) y
+  lo que pasó. «Pausar para mí» te pausa solo a ti; para volver al vivo, «Volver al vivo». Si moderas, ahí
+  mismo tienes «Siguiente» y «Pausar la radio». En el teléfono va en pestañas: Radio y Gente.
+- **Unirse es más fácil.** El código se escribe en seis casillas, en mayúsculas solas, y puedes pegar el
+  mensaje entero que te mandaron: se queda solo el código. «Unirse» te mete directo a la radio, y si no se
+  puede (el código no existe, la radio ya terminó o está llena) te lo dice ahí mismo.
+- **Los enlaces de invitación se entienden mejor.** Si abres el enlace de una radio, ves «Te invitaron a
+  escuchar», el código grande y «Escuchar». Si traes otro código, al lado puedes escribirlo.
+- **Menos tarjetas que estorban.** Mientras escuchas una radio ya no aparece «Tu radio» apagada, y mientras
+  transmites ya no aparece «Unirse con código».
+
+### Para tener en cuenta
+- Si eliges algo distinto de «Lo que estoy escuchando» para tu radio, eso reemplaza tu cola, y al terminar
+  la radio no vuelve. La radio te lo avisa antes de empezar.
+- Al escuchar la radio de alguien, tu cola se guarda y vuelve al salir, como hasta ahora.
+- En la fila solo están las canciones que piden quienes moderan (y las que tú pones «a continuación»).
+  Quien solo escucha todavía no puede pedir canciones.
+- «La pidió …» aparece para lo que se pidió mientras estabas en la radio; si entras después, puede no
+  aparecer.
+- Si alguien no puede moderar (por ejemplo, porque escucha desde la app de iPhone), sale «Solo escucha»
+  después de intentar nombrarlo.
+- En la barra pequeña del teléfono hay poco espacio: si el nombre de quien transmite es largo, se corta
+  con «…».
+
 ## [1.45.2] - 2026-11-25
 
 ### Nuevo

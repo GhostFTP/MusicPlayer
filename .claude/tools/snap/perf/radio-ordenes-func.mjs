@@ -42,7 +42,7 @@ try {
       const botones = [...c.querySelectorAll('.radio-btn--orden')].map((b) => { const r = b.getBoundingClientRect();
         return { texto: b.textContent.trim(), label: b.getAttribute('aria-label'), busy: b.getAttribute('aria-busy'), off: b.getAttribute('aria-disabled'), w: Math.round(r.width), h: Math.round(r.height) }; });
       const l = c.querySelector('.radio-orden-estado');
-      return { botones, insignia: c.querySelector('.radio-card-title .radio-insignia')?.textContent ?? null, nota: c.querySelector('.radio-ordenes-nota')?.textContent ?? null,
+      return { botones, insignia: c.querySelector('.radio-escucha-cabecera .radio-insignia')?.textContent ?? null, nota: c.querySelector('.radio-ordenes-nota')?.textContent ?? null,
         linea: l ? { texto: l.textContent, rol: l.getAttribute('role'), live: l.getAttribute('aria-live') } : null, foco: document.activeElement?.getAttribute('aria-label') ?? null };
     });
     const linea = async () => (await tarjeta())?.linea?.texto ?? null;
@@ -63,7 +63,8 @@ try {
     ok('F_botones_solo_para_quien_modera_con_ordenes', e.sono && t0?.botones.length === 0 && t0.insignia === null && t0.nota === null && t0.linea?.texto === ''
       && t0.linea.rol === 'status' && t0.linea.live === 'polite'
       && !!t1 && t1.insignia === 'Modera' && t1.botones.map((b) => b.label).join('|') === 'Siguiente canción de la radio|Pausar la radio'
-      && t1.botones.every((b) => b.w >= 44 && b.h >= 44 && b.texto === b.label && b.busy === null && b.off === null),
+      // 1.46.0 (R3): «Siguiente» se ve corto y se llama «Siguiente canción de la radio»: el nombre EMPIEZA con lo que se ve.
+      && t1.botones.every((b) => b.w >= 44 && b.h >= 44 && b.label.startsWith(b.texto) && b.busy === null && b.off === null),
       { sinRol: t0, conRol: t1 });
 
     // "siguiente": lleva la base (el seq que se ve), "Enviando…" con aria-busy; la resuelven el cambio de canción y mi evento

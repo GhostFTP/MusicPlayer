@@ -12,6 +12,7 @@ import LyricsPanel from './LyricsPanel.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
 import BotonPaso from './RadioPasos.jsx';
+import RadioChip from './RadioChip.jsx';
 import { useContextMenu, pasosDeLaRadio, siguienteEnLaRadio } from './ContextMenu.jsx';
 import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
 import { useToast } from './Toast.jsx';
@@ -1581,6 +1582,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                     </>
                   )}
                 </div>
+                {/* 1.46.0 (R3): en una radio, el chip «Tu radio» / «En la radio de…» como línea propia en la barra
+                    pequeña del teléfono (en escritorio va en las acciones; el CSS muestra uno). */}
+                <RadioChip navigate={navigate} className="radio-chip--mini" />
                 {!isVideo && (qCodec || qDetail) && (
                   <div className="player-quality">
                     {qCodec && (
@@ -1614,6 +1618,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           ) : (
             <div className="player-meta">
               <div className="player-title" style={{ color: 'var(--text-muted)' }}>Sin reproducción</div>
+              <RadioChip navigate={navigate} className="radio-chip--mini" />
             </div>
           )}
         </div>
@@ -1679,6 +1684,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
         {/* Desktop: acciones (cola, letra, info) + volumen. En móvil `.player-actions`
             se oculta por completo (la cola en móvil se abre desde el expandido). */}
         <div className="player-actions">
+          {/* 1.46.0 (R3): el chip de la radio, al principio de las acciones de la barra de escritorio. */}
+          <RadioChip navigate={navigate} className="radio-chip--barra" />
           <BarTip tip="Cola" accent="var(--accent)">
             <button
               className={`action-btn queue-btn${showQueue ? ' active' : ''}`}
