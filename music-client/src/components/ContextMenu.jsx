@@ -2,6 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import { usePlayer } from '../context/PlayerContext.jsx';
+import { pasosDeLaBarra } from '../utils/radioSync.js';
 import { useToast } from './Toast.jsx';
 import { api } from '../api/client.js';
 import { albumTracks, artistTracks, genreTracks, yearTracks } from '../utils/itemTracks.js';
@@ -141,6 +142,16 @@ export function lineaDeLaRadio() {
   const vr = radioDelMenu.current?.vista?.() ?? null;
   if (!vr) return null;
   return vr.enLaRadio ?? 'Estás en una radio';
+}
+/** 1.45.2: qué hacen Anterior/Siguiente AHORA según la radio (pasosDeLaBarra), para quien lo lee en el momento y
+ *  no puede suscribirse a la radio: el deslizar de la carátula del expandido (Player.jsx), al empezar el gesto. */
+export function pasosDeLaRadio() {
+  const vr = radioDelMenu.current?.vista?.() ?? null;
+  return pasosDeLaBarra({ fase: vr ? 'oyente' : null, modera: vr?.modera, admite: vr?.admite, anfitrion: vr?.anfitrion });
+}
+/** 1.45.2: la orden 'siguiente' a la radio (la misma de «Siguiente canción de la radio»), desde el deslizar. */
+export function siguienteEnLaRadio() {
+  return radioDelMenu.current?.ordenar?.('siguiente');
 }
 const esIdPista = (id) => Number.isSafeInteger(id) && id > 0;
 

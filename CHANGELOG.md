@@ -7,14 +7,17 @@ Novedades destacables de **SonoraRev**. El formato sigue
 
 ### Nuevo
 - **Si moderas una radio, puedes pasar a la siguiente canción desde el reproductor.** El botón
-  «Siguiente» de la barra de abajo, de la pantalla de reproducción y de la barra pequeña del teléfono
-  ahora cambia la canción para todos los que escuchan, igual que «Siguiente canción de la radio».
-  «Anterior» queda apagado, porque la radio no tiene anterior.
+  «Siguiente» de la barra de abajo, de la pantalla de reproducción y de la barra pequeña del teléfono,
+  deslizar la carátula hacia la izquierda y el «siguiente» de la pantalla bloqueada, los auriculares o el
+  auto ahora cambian la canción para todos los que escuchan, igual que «Siguiente canción de la radio».
+  «Anterior» no hace nada, porque la radio no tiene anterior.
 
 ### Corregido
 - **Si solo escuchas la radio, «Anterior» y «Siguiente» ya no te cambian la canción por unos segundos.**
-  Antes saltaban a otra canción y a los pocos segundos volvías a la de la radio. Ahora están apagados y,
-  si pasas el puntero por encima o usas un lector de pantalla, dicen «Estás en la radio de …».
+  Antes saltaban a otra canción y a los pocos segundos volvías a la de la radio. Ahora, en el reproductor
+  están apagados y, si pasas el puntero por encima o usas un lector de pantalla, dicen «Estás en la radio
+  de …». Deslizar la carátula ya no la mueve, y en la pantalla bloqueada, los auriculares o el auto esos
+  dos botones desaparecen o dejan de hacer algo, según lo que permita cada aparato.
 
 ## [1.45.1] - 2026-11-24
 

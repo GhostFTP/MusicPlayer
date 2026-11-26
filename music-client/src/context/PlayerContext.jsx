@@ -26,6 +26,18 @@ const MEDIA_ACTIONS = [
   'seekto', 'seekbackward', 'seekforward', 'stop',
 ];
 
+// 1.45.2 · Anterior/Siguiente de los controles del SISTEMA (pantalla bloqueada, auriculares, auto) en una radio.
+// La radio (RadioContext, que vive DEBAJO de este provider y no puede pasarle props) fija acá qué hacen, con la MISMA
+// regla que la barra (pasosDeLaBarra de radioSync): null = lo de siempre (prev()/next() del motor); { anterior,
+// siguiente } = esos handlers, y un null QUITA la acción (el sistema deja de ofrecer el botón donde lo soporta).
+// Es SOLO el ruteo de esos dos handlers: no toca play(), la cola ni el orden. Un módulo (y no el value del contexto)
+// para que la radio no tenga que suscribirse al player ni re-renderizar con él.
+const pasosDelSistema = { fijar: null, valor: null };
+export function fijarPasosDelSistema(p) {
+  pasosDelSistema.valor = p ?? null;
+  pasosDelSistema.fijar?.(pasosDelSistema.valor);
+}
+
 // Donde se escribe o se elige, las teclas son del campo y no del atajo global de play/pausa y
 // ±10 s. `input` de cualquier tipo (incluye los sliders, como siempre). Lo editable
 // (contenteditable) se mira aparte con isContentEditable.
@@ -705,6 +717,14 @@ export function PlayerProvider({ children }) {
       !currentTrack ? 'none' : isPlaying ? 'playing' : 'paused';
   }, [currentTrack, isPlaying]);
 
+  // 1.45.2: lo que fijó la radio para anterior/siguiente del sistema (ver fijarPasosDelSistema, arriba).
+  const [pasosSistema, setPasosSistema] = useState(() => pasosDelSistema.valor);
+  useEffect(() => {
+    pasosDelSistema.fijar = setPasosSistema;
+    setPasosSistema(pasosDelSistema.valor);
+    return () => { if (pasosDelSistema.fijar === setPasosSistema) pasosDelSistema.fijar = null; };
+  }, []);
+
   // Controles del volante / lockscreen. Cada handler va en su propio try/catch porque un
   // motor viejo lanza TypeError en las acciones que no soporta, y una sola caída no puede
   // llevarse las demás. No seteamos `playbackState` acá: los eventos play/pause del <audio>
@@ -717,14 +737,15 @@ export function PlayerProvider({ children }) {
     };
     set('play',          () => { getActive().play().catch(() => {}); });
     set('pause',         () => getActive().pause());
-    set('previoustrack', () => prev());
-    set('nexttrack',     () => next());
+    // 1.45.2: en una radio los fija la radio (null = sin ese botón); fuera, el motor como siempre.
+    set('previoustrack', pasosSistema ? pasosSistema.anterior : () => prev());
+    set('nexttrack',     pasosSistema ? pasosSistema.siguiente : () => next());
     set('seekto',        (d) => { if (d?.seekTime != null) seek(d.seekTime); });   // seek() clampa
     set('seekbackward',  (d) => seek(getActive().currentTime - (d?.seekOffset ?? 10)));
     set('seekforward',   (d) => seek(getActive().currentTime + (d?.seekOffset ?? 10)));
     set('stop',          () => { getActive().pause(); seek(0); });
     return () => { for (const a of MEDIA_ACTIONS) set(a, null); };
-  }, [next, prev, seek]);
+  }, [next, prev, seek, pasosSistema]);
 
   // Posición para el scrubber. Crítico en iOS: con el JS dormido en background, el SO
   // interpola desde el último estado publicado; sin esto la barra se congela en el carro.

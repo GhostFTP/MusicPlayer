@@ -20,6 +20,17 @@
 //   RB_390_oyente_mini_y_expandido_bloqueados      a 390 px y sin rol: la mini-barra y el expandido, bloqueados con su
 //        motivo; tocar la mini-barra no abre el expandido ni cambia la canción.
 //   RB_fuera_otra_vez_igual                    después de salir: los botones de siempre.
+//   (1.45.2, paso 2) Los CONTROLES DEL SISTEMA (MediaSession: pantalla bloqueada, auriculares, auto) y el DESLIZAR de
+//   la carátula del expandido siguen la misma regla:
+//   RB_sistema_fuera_igual                     sin radio: anterior/siguiente del sistema son los del motor (pasan de
+//        canción).
+//   RB_sistema_oyente_sin_botones              oyente: los dos se QUITAN (setActionHandler(…, null)).
+//   RB_deslizar_oyente_no_mueve                oyente: deslizar la carátula a un lado y al otro no la mueve, no cambia
+//        la canción ni manda nada.
+//   RB_sistema_modera_siguiente_manda_la_orden quien modera: anterior quitado; siguiente manda la orden a la radio.
+//   RB_deslizar_modera                         quien modera: hacia la derecha (anterior) no se mueve ni manda nada;
+//        hacia la izquierda (siguiente) se mueve, manda la orden y vuelve.
+//   RB_sistema_fuera_otra_vez                  después de salir: los del motor otra vez.
 //   RB_sin_errores_de_pagina
 // Lo que dice la radio al resolver cada orden (sus toasts de siempre) se REGISTRA, no cuenta.
 //
@@ -33,6 +44,29 @@ import {
 } from './radio-oyente-comun.mjs';
 
 const T0 = Date.now();
+// 1.45.2 (paso 2): los handlers que la app fija en MediaSession, para dispararlos desde la prueba como lo haría la
+// pantalla bloqueada: window.__ms[acción] = la función, o null si la app la quitó. Antes de cargar la app.
+await ctx.addInitScript(() => {
+  window.__ms = {};
+  const ms = navigator.mediaSession;
+  if (!ms) return;
+  const orig = ms.setActionHandler.bind(ms);
+  ms.setActionHandler = (accion, h) => { window.__ms[accion] = h; return orig(accion, h); };
+});
+const sistema = () => p.evaluate(() => {
+  const t = (h) => (typeof h === 'function' ? 'fn' : h === null ? 'null' : 'sin-registrar');
+  return { anterior: t(window.__ms?.previoustrack), siguiente: t(window.__ms?.nexttrack) };
+});
+/** Desliza la carátula del expandido dx px con el mouse; devuelve el transform en línea a mitad del gesto. */
+const deslizar = async (dx) => {
+  const box = await p.locator('.player-expanded .exp-art-wrap').boundingBox();
+  const x = box.x + box.width / 2; const y = box.y + box.height / 2;
+  await p.mouse.move(x, y); await p.mouse.down();
+  for (let k = 1; k <= 8; k++) await p.mouse.move(x + (dx * k) / 8, y, { steps: 2 });
+  const medio = await p.evaluate(() => document.querySelector('.player-expanded .exp-art-wrap')?.style.transform ?? null);
+  await p.mouse.up(); await sleep(700);
+  return medio;
+};
 const EN_LA_RADIO = 'Estás en la radio de Anfitriona';
 const SIN_ANTERIOR = 'La radio no tiene anterior';
 const SIG_RADIO = 'Siguiente canción de la radio';
@@ -80,6 +114,10 @@ try {
   const paso = await esperar(async () => ((await foto()).actual === PROPIAS[1].id ? true : null), 4000, 100);
   ok('RB_fuera_de_la_radio_igual', f0n?.paso === 'motor' && f0n.label === 'Siguiente' && f0n.ariaDisabled === null && f0n.tip === 'Siguiente'
     && f0p?.paso === 'motor' && f0p.label === 'Anterior' && f0p.ariaDisabled === null && !!paso.v, { siguiente: f0n, anterior: f0p, paso: !!paso.v });
+  const ms0 = await sistema();
+  await p.evaluate(() => window.__ms.nexttrack?.());
+  const pasoMs = await esperar(async () => ((await foto()).actual === PROPIAS[2].id ? true : null), 4000, 100);
+  ok('RB_sistema_fuera_igual', ms0.anterior === 'fn' && ms0.siguiente === 'fn' && !!pasoMs.v, { sistema: ms0, pasoDeCancion: !!pasoMs.v });
 
   // ── En la radio, sin rol ──
   const e = await entrarFk({ mod: { moderators: [], events: [], until: 0, lost: false } });
@@ -102,6 +140,16 @@ try {
   await cerrarExpandido();
   ok('RB_oyente_expandido_bloqueado', bloqueado(en, EN_LA_RADIO, true) && bloqueado(ep, EN_LA_RADIO, true) && tras2.actual === A.id && (s.ordenes?.length ?? 0) === n0,
     { siguiente: en, anterior: ep, sigueEnA: tras2.actual === A.id });
+
+  const ms1 = await sistema();
+  ok('RB_sistema_oyente_sin_botones', ms1.anterior === 'null' && ms1.siguiente === 'null', { sistema: ms1 });
+
+  await abrirExpandido();
+  const dIzq = await deslizar(-220); const dDer = await deslizar(220);
+  const tras3 = await foto();
+  await cerrarExpandido();
+  ok('RB_deslizar_oyente_no_mueve', !dIzq && !dDer && tras3.actual === A.id && (s.ordenes?.length ?? 0) === n0,
+    { transformIzquierda: dIzq, transformDerecha: dDer, sigueEnA: tras3.actual === A.id, ordenes: (s.ordenes?.length ?? 0) - n0 });
 
   // ── Con el rol (y órdenes) ──
   s.mod.moderators = [YO_FK];
@@ -134,6 +182,33 @@ try {
   await cerrarExpandido();
   ok('RB_modera_expandido_siguiente_manda_la_orden', xn?.paso === 'radio' && xn.label === 'Siguiente' && xn.motivo === SIG_RADIO && xn.title === SIG_RADIO && bloqueado(xp, SIN_ANTERIOR, true)
     && !!salio2.v && cuerpo2?.type === 'siguiente' && !!resuelta2.v, { siguiente: xn, anterior: xp, cuerpo: cuerpo2, resuelta: !!resuelta2.v });
+
+  // Los controles del sistema, con el rol: anterior quitado, siguiente = la orden.
+  const ms2 = await sistema();
+  const n5 = s.ordenes?.length ?? 0;
+  await p.evaluate(() => window.__ms.nexttrack?.());
+  const salio5 = await esperar(async () => ((s.ordenes?.length ?? 0) > n5 ? true : null), 4000, 50);
+  const cuerpo5 = s.ordenes?.[n5] ?? null;
+  estadoFk(e.code, { trackId: B.id, positionMs: 0, playing: true, nextTrackId: C.id });
+  const resuelta5 = await esperar(async () => ((await radioV()).enVuelo ? null : true), 10_000, 100);
+  ok('RB_sistema_modera_siguiente_manda_la_orden', ms2.anterior === 'null' && ms2.siguiente === 'fn' && !!salio5.v && cuerpo5?.type === 'siguiente' && !!resuelta5.v,
+    { sistema: ms2, cuerpo: cuerpo5, resuelta: !!resuelta5.v });
+
+  // Deslizar, con el rol: a la derecha (anterior) nada; a la izquierda (siguiente) la orden.
+  await abrirExpandido();
+  const n6 = s.ordenes?.length ?? 0;
+  const mDer = await deslizar(220);
+  await sleep(500);
+  const nDer = (s.ordenes?.length ?? 0) - n6;
+  const mIzq = await deslizar(-220);
+  const salio6 = await esperar(async () => ((s.ordenes?.length ?? 0) > n6 ? true : null), 4000, 50);
+  const cuerpo6 = s.ordenes?.[n6] ?? null;
+  estadoFk(e.code, { trackId: C.id, positionMs: 0, playing: true, nextTrackId: A.id });
+  const resuelta6 = await esperar(async () => ((await radioV()).enVuelo ? null : true), 10_000, 100);
+  const quieta = await p.evaluate(() => document.querySelector('.player-expanded .exp-art-wrap')?.style.transform ?? null);
+  await cerrarExpandido();
+  ok('RB_deslizar_modera', !mDer && nDer === 0 && /translateX\(-/.test(mIzq ?? '') && !!salio6.v && cuerpo6?.type === 'siguiente' && !!resuelta6.v && !/translateX\(-/.test(quieta ?? ''),
+    { transformDerecha: mDer, ordenesDerecha: nDer, transformIzquierda: mIzq, cuerpo: cuerpo6, resuelta: !!resuelta6.v, alFinal: quieta });
 
   // ── A 390 px: la mini-barra ──
   await p.setViewportSize({ width: 390, height: 844 }); await sleep(800);
@@ -169,6 +244,8 @@ try {
   const zn = await boton('.player-bar .ctrl-next'); const zp = await boton('.player-bar .ctrl-prev');
   ok('RB_fuera_otra_vez_igual', (await foto()).fase === 'sin-radio' && zn?.paso === 'motor' && zn.ariaDisabled === null && zp?.paso === 'motor' && zp.ariaDisabled === null,
     { siguiente: zn, anterior: zp });
+  const ms3 = await sistema();
+  ok('RB_sistema_fuera_otra_vez', ms3.anterior === 'fn' && ms3.siguiente === 'fn', { sistema: ms3 });
 
   ok('RB_sin_errores_de_pagina', errores.length === 0, { errores });
 } catch (x) {
