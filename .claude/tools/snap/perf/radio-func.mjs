@@ -31,7 +31,9 @@ if ([1, 2, 3, 4, 5, 6, 7].some(corre)) {
   if (corre(1)) {
     await p.goto(BASE + '/radio'); await sleep(1200);
     const v = await vista(p);
-    ok('01_sin_cancion_iniciar_deshabilitado', v.iniciar?.off === true && v.iniciar.texto === 'Iniciar radio' && v.notas.includes('Pon una canción para empezar.'), { iniciar: v.iniciar, notas: v.notas });
+    // 1.46.0: sin canción YA se puede iniciar (eligiendo qué suena, radio-inicio-func lo cubre entero): el botón está
+    // activo y no queda la nota vieja de «Pon una canción para empezar».
+    ok('01_sin_cancion_se_puede_iniciar', v.iniciar?.off === false && v.iniciar.texto === 'Iniciar radio' && !v.notas.includes('Pon una canción para empezar.'), { iniciar: v.iniciar, notas: v.notas });
   }
   await sonar(p);
   await irA(p, 'Radio');

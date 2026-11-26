@@ -453,6 +453,50 @@ path.srv-linea-max { stroke-width: 4; }
 .radio-nota { margin-top: 8px; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
 .radio-aviso { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--amber); }
 .radio-aviso:empty { margin-top: 0; }
+
+/* 1.46.0 (R1) · «Inicia tu radio»: elegir qué suena (RadioInicio.jsx). Las fuentes son radios NATIVOS dentro de una
+   tarjeta (teclado y lector de siempre; sin :has, que el Chrome viejo del HiBy no tiene): la elegida se marca con la
+   clase --on. Dos columnas en el teléfono, tres en escritorio.
+   COLORES (Oscar, todo 1.46.0): nada de verde ni rojo (son de las calidades del audio); lo elegido y los avisos que no
+   son rechazo, en el lila de la app; el ámbar (.radio-aviso) SOLO para los rechazos. Íconos: el trazo monocromo de
+   la app, en un gris claro con contraste (≈ 6,6:1 sobre la tarjeta) y en lila cuando la fuente está elegida. */
+.radio-inicio-fuentes { border: 0; margin: 0; padding: 0; min-width: 0; }
+.radio-inicio-paso { display: block; margin-bottom: 10px; font-size: 12.5px; color: var(--text-muted); }
+.radio-inicio-grilla { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.radio-fuente {
+  display: flex; align-items: flex-start; gap: 10px; min-height: 64px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.radio-fuente:hover { border-color: var(--surface-hover); background: var(--surface-hover); }
+.radio-fuente input { margin: 2px 0 0; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.radio-fuente input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* La elegida gana también con el cursor encima (el :hover de arriba pesa más que una sola clase). */
+.radio-fuente--on, .radio-fuente--on:hover { border-color: var(--accent); background: linear-gradient(150deg, rgba(167, 139, 250, .18), rgba(167, 139, 250, .05)); }
+.radio-fuente-icono { flex: none; margin-top: 0; color: var(--text-time); }
+.radio-fuente--on .radio-fuente-icono { color: var(--accent); }
+.radio-fuente-texto { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.radio-fuente-titulo { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.radio-fuente-detalle { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.radio-inicio-fuentes:disabled .radio-fuente { cursor: default; opacity: .6; }
+.radio-inicio-item { margin-top: 16px; }
+.radio-select {
+  width: 100%; min-height: 44px; padding: 0 12px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: 14px;
+}
+.radio-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.radio-inicio-reemplaza {
+  margin-top: 14px; padding: 8px 10px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+  color: #ddd6fe; background: var(--accent-dim);   /* lila: es un aviso, no un rechazo */
+}
+.radio-inicio-reintentar { margin-top: 8px; }
+.radio-inicio-acciones { margin-top: 16px; }
+.radio-btn--iniciar { background: var(--accent); border-color: var(--accent); color: #140b2b; }
+.radio-btn--iniciar:hover:not(:disabled) { background: #b9a3fb; border-color: #b9a3fb; }
+.radio-btn--chico { min-height: 36px; padding: 0 12px; font-size: 12.5px; }
+@media (max-width: 700px) {
+  .radio-inicio-grilla { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .radio-codigo {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 32px; font-weight: 700; letter-spacing: .25em; color: var(--text);

@@ -5,14 +5,15 @@ import { avatarUrl } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useRadio } from '../context/RadioContext.jsx';
+import RadioInicio from './RadioInicio.jsx';
 import {
   limpiarCodigoEscrito, codigoPegado, normalizarCodigo, cuentaDeOyentes, LARGO_CODIGO,
   filaDeOyente, lineaDelTope, textoDeEvento, INSIGNIA, personasDeLaLista, TEXTOS_ORDEN,
 } from '../utils/radioSync.js';
 
 // Vista Radio. Cuatro caras:
-//  · "sin radio" (/radio): "Iniciar radio" (con una canción cargada; un video cuenta) y el campo
-//    "Unirse con código", que navega a /radio/CODIGO.
+//  · "sin radio" (/radio): «Inicia tu radio» eligiendo qué suena (1.46.0: RadioInicio.jsx; ya no hace falta tener
+//    algo sonando) y el campo "Unirse con código", que navega a /radio/CODIGO.
 //  · anfitrión (/radio, o /radio/TU-CÓDIGO, con la sala abierta): el código, copiar código/enlace,
 //    cuántos escuchan, la lista de quién escucha con "Hacer moderador" / "Quitar" (1.45.0, W4), lo
 //    último que pasó en la radio y "Terminar radio" con confirmación en la misma página.
@@ -73,7 +74,7 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
 
   const { currentTrack, playBlocked } = usePlayer();
   const {
-    fase, codigo: miCodigo, oyentes, fin, error, iniciar, terminar, limpiarFin,
+    fase, codigo: miCodigo, oyentes, fin, error, terminar, limpiarFin,
     anfitrion, aviso: avisoRadio, silenciada, quiereSonar, unirse, salir, tocarParaEscuchar,
     moderadores, eventos, sinSoporte, nombrarModerador, quitarModerador, anuncio,
     vistaMod, ordenando, lineaOrden, esperaOrden, ordenar,
@@ -169,10 +170,6 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
     unirse(codigo);   // ignora un segundo clic mientras 'uniendose' (RadioContext)
   };
 
-  const onIniciar = () => {
-    limpiarFin();
-    iniciar(currentTrack);   // ignora un segundo clic mientras 'creando' (RadioContext)
-  };
   // Copiar: el portapapeles con el toast de la casa (como shareAndNotify, utils/share.js). Sin
   // portapapeles (http, permiso negado) avisa en ámbar y no rompe nada.
   const copiar = async (valor, hecho) => {
@@ -381,23 +378,17 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
       </section>
     );
   }
-  // "Tu radio": en la cara "sin radio" y, bloqueada con su nota, debajo de la del oyente.
+  // "Tu radio": en la cara "sin radio", «Inicia tu radio» eligiendo qué suena (1.46.0, RadioInicio.jsx); debajo de la
+  // del oyente, bloqueada con su nota (eso cambia con el apartado nuevo, en R3).
   let tuRadio = null;
   if (!esAnfitrion && (!codigo || esOyente)) {
-    const creando = fase === 'creando';
-    const sinCancion = !currentTrack;
-    const nota = soyOyente ? 'Sal de la radio para iniciar la tuya.' : sinCancion ? 'Pon una canción para empezar.' : null;
-    tuRadio = (
+    tuRadio = soyOyente ? (
       <section className="radio-card">
         <h2 className="radio-card-title">Tu radio</h2>
-        <button type="button" className="radio-btn" onClick={onIniciar}
-          disabled={fase !== 'sin-radio' || sinCancion}
-          aria-describedby={nota ? 'radio-iniciar-nota' : undefined}>
-          {creando ? 'Creando…' : 'Iniciar radio'}
-        </button>
-        {nota && <p id="radio-iniciar-nota" className="radio-nota">{nota}</p>}
+        <button type="button" className="radio-btn" disabled aria-describedby="radio-iniciar-nota">Iniciar radio</button>
+        <p id="radio-iniciar-nota" className="radio-nota">Sal de la radio para iniciar la tuya.</p>
       </section>
-    );
+    ) : <RadioInicio antes={limpiarFin} />;
   }
 
   return (
