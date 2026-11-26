@@ -490,6 +490,11 @@ path.srv-linea-max { stroke-width: 4; }
   color: #ddd6fe; background: var(--accent-dim);   /* lila: es un aviso, no un rechazo */
 }
 .radio-inicio-reintentar { margin-top: 8px; }
+/* FIX-146: con un video sonando, por qué no está «Lo que estoy escuchando» (lila: informa, no rechaza). */
+.radio-inicio-video {
+  margin-bottom: 12px; padding: 8px 10px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+  color: #ddd6fe; background: var(--accent-dim);
+}
 .radio-inicio-acciones { margin-top: 16px; }
 .radio-btn--iniciar { background: var(--accent); border-color: var(--accent); color: #140b2b; }
 .radio-btn--iniciar:hover:not(:disabled) { background: #b9a3fb; border-color: #b9a3fb; }
@@ -644,6 +649,10 @@ path.srv-linea-max { stroke-width: 4; }
 .radio-escucha-cabecera .radio-terminar { flex: none; margin: 0; padding: 0; border: 0; }
 .radio-despues .radio-card-title { margin-bottom: 8px; }
 .radio-persona--yo .radio-persona-nombre { font-weight: 600; }
+/* FIX-146: los avisos del oyente, fuera de las pestañas (siempre a la vista). Vacíos no ocupan lugar. */
+.radio-escucha-avisos { margin: 0 0 4px; }   /* sin :has (el Chrome viejo del HiBy no lo tiene) */
+.radio-escucha-avisos .radio-aviso-vivo, .radio-escucha-avisos .radio-orden-estado { margin-top: 0; }
+.radio-escucha-avisos .radio-btn--toca { margin: 0 0 8px; }
 @media (max-width: 700px) {
   .radio-escucha-cabecera { flex-wrap: wrap; }
   .radio-escucha-cabecera .radio-terminar { flex: 1 1 100%; }

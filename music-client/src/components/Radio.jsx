@@ -78,6 +78,9 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   // resolver: un fallo de la tarjeta se dice EN la tarjeta, y el fin de una radio a la que se intentaba entrar va en ámbar.
   const [desdeTarjeta, setDesdeTarjeta] = useState(false);
   const [intento, setIntento] = useState(false);
+  // FIX-146: entrar pide el foco en el encabezado del oyente, pero desde «¿Otro código?» de una ficha la vista del
+  // oyente recién existe DESPUÉS de navegar a /radio: el pedido queda pendiente hasta que se monte.
+  const [focoOyente, setFocoOyente] = useState(false);
 
   const { currentTrack, playBlocked } = usePlayer();
   const {
@@ -134,11 +137,12 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
       // Entró desde «¿Otro código?» de una ficha: a /radio, donde está su cara de oyente.
       if (desdeTarjeta && codigo) navigate('radio');
       setTexto('');   // entró: la próxima vez las casillas empiezan vacías
-      oyenteRef.current?.focus();
+      setFocoOyente(true);   // el foco va al encabezado cuando la vista del oyente ya esté montada (efecto de abajo)
     }
     else if (antes === 'uniendose' && fase === 'sin-radio') (desdeTarjeta ? campoRef : escucharRef).current?.focus();   // falló o canceló: reintentar a mano
     if (fase !== 'sin-radio' && fase !== 'uniendose') setIntento(false);
     if (fase !== 'anfitrion' && fase !== 'terminando') setConfirmando(false);
+    if (fase !== 'oyente') setFocoOyente(false);
   }, [fase]);
   // La confirmación: al abrirla el foco va a "No" (lo que no rompe nada); al cancelarla vuelve a
   // "Terminar radio".
@@ -154,6 +158,12 @@ export default function Radio({ target, clearTarget, setDetailOpen, navigate }) 
   const esAnfitrion = (fase === 'anfitrion' || fase === 'terminando') && (!codigo || codigo === miCodigo);
   const soyOyente = fase === 'oyente' || fase === 'uniendose';
   const esOyente = fase === 'oyente' && (!codigo || codigo === miCodigo);
+
+  useEffect(() => {
+    if (!focoOyente || !esOyente) return;
+    oyenteRef.current?.focus();
+    setFocoOyente(false);
+  }, [focoOyente, esOyente]);
 
   const onChange = (e) => {
     limpiarFin();

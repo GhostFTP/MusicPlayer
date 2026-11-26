@@ -153,13 +153,16 @@ if (corre(9)) {
   const vids = (await api(tokHost, 'GET', '/api/videos')).j?.videos ?? [];
   if (!vids.length) NO_MEDIDO.push('09 video: no hay videos sintéticos (¿sin ffmpeg?)');
   else {
+    // FIX-146: con un video sonando ya no se ofrece «Lo que estoy escuchando» (la radio arrancaría muda). El video se
+    // pone DURANTE la radio, que es donde sigue pasando: la radio abierta con una canción, y después el video.
     const { ctx, p } = await abrir();
-    await p.goto(BASE + '/videos'); await p.waitForSelector('.video-card', { timeout: 10_000 });
-    await p.locator('.video-card').first().click(); await sleep(1500);
-    await irA(p, 'Radio');
+    await sonar(p); await irA(p, 'Radio');
     await iniciar(p);
     const c = (await vista(p)).codigo;
-    const s = await esperar(async () => { const x = (await sala(c)).j?.state; return x?.enPausaPorVideo === true ? x : null; }, 3000);
+    // Desde la barra lateral (no p.goto: recargar la página cierra la radio).
+    await irA(p, 'Videos'); await p.waitForSelector('.video-card', { timeout: 10_000 });
+    await p.locator('.video-card').first().click(); await sleep(1500);
+    const s = await esperar(async () => { const x = (await sala(c)).j?.state; return x?.enPausaPorVideo === true ? x : null; }, 6000);
     ok('09_video_publica_enPausaPorVideo', !!s.v && s.v.trackId === null, { state: s.v });
     await api(tokHost, 'DELETE', `/api/radio/${c}`);
     await ctx.close();
@@ -251,14 +254,17 @@ if ([11, 12, 13, 15, 16, 17, 18, 14].some(corre)) {
     ok('13_410_pausa_en_el_get_sale_con_su_texto', !!r.v && !(await vista(p)).anfitrion, { estado: (await vista(p)).estado });
   }
   if (corre(15)) {
+    // FIX-146: el fallo al crear lo dice SOLO la tarjeta «Inicia tu radio» (con su motivo y «Reintentar»); arriba, nada.
+    const SIGUE = ' Lo que elegiste sigue sonando solo para ti.';
+    const tarjeta = () => p.evaluate(() => document.querySelector('.radio-inicio-problema')?.textContent ?? null);
     reset(); F.falla.POST = { status: 409 };
     await p.locator('.main-content .radio-btn', { hasText: 'Iniciar radio' }).click(); await sleep(800);
-    const a = await vista(p);
+    const a = { ...(await vista(p)), tarjeta: await tarjeta() };
     reset(); F.falla.POST = { status: 429, headers: { 'Retry-After': '5' } };
     await p.locator('.main-content .radio-btn', { hasText: 'Iniciar radio' }).click(); await sleep(800);
-    const b = await vista(p);
-    ok('15a_409_al_crear', a.estado === TXT.demasiadas && !a.anfitrion && a.iniciar?.off === false, { estado: a.estado, iniciar: a.iniciar });
-    ok('15b_429_al_crear', b.estado === TXT.frecuencia && !b.anfitrion && b.iniciar?.off === false, { estado: b.estado, iniciar: b.iniciar });
+    const b = { ...(await vista(p)), tarjeta: await tarjeta() };
+    ok('15a_409_al_crear', a.tarjeta === TXT.demasiadas + SIGUE && a.estado === '' && !a.anfitrion && a.iniciar?.off === false, { tarjeta: a.tarjeta, estado: a.estado, iniciar: a.iniciar });
+    ok('15b_429_al_crear', b.tarjeta === TXT.frecuencia + SIGUE && b.estado === '' && !b.anfitrion && b.iniciar?.off === false, { tarjeta: b.tarjeta, estado: b.estado, iniciar: b.iniciar });
   }
   if (corre(16)) {
     reset(); let una = true;

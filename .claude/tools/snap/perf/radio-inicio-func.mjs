@@ -18,6 +18,10 @@
 //   RI_lista_que_falla_y_reintentar   la lista de años falla: lo dice y «Reintentar» la trae.
 //   RI_anio                el primer año: todas las canciones de la cola son de ese año.
 //   RI_lo_que_estoy_escuchando   no toca la cola y publica lo que ya sonaba.
+//   RI_un_solo_aviso_al_fallar_crear   (FIX-146) en ese fallo hay UNA sola alerta con texto en la página: la de la
+//        tarjeta (con el motivo y «Reintentar»); la de arriba (.radio-estado) queda vacía.
+//   RI_con_video_no_se_ofrece_lo_que_estoy_escuchando   (FIX-146) con un video sonando, «Lo que estoy escuchando» no
+//        está, se explica por qué (en lila) y elegir otra fuente avisa que reemplaza lo que suena.
 //   RI_crear_falla_sigue_sonando_y_reintentar   el servidor rechaza crear la radio con el álbum ya sonando: la tarjeta
 //        dice «No se pudo iniciar la radio. Lo que elegiste sigue sonando solo para ti.», el álbum sigue sonando, y
 //        «Reintentar» crea la radio con lo que suena, sin volver a cargar ni tocar la cola.
@@ -34,7 +38,9 @@ import { R, ok, sleep, tokHost, api, abrir, vista, esperar, sonar, terminarUI, B
 
 const T0 = Date.now();
 const REEMPLAZA = 'Esto reemplaza lo que estás escuchando y tu cola. Al terminar la radio no vuelve.';
-const FALLO_INICIAR = 'No se pudo iniciar la radio. Lo que elegiste sigue sonando solo para ti.';
+// FIX-146: el fallo al crear lo dice SOLO la tarjeta, con el motivo concreto (el 409 al crear es «demasiadas radios»).
+const FALLO_INICIAR = 'Hay demasiadas radios en vivo ahora. Intenta más tarde. Lo que elegiste sigue sonando solo para ti.';
+const CON_VIDEO = 'Estás viendo un video, y los videos no se pueden poner en la radio. Elige qué música va a sonar.';
 
 // ── El servidor de radio falso: anota cada pedido; en el POST, qué sonaba en ese instante ──
 const F = { log: [], seq: 0, puts: [], posts: [], fallarPost: 0, postsRechazados: 0 };
@@ -193,6 +199,11 @@ try {
   const tfi = await esperar(async () => { const t = await tarjeta(); return t?.problema === FALLO_INICIAR ? t : null; }, 8000, 100);
   const cFi = await cola();
   const sinRadioFi = !(await vista(p)).anfitrion;
+  const alertas = await p.evaluate(() => ({
+    conTexto: [...document.querySelectorAll('[role="alert"]')].map((n) => n.textContent.trim()).filter(Boolean),
+    arriba: document.querySelector('.radio-estado')?.textContent ?? null,
+  }));
+  ok('RI_un_solo_aviso_al_fallar_crear', !!tfi.v && alertas.conTexto.length === 1 && alertas.conTexto[0] === FALLO_INICIAR && alertas.arriba === '', alertas);
   const botonesFi = await p.locator('.radio-inicio-reintentar .radio-btn').count();
   if (botonesFi) await p.locator('.radio-inicio-reintentar .radio-btn').click();
   const creadaFi = await esperar(async () => ((await vista(p)).anfitrion && F.posts.length > nPf ? true : null), 8000, 100);
@@ -221,6 +232,24 @@ try {
   await p.unroute(`**/api/playlists/${plConCanciones.id}/tracks`);
   ok('RI_carga_que_falla_no_crea', tf.v?.problema === 'No se pudieron cargar las canciones, así que no se creó la radio. Intenta de nuevo.' && F.posts.length === nPost && JSON.stringify((await cola()).ids) === JSON.stringify(c0.ids),
     { problema: tf.v?.problema ?? null, posts: F.posts.length - nPost });
+
+  // ── Con un VIDEO sonando (FIX-146): «Lo que estoy escuchando» no se ofrece y se explica ──
+  {
+    const vids = (await api(tokHost, 'GET', '/api/videos')).j?.videos ?? [];
+    if (!vids.length) ok('RI_con_video_no_se_ofrece_lo_que_estoy_escuchando', false, { error: 'no hay videos en la copia (los fixtures del runner)' });
+    else {
+      await p.evaluate((v) => window.__player().play([{ ...v, kind: 'video' }], 0), vids[0]);
+      const conVideo = await esperar(() => p.evaluate(() => window.__player()?.currentTrack?.kind === 'video'), 6000, 100);
+      await sleep(600);
+      await elegir('mix');
+      const tv = await tarjeta();
+      const nota = await p.evaluate(() => document.querySelector('.radio-inicio .radio-inicio-video')?.textContent ?? null);
+      ok('RI_con_video_no_se_ofrece_lo_que_estoy_escuchando', !!conVideo.v && !tv.fuentes.includes('actual') && nota === CON_VIDEO
+        && tv.elegida === 'mix' && tv.aviso === 'Esto reemplaza lo que estás escuchando y tu cola. Al terminar la radio no vuelve.',
+        { video: !!conVideo.v, fuentes: tv.fuentes, nota, elegida: tv.elegida, aviso: tv.aviso });
+      await p.evaluate(() => window.__player().pause()); await sleep(300);
+    }
+  }
 
   // ── A 390 px ──
   await p.setViewportSize({ width: 390, height: 844 }); await sleep(700);

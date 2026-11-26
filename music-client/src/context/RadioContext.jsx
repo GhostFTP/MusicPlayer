@@ -373,8 +373,10 @@ export function RadioProvider({ children }) {
   }, []);
 
   /** Desde un clic. `cancion` = el currentTrack de la vista (un video cuenta): el provider no lee el
-   *  reproductor, así que se lo pasa quien llama. Devuelve true si la sala quedó abierta. */
-  const iniciar = useCallback(async (cancion) => {
+   *  reproductor, así que se lo pasa quien llama. Devuelve true si la sala quedó abierta.
+   *  FIX-146: con `alFallar(texto)` quien llama dice el fallo en su lugar (la tarjeta «Inicia tu radio», con su
+   *  «Reintentar») y acá NO se pone además el error de arriba: así hay UN solo aviso. Sin él, como siempre. */
+  const iniciar = useCallback(async (cancion, { alFallar } = {}) => {
     if (faseRef.current !== 'sin-radio') return false;   // un segundo clic mientras 'creando' no hace nada
     if (!cancion) return false;
     const gen = ++genRef.current;
@@ -386,7 +388,8 @@ export function RadioProvider({ children }) {
     if (gen !== genRef.current || !montadoRef.current) return false;
     if (!r.ok) {
       ponerFase('sin-radio');
-      setError(textoDeFallo('iniciar', r));
+      if (typeof alFallar === 'function') alFallar(textoDeFallo('iniciar', r));
+      else setError(textoDeFallo('iniciar', r));
       return false;
     }
     codigoRef.current = r.code;

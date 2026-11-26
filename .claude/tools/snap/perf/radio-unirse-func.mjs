@@ -16,7 +16,8 @@
 //   VU_ficha_del_enlace                    /radio/CÓDIGO: «Te invitaron a escuchar», el código en seis casillas, «Escuchar»,
 //        «Tu cola se guarda y vuelve al salir.», «Al entrar verás quién transmite y qué suena.», «¿Otro código?»; no se
 //        lee la radio antes del clic y no se menciona la Fiesta.
-//   VU_otro_codigo_desde_la_ficha          desde «¿Otro código?» se entra a ESA otra radio y se pasa a /radio.
+//   VU_otro_codigo_desde_la_ficha          desde «¿Otro código?» se entra a ESA otra radio y se pasa a /radio, con el
+//        foco en el encabezado de la vista del oyente (FIX-146; antes quedaba en el body).
 //   VU_390_una_columna_sin_scroll          a 390 px, la tarjeta y la ficha en una columna, sin scroll horizontal.
 //   VU_chip_corto                          escuchando: «Radio de <nombre>» sin cortarse (1440, y 390 con un nombre corto);
 //        «En la radio de <nombre>» como nombre accesible y title.
@@ -60,6 +61,7 @@ const leer = () => p.evaluate(() => {
     aviso: av?.textContent ?? null, avisoAmbar: av ? getComputedStyle(av).color === ambar : null, casillasMal: !!u?.querySelector('.radio-casillas--mal'),
     estado: txt('.radio-estado'), foco: document.activeElement?.id || document.activeElement?.className || null,
     subtitulo: txt('.radio-subtitle'), oyente: !!document.querySelector('.radio-escucha'),
+    focoEnOyente: !!document.activeElement?.closest('.radio-escucha') && document.activeElement.classList.contains('radio-anfitrion-nombre'),
     ficha: ficha ? {
       casillas: [...ficha.querySelectorAll('.radio-codigo--casillas .radio-casilla')].map((c) => c.textContent),
       lema: txt('.radio-ficha-lema', ficha), nota: txt('#radio-escuchar-nota'), escuchar: txt('.radio-btn--escuchar', ficha),
@@ -155,7 +157,8 @@ try {
   const dentro = await sonandoEn(A.id);
   await sleep(600);
   v = await leer();
-  ok('VU_unirse_entra_directo', !!dentro.v && v.path === '/radio' && v.oyente && v.subtitulo === 'Escuchando en vivo', { sono: !!dentro.v, path: v.path, oyente: v.oyente });
+  ok('VU_unirse_entra_directo', !!dentro.v && v.path === '/radio' && v.oyente && v.subtitulo === 'Escuchando en vivo' && v.focoEnOyente,
+    { sono: !!dentro.v, path: v.path, oyente: v.oyente, focoEnOyente: v.focoEnOyente, foco: v.foco });
 
   // El chip corto (1440 con «Oscar»; 390 también)
   const c1440 = v.chipB;
@@ -194,8 +197,9 @@ try {
   const otro = await sonandoEn(A.id);
   await sleep(800);
   v = await leer(); const fO = await foto();
-  ok('VU_otro_codigo_desde_la_ficha', !!otro.v && fO.codigo === cOtro && v.path === '/radio' && v.oyente && FK[cFicha].lecturas.length === 0,
-    { codigo: fO.codigo, esperado: cOtro, path: v.path, oyente: v.oyente, lecturasFicha: FK[cFicha].lecturas.length });
+  // FIX-146: el foco cae en el encabezado de la vista del oyente («La radio de …») cuando ya existe, no en el body.
+  ok('VU_otro_codigo_desde_la_ficha', !!otro.v && fO.codigo === cOtro && v.path === '/radio' && v.oyente && FK[cFicha].lecturas.length === 0 && v.focoEnOyente,
+    { codigo: fO.codigo, esperado: cOtro, path: v.path, oyente: v.oyente, lecturasFicha: FK[cFicha].lecturas.length, focoEnOyente: v.focoEnOyente, foco: v.foco });
   await salirFk();
 } catch (e) {
   ok('VU_excepcion', false, { error: String(e?.message ?? e).split('\n')[0].slice(0, 300) });

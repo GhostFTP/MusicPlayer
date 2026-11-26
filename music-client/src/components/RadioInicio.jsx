@@ -25,10 +25,11 @@ import { api } from '../api/client.js';
 import { usePlayer } from '../context/PlayerContext.jsx';
 import { useRadio } from '../context/RadioContext.jsx';
 import { libraryTracks } from '../utils/viewTracks.js';
+import { textoDeFallo } from '../utils/radioSync.js';
 import { albumTracks, genreTracks, yearTracks } from '../utils/itemTracks.js';
 import {
   fuentesDisponibles, fuentePorDefecto, pideItem, reemplazaCola, opcionesDePlay, soloCanciones,
-  TEXTO_REEMPLAZA, TEXTO_FALLO_CARGA, TEXTO_FALLO_LISTA, TEXTO_FALLO_INICIAR, textoDeVacia,
+  TEXTO_REEMPLAZA, TEXTO_FALLO_CARGA, TEXTO_FALLO_LISTA, textoDeVacia, textoDeFalloAlIniciar, TEXTO_CON_VIDEO,
 } from '../utils/radioInicio.js';
 
 const cuenta = (n) => (Number.isFinite(n) ? ` · ${n} ${n === 1 ? 'canción' : 'canciones'}` : '');
@@ -68,7 +69,11 @@ const ICONOS = {
 export default function RadioInicio({ antes }) {
   const { currentTrack, play } = usePlayer();
   const { fase, iniciar } = useRadio();
-  const hayCancion = !!currentTrack;
+  // FIX-146: un video no cuenta como «lo que estoy escuchando» (la radio arrancaría muda), pero sí como algo que suena:
+  // elegir otra fuente lo reemplaza, y eso se avisa.
+  const hayVideo = currentTrack?.kind === 'video';
+  const hayCancion = !!currentTrack && !hayVideo;
+  const algoSuena = !!currentTrack;
   const [fuente, setFuente] = useState(() => fuentePorDefecto(hayCancion));
   const [listas, setListas] = useState({});        // id → { estado: 'cargando' | 'ok' | 'error', items }
   const [elegido, setElegido] = useState({});      // id → clave del ítem elegido
@@ -99,23 +104,25 @@ export default function RadioInicio({ antes }) {
 
   const lista = listas[fuente];
   const itemElegido = pideItem(fuente) ? (lista?.items ?? []).find((x) => ITEMS[fuente].clave(x) === elegido[fuente]) ?? null : null;
-  const reemplaza = reemplazaCola({ fuente, hayCancion }) && !reintentar;
+  const reemplaza = reemplazaCola({ fuente, hayCancion: algoSuena }) && !reintentar;
   const creando = fase === 'creando';
   const ocupado = preparando || creando || fase !== 'sin-radio';
   const falta = pideItem(fuente) && !itemElegido;
   const limpiar = () => { setProblema(null); setReintentar(false); };
 
   /** Crea la radio con lo que ya suena; si no se pudo, lo dice y ofrece reintentar. */
+  // FIX-146: el fallo lo dice SOLO esta tarjeta (con «Reintentar»): RadioContext no pone además el aviso de arriba.
   const crear = async (cancion) => {
-    const ok = await iniciar(cancion);
-    if (!ok && vivo.current) { setProblema(TEXTO_FALLO_INICIAR); setReintentar(true); }
+    let motivo = null;
+    const ok = await iniciar(cancion, { alFallar: (t) => { motivo = t; } });
+    if (!ok && vivo.current) { setProblema(textoDeFalloAlIniciar(motivo, textoDeFallo('iniciar', {}))); setReintentar(true); }
   };
 
   const onIniciar = async () => {
     if (ocupado || falta) return;
     antes?.();
     limpiar();
-    if (fuente === 'actual') { if (currentTrack) await iniciar(currentTrack); return; }
+    if (fuente === 'actual') { if (currentTrack) await crear(currentTrack); return; }   // FIX-146: su fallo también, en la tarjeta
     setPreparando(true);
     let canciones;
     try {
@@ -150,6 +157,7 @@ export default function RadioInicio({ antes }) {
       <h2 className="radio-card-title">Inicia tu radio</h2>
       <fieldset className="radio-inicio-fuentes" disabled={ocupado}>
         <legend className="radio-inicio-paso" id={ids.grupo}>¿Qué suena?</legend>
+        {hayVideo && <p className="radio-inicio-video">{TEXTO_CON_VIDEO}</p>}
         <div className="radio-inicio-grilla">
           {fuentes.map((f) => (
             <label key={f.id} className={`radio-fuente${fuente === f.id ? ' radio-fuente--on' : ''}`} data-fuente={f.id}>

@@ -34,7 +34,15 @@ export const TEXTO_REEMPLAZA = 'Esto reemplaza lo que estás escuchando y tu col
 export const TEXTO_FALLO_CARGA = 'No se pudieron cargar las canciones, así que no se creó la radio. Intenta de nuevo.';
 export const TEXTO_FALLO_LISTA = 'No se pudo cargar la lista.';
 /** Lo elegido ya suena pero la radio no se pudo crear (el servidor dijo que no, o no respondió). */
-export const TEXTO_FALLO_INICIAR = 'No se pudo iniciar la radio. Lo que elegiste sigue sonando solo para ti.';
+const SIGUE_SONANDO = 'Lo que elegiste sigue sonando solo para ti.';
+export const TEXTO_FALLO_INICIAR = `No se pudo iniciar la radio. ${SIGUE_SONANDO}`;
+/** FIX-146: el aviso ÚNICO de la tarjeta cuando no se pudo crear. Con el motivo genérico, TEXTO_FALLO_INICIAR; con uno
+ *  concreto (demasiadas radios, demasiados intentos, sin conexión…), ese motivo y que lo elegido sigue sonando. */
+export const textoDeFalloAlIniciar = (motivo, generico) =>
+  (!motivo || motivo === generico ? TEXTO_FALLO_INICIAR : `${motivo} ${SIGUE_SONANDO}`);
+/** FIX-146: con un VIDEO sonando no se ofrece «Lo que estoy escuchando»: la radio arrancaría muda (los videos no se
+ *  transmiten; quien entra solo vería «El anfitrión está viendo un video…»). Se dice por qué. */
+export const TEXTO_CON_VIDEO = 'Estás viendo un video, y los videos no se pueden poner en la radio. Elige qué música va a sonar.';
 const VACIA = {
   mix: 'Tu biblioteca no tiene canciones',
   playlist: 'Esa playlist no tiene canciones',

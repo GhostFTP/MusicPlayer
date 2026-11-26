@@ -17,6 +17,7 @@
 //   VO_chip_oyente_en_la_barra_abre_radio   «Radio de Anfitriona» en la barra (R4: el texto corto; el largo lo cubre
 //        radio-unirse-func); desde Álbumes, tocarlo abre /radio.
 //   VO_390_pestanas_radio_y_gente     pestañas Radio / Gente (sin Fila ni Chat), una a la vez, teclado ← →, sin scroll.
+//   VO_390_aviso_en_cualquier_pestana   (FIX-146) en la pestaña Gente, «En pausa para ti…» se ve y está en su región viva.
 //   VO_390_chip_en_la_barra_pequena_sin_tapar   el chip va en la barra pequeña, dentro de ella y sin pisar sus botones.
 //   VO_moderador_siguiente_manda_la_orden   quien modera: «Modera» en la cabecera y en «Tú», «Siguiente» (nombre
 //        «Siguiente canción de la radio») y «Pausar la radio»; «Siguiente» manda la orden 'siguiente'.
@@ -150,6 +151,15 @@ try {
   await p.getByRole('tab', { name: /^Gente/ }).click(); await sleep(400);
   const t1 = await leer();
   await sacar('4-telefono-pestana-gente', [390]);
+  // FIX-146: el aviso de la radio sigue a la vista (y montado) en la pestaña Gente.
+  await p.evaluate(() => window.__player().pause());
+  const avisoGente = await esperar(() => p.evaluate(() => {
+    const r = document.querySelector('.radio-aviso-vivo'); const tab = document.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? '';
+    return r && r.offsetParent !== null && r.textContent && /^Gente/.test(tab) ? { texto: r.textContent, vivo: r.getAttribute('aria-live'), rol: r.getAttribute('role') } : null;
+  }), 6000, 150);
+  ok('VO_390_aviso_en_cualquier_pestana', avisoGente.v?.texto === TXT_SILENCIADA && avisoGente.v.vivo === 'polite' && avisoGente.v.rol === 'status', { aviso: avisoGente.v });
+  await p.evaluate(() => window.__player().togglePlay());
+  await esperar(async () => { const f = await foto(); return !f.silenciada && f.isPlaying ? f : null; }, 8000, 150);
   await p.keyboard.press('ArrowLeft'); await sleep(400);
   const t2 = await leer();
   ok('VO_390_pestanas_radio_y_gente', t0.pestanas.map((x) => x.texto.split(' · ')[0]).join('|') === 'Radio|Gente' && t0.pestanas[0].sel === 'true' && t0.paneles === 1

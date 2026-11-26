@@ -13,6 +13,9 @@
 //   · quién escucha, quién modera, los eventos y el anuncio → RadioContext (quién modera llega en la misma lectura).
 // El AVANCE es el hijo de RadioAnfitrion (usePlayerTime): el resto de la vista no se re-renderiza con el reloj.
 //
+// FIX-146: los avisos de la radio («Sin conexión…», «En pausa para ti…», el de la orden de quien modera) y «Toca para
+// escuchar» van FUERA de las pestañas, debajo de la cabecera: siempre montados y a la vista en Radio y en Gente (antes,
+// en el teléfono, se desmontaban en la pestaña Gente y no se veían ni se anunciaban). En escritorio, el mismo lugar.
 // Para las suites: el contenedor conserva la clase .radio-card--oyente; adentro siguen .radio-aviso-vivo,
 // .radio-evento (el anuncio), .radio-orden-estado, .radio-btn--orden con sus aria-label de siempre, .radio-ordenes-nota,
 // .radio-btn--toca y «Salir de la radio» dentro de .radio-terminar.
@@ -113,6 +116,17 @@ export default function RadioOyente({ Avatar, oyenteRef, yo, textoAviso, tono, t
         </div>
       </section>
 
+      <div className="radio-escucha-avisos">
+        {tocar ? (
+          <button type="button" className="radio-btn radio-btn--escuchar radio-btn--toca" onClick={tocarParaEscuchar}>
+            Toca para escuchar
+          </button>
+        ) : null}
+        {/* Siempre montadas (vacías sin texto): una región viva que aparece de golpe no siempre se anuncia. */}
+        <p className={`radio-aviso-vivo radio-aviso-vivo--${tono}`} role="status" aria-live="polite">{textoAviso}</p>
+        <p className="radio-orden-estado" role="status" aria-live="polite">{lineaOrden ? <span key={lineaOrden.n}>{lineaOrden.texto}</span> : null}</p>
+      </div>
+
       {telefono && (
         <div className="radio-pestanas" role="tablist" aria-label="Partes de la radio" onKeyDown={onTabsKey}>
           {PESTANAS.map(([id, nombre]) => (
@@ -146,11 +160,6 @@ export default function RadioOyente({ Avatar, oyenteRef, yo, textoAviso, tono, t
                       <Avance />
                     </>
                   ) : <p className="radio-ahora-artista">Nada por ahora.</p>}
-                  {tocar ? (
-                    <button type="button" className="radio-btn radio-btn--escuchar radio-btn--toca" onClick={tocarParaEscuchar}>
-                      Toca para escuchar
-                    </button>
-                  ) : null}
                   <div className="radio-fila radio-ahora-controles">
                     {!tocar && (
                       <button type="button" className="radio-btn" disabled={!actual} onClick={togglePlay}>
@@ -173,9 +182,6 @@ export default function RadioOyente({ Avatar, oyenteRef, yo, textoAviso, tono, t
                     )}
                   </div>
                   {modera && !vistaMod.admite && <p className="radio-nota radio-ordenes-nota">{TEXTOS_ORDEN.sinOrdenes}</p>}
-                  {/* Siempre montadas (vacías sin texto): una región viva que aparece de golpe no siempre se anuncia. */}
-                  <p className={`radio-aviso-vivo radio-aviso-vivo--${tono}`} role="status" aria-live="polite">{textoAviso}</p>
-                  <p className="radio-orden-estado" role="status" aria-live="polite">{lineaOrden ? <span key={lineaOrden.n}>{lineaOrden.texto}</span> : null}</p>
                 </div>
               </section>
 
