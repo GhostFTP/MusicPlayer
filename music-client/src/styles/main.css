@@ -3719,6 +3719,19 @@ path.srv-linea-max { stroke-width: 4; }
 .ctrl-btn.ctrl-prev:active { transform: scale(.88) translateX(-2px); }
 .ctrl-btn.ctrl-next:active { transform: scale(.88) translateX(2px); }
 
+/* 1.45.2 · Anterior/Siguiente en una radio (RadioPasos.jsx), en la barra, el expandido y la mini-barra.
+   Bloqueado: apagado y sin hover ni movimiento, pero ENFOCABLE (aria-disabled, no disabled) para que el lector
+   diga por qué; (0,3,0) le gana al :hover/:active de cada botón (0,2,0), también a los de la mini-barra.
+   El foco visible es solo de estos botones: fuera de una radio la barra queda como estaba. */
+.radio-paso--bloqueado { opacity: .35; cursor: not-allowed; }
+.ctrl-btn.radio-paso--bloqueado:hover, .ctrl-btn.radio-paso--bloqueado:active,
+.exp-btn.radio-paso--bloqueado:hover, .exp-btn.radio-paso--bloqueado:active,
+.mini-btn.radio-paso--bloqueado:hover, .mini-btn.radio-paso--bloqueado:active {
+  color: var(--text-muted); background: none; transform: none; filter: none; box-shadow: none;
+}
+.radio-paso--radio[aria-busy="true"], .radio-paso--radio[aria-disabled="true"] { opacity: .6; }
+.radio-paso:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* Transición play↔pause en la barra: mismo patrón que el expandido (key + scale-in
    reusando @keyframes exp-icon-swap). */
 .ctrl-play-swap { display: inline-flex; animation: exp-icon-swap .18s ease; }

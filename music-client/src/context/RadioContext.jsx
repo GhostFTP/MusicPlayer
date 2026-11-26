@@ -3,13 +3,13 @@ import { api } from '../api/client.js';
 import { useAuth } from './AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { registrarRadioEnMenu } from '../components/ContextMenu.jsx';
-import { usePlayer, usePlayerTime } from './PlayerContext.jsx';
+import { usePlayer, usePlayerTime, fijarPasosDelSistema } from './PlayerContext.jsx';
 import {
   PUERTA_INICIAL, puertaAbierta, alPublicar, alResponder, debePublicar,
   estadoDelAnfitrion, textoDeFin, textoDeFallo,
   mejorReloj, horaServidor, posicionProyectada, SINCRO_INICIAL, decidirCorreccion, pasoDelOyente,
   esperaDelSondeo, resolverColaDelOyente, fotoDeLaCola, planDeRestauracion, pausaDelOyente,
-  idDeCancion, DESAJUSTE_MS, avisarVuelta, textoDeVuelta, textoEnLaRadio,
+  idDeCancion, DESAJUSTE_MS, avisarVuelta, textoDeVuelta, textoEnLaRadio, pasosDeLaBarra,
   planDeOrden, siguienteDelMotor, alFinalDeLaCola, confirmacionDe, colaDelOyente,
   juntarEventos, avisarEvento, textoDeEvento, pasoDeEventos,
   esModerador, resolverOrden, ORDEN_ESPERANDO_MS, ORDEN_VENCE_MS, ORDENES_DE_LA_TARJETA, ORDENES_DEL_MENU, eventoDeOrden, TEXTOS_ORDEN, textoDeEspera,
@@ -542,6 +542,18 @@ export function RadioProvider({ children }) {
       : null),
     ordenar,
   }), [ordenar]);
+
+  // 1.45.2: anterior/siguiente de los controles del sistema siguen la regla de la barra (pasosDeLaBarra): quien
+  // escucha pierde los dos (se QUITAN: null); quien modera una radio con órdenes, siguiente = la orden a la radio y
+  // anterior, nada. Fuera de una radio (y para quien transmite), null: lo de siempre del motor.
+  useEffect(() => {
+    const pz = pasosDeLaBarra({ fase, modera: vistaMod.modera, admite: vistaMod.admite });
+    fijarPasosDelSistema(pz.siguiente === 'motor' ? null : {
+      anterior: null,
+      siguiente: pz.siguiente === 'radio' ? () => { ordenar('siguiente'); } : null,
+    });
+  }, [fase, vistaMod.modera, vistaMod.admite, ordenar]);
+  useEffect(() => () => fijarPasosDelSistema(null), []);
 
   const nombrarModerador = useCallback((userId) => moderar(userId, true), [moderar]);
   const quitarModerador = useCallback((userId) => moderar(userId, false), [moderar]);

@@ -11,7 +11,8 @@ import SearchFab from './SearchFab.jsx';
 import LyricsPanel from './LyricsPanel.jsx';
 import QueueOverlay from './QueueOverlay.jsx';
 import InfoPanel from './InfoPanel.jsx';
-import { useContextMenu } from './ContextMenu.jsx';
+import BotonPaso from './RadioPasos.jsx';
+import { useContextMenu, pasosDeLaRadio, siguienteEnLaRadio } from './ContextMenu.jsx';
 import { useQueueDropTarget } from '../context/DragQueueContext.jsx';
 import { useToast } from './Toast.jsx';
 import { matchArtist, useLibraryArtists } from '../utils/artistMatch.js';
@@ -466,7 +467,16 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
 
   // Cambio de pista: dispara al ARRANCAR la salida (respuesta inmediata), no al
   // terminar. busy corta cualquier gesto nuevo hasta que la entrada acaba.
-  const triggerChange = (dir) => {
+  const triggerChange = (dir, pasos = null) => {
+    // 1.45.2: en una radio, deslizar sigue la regla de la barra (pasosDeLaBarra). Hacia "siguiente" quien modera manda
+    // la orden a la radio y la carátula VUELVE (la cambia la radio cuando el anfitrión la aplica); lo bloqueado ni
+    // siquiera llega acá (el gesto no se fija, ver onArtPointerMove), y si llegara, vuelve sin hacer nada.
+    const modo = pasos ? (dir === 'next' ? pasos.siguiente : pasos.anterior) : 'motor';
+    if (modo !== 'motor') {
+      if (modo === 'radio') siguienteEnLaRadio();
+      springBack();
+      return;
+    }
     busy.current = true;
     if (dir === 'next') next(); else prev();
     if (reduced) { busy.current = false; setMotion({ mode: 'idle' }); setDragX(0); return; }
@@ -491,7 +501,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     // carátula y la del sheet — este gesto puede terminar en dir='close').
     cancelArtReturn();
     cancelSheetReturn();
-    gesture.current = { x0: e.clientX, y0: e.clientY, dir: null, bx: e.clientX, by: e.clientY, lastX: e.clientX, lastY: e.clientY, lastT: e.timeStamp, vx: 0, vy: 0 };
+    gesture.current = { x0: e.clientX, y0: e.clientY, dir: null, bx: e.clientX, by: e.clientY, lastX: e.clientX, lastY: e.clientY, lastT: e.timeStamp, vx: 0, vy: 0,
+      pasos: pasosDeLaRadio() };   // 1.45.2: la regla de la radio, leída UNA vez por gesto
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
   // Un solo gesto sobre la carátula: horizontal → cambiar de pista · vertical
@@ -509,6 +520,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     if (g.dir === null) {
       const ax = Math.abs(dx);
       if (ax >= AXIS_DIST && ax >= Math.abs(dy) * AXIS_DOM) {
+        // 1.45.2: en una radio, hacia un lado bloqueado (pasosDeLaBarra) el gesto horizontal no se fija: la carátula
+        // no se mueve como si fuera a cambiar. 'nada' descarta el resto del gesto.
+        const lado = dx < 0 ? g.pasos.siguiente : g.pasos.anterior;
+        if (lado === 'bloqueado') { g.dir = 'nada'; return; }
         g.dir = 'h';                                       // horizontal → cambiar de pista
         g.bx = e.clientX;                                  // re-base del offset renderizado
         g.lastX = e.clientX; g.lastT = e.timeStamp;        // velocidad medida desde el fijado
@@ -532,6 +547,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
         return;                                            // aún indeciso (o hacia arriba): se sigue esperando
       }
     }
+    if (g.dir === 'nada') return;                          // 1.45.2: lado bloqueado en una radio
     if (g.dir === 'close') {                               // arrastre de cierre desde la carátula
       const dt = e.timeStamp - g.lastT;
       if (dt > 0) { g.vy = g.vy * 0.7 + ((e.clientY - g.lastY) / dt) * 0.3; g.lastY = e.clientY; g.lastT = e.timeStamp; }
@@ -540,7 +556,9 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     }
     const dt = e.timeStamp - g.lastT;                     // velocidad instantánea suavizada (px/ms)
     if (dt > 0) { g.vx = g.vx * 0.7 + ((e.clientX - g.lastX) / dt) * 0.3; g.lastX = e.clientX; g.lastT = e.timeStamp; }
-    setDragX(e.clientX - g.bx);                           // re-basado; el rubber se aplica en el estilo
+    // 1.45.2: si un lado está bloqueado en una radio (quien modera: "anterior"), la carátula no cruza hacia él.
+    const x = e.clientX - g.bx;
+    setDragX(g.pasos.anterior === 'bloqueado' ? Math.min(0, x) : g.pasos.siguiente === 'bloqueado' ? Math.max(0, x) : x);
   };
   const onArtPointerUp = (e) => {
     const g = gesture.current;
@@ -555,7 +573,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
     if (g.dir !== 'h') { setMotion({ mode: 'idle' }); setDragX(0); return; }
     const dx = e.clientX - g.x0;                           // umbral desde el down (feel intacto)
     const flick = Math.abs(g.vx) > VEL_THRESH && Math.abs(dx) > MIN_FLICK && Math.sign(g.vx) === Math.sign(dx);
-    if (Math.abs(dx) >= DIST_THRESH || flick) triggerChange(dx < 0 ? 'next' : 'prev');
+    if (Math.abs(dx) >= DIST_THRESH || flick) triggerChange(dx < 0 ? 'next' : 'prev', g.pasos);
     else springBack();
   };
 
@@ -1368,17 +1386,18 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 <ShuffleIcon size={24} />
               </span>
             </button>
-            <button className="exp-btn exp-prev" onClick={prev} aria-label="Anterior">
+            {/* 1.45.2: en una radio, Anterior/Siguiente siguen a la radio (RadioPasos.jsx). Fuera, lo de siempre. */}
+            <BotonPaso dir="prev" className="exp-btn exp-prev" label="Anterior">
               <PrevIcon size={28} />
-            </button>
+            </BotonPaso>
             <button className="exp-btn play" onClick={togglePlay} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
               <span key={isPlaying ? 'pause' : 'play'} className="exp-play-swap">
                 {isPlaying ? <PauseIcon size={32} /> : <PlayIcon size={32} />}
               </span>
             </button>
-            <button className="exp-btn exp-next" onClick={next} aria-label="Siguiente">
+            <BotonPaso dir="next" className="exp-btn exp-next" label="Siguiente">
               <NextIcon size={28} />
-            </button>
+            </BotonPaso>
             <button
               className={`exp-btn exp-repeat${repeat !== 'off' ? ' active' : ''}`}
               onClick={() => { cycleRepeat(); setRepeatSpin(true); }}
@@ -1618,9 +1637,8 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 </span>
               </button>
             </BarTip>
-            <BarTip tip="Anterior">
-              <button className="ctrl-btn ctrl-prev" onClick={e => { e.stopPropagation(); prev(); }} aria-label="Anterior"><PrevIcon /></button>
-            </BarTip>
+            {/* 1.45.2: en una radio, Anterior/Siguiente siguen a la radio (RadioPasos.jsx); el tooltip dice por qué. */}
+            <BotonPaso dir="prev" className="ctrl-btn ctrl-prev" label="Anterior" parar envolver={(tip, b) => <BarTip tip={tip}>{b}</BarTip>}><PrevIcon /></BotonPaso>
             <BarTip tip={<>{isPlaying ? 'Pausa' : 'Reproducir'} <span className="bar-tip-kbd">espacio</span></>}>
               <button
                 className="ctrl-btn play"
@@ -1632,9 +1650,7 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
                 </span>
               </button>
             </BarTip>
-            <BarTip tip="Siguiente">
-              <button className="ctrl-btn ctrl-next" onClick={e => { e.stopPropagation(); next(); }} aria-label="Siguiente"><NextIcon /></button>
-            </BarTip>
+            <BotonPaso dir="next" className="ctrl-btn ctrl-next" label="Siguiente" parar envolver={(tip, b) => <BarTip tip={tip}>{b}</BarTip>}><NextIcon /></BotonPaso>
             <BarTip tip={<>Repetir: <span className={`bar-tip-state${repeat === 'off' ? ' dim' : ''}`}>{repeatState}</span></>}>
               <button
                 className={`ctrl-btn${repeat !== 'off' ? ' active' : ''}`}
@@ -1768,13 +1784,10 @@ export default function Player({ navigate, view, restoreRoute, showQueue, setSho
           >
             {isPlaying ? <PauseIcon size={24} /> : <PlayIcon size={24} />}
           </button>
-          <button
-            className="mini-btn mini-next"
-            onClick={e => { e.stopPropagation(); next(); }}
-            aria-label="Siguiente"
-          >
+          {/* 1.45.2: en una radio, Siguiente sigue a la radio (RadioPasos.jsx). Fuera, lo de siempre. */}
+          <BotonPaso dir="next" className="mini-btn mini-next" label="Siguiente" parar>
             <NextIcon size={22} />
-          </button>
+          </BotonPaso>
         </div>
 
       </div>
