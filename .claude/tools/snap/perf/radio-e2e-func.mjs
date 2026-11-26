@@ -117,7 +117,7 @@ const oyente = (pg) => pg.evaluate(() => {
   const r = window.__radio(); const c = document.querySelector('.radio-card--oyente');
   return {
     fase: r?.fase ?? null, fin: r?.fin?.texto ?? null, estado: document.querySelector('.radio-estado')?.textContent ?? null,
-    tarjeta: !!c, insignia: c?.querySelector('.radio-card-title .radio-insignia')?.textContent ?? null,
+    tarjeta: !!c, insignia: c?.querySelector('.radio-escucha-cabecera .radio-insignia')?.textContent ?? null,
     botones: c ? [...c.querySelectorAll('.radio-btn--orden')].map((b) => b.getAttribute('aria-label')) : [],
     nota: c?.querySelector('.radio-ordenes-nota')?.textContent ?? null,
     region: document.querySelector('.radio-evento')?.textContent ?? null,

@@ -22,8 +22,10 @@ import { usePlayer, usePlayerTime } from '../context/PlayerContext.jsx';
 import { cuentaDeOyentes, filaDeOyente, lineaDelTope, textoDeEvento, personasDeLaLista } from '../utils/radioSync.js';
 
 const PESTANAS = [['radio', 'Radio'], ['fila', 'Fila'], ['gente', 'Gente']];
-const CON_PISTA = new Set(['a-continuacion', 'ahora']);
-const EVENTOS_A_LA_VISTA = 8;
+// Exportadas (CON_PISTA, EVENTOS_A_LA_VISTA, useTelefono, Avance, Portada): la vista del oyente (RadioOyente.jsx, R3)
+// usa las mismas, así las dos caras se ven y se comportan igual.
+export const CON_PISTA = new Set(['a-continuacion', 'ahora']);
+export const EVENTOS_A_LA_VISTA = 8;
 /** La nota de quien no puede moderar (su versión no lo admite, p. ej. desde el iPhone). */
 export const TEXTO_SOLO_ESCUCHA = 'Solo escucha: su versión todavía no permite moderar.';
 
@@ -34,7 +36,7 @@ const mmss = (s) => {
 const personas = (n) => `${n} ${n === 1 ? 'persona' : 'personas'}`;
 
 /** ¿Pantalla de teléfono? Reactivo: al cruzar los 700 px cambia de pestañas a columnas sin recargar. */
-function useTelefono() {
+export function useTelefono() {
   const q = '(max-width: 700px)';
   const [si, setSi] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(q).matches);
   useEffect(() => {
@@ -49,7 +51,7 @@ function useTelefono() {
 }
 
 /** El avance de lo que suena: lo único que escucha el reloj. */
-function Avance() {
+export function Avance() {
   const { currentTime, duration } = usePlayerTime();
   const pct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   return (
@@ -65,7 +67,7 @@ function Avance() {
 }
 
 /** Una portada (o un cuadro con una nota musical si la canción no tiene). */
-function Portada({ track, chica = false }) {
+export function Portada({ track, chica = false }) {
   const [rota, setRota] = useState(null);   // el id cuya imagen falló
   const src = track?.id != null && track?.cover_path && rota !== track.id ? coverUrl(track.id, { thumb: chica }) : null;
   return (

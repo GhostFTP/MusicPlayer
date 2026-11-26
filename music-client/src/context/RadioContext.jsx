@@ -340,6 +340,9 @@ export function RadioProvider({ children }) {
     vistaModRef.current = { modera: obs.modera, admite: obs.admite, playing: e?.playing ?? null, seq: e?.seq ?? null, trackId: e?.trackId ?? null, estado: e, cursor: obs.cursor ?? 0 };
     const v = { modera: obs.modera, admite: obs.admite, playing: e?.playing ?? null, conBase: e?.seq != null, trackId: e?.trackId ?? null };
     setVistaMod((prev) => (Object.keys(v).every((k) => prev[k] === v[k]) ? prev : v));
+    // 1.46.0 (R3): quién modera, para la lista de la vista del oyente (con su insignia). Viene en la MISMA lectura;
+    // sin cambios, el mismo array (React no re-renderiza).
+    if (Array.isArray(obs.moderadores)) setModeradores((prev) => (mismosOyentes(prev, obs.moderadores) ? prev : obs.moderadores));
     if (!obs.modera) { if (antes.modera) limpiarOrdenes(); return; }
     for (const tipo of [...ordenesRef.current.keys()]) revisarOrden(tipo, obs.nuevos);
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -1048,6 +1051,7 @@ function PuenteOyente({ codigo, gen, genRef, primeraRef, fotoRef, motorRef, toca
           if (Array.isArray(lectura.radio.moderators)) {
             alVista(gen, {
               modera: esModerador(lectura.radio, Number(yoRef.current)), admite: lectura.radio.capabilities?.orders === true,
+              moderadores: lectura.radio.moderators,
               estado: lectura.radio.state ?? null, cursor: eventos?.cursor ?? 0, nuevos: pe.nuevos,
             });
           }

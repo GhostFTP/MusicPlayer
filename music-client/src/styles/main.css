@@ -546,8 +546,8 @@ path.srv-linea-max { stroke-width: 4; }
    la izquierda): dos columnas, a la izquierda el código, lo que suena y la fila; a la derecha quién escucha, lo que
    pasó y «Terminar radio». Con la cola abierta (roba --queue-w) o con poco ancho, una sola columna. En el teléfono,
    pestañas Radio / Fila / Gente (una a la vez). Lila para lo activo; nada de verde ni rojo. */
-.radio--anfitrion { max-width: 1120px; }
-.radio--anfitrion > .radio-card { max-width: 640px; }   /* «Unirse con código» no se estira a lo ancho */
+.radio--anfitrion, .radio--oyente { max-width: 1120px; }
+.radio--anfitrion > .radio-card, .radio--oyente > .radio-card { max-width: 640px; }   /* «Unirse con código» no se estira */
 .radio-transmite-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 0 20px; align-items: start; }
 .radio-transmite-col { min-width: 0; }
 .radio-transmite .radio-card { margin-bottom: 16px; }
@@ -628,6 +628,48 @@ path.srv-linea-max { stroke-width: 4; }
   .radio-ahora-controles .radio-btn { flex: 1 1 140px; }
   .radio-transmite .radio-terminar .radio-btn { width: 100%; }
   .radio-transmite .radio-confirmar .radio-btn { flex: 1 1 120px; width: auto; }
+}
+
+/* 1.46.0 (R3) · La vista de quien ESCUCHA (RadioOyente.jsx): usa las mismas columnas, pestañas y tarjetas que la de
+   quien transmite (.radio-transmite) y suma su cabecera «La radio de <nombre>» con «En vivo», cuántos escuchan y «Salir
+   de la radio», y «Después suena». Lila para lo vivo y las insignias; nada de verde ni rojo. */
+.radio-escucha-cabecera { display: flex; align-items: center; gap: 14px; }
+.radio-escucha-quien { flex: 1 1 auto; min-width: 0; }
+.radio-escucha .radio-anfitrion-nombre { font-size: 20px; }
+.radio-escucha-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 6px; font-size: 13px; color: var(--text-muted); }
+.radio-en-vivo {
+  display: inline-flex; align-items: center; gap: 7px; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-dim);
+}
+.radio-escucha-cabecera .radio-terminar { flex: none; margin: 0; padding: 0; border: 0; }
+.radio-despues .radio-card-title { margin-bottom: 8px; }
+.radio-persona--yo .radio-persona-nombre { font-weight: 600; }
+@media (max-width: 700px) {
+  .radio-escucha-cabecera { flex-wrap: wrap; }
+  .radio-escucha-cabecera .radio-terminar { flex: 1 1 100%; }
+}
+
+/* 1.46.0 (R3) · El chip de la radio en la barra (RadioChip.jsx): «Tu radio» / «En la radio de <nombre>»; tocarlo abre
+   Radio. En escritorio va al principio de las acciones; en el teléfono, como una línea chica bajo el artista (no tapa
+   ni mueve los botones del borde derecho). Trunca con … si el nombre es largo. */
+.radio-chip {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 3px 10px;
+  border: 1px solid rgba(167, 139, 250, .45); border-radius: 999px; background: var(--accent-dim);
+  color: #ddd6fe; font: inherit; font-size: 12px; font-weight: 600; line-height: 1.4; white-space: nowrap; cursor: pointer;
+  transition: background .15s;
+}
+.radio-chip:hover { background: rgba(167, 139, 250, .28); }
+.radio-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.radio-chip-punto { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.radio-chip-texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.radio-chip--barra { flex: 0 1 auto; max-width: 240px; margin-right: 6px; }
+.radio-chip--mini { display: none; }
+@media (max-width: 700px) {
+  .radio-chip--barra { display: none; }
+  .radio-chip--mini { display: inline-flex; align-self: flex-start; margin-top: 3px; padding: 1px 8px; font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radio-chip { transition: none; }
 }
 /* Oyente: la ficha ("Escuchar") y la tarjeta de adentro. "Escuchar" y "Toca para escuchar" son los
    únicos botones con acento morado de la vista: son LA acción. El aviso de la radio va siempre
